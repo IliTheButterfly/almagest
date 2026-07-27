@@ -64,10 +64,20 @@ select = [
 ignore = [
     "B008",    # FastAPI's Depends() in defaults is the documented idiom
     "RUF012",  # ClassVar annotations on mutable class attrs — noisy with SQLAlchemy
+    # RUF002 flags visually-confusable characters in docstrings. Its real value
+    # is catching homoglyphs in *identifiers*; in prose it only ever objects to
+    # deliberate typography (en dashes, minus signs, µ, Ω), all of which this
+    # codebase uses on purpose. RUF001 and RUF003 stay on.
+    "RUF002",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG001", "ARG002"]  # pytest fixtures are injected, not called
+# Signatures fixed by the frameworks: SQLAlchemy always passes `dialect` to a
+# TypeDecorator hook, and Alembic always passes `autogen_context` to
+# `render_item`. Neither may be renamed or dropped, and neither is always used.
+"app/models/types.py" = ["ARG002"]
+"alembic/env.py" = ["ARG001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
