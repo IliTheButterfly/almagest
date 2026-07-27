@@ -15,7 +15,9 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import Connection
+from sqlalchemy import Connection, String
+from sqlalchemy.sql.schema import SchemaItem
+from sqlalchemy.types import TypeDecorator
 
 from app.config import get_settings
 from app.db.base import Base
@@ -31,6 +33,31 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+
+def _render_item(
+    type_: str,
+    obj: SchemaItem | TypeDecorator[object],
+    autogen_context: object,
+) -> str | bool:
+    """Render custom `TypeDecorator` columns as the plain type they store.
+
+    Without this, autogenerate emits `app.models.types.StrEnumType(length=32)`
+    — which is broken twice over. It drops the required `enum_cls` argument, so
+    the migration raises `TypeError` on import; and it makes a migration depend
+    on an application module, so renaming an enum later retroactively breaks a
+    migration that already ran in production.
+
+    Rendering `sa.String(length=32)` instead is also simply more honest: the
+    database column *is* a VARCHAR. The enum is validated in Python at the
+    model layer, and never as a `CHECK` constraint, precisely so that adding a
+    member stays a one-line change rather than a SQLite table rebuild.
+    """
+    if type_ == "type" and isinstance(obj, TypeDecorator):
+        impl = obj.impl
+        if isinstance(impl, String):
+            return f"sa.String(length={impl.length})" if impl.length else "sa.String()"
+    return False
 
 
 def _database_url() -> str:
@@ -49,6 +76,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
         compare_type=True,
+        render_item=_render_item,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -60,6 +88,7 @@ def _run(connection: Connection) -> None:
         target_metadata=target_metadata,
         render_as_batch=True,
         compare_type=True,
+        render_item=_render_item,
     )
     with context.begin_transaction():
         context.run_migrations()
