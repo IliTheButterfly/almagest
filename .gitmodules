@@ -1,0 +1,12 @@
+[submodule "mensa"]
+	path = mensa
+	url = https://github.com/IliTheButterfly/mensa.git
+[submodule "circinus"]
+	path = circinus
+	url = https://github.com/IliTheButterfly/circinus.git
+[submodule "ecia-barcode"]
+	path = ecia-barcode
+	url = https://github.com/IliTheButterfly/ecia-barcode.git
+[submodule "elec-value-parser"]
+	path = elec-value-parser
+	url = https://github.com/IliTheButterfly/elec-value-parser.git
