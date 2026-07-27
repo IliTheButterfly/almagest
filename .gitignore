@@ -12,6 +12,14 @@ kubeconfig
 data/*
 !data/.gitkeep
 
+# A pattern containing a slash is anchored to this file's directory, so the
+# rule above covers only the repo-root data/. app.config resolves relative
+# paths against the repo root precisely so a stray backend/data/ never appears
+# — these are the belt to that braces, including SQLite's WAL sidecars.
+*.db
+*.db-wal
+*.db-shm
+
 # Python
 __pycache__/
 *.py[cod]
@@ -23,11 +31,18 @@ venv/
 *.egg-info/
 dist/
 build/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+junit.xml
 
 # Node
 node_modules/
 .vite/
 frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
 
 # Submodules (mensa, circinus, ecia-barcode, elec-value-parser) carry their own
 # .gitignore — do not duplicate their build artefacts here.
