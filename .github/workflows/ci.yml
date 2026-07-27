@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --dev
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy app
+
+      - name: pytest
+        run: uv run pytest -q
+
+      # Catches a model edited without a matching migration. `create_all` in the
+      # tests would hide this; only a real upgrade followed by an autogenerate
+      # comparison surfaces it.
+      - name: migrations match models
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      # The frontend and deviceagent clients are generated from this document,
+      # so a stale committed copy means a stale generated client.
+      - name: openapi.json is current
+        run: |
+          uv run python -m app.scripts.export_openapi ../openapi.json
+          git diff --exit-code ../openapi.json
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: false
+          load: true
+          tags: almagest-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # A container that cannot apply its own migrations is not deployable.
+      - name: Migrations apply inside the image
+        run: |
+          docker run --rm \
+            -e ALMAGEST_DB_PATH=/tmp/ci.db \
+            almagest-api:ci alembic upgrade head
