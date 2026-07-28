@@ -16,6 +16,8 @@
             "title": "Client Op Id"
           },
           "delta_milli": {
+            "maximum": 1000000000000.0,
+            "minimum": -1000000000000.0,
             "title": "Delta Milli",
             "type": "integer"
           },
@@ -75,6 +77,8 @@
             "type": "string"
           },
           "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Location Id",
             "type": "integer"
           },
@@ -191,6 +195,8 @@
             "default": "manual"
           },
           "to_location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "To Location Id",
             "type": "integer"
           }
@@ -390,6 +396,8 @@
             "title": "Reversal Of Seq"
           },
           "seq": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Seq",
             "type": "integer"
           },
@@ -485,6 +493,8 @@
           "container_type_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -574,6 +584,8 @@
           "parent_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -620,6 +632,7 @@
           "tare_mg": {
             "anyOf": [
               {
+                "maximum": 1000000000000.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -960,6 +973,8 @@
       "LotFailure": {
         "properties": {
           "lot_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Lot Id",
             "type": "integer"
           },
@@ -1157,6 +1172,7 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
+                "maximum": 1000000000000.0,
                 "type": "integer"
               },
               {
@@ -1170,6 +1186,8 @@
             "default": "manual"
           },
           "to_location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "To Location Id",
             "type": "integer"
           }
@@ -1187,6 +1205,8 @@
             "type": "integer"
           },
           "lot_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Lot Id",
             "type": "integer"
           },
@@ -1195,6 +1215,8 @@
             "type": "integer"
           },
           "to_location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "To Location Id",
             "type": "integer"
           }
@@ -1262,10 +1284,14 @@
             "type": "integer"
           },
           "container_type_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Container Type Id",
             "type": "integer"
           },
           "parent_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Parent Id",
             "type": "integer"
           }
@@ -1283,6 +1309,8 @@
           "category_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1387,6 +1415,8 @@
           "manufacturer_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1433,6 +1463,8 @@
           "package_type_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1490,6 +1522,8 @@
           "uom_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1866,6 +1900,8 @@
           "category_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1946,6 +1982,8 @@
           "manufacturer_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -1993,6 +2031,8 @@
           "package_type_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -2055,6 +2095,8 @@
           "uom_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -2117,6 +2159,7 @@
           },
           "qty_milli": {
             "exclusiveMinimum": 0.0,
+            "maximum": 1000000000000.0,
             "title": "Qty Milli",
             "type": "integer"
           },
@@ -2195,6 +2238,8 @@
             "type": "boolean"
           },
           "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Location Id",
             "type": "integer"
           },
@@ -2212,6 +2257,8 @@
           "packaging_id": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -2221,11 +2268,14 @@
             "title": "Packaging Id"
           },
           "part_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Part Id",
             "type": "integer"
           },
           "qty_milli": {
             "exclusiveMinimum": 0.0,
+            "maximum": 1000000000000.0,
             "title": "Qty Milli",
             "type": "integer"
           },
@@ -2247,6 +2297,8 @@
           "unit_cost_micro": {
             "anyOf": [
               {
+                "maximum": 1000000000000000.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -2279,6 +2331,7 @@
             "title": "Client Op Id"
           },
           "counted_qty_milli": {
+            "maximum": 1000000000000.0,
             "minimum": 0.0,
             "title": "Counted Qty Milli",
             "type": "integer"
@@ -2297,6 +2350,8 @@
           "measured_mass_mg": {
             "anyOf": [
               {
+                "maximum": 1000000000000.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -2368,6 +2423,8 @@
             "type": "string"
           },
           "entity_pk": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Entity Pk",
             "type": "integer"
           },
@@ -2418,6 +2475,7 @@
             "type": "string"
           },
           "entity_pk": {
+            "maximum": 9.223372036854776e+18,
             "minimum": 1.0,
             "title": "Entity Pk",
             "type": "integer"
@@ -2440,6 +2498,8 @@
           "hint_qty_milli": {
             "anyOf": [
               {
+                "maximum": 1000000000000.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -2584,6 +2644,8 @@
             "title": "Batch Code"
           },
           "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Location Id",
             "type": "integer"
           },
@@ -2603,6 +2665,8 @@
             "type": "string"
           },
           "lot_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Lot Id",
             "type": "integer"
           },
@@ -2901,6 +2965,8 @@
             "title": "Display"
           },
           "entity_pk": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Entity Pk",
             "type": "integer"
           },
@@ -3083,6 +3149,8 @@
             "title": "Packaging Id"
           },
           "part_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Part Id",
             "type": "integer"
           }
@@ -3122,6 +3190,8 @@
             "type": "string"
           },
           "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
             "title": "Location Id",
             "type": "integer"
           },
@@ -3218,6 +3288,8 @@
           "seq": {
             "anyOf": [
               {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -3465,6 +3537,8 @@
             "name": "location_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Location Id",
               "type": "integer"
             }
@@ -3550,6 +3624,8 @@
             "name": "part_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Part Id",
               "type": "integer"
             }
@@ -3591,6 +3667,8 @@
             "name": "part_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Part Id",
               "type": "integer"
             }
@@ -3962,6 +4040,8 @@
             "name": "location_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Location Id",
               "type": "integer"
             }
@@ -4014,6 +4094,8 @@
             "name": "lot_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Lot Id",
               "type": "integer"
             }
@@ -4056,6 +4138,8 @@
             "name": "lot_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Lot Id",
               "type": "integer"
             }
@@ -4109,6 +4193,8 @@
             "name": "lot_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Lot Id",
               "type": "integer"
             }
@@ -4162,6 +4248,8 @@
             "name": "lot_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Lot Id",
               "type": "integer"
             }
@@ -4219,6 +4307,8 @@
             "name": "lot_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Lot Id",
               "type": "integer"
             }
@@ -4272,6 +4362,8 @@
             "name": "lot_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Lot Id",
               "type": "integer"
             }
@@ -4325,6 +4417,8 @@
             "name": "lot_id",
             "required": true,
             "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Lot Id",
               "type": "integer"
             }

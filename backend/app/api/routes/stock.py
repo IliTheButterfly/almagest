@@ -25,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
+from app.api.limits import CountMilli, DeltaMilli, MassMg, MoneyMicro, QtyMilli, RowId
 from app.api.schemas import LotRead, ReplayableResponse, lot_read
 from app.db.session import get_db
 from app.models.catalog import Part
@@ -75,14 +76,14 @@ class MovementResponse(ReplayableResponse):
 
 
 class ReceiveRequest(MovementRequest):
-    part_id: int
-    location_id: int
-    qty_milli: int = Field(gt=0)
-    packaging_id: int | None = None
+    part_id: RowId
+    location_id: RowId
+    qty_milli: QtyMilli
+    packaging_id: RowId | None = None
     batch_code: str | None = None
     serial: str | None = None
     date_code: str | None = None
-    unit_cost_micro: int | None = None
+    unit_cost_micro: MoneyMicro | None = None
     currency: str | None = None
     #: "This is a separate package even though every field matches" — something
     #: the user can see and the schema cannot.
@@ -90,29 +91,29 @@ class ReceiveRequest(MovementRequest):
 
 
 class QuantityRequest(MovementRequest):
-    qty_milli: int = Field(gt=0)
+    qty_milli: QtyMilli
 
 
 class AdjustRequest(MovementRequest):
     #: Signed. Zero is refused — an adjustment of nothing is not something a user
     #: meant, and it would put a movement in the history that never happened.
-    delta_milli: int
+    delta_milli: DeltaMilli
 
 
 class RecountRequest(MovementRequest):
-    counted_qty_milli: int = Field(ge=0)
-    measured_mass_mg: int | None = None
+    counted_qty_milli: CountMilli
+    measured_mass_mg: MassMg | None = None
 
 
 class MoveRequest(MovementRequest):
-    to_location_id: int
+    to_location_id: RowId
     #: Omitted moves the whole lot in one row. Supplied splits it: two rows
     #: sharing a group_uuid, summing to zero.
-    qty_milli: int | None = Field(default=None, gt=0)
+    qty_milli: QtyMilli | None = None
 
 
 class EmptyBinRequest(MovementRequest):
-    to_location_id: int
+    to_location_id: RowId
 
 
 class EmptyBinResponse(ReplayableResponse):
@@ -126,7 +127,7 @@ class EmptyBinResponse(ReplayableResponse):
 
 
 class LotFailure(BaseModel):
-    lot_id: int
+    lot_id: RowId
     reason: str
     message: str
 
@@ -139,7 +140,7 @@ class UndoRequest(MovementRequest):
     button needs to remember nothing else.
     """
 
-    seq: int | None = None
+    seq: RowId | None = None
     group_uuid_to_undo: str | None = None
     client_op_id_to_undo: str | None = None
 
@@ -170,14 +171,14 @@ def _attribution(request: MovementRequest, **overrides: object) -> Attribution:
     )
 
 
-def _require_lot(db: Session, lot_id: int) -> StockLot:
+def _require_lot(db: Session, lot_id: RowId) -> StockLot:
     lot = db.get(StockLot, lot_id)
     if lot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"no stock lot with id {lot_id}")
     return lot
 
 
-def _require_location(db: Session, location_id: int) -> Location:
+def _require_location(db: Session, location_id: RowId) -> Location:
     location = db.get(Location, location_id)
     if location is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"no location with id {location_id}")
@@ -253,7 +254,7 @@ def receive_stock(request: ReceiveRequest, db: Session = Depends(get_db)) -> Mov
 
 def _simple_movement(
     db: Session,
-    lot_id: int,
+    lot_id: RowId,
     request: MovementRequest,
     endpoint: str,
     apply: object,
@@ -286,7 +287,7 @@ def _simple_movement(
 
 @router.post("/lots/{lot_id}/consume", response_model=MovementResponse)
 def consume_stock(
-    lot_id: int, request: QuantityRequest, db: Session = Depends(get_db)
+    lot_id: RowId, request: QuantityRequest, db: Session = Depends(get_db)
 ) -> MovementResponse:
     """Take stock. Accepted even when it drives the balance negative — that is a
     dashboard anomaly to investigate, not a reason to refuse the record of what
@@ -302,7 +303,7 @@ def consume_stock(
 
 @router.post("/lots/{lot_id}/return", response_model=MovementResponse)
 def return_stock(
-    lot_id: int, request: QuantityRequest, db: Session = Depends(get_db)
+    lot_id: RowId, request: QuantityRequest, db: Session = Depends(get_db)
 ) -> MovementResponse:
     """Unused stock coming back. A distinct kind from a receipt: a return is not
     a purchase, and conflating them inflates every intake statistic."""
@@ -319,7 +320,7 @@ def return_stock(
 
 @router.post("/lots/{lot_id}/adjust", response_model=MovementResponse)
 def adjust_stock(
-    lot_id: int, request: AdjustRequest, db: Session = Depends(get_db)
+    lot_id: RowId, request: AdjustRequest, db: Session = Depends(get_db)
 ) -> MovementResponse:
     return _simple_movement(
         db,
@@ -332,7 +333,7 @@ def adjust_stock(
 
 @router.post("/lots/{lot_id}/recount", response_model=MovementResponse)
 def recount_stock(
-    lot_id: int, request: RecountRequest, db: Session = Depends(get_db)
+    lot_id: RowId, request: RecountRequest, db: Session = Depends(get_db)
 ) -> MovementResponse:
     """Set the balance to what was physically counted.
 
@@ -357,7 +358,7 @@ def recount_stock(
 
 @router.post("/lots/{lot_id}/move", response_model=MovementResponse)
 def move_stock(
-    lot_id: int, request: MoveRequest, db: Session = Depends(get_db)
+    lot_id: RowId, request: MoveRequest, db: Session = Depends(get_db)
 ) -> MovementResponse:
     """Relocate a lot, whole or in part.
 
@@ -423,7 +424,7 @@ def move_stock(
 
 @router.post("/locations/{location_id}/empty", response_model=EmptyBinResponse)
 def empty_bin(
-    location_id: int, request: EmptyBinRequest, db: Session = Depends(get_db)
+    location_id: RowId, request: EmptyBinRequest, db: Session = Depends(get_db)
 ) -> EmptyBinResponse:
     """Move every lot out of one location into another.
 
@@ -586,12 +587,12 @@ def _rows_to_undo(db: Session, request: UndoRequest) -> list[StockLedger]:
 
 
 @router.get("/lots/{lot_id}", response_model=LotRead)
-def read_lot(lot_id: int, db: Session = Depends(get_db)) -> LotRead:
+def read_lot(lot_id: RowId, db: Session = Depends(get_db)) -> LotRead:
     return lot_read(db, _require_lot(db, lot_id))
 
 
 class LedgerEntry(BaseModel):
-    seq: int
+    seq: RowId
     ts: str
     kind: str
     delta_milli: int
@@ -607,7 +608,7 @@ class LedgerEntry(BaseModel):
 
 @router.get("/lots/{lot_id}/history", response_model=list[LedgerEntry])
 def read_lot_history(
-    lot_id: int, limit: int = 100, db: Session = Depends(get_db)
+    lot_id: RowId, limit: int = 100, db: Session = Depends(get_db)
 ) -> list[LedgerEntry]:
     """The lot's movements, newest first.
 

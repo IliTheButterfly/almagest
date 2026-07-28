@@ -24,6 +24,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api.limits import RowId
 from app.db.session import get_db
 from app.models.enums import EntityType
 from app.models.identity import ObjectId
@@ -39,7 +40,7 @@ class ResolvedTarget(BaseModel):
     #: Grouped for display, `4K7T-92MQ`, with the cosmetic type prefix.
     display: str
     entity_type: str
-    entity_pk: int
+    entity_pk: RowId
     #: Human-readable identity of whatever was scanned.
     label: str
     #: Full derived path, for a location. Always freshly computed — never
