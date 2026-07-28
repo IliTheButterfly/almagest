@@ -2215,6 +2215,35 @@ export interface components {
             /** Undo Label */
             undo_label: string | null;
         };
+        /**
+         * ProvisioningUndoRequest
+         * @description Prefixed, not plain `UndoRequest` — `stock` already owns that name.
+         *
+         *     Two route modules sharing a model name makes FastAPI fully qualify **both**
+         *     in the OpenAPI document, so the collision silently renames the other
+         *     module's schema and breaks generated client code for a route nobody touched.
+         *     Pinned by `test_no_two_modules_share_a_response_model_name`.
+         */
+        ProvisioningUndoRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+        };
+        /** ProvisioningUndoResponse */
+        ProvisioningUndoResponse: {
+            /** Not Restored Reason */
+            not_restored_reason: string | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            restored_tag: components["schemas"]["TagRead"] | null;
+            state: components["schemas"]["ProvisioningState"];
+            undone: components["schemas"]["UndoneRead"];
+        };
         /** QuantityRequest */
         QuantityRequest: {
             /**
@@ -2975,6 +3004,48 @@ export interface components {
             replayed?: boolean;
             unbound: components["schemas"]["TagRead"];
         };
+        /**
+         * UndoRequest
+         * @description Undo by whichever handle the caller has.
+         *
+         *     Exactly one must be given. `client_op_id_to_undo` is the one the UI actually
+         *     uses — it already generated that key at scan time, so the eight-second undo
+         *     button needs to remember nothing else.
+         */
+        UndoRequest: {
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Client Op Id To Undo */
+            client_op_id_to_undo?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Group Uuid To Undo */
+            group_uuid_to_undo?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Seq */
+            seq?: number | null;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
+        };
+        /** UndoResponse */
+        UndoResponse: {
+            /** Lots */
+            lots: components["schemas"]["LotRead"][];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Reversed Seqs */
+            reversed_seqs: number[];
+            /** Seqs */
+            seqs: number[];
+        };
         /** UndoneRead */
         UndoneRead: {
             /** Action Kind */
@@ -3031,69 +3102,6 @@ export interface components {
             remaining: number;
             /** Total Tagged */
             total_tagged: number;
-        };
-        /** UndoRequest */
-        app__api__routes__provisioning__UndoRequest: {
-            /** Client Op Id */
-            client_op_id?: string | null;
-            /** Device Id */
-            device_id?: string | null;
-        };
-        /** UndoResponse */
-        app__api__routes__provisioning__UndoResponse: {
-            /** Not Restored Reason */
-            not_restored_reason: string | null;
-            /**
-             * Replayed
-             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
-             * @default false
-             */
-            replayed?: boolean;
-            restored_tag: components["schemas"]["TagRead"] | null;
-            state: components["schemas"]["ProvisioningState"];
-            undone: components["schemas"]["UndoneRead"];
-        };
-        /**
-         * UndoRequest
-         * @description Undo by whichever handle the caller has.
-         *
-         *     Exactly one must be given. `client_op_id_to_undo` is the one the UI actually
-         *     uses — it already generated that key at scan time, so the eight-second undo
-         *     button needs to remember nothing else.
-         */
-        app__api__routes__stock__UndoRequest: {
-            /**
-             * Client Op Id
-             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
-             */
-            client_op_id?: string | null;
-            /** Client Op Id To Undo */
-            client_op_id_to_undo?: string | null;
-            /** Device Id */
-            device_id?: string | null;
-            /** Group Uuid To Undo */
-            group_uuid_to_undo?: string | null;
-            /** Note */
-            note?: string | null;
-            /** Seq */
-            seq?: number | null;
-            /** @default manual */
-            source?: components["schemas"]["LedgerSource"];
-        };
-        /** UndoResponse */
-        app__api__routes__stock__UndoResponse: {
-            /** Lots */
-            lots: components["schemas"]["LotRead"][];
-            /**
-             * Replayed
-             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
-             * @default false
-             */
-            replayed?: boolean;
-            /** Reversed Seqs */
-            reversed_seqs: number[];
-            /** Seqs */
-            seqs: number[];
         };
     };
     responses: never;
@@ -4030,7 +4038,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["app__api__routes__provisioning__UndoRequest"];
+                "application/json": components["schemas"]["ProvisioningUndoRequest"];
             };
         };
         responses: {
@@ -4040,7 +4048,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["app__api__routes__provisioning__UndoResponse"];
+                    "application/json": components["schemas"]["ProvisioningUndoResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4540,7 +4548,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["app__api__routes__stock__UndoRequest"];
+                "application/json": components["schemas"]["UndoRequest"];
             };
         };
         responses: {
@@ -4550,7 +4558,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["app__api__routes__stock__UndoResponse"];
+                    "application/json": components["schemas"]["UndoResponse"];
                 };
             };
             /** @description Validation Error */

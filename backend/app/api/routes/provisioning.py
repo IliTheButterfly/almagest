@@ -210,7 +210,15 @@ class SkipResponse(ReplayableResponse):
     state: ProvisioningState
 
 
-class UndoRequest(BaseModel):
+class ProvisioningUndoRequest(BaseModel):
+    """Prefixed, not plain `UndoRequest` — `stock` already owns that name.
+
+    Two route modules sharing a model name makes FastAPI fully qualify **both**
+    in the OpenAPI document, so the collision silently renames the other
+    module's schema and breaks generated client code for a route nobody touched.
+    Pinned by `test_no_two_modules_share_a_response_model_name`.
+    """
+
     client_op_id: str | None = Field(default=None, max_length=36)
     device_id: str | None = Field(default=None, max_length=64)
 
@@ -223,7 +231,7 @@ class UndoneRead(BaseModel):
     tag_uid: str | None
 
 
-class UndoResponse(ReplayableResponse):
+class ProvisioningUndoResponse(ReplayableResponse):
     undone: UndoneRead
     #: The binding put back, when the undone action was a move or a rebind.
     restored_tag: TagRead | None
@@ -662,10 +670,10 @@ def skip_slot(
     )
 
 
-@router.post("/{session_id}/undo", response_model=UndoResponse)
+@router.post("/{session_id}/undo", response_model=ProvisioningUndoResponse)
 def undo_action(
-    session_id: RowId, request: UndoRequest, db: Session = Depends(get_db)
-) -> UndoResponse:
+    session_id: RowId, request: ProvisioningUndoRequest, db: Session = Depends(get_db)
+) -> ProvisioningUndoResponse:
     """Reverse the last action, five deep.
 
     Undoing a Move puts the displaced binding back where it was — which is the
@@ -675,12 +683,12 @@ def undo_action(
     """
     walk = _require_session(db, session_id, ProvisioningKind.PROVISION)
 
-    def work() -> UndoResponse:
+    def work() -> ProvisioningUndoResponse:
         try:
             outcome = provisioning.undo(db, walk)
         except ProvisioningError as error:
             raise _provisioning_error(error) from error
-        return UndoResponse(
+        return ProvisioningUndoResponse(
             undone=UndoneRead(
                 action_kind=outcome.action_kind,
                 location_id=outcome.location.id,
@@ -699,7 +707,7 @@ def undo_action(
         device_id=request.device_id,
         endpoint="POST /api/provisioning-sessions/{id}/undo",
         payload=request,
-        response_model=UndoResponse,
+        response_model=ProvisioningUndoResponse,
         work=work,
     )
 

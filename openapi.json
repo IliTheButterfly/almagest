@@ -4258,6 +4258,82 @@
         "title": "ProvisioningState",
         "type": "object"
       },
+      "ProvisioningUndoRequest": {
+        "description": "Prefixed, not plain `UndoRequest` \u2014 `stock` already owns that name.\n\nTwo route modules sharing a model name makes FastAPI fully qualify **both**\nin the OpenAPI document, so the collision silently renames the other\nmodule's schema and breaks generated client code for a route nobody touched.\nPinned by `test_no_two_modules_share_a_response_model_name`.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          }
+        },
+        "title": "ProvisioningUndoRequest",
+        "type": "object"
+      },
+      "ProvisioningUndoResponse": {
+        "properties": {
+          "not_restored_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Restored Reason"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "restored_tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          },
+          "undone": {
+            "$ref": "#/components/schemas/UndoneRead"
+          }
+        },
+        "required": [
+          "undone",
+          "restored_tag",
+          "not_restored_reason",
+          "state"
+        ],
+        "title": "ProvisioningUndoResponse",
+        "type": "object"
+      },
       "QuantityRequest": {
         "properties": {
           "client_op_id": {
@@ -6515,6 +6591,124 @@
         "title": "UnbindResponse",
         "type": "object"
       },
+      "UndoRequest": {
+        "description": "Undo by whichever handle the caller has.\n\nExactly one must be given. `client_op_id_to_undo` is the one the UI actually\nuses \u2014 it already generated that key at scan time, so the eight-second undo\nbutton needs to remember nothing else.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "client_op_id_to_undo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id To Undo"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "group_uuid_to_undo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Uuid To Undo"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          }
+        },
+        "title": "UndoRequest",
+        "type": "object"
+      },
+      "UndoResponse": {
+        "properties": {
+          "lots": {
+            "items": {
+              "$ref": "#/components/schemas/LotRead"
+            },
+            "title": "Lots",
+            "type": "array"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "reversed_seqs": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Reversed Seqs",
+            "type": "array"
+          },
+          "seqs": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Seqs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "seqs",
+          "reversed_seqs",
+          "lots"
+        ],
+        "title": "UndoResponse",
+        "type": "object"
+      },
       "UndoneRead": {
         "properties": {
           "action_kind": {
@@ -6695,199 +6889,6 @@
           "mismatches"
         ],
         "title": "VerifyProgressRead",
-        "type": "object"
-      },
-      "app__api__routes__provisioning__UndoRequest": {
-        "properties": {
-          "client_op_id": {
-            "anyOf": [
-              {
-                "maxLength": 36,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Client Op Id"
-          },
-          "device_id": {
-            "anyOf": [
-              {
-                "maxLength": 64,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Device Id"
-          }
-        },
-        "title": "UndoRequest",
-        "type": "object"
-      },
-      "app__api__routes__provisioning__UndoResponse": {
-        "properties": {
-          "not_restored_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Not Restored Reason"
-          },
-          "replayed": {
-            "default": false,
-            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
-            "title": "Replayed",
-            "type": "boolean"
-          },
-          "restored_tag": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TagRead"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "state": {
-            "$ref": "#/components/schemas/ProvisioningState"
-          },
-          "undone": {
-            "$ref": "#/components/schemas/UndoneRead"
-          }
-        },
-        "required": [
-          "undone",
-          "restored_tag",
-          "not_restored_reason",
-          "state"
-        ],
-        "title": "UndoResponse",
-        "type": "object"
-      },
-      "app__api__routes__stock__UndoRequest": {
-        "description": "Undo by whichever handle the caller has.\n\nExactly one must be given. `client_op_id_to_undo` is the one the UI actually\nuses \u2014 it already generated that key at scan time, so the eight-second undo\nbutton needs to remember nothing else.",
-        "properties": {
-          "client_op_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
-            "title": "Client Op Id"
-          },
-          "client_op_id_to_undo": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Client Op Id To Undo"
-          },
-          "device_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Device Id"
-          },
-          "group_uuid_to_undo": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Group Uuid To Undo"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "seq": {
-            "anyOf": [
-              {
-                "maximum": 9.223372036854776e+18,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Seq"
-          },
-          "source": {
-            "$ref": "#/components/schemas/LedgerSource",
-            "default": "manual"
-          }
-        },
-        "title": "UndoRequest",
-        "type": "object"
-      },
-      "app__api__routes__stock__UndoResponse": {
-        "properties": {
-          "lots": {
-            "items": {
-              "$ref": "#/components/schemas/LotRead"
-            },
-            "title": "Lots",
-            "type": "array"
-          },
-          "replayed": {
-            "default": false,
-            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
-            "title": "Replayed",
-            "type": "boolean"
-          },
-          "reversed_seqs": {
-            "items": {
-              "type": "integer"
-            },
-            "title": "Reversed Seqs",
-            "type": "array"
-          },
-          "seqs": {
-            "items": {
-              "type": "integer"
-            },
-            "title": "Seqs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "seqs",
-          "reversed_seqs",
-          "lots"
-        ],
-        "title": "UndoResponse",
         "type": "object"
       }
     }
@@ -8253,7 +8254,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/app__api__routes__provisioning__UndoRequest"
+                "$ref": "#/components/schemas/ProvisioningUndoRequest"
               }
             }
           },
@@ -8264,7 +8265,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__api__routes__provisioning__UndoResponse"
+                  "$ref": "#/components/schemas/ProvisioningUndoResponse"
                 }
               }
             },
@@ -9087,7 +9088,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/app__api__routes__stock__UndoRequest"
+                "$ref": "#/components/schemas/UndoRequest"
               }
             }
           },
@@ -9098,7 +9099,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/app__api__routes__stock__UndoResponse"
+                  "$ref": "#/components/schemas/UndoResponse"
                 }
               }
             },
