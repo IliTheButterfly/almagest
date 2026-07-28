@@ -1,6 +1,10 @@
+# pnpm blocks dependency postinstall scripts by default, and since pnpm 10 an
+# ignored build is a hard error rather than a warning — so CI fails without
+# this. esbuild's script fetches its platform binary; vite and vitest cannot
+# start without it.
+#
+# Two gotchas, both of which cost a CI round-trip: the key is `allowBuilds`
+# (pnpm 11 renamed it from `onlyBuiltDependencies`), and it is a **map**, not a
+# list. A list is silently parsed as {'0': 'esbuild'} and does nothing.
 allowBuilds:
-  esbuild: set this to true or false
-# pnpm blocks postinstall scripts by default. esbuild needs its to fetch a
-# platform binary; without this, vite and vitest cannot start at all.
-onlyBuiltDependencies:
-  - esbuild
+  esbuild: true
