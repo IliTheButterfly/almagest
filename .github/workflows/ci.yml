@@ -68,7 +68,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `uses:` steps ignore defaults.run.working-directory, so the action has
+      # to be pointed at the frontend's package.json explicitly. The pnpm
+      # version comes from its `packageManager` field, which also pins it for
+      # corepack locally — so CI and a laptop cannot drift.
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
