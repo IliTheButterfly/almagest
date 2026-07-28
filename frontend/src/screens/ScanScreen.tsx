@@ -1,0 +1,590 @@
+/**
+ * Scan — the front door, and where the fast path lives.
+ *
+ * Three ways in, in order of speed: the camera (four symbologies, centre-ROI crop,
+ * 2-of-3 frame voting, 3-second payload hold-off), Web NFC on Android, and typing a
+ * code. The third is not a courtesy: ADR 0001 means the first two are *absent* — no
+ * error, no prompt — on any plain-HTTP origin, and Web NFC is absent on iOS and on
+ * the kiosk permanently. So each affordance is feature-detected and, when missing,
+ * replaced by a sentence explaining why and where to open the app instead.
+ *
+ * **The idempotency key is minted here**, by `scanSession.scan()`, and travels to
+ * whichever screen commits the movement. That is the ordering `PLAN.md` requires:
+ * mint at scan, not at commit, so a double tap on Commit cannot record twice.
+ *
+ * **"Queue for later" is the point of the whole screen.** One tap parks the label
+ * and returns straight to scanning, no further screens, so a box of reels goes in
+ * under a minute and is curated at a desk afterwards. This is the countermeasure to
+ * the thing that actually kills projects in this space, and `parts` is shaped for it:
+ * only a name is required, so an unrecognised label becomes a legal stub row in one
+ * tap instead of a form somebody abandons.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+
+import { CodeEntry } from "../components/CodeEntry";
+import { ErrorBanner, Notice } from "../components/Feedback";
+import { Viewfinder } from "../components/Viewfinder";
+import {
+  bindScanAlias,
+  createPart,
+  resolveScan,
+  type ScanCandidate,
+  type ScanResolveResponse,
+  type ScanTarget,
+} from "../lib/api/client";
+import { cameraNotice, detectCapabilities, nfcNotice } from "../lib/capabilities";
+import { formatQty } from "../lib/format";
+import { intakeQueue, type PendingScan } from "../lib/intake/queue";
+import { NfcUnavailableError, readOneTag } from "../lib/scan/nfc";
+import { scanSession } from "../lib/scan/session";
+import { useScanner } from "../lib/scan/useScanner";
+import { formatShortId } from "../lib/shortid";
+
+/** Where a resolved target lives in the app. Mirrors the backend's `/s/` map. */
+function routeFor(target: ScanTarget): string | null {
+  switch (target.entity_type) {
+    case "location":
+      return `/locations/${target.entity_pk}`;
+    case "part":
+      return `/parts/${target.entity_pk}`;
+    case "stock_lot":
+      return `/lots/${target.entity_pk}`;
+    default:
+      return null;
+  }
+}
+
+interface Resolution {
+  readonly response: ScanResolveResponse;
+  readonly clientOpId: string;
+  readonly code: string;
+  readonly symbology: string | null;
+}
+
+export function ScanScreen() {
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const capabilities = detectCapabilities();
+
+  const [cameraOn, setCameraOn] = useState(capabilities.camera);
+  const [resolution, setResolution] = useState<Resolution | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [queued, setQueued] = useState<string | null>(null);
+
+  const handle = useCallback(
+    async (code: string, symbology: string | null) => {
+      // The scan session is the debounce: the same payload inside ~2 s, or any
+      // payload while a commit is in flight, returns null and is dropped silently.
+      // A dropped duplicate is not an error and must not be reported as one.
+      const session = scanSession.scan(code, symbology);
+      if (session === null) {
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      setQueued(null);
+      try {
+        const response = await resolveScan({
+          code,
+          ...(symbology === null ? {} : { symbology }),
+        });
+        const next: Resolution = {
+          response,
+          clientOpId: session.clientOpId,
+          code,
+          symbology,
+        };
+        setResolution(next);
+
+        // A container or a lot is unambiguous — go straight there rather than
+        // making the user confirm what they just scanned. A part waits, because a
+        // part that resolved may be a re-stock and the choice belongs to the user.
+        const target = response.target;
+        if (
+          response.status === "resolved" &&
+          target !== null &&
+          target !== undefined &&
+          (target.entity_type === "location" || target.entity_type === "stock_lot")
+        ) {
+          const route = routeFor(target);
+          if (route !== null) {
+            navigate(route);
+          }
+        }
+      } catch (cause) {
+        setError(cause);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [navigate],
+  );
+
+  const scanner = useScanner({ active: cameraOn, onDecode: (text, symbology) => void handle(text, symbology) });
+
+  // A well-formed code the backend could not resolve arrives as `?unknown=`, and a
+  // resolved-but-untyped one as `?code=`. Both are redirects off a physical tag.
+  const incoming = params.get("code") ?? params.get("unknown");
+  useEffect(() => {
+    if (incoming !== null && incoming !== "") {
+      void handle(incoming, "manual");
+    }
+    // Deliberately keyed on the URL only: re-running this on every `handle`
+    // identity change would re-resolve the same tag on each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming]);
+
+  useEffect(() => () => scanSession.clear(), []);
+
+  function queueForLater(): void {
+    if (resolution === null) {
+      return;
+    }
+    const parsed = resolution.response.parsed;
+    const entry: PendingScan = {
+      id: resolution.clientOpId,
+      code: resolution.code,
+      symbology: resolution.symbology,
+      queuedAt: Date.now(),
+      decodedKind: resolution.response.decoded_kind,
+      mpn: parsed?.mpn ?? null,
+      manufacturer: parsed?.manufacturer ?? null,
+      supplierPartNumber: parsed?.supplier_part_number ?? null,
+      quantityMilli: parsed?.quantity_milli ?? null,
+      dateCode: parsed?.date_code ?? null,
+      lotCode: parsed?.lot_code ?? null,
+      partId:
+        resolution.response.target?.entity_type === "part"
+          ? (resolution.response.target.entity_pk ?? null)
+          : null,
+      note: null,
+    };
+    intakeQueue.add(entry);
+    // Straight back to scanning. Zero further screens is the requirement.
+    setResolution(null);
+    scanSession.spend();
+    setQueued(entry.mpn ?? entry.code);
+  }
+
+  return (
+    <div className="stack">
+      {capabilities.camera ? (
+        <>
+          <Viewfinder
+            videoRef={scanner.videoRef}
+            status={cameraOn ? scanner.status : "off"}
+            message={scanner.message}
+            unavailableNotice={cameraNotice(capabilities)}
+            hint={busy ? "Resolving…" : undefined}
+          />
+          <button type="button" className="wide" onClick={() => setCameraOn(!cameraOn)}>
+            {cameraOn ? "Stop camera" : "Start camera"}
+          </button>
+        </>
+      ) : (
+        <Notice kind="warn" title="No camera here">
+          <p style={{ margin: 0 }}>{cameraNotice(capabilities)}</p>
+        </Notice>
+      )}
+
+      <NfcPanel onRead={(payload) => void handle(payload, "nfc")} />
+
+      <div className="card">
+        <h3>Or type it</h3>
+        <CodeEntry onSubmit={(code) => void handle(code, "manual")} busy={busy} />
+      </div>
+
+      {queued !== null && (
+        <Notice kind="ok" title="Parked for later">
+          <p style={{ margin: 0 }}>
+            <span className="mono">{queued}</span> is in the intake queue. Keep scanning
+            — nothing else is needed now.
+          </p>
+        </Notice>
+      )}
+
+      <ErrorBanner error={error} fallback="That code could not be resolved." />
+
+      {resolution !== null && (
+        <Resolved
+          resolution={resolution}
+          onQueue={queueForLater}
+          onDismiss={() => setResolution(null)}
+          onChanged={() => setResolution(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function NfcPanel({ onRead }: { onRead: (payload: string) => void }) {
+  const capabilities = detectCapabilities();
+  const notice = nfcNotice(capabilities);
+  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  if (notice !== null) {
+    return (
+      <details className="card">
+        <summary>NFC is not available on this device</summary>
+        <p className="muted-note">{notice}</p>
+      </details>
+    );
+  }
+
+  async function tap(): Promise<void> {
+    setWaiting(true);
+    setError(null);
+    try {
+      const reading = await readOneTag();
+      // NDEF first, UID as the fallback — a tag whose record was never written is
+      // still identifiable, which is what makes a blank tag recoverable.
+      const payload = reading.url ?? reading.serialNumber;
+      if (payload === null) {
+        setError(new Error("The tag carried no URL and reported no serial number."));
+        return;
+      }
+      onRead(payload);
+    } catch (cause) {
+      setError(cause instanceof NfcUnavailableError ? new Error(notice ?? cause.message) : cause);
+    } finally {
+      setWaiting(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <button type="button" className="wide" onClick={() => void tap()} disabled={waiting}>
+        {waiting ? "Hold the phone against the tag…" : "Read an NFC tag"}
+      </button>
+      <ErrorBanner error={error} />
+    </div>
+  );
+}
+
+function Resolved({
+  resolution,
+  onQueue,
+  onDismiss,
+  onChanged,
+}: {
+  resolution: Resolution;
+  onQueue: () => void;
+  onDismiss: () => void;
+  onChanged: () => void;
+}) {
+  const { response } = resolution;
+  const target = response.target ?? null;
+  const parsed = response.parsed ?? null;
+
+  return (
+    <div className="stack">
+      <div className="card">
+        <div className="row">
+          <h3 style={{ margin: 0 }}>
+            {response.status === "resolved"
+              ? "Resolved"
+              : response.status === "ambiguous"
+                ? "More than one match"
+                : "Nothing matched"}
+          </h3>
+          <span className="spacer" />
+          <span className="badge mono">{response.decoded_kind}</span>
+          <span className="badge">{response.latency_ms} ms</span>
+        </div>
+
+        {/* The fast path, first and biggest: one tap, back to scanning. */}
+        <button type="button" className="primary wide tall" onClick={onQueue}>
+          Queue for later
+        </button>
+        <p className="muted-note" style={{ margin: 0 }}>
+          Parks this label and returns to scanning with no further screens. Curate the
+          queue later at a desktop.
+        </p>
+
+        {target !== null && <TargetLink target={target} />}
+
+        {response.existing_lots !== undefined && response.existing_lots.length > 0 && (
+          <div>
+            <h3>Already in stock</h3>
+            <ul className="list">
+              {response.existing_lots.map((lot) => (
+                <li key={lot.lot_id}>
+                  <a className="list-item" href={`/lots/${lot.lot_id}`}>
+                    <div className="title">{formatQty(lot.qty_milli)}</div>
+                    <div className="sub">{lot.location_label_path ?? lot.location_name}</div>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {parsed !== null && <ParsedFields parsed={parsed} />}
+
+        <div className="row">
+          <button type="button" onClick={onDismiss}>
+            Dismiss
+          </button>
+        </div>
+      </div>
+
+      {response.candidates !== undefined && response.candidates.length > 0 && (
+        <Candidates candidates={response.candidates} />
+      )}
+
+      {response.suggest_bind && <BindOrCreate resolution={resolution} onDone={onChanged} />}
+    </div>
+  );
+}
+
+function TargetLink({ target }: { target: ScanTarget }) {
+  const route = routeFor(target);
+  const label = target.label_path ?? target.label;
+  if (route === null) {
+    return (
+      <p className="muted-note">
+        {target.entity_type} {target.entity_pk}: {label}
+      </p>
+    );
+  }
+  return (
+    <a className="list-item" href={route}>
+      <div className="title">{label}</div>
+      <div className="sub">
+        {target.entity_type}
+        {target.short_id === null || target.short_id === undefined
+          ? ""
+          : ` · ${formatShortId(target.short_id)}`}
+      </div>
+    </a>
+  );
+}
+
+function Candidates({ candidates }: { candidates: readonly ScanCandidate[] }) {
+  return (
+    <div className="card">
+      <h3>Candidates</h3>
+      <ul className="list">
+        {candidates.map((candidate, index) => {
+          const route = routeFor(candidate.target);
+          const label = candidate.target.label_path ?? candidate.target.label;
+          return (
+            <li key={`${candidate.target.entity_type}-${candidate.target.entity_pk}-${index}`}>
+              {route === null ? (
+                <div className="list-item">
+                  <div className="title">{label}</div>
+                  <div className="sub">{candidate.via}</div>
+                </div>
+              ) : (
+                <a className="list-item" href={route}>
+                  <div className="title">{label}</div>
+                  <div className="sub">
+                    via {candidate.via}
+                    {candidate.hit_count === null || candidate.hit_count === undefined
+                      ? ""
+                      : ` · ${candidate.hit_count} hit(s)`}
+                  </div>
+                </a>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function ParsedFields({ parsed }: { parsed: NonNullable<ScanResolveResponse["parsed"]> }) {
+  const rows: [string, string][] = [];
+  const push = (label: string, value: string | number | null | undefined): void => {
+    if (value !== null && value !== undefined && value !== "") {
+      rows.push([label, String(value)]);
+    }
+  };
+  push("MPN", parsed.mpn);
+  push("Supplier PN", parsed.supplier_part_number);
+  push("Manufacturer", parsed.manufacturer);
+  push("Quantity", parsed.quantity_milli === null ? null : formatQty(parsed.quantity_milli ?? 0));
+  push("Lot", parsed.lot_code);
+  push("Date code", parsed.date_code);
+  push("Country", parsed.country_of_origin);
+  push("Serial", parsed.serial);
+  push("PO", parsed.purchase_order);
+
+  if (rows.length === 0 && (parsed.warnings ?? []).length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      <h3>Read off the label</h3>
+      <dl className="kv">
+        {rows.map(([label, value]) => (
+          <div key={label} style={{ display: "contents" }}>
+            <dt>{label}</dt>
+            <dd className="mono">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {(parsed.warnings ?? []).length > 0 && (
+        <Notice kind="warn" title="Parser warnings">
+          <ul>
+            {(parsed.warnings ?? []).map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        </Notice>
+      )}
+      <p className="muted-note">
+        Pre-fills a form; never authority. Nothing here is accepted as a part number
+        without a human saying so.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The two ways out of an unresolved scan.
+ *
+ * **Bind** teaches the resolver what this payload means — the alias outranks every
+ * parser from then on, because the user knows which reel is in their hand and the
+ * parser is reading a label whose conventions we guessed at. **Create a stub** is
+ * the one-tap escape: only a name is required, so an unrecognised label never turns
+ * into a form somebody abandons.
+ */
+function BindOrCreate({
+  resolution,
+  onDone,
+}: {
+  resolution: Resolution;
+  onDone: () => void;
+}) {
+  const parsed = resolution.response.parsed ?? null;
+  const [name, setName] = useState(parsed?.mpn ?? "");
+  const [partKind, setPartKind] = useState("component");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [created, setCreated] = useState<number | null>(null);
+  const [bindTo, setBindTo] = useState("");
+
+  async function create(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await createPart({
+        name: name.trim() === "" ? resolution.code.slice(0, 60) : name.trim(),
+        part_kind: partKind.trim() === "" ? "component" : partKind.trim(),
+        is_stub: true,
+        ...(parsed?.mpn === null || parsed?.mpn === undefined ? {} : { mpn: parsed.mpn }),
+        // Reuse the key minted at scan time: a retried create must not fork the
+        // catalogue into two rows for the same label.
+        client_op_id: resolution.clientOpId,
+      });
+      setCreated(result.part.id);
+      // Bind the payload to the row it just created, so the next reel of this part
+      // resolves on its first scan instead of coming back unknown again.
+      await bindScanAlias({
+        code: resolution.code,
+        symbology: resolution.symbology ?? "unknown",
+        entity_type: "part",
+        entity_pk: result.part.id,
+        alias_kind: "whole_payload",
+        ...(parsed?.quantity_milli === null || parsed?.quantity_milli === undefined
+          ? {}
+          : { hint_qty_milli: parsed.quantity_milli }),
+      });
+      onDone();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bind(): Promise<void> {
+    const partId = Number(bindTo);
+    if (!Number.isSafeInteger(partId) || partId <= 0) {
+      setError(new Error("Enter the numeric id of the part to bind this code to."));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await bindScanAlias({
+        code: resolution.code,
+        symbology: resolution.symbology ?? "unknown",
+        entity_type: "part",
+        entity_pk: partId,
+        alias_kind: "whole_payload",
+      });
+      onDone();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (created !== null) {
+    return (
+      <Notice kind="ok" title="Created as a stub">
+        <p style={{ margin: 0 }}>
+          <a href={`/parts/${created}`}>Open part {created}</a> — and this payload is now
+          bound to it, so the next one resolves on its first scan.
+        </p>
+      </Notice>
+    );
+  }
+
+  return (
+    <div className="card">
+      <h3>Nothing matched — teach it</h3>
+
+      <label className="field">
+        <span>Name (the only required field)</span>
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="what it is" />
+      </label>
+      <label className="field">
+        <span>Part kind</span>
+        <input
+          value={partKind}
+          onChange={(event) => setPartKind(event.target.value)}
+          placeholder="component"
+          autoComplete="off"
+        />
+      </label>
+      <button type="button" className="primary wide" onClick={() => void create()} disabled={busy}>
+        {busy ? "Creating…" : "Create a stub part and bind this code"}
+      </button>
+
+      <details>
+        <summary>Bind to a part that already exists</summary>
+        <label className="field">
+          <span>Part id</span>
+          <input
+            inputMode="numeric"
+            value={bindTo}
+            onChange={(event) => setBindTo(event.target.value)}
+            placeholder="42"
+          />
+        </label>
+        <p className="muted-note">
+          A binding outranks every parser from then on. Search for the part first if you
+          need its id — there is no picker here yet.
+        </p>
+        <button type="button" className="wide" onClick={() => void bind()} disabled={busy}>
+          Bind
+        </button>
+      </details>
+
+      <ErrorBanner error={error} />
+      <p className="muted-note mono">
+        normalises to {resolution.response.normalized}
+      </p>
+    </div>
+  );
+}
