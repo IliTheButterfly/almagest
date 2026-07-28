@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.scripts.seed_demo import seed_all
+from app.scripts.seed_demo import seed_catalogue
 
 
 def _seed(client: TestClient) -> None:
@@ -18,7 +18,7 @@ def _seed(client: TestClient) -> None:
 
     session: Session = get_session_factory()()
     try:
-        seed_all(session)
+        seed_catalogue(session)
         session.commit()
     finally:
         session.close()

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_session_factory
 from app.models.catalog import Part, PartKind
 from app.models.parameter import ParameterTemplate
-from app.scripts.seed_demo import seed_all
+from app.scripts.seed_demo import seed_catalogue
 from app.services import parameters
 from app.services.search.fts import build_param_digest, rebuild_all_param_digests
 from app.services.search.query_builder import Filter, SearchQuery, execute
@@ -23,7 +23,7 @@ from app.services.search.query_builder import Filter, SearchQuery, execute
 
 @pytest.fixture
 def catalogue(db: Session) -> Session:
-    seed_all(db)
+    seed_catalogue(db)
     db.commit()
     return db
 
@@ -279,7 +279,7 @@ def test_hostile_text_combined_with_filters_is_also_safe(client: TestClient) -> 
     parser — so it is worth proving they compose rather than fight."""
     session = get_session_factory()()
     try:
-        seed_all(session)
+        seed_catalogue(session)
         session.commit()
     finally:
         session.close()
