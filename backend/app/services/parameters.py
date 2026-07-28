@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.models.catalog import Part
 from app.models.enums import PROVENANCE_PRIORITY, Provenance, ValueType
 from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
+from app.services.search.fts import refresh_param_digest
 from app.services.search.value_parser import parse_for_template
 
 
@@ -65,6 +66,10 @@ def set_numeric(
     row.confidence = confidence
 
     session.flush()
+    # The FTS digest is derived from parameter_value, so it cannot be kept
+    # current by the triggers on `parts`. Refreshing it here means the one
+    # write path owns it too.
+    refresh_param_digest(session, part.id)
     return row
 
 
@@ -100,6 +105,10 @@ def set_choice(
     row.confidence = confidence
 
     session.flush()
+    # The FTS digest is derived from parameter_value, so it cannot be kept
+    # current by the triggers on `parts`. Refreshing it here means the one
+    # write path owns it too.
+    refresh_param_digest(session, part.id)
     return row
 
 
