@@ -18,9 +18,15 @@ ENV UV_COMPILE_BYTECODE=1 \
     ALMAGEST_DB_PATH=/data/almagest.db \
     ALMAGEST_DATASHEET_DIR=/data/datasheets
 
-WORKDIR /app
+# The repo layout is reproduced inside the image rather than flattened, because
+# the submodule libraries are path dependencies resolved *relative to*
+# backend/pyproject.toml — `../elec-value-parser` has to actually be there.
+WORKDIR /app/backend
 
 # Dependency layer first, so editing application code does not re-resolve deps.
+# The libraries are copied whole here since they *are* dependencies: changing
+# one should invalidate this layer.
+COPY elec-value-parser/ /app/elec-value-parser/
 COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
@@ -33,7 +39,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # datasheet store. It must be on a local volume — never network storage.
 RUN useradd --system --uid 10001 --create-home almagest \
     && mkdir -p /data \
-    && chown -R almagest:almagest /data /app
+    && chown -R almagest:almagest /data /app /opt/venv
 USER almagest
 
 EXPOSE 8000

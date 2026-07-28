@@ -12,7 +12,19 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "pint>=0.24",
+    "elec-value-parser>=0.1",
 ]
+
+# The publishable libraries are submodules, consumed from the checkout rather
+# than from PyPI until they are actually released there. Switching to published
+# wheels later means deleting the matching entry here and tightening the
+# constraint above — nothing else.
+#
+# Note the constraint is deliberately loose. While a path source is in force uv
+# resolves to whatever the checkout declares, so a tighter pin here would read
+# as a guarantee it is not currently enforcing.
+[tool.uv.sources]
+elec-value-parser = { path = "../elec-value-parser", editable = true }
 
 [project.optional-dependencies]
 # Kept out of the default install so the API image stays small. Phase 4+.
