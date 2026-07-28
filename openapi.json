@@ -5544,6 +5544,98 @@
         "title": "SessionStarted",
         "type": "object"
       },
+      "ShortIdRequest": {
+        "description": "Mint (`short_id` absent) or adopt (`short_id` present).",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A code that is already printed on the label or written to the tag. Accepted in any human rendering \u2014 hyphenated, lower case, with a display prefix. Omit it to have one minted instead. The check symbol is verified, so a code mistyped off a label is refused rather than bound as itself.",
+            "title": "Short Id"
+          }
+        },
+        "title": "ShortIdRequest",
+        "type": "object"
+      },
+      "ShortIdResponse": {
+        "properties": {
+          "adopted": {
+            "title": "Adopted",
+            "type": "boolean"
+          },
+          "display": {
+            "title": "Display",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "previous_short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Short Id"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "short_id": {
+            "title": "Short Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "short_id",
+          "display",
+          "adopted",
+          "previous_short_id"
+        ],
+        "title": "ShortIdResponse",
+        "type": "object"
+      },
       "SizeClass": {
         "description": "Last resort in the item-dimension cascade.",
         "enum": [
@@ -7855,6 +7947,61 @@
           }
         },
         "summary": "Reapply Layout",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/short-id": {
+      "post": {
+        "description": "Give this location a printed identity \u2014 minted, or one it already carries.\n\nTwo orderings, one route, because they differ only in who chose the code:\n\n* **Promotion.** A generated grid cell starts with no printed id, since\n  nobody sticks 96 labels on an 8x12 box. Send no `short_id` and one is\n  minted, which is what \"any cell can be promoted later\" on\n  `POST /api/locations` means. Already has one \u2192 that one comes back, so this\n  is safe to call from a print button without checking first.\n* **Adoption.** Send a `short_id` and *that* code is bound, for pre-printed\n  label stock, pre-encoded tags, or re-adopting a tag after restoring a\n  backup older than the binding. The check symbol is verified and a collision\n  is refused rather than substituted: the code is already on the object, so a\n  substitute would put the label and the database permanently out of step.\n\nAdoption on a location that already has an id keeps the old one resolvable\nand makes the new one primary \u2014 the label still stuck to the drawer and the\none in your hand both work, which is the point of relabelling being\nnon-destructive.",
+        "operationId": "assign_location_short_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShortIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShortIdResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assign Location Short Id",
         "tags": [
           "locations"
         ]

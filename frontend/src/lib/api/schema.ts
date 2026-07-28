@@ -416,6 +416,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/locations/{location_id}/short-id": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign Location Short Id
+         * @description Give this location a printed identity — minted, or one it already carries.
+         *
+         *     Two orderings, one route, because they differ only in who chose the code:
+         *
+         *     * **Promotion.** A generated grid cell starts with no printed id, since
+         *       nobody sticks 96 labels on an 8x12 box. Send no `short_id` and one is
+         *       minted, which is what "any cell can be promoted later" on
+         *       `POST /api/locations` means. Already has one → that one comes back, so this
+         *       is safe to call from a print button without checking first.
+         *     * **Adoption.** Send a `short_id` and *that* code is bound, for pre-printed
+         *       label stock, pre-encoded tags, or re-adopting a tag after restoring a
+         *       backup older than the binding. The check symbol is verified and a collision
+         *       is refused rather than substituted: the code is already on the object, so a
+         *       substitute would put the label and the database permanently out of step.
+         *
+         *     Adoption on a location that already has an id keeps the old one resolvable
+         *     and makes the new one primary — the label still stuck to the drawer and the
+         *     one in your hand both work, which is the point of relabelling being
+         *     non-destructive.
+         */
+        post: operations["assign_location_short_id"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/locations/{location_id}/verification-sessions": {
         parameters: {
             query?: never;
@@ -2645,6 +2683,40 @@ export interface components {
             state: components["schemas"]["ProvisioningState"];
         };
         /**
+         * ShortIdRequest
+         * @description Mint (`short_id` absent) or adopt (`short_id` present).
+         */
+        ShortIdRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Short Id
+             * @description A code that is already printed on the label or written to the tag. Accepted in any human rendering — hyphenated, lower case, with a display prefix. Omit it to have one minted instead. The check symbol is verified, so a code mistyped off a label is refused rather than bound as itself.
+             */
+            short_id?: string | null;
+        };
+        /** ShortIdResponse */
+        ShortIdResponse: {
+            /** Adopted */
+            adopted: boolean;
+            /** Display */
+            display: string;
+            /** Location Id */
+            location_id: number;
+            /** Previous Short Id */
+            previous_short_id: string | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Short Id */
+            short_id: string;
+        };
+        /**
          * SizeClass
          * @description Last resort in the item-dimension cascade.
          * @enum {string}
@@ -3757,6 +3829,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReapplyLayoutResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_location_short_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShortIdRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShortIdResponse"];
                 };
             };
             /** @description Validation Error */

@@ -51,7 +51,6 @@ from app.models.enums import (
     ProvisioningDevice,
     ProvisioningKind,
 )
-from app.models.identity import ObjectId
 from app.models.layout_authoring import (
     ProvisioningAction,
     ProvisioningSession,
@@ -128,19 +127,12 @@ def parse_ndef_url(url: str) -> str | None:
 
 
 def printed_short_id(session: Session, location_id: int) -> str | None:
-    """The short id already on this location's label, if it has one."""
-    return (
-        session.execute(
-            select(ObjectId.short_id)
-            .where(
-                ObjectId.entity_type == EntityType.LOCATION,
-                ObjectId.entity_pk == location_id,
-            )
-            .order_by(ObjectId.is_primary.desc(), ObjectId.created_at)
-        )
-        .scalars()
-        .first()
-    )
+    """The short id already on this location's label, if it has one.
+
+    Delegates rather than repeating the query: the tie-break between a
+    superseded id and the current one is a rule, and two copies of a rule drift.
+    """
+    return shortid.primary_short_id(session, EntityType.LOCATION, location_id)
 
 
 def ndef_url_for(session: Session, location: Location) -> str:
