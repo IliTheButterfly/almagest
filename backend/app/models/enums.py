@@ -174,3 +174,50 @@ PROVENANCE_PRIORITY: dict[str, int] = {
     Provenance.DISTRIBUTOR_FREETEXT: 20,
     Provenance.LLM_INFERRED: 10,
 }
+
+
+class LayoutSuggestionKind(StrEnum):
+    """What kind of defrag opportunity a `layout_suggestions` row describes.
+
+    Only `OVERFULL` is actually *written* by this phase's code — from capacity
+    occupancy rebuilds flagging a location over capacity, and from
+    auto-assignment's defrag escalation. The other five are structural
+    provision (table columns, this enum, the move-plan shape) for a later
+    nightly full-warehouse defrag pass that is out of scope here; see
+    `docs/PLAN.md`, "Capacity and auto-assignment".
+    """
+
+    MERGE_LOTS = "merge_lots"
+    MERGE_BINS = "merge_bins"
+    PROMOTE_HOT = "promote_hot"
+    DEMOTE_COLD = "demote_cold"
+    RETIRE_EMPTY = "retire_empty"
+    OVERFULL = "overfull"
+
+
+class LayoutSuggestionStatus(StrEnum):
+    """Dismissals stick: once a human dismisses a suggestion, regenerating the
+    same opportunity must not resurrect it as a fresh row."""
+
+    PENDING = "pending"
+    DISMISSED = "dismissed"
+    APPLIED = "applied"
+
+
+class EscalationLevel(StrEnum):
+    """Which rung of the auto-assignment escalation ladder produced an answer.
+
+    Not written to any table — nothing currently persists an assignment
+    decision directly — but kept here anyway so every enumerated "kind of
+    thing" in the system stays discoverable in one file rather than
+    fragmenting across services. A scan is never rejected: the ladder always
+    bottoms out at `INBOX`, which is why that is a member here rather than an
+    exception type.
+    """
+
+    DIRECT = "direct"
+    SOFT_PREFERENCES_DROPPED = "soft_preferences_dropped"
+    MATERIALIZED_CELL = "materialized_cell"
+    DEFRAG_PLAN = "defrag_plan"
+    NEW_SIBLING = "new_sibling"
+    INBOX = "inbox"
