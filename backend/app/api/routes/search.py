@@ -10,46 +10,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.schemas import FilterIn, PartQueryRequest
 from app.db.session import get_db
+from app.models.stock import StockLot
 from app.services.search import query_builder
-from app.services.search.query_builder import (
-    Filter,
-    FilterError,
-    Mode,
-    SearchQuery,
-    UnknownTemplate,
-)
+from app.services.search.query_builder import FilterError, Mode, UnknownTemplate
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
 
-class FilterIn(BaseModel):
-    template: str = Field(description="`parameter_template.name`, e.g. 'capacitance'")
-    value: str = Field(
-        description=(
-            "Interpreted according to the template. Numeric templates accept the "
-            "full shorthand grammar ('4k7', '20-30uF', '>=50V'); enum templates "
-            "accept a choice key or any alias, comma-separated for OR."
-        )
-    )
+class SearchRequest(PartQueryRequest):
+    """Every narrowing field lives on the shared base, so `/api/parameter-templates`
+    describes the same set this returns. Only pagination is search's own."""
 
-
-class SearchRequest(BaseModel):
-    filters: list[FilterIn] = Field(default_factory=list)
-    text: str | None = None
-    category: str | None = Field(default=None, description="Category slug; includes descendants")
-    part_kind: str | None = None
-    in_stock_only: bool = False
-    include_stubs: bool = True
-    mode: Mode = Field(
-        default="search",
-        description=(
-            "'search' matches a requirement; 'substitute' finds parts that would "
-            "satisfy it, using each template's substitution_direction."
-        ),
-    )
     limit: int = Field(default=50, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
 
@@ -61,8 +37,23 @@ class PartSummary(BaseModel):
     description: str | None
     is_stub: bool
     category_id: int | None
-
-    model_config = {"from_attributes": True}
+    # These three are **required, not defaulted**. A default makes them optional
+    # in the OpenAPI document, so every generated client has to handle
+    # `undefined` for a field the server always sends — and `qty ?? 0` in a
+    # client is indistinguishable from a genuine zero. The server computes them
+    # for every row, so the schema should say so.
+    #
+    #: Total across every lot of this part, in thousandths of its unit. Results
+    #: are ordered stock-first, so a row that cannot say *how much* leaves the
+    #: ordering looking arbitrary — this is the number that explains the sort.
+    qty_milli: int
+    #: How many lots hold it, because quantity lives on the lot and "500 in 2
+    #: lots" is a different physical situation from "500 on one reel". Counted on
+    #: the same `qty > 0` test as `in_stock_only` and the ordering, so a row can
+    #: never read `0 lots` while sorting as though it were stocked.
+    lot_count: int
+    #: Distinct containers, for "in 2 bins" — the reason to expand a row.
+    location_count: int
 
 
 class SearchResponse(BaseModel):
@@ -71,22 +62,37 @@ class SearchResponse(BaseModel):
     results: list[PartSummary]
 
 
-def _to_query(request: SearchRequest) -> SearchQuery:
-    return SearchQuery(
-        filters=tuple(Filter(f.template, f.value) for f in request.filters),
-        text=request.text,
-        category_slug=request.category,
-        part_kind_slug=request.part_kind,
-        in_stock_only=request.in_stock_only,
-        include_stubs=request.include_stubs,
-        mode=request.mode,
-        limit=request.limit,
-        offset=request.offset,
-    )
+def _stock_by_part(db: Session, part_ids: list[int]) -> dict[int, tuple[int, int, int]]:
+    """Quantity, lot count and container count for one page of results.
+
+    One aggregate over the page rather than a per-row query — the page is capped
+    at 500, so this is a single bounded round trip instead of N. Deliberately not
+    folded into the search statement: the FTS ranking already correlates a
+    subquery per row, and adding a stock join there would multiply rows and force
+    a DISTINCT that discards the ordering.
+
+    Reads `stock_lots.qty_milli_cached`. **Never `SUM(stock_ledger.delta_milli)`**
+    — summing the ledger in an API path is what stops working at 200k rows, and
+    the nightly job is what proves the cache honest.
+    """
+    if not part_ids:
+        return {}
+
+    rows = db.execute(
+        select(
+            StockLot.part_id,
+            func.coalesce(func.sum(StockLot.qty_milli_cached), 0),
+            func.count(StockLot.id),
+            func.count(func.distinct(StockLot.location_id)),
+        )
+        .where(StockLot.part_id.in_(part_ids), StockLot.qty_milli_cached > 0)
+        .group_by(StockLot.part_id)
+    ).all()
+    return {row[0]: (int(row[1]), int(row[2]), int(row[3])) for row in rows}
 
 
 def _run(db: Session, request: SearchRequest) -> SearchResponse:
-    query = _to_query(request)
+    query = request.to_query(limit=request.limit, offset=request.offset)
     try:
         results = query_builder.execute(db, query)
         total = query_builder.count(db, query)
@@ -102,9 +108,25 @@ def _run(db: Session, request: SearchRequest) -> SearchResponse:
             detail={"template": error.template, "reason": error.reason, "message": str(error)},
         ) from error
 
-    return SearchResponse(
-        total=total, results=[PartSummary.model_validate(part) for part in results]
-    )
+    stock = _stock_by_part(db, [part.id for part in results])
+    summaries = []
+    for part in results:
+        qty_milli, lot_count, location_count = stock.get(part.id, (0, 0, 0))
+        summaries.append(
+            PartSummary(
+                id=part.id,
+                name=part.name,
+                mpn=part.mpn,
+                description=part.description,
+                is_stub=part.is_stub,
+                category_id=part.category_id,
+                qty_milli=qty_milli,
+                lot_count=lot_count,
+                location_count=location_count,
+            )
+        )
+
+    return SearchResponse(total=total, results=summaries)
 
 
 @router.post("/parts", response_model=SearchResponse)

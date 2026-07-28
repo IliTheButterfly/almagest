@@ -24,12 +24,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from app.api.schemas import PartQueryRequest
 from app.db.session import get_db
 from app.models.catalog import Part, PartCategory
 from app.models.enums import ValueType
 from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
 from app.services.search import query_builder
-from app.services.search.query_builder import Filter, SearchQuery
 
 router = APIRouter(prefix="/api/parameter-templates", tags=["facets"])
 
@@ -80,29 +80,13 @@ class FacetsResponse(BaseModel):
     templates: list[TemplateFacets]
 
 
-class FacetsRequest(BaseModel):
-    """The filters already applied, so counts describe what narrowing is left."""
+class FacetsRequest(PartQueryRequest):
+    """The filters already applied, so counts describe what narrowing is left.
 
-    category: str | None = None
-    text: str | None = None
-    filters: list[dict[str, str]] = Field(default_factory=list)
-    in_stock_only: bool = False
-    include_stubs: bool = True
-
-
-def _base_query(request: FacetsRequest) -> SearchQuery:
-    return SearchQuery(
-        filters=tuple(
-            Filter(spec["template"], spec["value"])
-            for spec in request.filters
-            if spec.get("template") and spec.get("value")
-        ),
-        text=request.text,
-        category_slug=request.category,
-        in_stock_only=request.in_stock_only,
-        include_stubs=request.include_stubs,
-        limit=1,
-    )
+    Inherits every narrowing field rather than listing its own. The version that
+    listed its own omitted `mode` and `part_kind`, so in substitute mode the
+    counts silently described the search-mode set — see `PartQueryRequest`.
+    """
 
 
 def _matching_part_ids(db: Session, request: FacetsRequest) -> Select[tuple[int]]:
@@ -111,7 +95,7 @@ def _matching_part_ids(db: Session, request: FacetsRequest) -> Select[tuple[int]
     Kept as SQL so the three aggregations below stay single round trips instead
     of shipping every matching id back and forth.
     """
-    inner = query_builder.build(db, _base_query(request), for_count=True).subquery()
+    inner = query_builder.build(db, request.to_query(limit=1), for_count=True).subquery()
     return select(inner.c.id)
 
 
