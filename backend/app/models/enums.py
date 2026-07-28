@@ -357,6 +357,28 @@ class ProvisioningDevice(StrEnum):
     MANUAL = "manual"
 
 
+class TagGranularity(StrEnum):
+    """Per-instantiation choice of which new locations get a printed
+    `short_id` (and are therefore taggable) when a container type is
+    instantiated.
+
+    Deliberately a per-call request field, never a property of the type:
+    "tagging only the cabinet and picking the drawer on screen" cuts ~90% of
+    the physical labour and is the right call whenever the pick already
+    involves a screen, but per-drawer tags earn their cost when drawers
+    physically travel to the station — the same cabinet type is legitimately
+    instantiated both ways on different days.
+    """
+
+    #: The container root gets a short_id; its slots stay addressed as
+    #: `parent short_id + slot label` — no drawer-level printed identity.
+    CONTAINER = "container"
+    #: Every generated slot *also* gets its own short_id, on top of the
+    #: container's — a superset of `CONTAINER`, not a replacement for it — so
+    #: each drawer is individually tappable during a later provisioning walk.
+    SLOT = "slot"
+
+
 class TagPocket(StrEnum):
     """Where the NFC tag lives on a printed container.
 

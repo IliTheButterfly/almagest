@@ -12,6 +12,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.api.limits import GridIndex, GridSpan
+from app.models.enums import SizeClass
 from app.models.stock import StockLot
 from app.models.storage import Location
 
@@ -82,3 +84,35 @@ def lot_read(session: Session, lot: StockLot) -> LotRead:
         currency=lot.currency,
         location_label_path=location.label_path if location is not None else None,
     )
+
+
+class SlotSpecIn(BaseModel):
+    """One desired compartment — a base cell, or a merged rectangular region.
+
+    Shared between `PUT /api/container-types/{id}/slot-template` (the type's
+    reusable canvas) and `POST /api/locations/{id}/reapply-layout` (one
+    instance's own copy of it): both are "here is the complete desired
+    layout", and the request shape a merge or a split produces is identical
+    either way.
+    """
+
+    row_idx: GridIndex
+    col_idx: GridIndex
+    row_span: GridSpan = 1
+    col_span: GridSpan = 1
+    #: `None` only makes sense when this cell is exactly what the generator
+    #: would already produce there; a merge or a relabel must name it.
+    slot_label: str | None = Field(default=None, max_length=64)
+    size_class: SizeClass | None = None
+    inner_volume_mm3: float | None = Field(default=None, gt=0)
+
+
+class SlotSpecOut(BaseModel):
+    row_idx: int
+    col_idx: int
+    row_span: int
+    col_span: int
+    slot_label: str
+    size_class: str | None
+    inner_volume_mm3: float | None
+    sort_order: int

@@ -73,12 +73,30 @@ MoneyMicro = Annotated[int, Field(ge=0, le=MONEY_MICRO_MAX)]
 #: A measured mass in milligrams, from the bench scale or a tare.
 MassMg = Annotated[int, Field(ge=0, le=MASS_MG_MAX)]
 
+#: A grid dimension or footprint — rows, cols, a merge's row/col span, a
+#: height in units. Nothing in the layout editor's domain is anywhere near
+#: this large; the bound exists so a typo'd cell count fails as a 422 rather
+#: than as a request to generate that many `container_type_slot_templates` or
+#: `locations` rows in one call.
+GridSpan = Annotated[int, Field(ge=1, le=10_000)]
+
+#: A 0-based row/col position in a grid, so it must admit zero unlike `GridSpan`.
+GridIndex = Annotated[int, Field(ge=0, le=10_000)]
+
+#: How many sibling containers `instantiate` creates in one call. A cabinet
+#: run is tens, not thousands; the bound catches a fat-fingered count before
+#: it tries to materialise that many location trees in one request.
+InstanceCount = Annotated[int, Field(ge=1, le=1_000)]
+
 __all__ = [
     "MASS_MG_MAX",
     "MONEY_MICRO_MAX",
     "QTY_MILLI_MAX",
     "CountMilli",
     "DeltaMilli",
+    "GridIndex",
+    "GridSpan",
+    "InstanceCount",
     "MassMg",
     "MoneyMicro",
     "QtyMilli",

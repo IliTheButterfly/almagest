@@ -96,6 +96,19 @@
         "title": "CandidateRead",
         "type": "object"
       },
+      "CapacityModel": {
+        "description": "Selects a Python capacity strategy class.\n\nThe *model* is data; the *formula* is code. Storing a capacity formula as a\nstring in the database is precisely the over-engineering that made the\nprior art in this space unmaintainable.",
+        "enum": [
+          "none",
+          "slots",
+          "volume",
+          "positions",
+          "mass",
+          "grid_units"
+        ],
+        "title": "CapacityModel",
+        "type": "string"
+      },
       "CapacityRead": {
         "description": "A location's fill state. **Advisory in every case.**\n\nAn over-capacity put-away is accepted and `is_overfull` is raised; nothing\nhere ever blocks a movement, because a scan that gets rejected teaches the\nuser to stop scanning.",
         "properties": {
@@ -194,6 +207,15 @@
         "title": "CategoryNode",
         "type": "object"
       },
+      "ChildLayout": {
+        "enum": [
+          "grid",
+          "list",
+          "none"
+        ],
+        "title": "ChildLayout",
+        "type": "string"
+      },
       "ChoiceFacet": {
         "properties": {
           "count": {
@@ -215,6 +237,1089 @@
           "count"
         ],
         "title": "ChoiceFacet",
+        "type": "object"
+      },
+      "CloneRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to '{source-slug}-copy[-N]'.",
+            "title": "Slug"
+          }
+        },
+        "title": "CloneRequest",
+        "type": "object"
+      },
+      "ContainerTypeCreate": {
+        "properties": {
+          "allowed_part_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Part Kinds"
+          },
+          "capacity_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapacityModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capacity_slots": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Slots"
+          },
+          "child_layout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChildLayout"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "default_fill_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Fill Factor"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esd Safe"
+          },
+          "footprint_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Cols"
+          },
+          "footprint_height_u": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Height U"
+          },
+          "footprint_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Rows"
+          },
+          "front_height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Height Mm"
+          },
+          "front_width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Width Mm"
+          },
+          "full_threshold": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Threshold"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_height_unit_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Height Unit Mm"
+          },
+          "grid_pitch_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Pitch Mm"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "inner_height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Height Mm"
+          },
+          "inner_length_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Length Mm"
+          },
+          "inner_width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Width Mm"
+          },
+          "is_placeable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Placeable"
+          },
+          "max_item_dimension_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Item Dimension Mm"
+          },
+          "max_parts_per_slot": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Parts Per Slot"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotLabelScheme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slug": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "slug"
+        ],
+        "title": "ContainerTypeCreate",
+        "type": "object"
+      },
+      "ContainerTypeCreated": {
+        "properties": {
+          "container_type": {
+            "$ref": "#/components/schemas/ContainerTypeRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "container_type"
+        ],
+        "title": "ContainerTypeCreated",
+        "type": "object"
+      },
+      "ContainerTypeEdited": {
+        "properties": {
+          "cloned": {
+            "title": "Cloned",
+            "type": "boolean"
+          },
+          "container_type": {
+            "$ref": "#/components/schemas/ContainerTypeRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "container_type",
+          "cloned"
+        ],
+        "title": "ContainerTypeEdited",
+        "type": "object"
+      },
+      "ContainerTypeRead": {
+        "properties": {
+          "allowed_part_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Part Kinds"
+          },
+          "capacity_model": {
+            "title": "Capacity Model",
+            "type": "string"
+          },
+          "capacity_slots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Slots"
+          },
+          "child_layout": {
+            "title": "Child Layout",
+            "type": "string"
+          },
+          "default_fill_factor": {
+            "title": "Default Fill Factor",
+            "type": "number"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esd Safe"
+          },
+          "footprint_cols": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Cols"
+          },
+          "footprint_height_u": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Height U"
+          },
+          "footprint_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Rows"
+          },
+          "front_height_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Height Mm"
+          },
+          "front_width_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Width Mm"
+          },
+          "full_threshold": {
+            "title": "Full Threshold",
+            "type": "number"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_height_unit_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Height Unit Mm"
+          },
+          "grid_pitch_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Pitch Mm"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inner_height_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Height Mm"
+          },
+          "inner_length_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Length Mm"
+          },
+          "inner_width_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Width Mm"
+          },
+          "is_placeable": {
+            "title": "Is Placeable",
+            "type": "boolean"
+          },
+          "is_seed": {
+            "title": "Is Seed",
+            "type": "boolean"
+          },
+          "materialize_slots": {
+            "title": "Materialize Slots",
+            "type": "boolean"
+          },
+          "max_item_dimension_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Item Dimension Mm"
+          },
+          "max_parts_per_slot": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Parts Per Slot"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "title": "Slot Label Scheme",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "display_name",
+          "description",
+          "child_layout",
+          "grid_rows",
+          "grid_cols",
+          "grid_pitch_mm",
+          "grid_height_unit_mm",
+          "footprint_cols",
+          "footprint_rows",
+          "footprint_height_u",
+          "slot_label_scheme",
+          "slot_label_params",
+          "materialize_slots",
+          "capacity_model",
+          "capacity_slots",
+          "max_parts_per_slot",
+          "inner_length_mm",
+          "inner_width_mm",
+          "inner_height_mm",
+          "default_fill_factor",
+          "full_threshold",
+          "esd_safe",
+          "is_placeable",
+          "max_item_dimension_mm",
+          "allowed_part_kinds",
+          "front_width_mm",
+          "front_height_mm",
+          "is_seed"
+        ],
+        "title": "ContainerTypeRead",
+        "type": "object"
+      },
+      "ContainerTypeUpdate": {
+        "properties": {
+          "allowed_part_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Part Kinds"
+          },
+          "capacity_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapacityModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capacity_slots": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Slots"
+          },
+          "child_layout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChildLayout"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "default_fill_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Fill Factor"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esd Safe"
+          },
+          "footprint_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Cols"
+          },
+          "footprint_height_u": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Height U"
+          },
+          "footprint_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Rows"
+          },
+          "front_height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Height Mm"
+          },
+          "front_width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Width Mm"
+          },
+          "full_threshold": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Threshold"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_height_unit_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Height Unit Mm"
+          },
+          "grid_pitch_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Pitch Mm"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "inner_height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Height Mm"
+          },
+          "inner_length_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Length Mm"
+          },
+          "inner_width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Width Mm"
+          },
+          "is_placeable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Placeable"
+          },
+          "max_item_dimension_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Item Dimension Mm"
+          },
+          "max_parts_per_slot": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Parts Per Slot"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotLabelScheme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ContainerTypeUpdate",
         "type": "object"
       },
       "EmptyBinRequest": {
@@ -457,6 +1562,133 @@
           "schema_revision"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "InstantiateRequest": {
+        "description": "\"Give me N of these\" \u2014 the bulk-provisioning entry point.\n\nInstances **own their own copy** of the type's layout from this moment on;\nnothing here links back to `container_type_id` afterwards (docs/PLAN.md,\n\"Layout authoring\").",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "container_type_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "count": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "naming_pattern": {
+            "description": "'{n}' is replaced with the 1-based index; a count > 1 with no '{n}' gets ' {n}' appended so instances stay distinguishable.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Naming Pattern",
+            "type": "string"
+          },
+          "tag_granularity": {
+            "$ref": "#/components/schemas/TagGranularity",
+            "default": "container",
+            "description": "Which new locations get a printed short_id: only the container roots, or every generated slot too."
+          }
+        },
+        "required": [
+          "container_type_id",
+          "naming_pattern"
+        ],
+        "title": "InstantiateRequest",
+        "type": "object"
+      },
+      "InstantiateResponse": {
+        "properties": {
+          "locations": {
+            "items": {
+              "$ref": "#/components/schemas/LocationRead"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "locations"
+        ],
+        "title": "InstantiateResponse",
+        "type": "object"
+      },
+      "LayoutRead": {
+        "properties": {
+          "container_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Type Id"
+          },
+          "grid_cols": {
+            "title": "Grid Cols",
+            "type": "integer"
+          },
+          "grid_rows": {
+            "title": "Grid Rows",
+            "type": "integer"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotStateRead"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "location_id",
+          "container_type_id",
+          "grid_rows",
+          "grid_cols",
+          "slots"
+        ],
+        "title": "LayoutRead",
         "type": "object"
       },
       "LedgerEntry": {
@@ -2337,6 +3569,80 @@
         "title": "QuantityRequest",
         "type": "object"
       },
+      "ReapplyLayoutRequest": {
+        "description": "The complete desired layout for this location's own children \u2014 never a\ndelta. See `app.services.layout_authoring.diff_instance_layout` for how a\nslot surviving, being deleted, or being refused outright is decided.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotSpecIn"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "slots"
+        ],
+        "title": "ReapplyLayoutRequest",
+        "type": "object"
+      },
+      "ReapplyLayoutResponse": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/LayoutRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "updated",
+          "deleted",
+          "layout"
+        ],
+        "title": "ReapplyLayoutResponse",
+        "type": "object"
+      },
       "ReceiveRequest": {
         "properties": {
           "batch_code": {
@@ -3273,6 +4579,440 @@
         "title": "SearchResponse",
         "type": "object"
       },
+      "SizeClass": {
+        "description": "Last resort in the item-dimension cascade.",
+        "enum": [
+          "tiny",
+          "small",
+          "medium",
+          "large",
+          "bulky"
+        ],
+        "title": "SizeClass",
+        "type": "string"
+      },
+      "SlotLabelScheme": {
+        "enum": [
+          "row_alpha_col_num",
+          "sequential",
+          "custom"
+        ],
+        "title": "SlotLabelScheme",
+        "type": "string"
+      },
+      "SlotSpecIn": {
+        "description": "One desired compartment \u2014 a base cell, or a merged rectangular region.\n\nShared between `PUT /api/container-types/{id}/slot-template` (the type's\nreusable canvas) and `POST /api/locations/{id}/reapply-layout` (one\ninstance's own copy of it): both are \"here is the complete desired\nlayout\", and the request shape a merge or a split produces is identical\neither way.",
+        "properties": {
+          "col_idx": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Col Idx",
+            "type": "integer"
+          },
+          "col_span": {
+            "default": 1,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Col Span",
+            "type": "integer"
+          },
+          "inner_volume_mm3": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Volume Mm3"
+          },
+          "row_idx": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Row Idx",
+            "type": "integer"
+          },
+          "row_span": {
+            "default": 1,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Row Span",
+            "type": "integer"
+          },
+          "size_class": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SizeClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          }
+        },
+        "required": [
+          "row_idx",
+          "col_idx"
+        ],
+        "title": "SlotSpecIn",
+        "type": "object"
+      },
+      "SlotSpecOut": {
+        "properties": {
+          "col_idx": {
+            "title": "Col Idx",
+            "type": "integer"
+          },
+          "col_span": {
+            "title": "Col Span",
+            "type": "integer"
+          },
+          "inner_volume_mm3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Volume Mm3"
+          },
+          "row_idx": {
+            "title": "Row Idx",
+            "type": "integer"
+          },
+          "row_span": {
+            "title": "Row Span",
+            "type": "integer"
+          },
+          "size_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Class"
+          },
+          "slot_label": {
+            "title": "Slot Label",
+            "type": "string"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "row_idx",
+          "col_idx",
+          "row_span",
+          "col_span",
+          "slot_label",
+          "size_class",
+          "inner_volume_mm3",
+          "sort_order"
+        ],
+        "title": "SlotSpecOut",
+        "type": "object"
+      },
+      "SlotStateRead": {
+        "description": "One slot's current physical state \u2014 the grid cell plus whatever is\nbound or stocked there. Shared by the editor, the provisioning walk and\nthe verification walk, per `docs/PLAN.md`.",
+        "properties": {
+          "col_idx": {
+            "title": "Col Idx",
+            "type": "integer"
+          },
+          "col_span": {
+            "title": "Col Span",
+            "type": "integer"
+          },
+          "has_tag": {
+            "title": "Has Tag",
+            "type": "boolean"
+          },
+          "inner_volume_mm3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Volume Mm3"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "lot_count": {
+            "title": "Lot Count",
+            "type": "integer"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "row_idx": {
+            "title": "Row Idx",
+            "type": "integer"
+          },
+          "row_span": {
+            "title": "Row Span",
+            "type": "integer"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "size_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Class"
+          },
+          "slot_label": {
+            "title": "Slot Label",
+            "type": "string"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "slot_label",
+          "row_idx",
+          "col_idx",
+          "row_span",
+          "col_span",
+          "size_class",
+          "inner_volume_mm3",
+          "sort_order",
+          "short_id",
+          "has_tag",
+          "lot_count",
+          "qty_milli"
+        ],
+        "title": "SlotStateRead",
+        "type": "object"
+      },
+      "SlotTemplateRead": {
+        "properties": {
+          "container_type_id": {
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "materialize_slots": {
+            "title": "Materialize Slots",
+            "type": "boolean"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "title": "Slot Label Scheme",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotSpecOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "container_type_id",
+          "materialize_slots",
+          "grid_rows",
+          "grid_cols",
+          "slot_label_scheme",
+          "slot_label_params",
+          "slots"
+        ],
+        "title": "SlotTemplateRead",
+        "type": "object"
+      },
+      "SlotTemplateWrite": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotLabelScheme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotSpecIn"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "title": "SlotTemplateWrite",
+        "type": "object"
+      },
+      "SlotTemplateWritten": {
+        "properties": {
+          "cloned": {
+            "title": "Cloned",
+            "type": "boolean"
+          },
+          "container_type_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "template": {
+            "$ref": "#/components/schemas/SlotTemplateRead"
+          }
+        },
+        "required": [
+          "template",
+          "cloned",
+          "container_type_id"
+        ],
+        "title": "SlotTemplateWritten",
+        "type": "object"
+      },
       "SuggestRequest": {
         "properties": {
           "client_op_id": {
@@ -3388,6 +5128,15 @@
         ],
         "title": "SuggestResponse",
         "type": "object"
+      },
+      "TagGranularity": {
+        "description": "Per-instantiation choice of which new locations get a printed\n`short_id` (and are therefore taggable) when a container type is\ninstantiated.\n\nDeliberately a per-call request field, never a property of the type:\n\"tagging only the cabinet and picking the drawer on screen\" cuts ~90% of\nthe physical labour and is the right call whenever the pick already\ninvolves a screen, but per-drawer tags earn their cost when drawers\nphysically travel to the station \u2014 the same cabinet type is legitimately\ninstantiated both ways on different days.",
+        "enum": [
+          "container",
+          "slot"
+        ],
+        "title": "TagGranularity",
+        "type": "string"
       },
       "TemplateFacets": {
         "properties": {
@@ -3623,6 +5372,348 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/container-types": {
+      "get": {
+        "operationId": "list_container_types",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "is_seed",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Seed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContainerTypeRead"
+                  },
+                  "title": "Response List Container Types",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Container Types",
+        "tags": [
+          "container-types"
+        ]
+      },
+      "post": {
+        "operationId": "create_container_type",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContainerTypeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Container Type",
+        "tags": [
+          "container-types"
+        ]
+      }
+    },
+    "/api/container-types/{container_type_id}": {
+      "get": {
+        "operationId": "read_container_type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Container Type",
+        "tags": [
+          "container-types"
+        ]
+      },
+      "patch": {
+        "description": "Edit a type. A seed is read-only, so editing one clones it first \u2014\nsee the module docstring for why this, unlike `PartUpdate`, needs the\nidempotency guard.",
+        "operationId": "update_container_type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContainerTypeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeEdited"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Container Type",
+        "tags": [
+          "container-types"
+        ]
+      }
+    },
+    "/api/container-types/{container_type_id}/clone": {
+      "post": {
+        "description": "\"This cabinet is identical to that one\" \u2014 the explicit form of clone,\nwith no edit attached. Works on any type, seed or not.",
+        "operationId": "clone_container_type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clone Container Type",
+        "tags": [
+          "container-types"
+        ]
+      }
+    },
+    "/api/container-types/{container_type_id}/slot-template": {
+      "get": {
+        "description": "The type's effective layout \u2014 generated or materialised, indistinguishably.",
+        "operationId": "read_slot_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotTemplateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Slot Template",
+        "tags": [
+          "container-types"
+        ]
+      },
+      "put": {
+        "description": "Save the canvas. A seed clones first (see the module docstring); the\ngrid then materialises **unless** `slots` is exactly what the generator\nwould already produce for the (possibly just-updated) canvas size/scheme,\nin which case nothing is written at all.",
+        "operationId": "write_slot_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotTemplateWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotTemplateWritten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Write Slot Template",
+        "tags": [
+          "container-types"
+        ]
+      }
+    },
     "/api/locations": {
       "post": {
         "description": "Add a container to the tree.\n\nThe path cache is rebuilt immediately (`TreeRepository.insert_and_index`), so\nthe new row comes back with a correct `label_path` rather than one that is\nright after the next nightly job.",
@@ -3797,6 +5888,161 @@
           }
         },
         "summary": "Read Location",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/instantiate": {
+      "post": {
+        "description": "Bulk-create `count` instances of a container type under this location.\n\nEach instance materialises the type's *current* layout into its own child\n`locations` \u2014 never a live link back to the type, which is what keeps\nediting the type afterwards from touching anything created here.",
+        "operationId": "instantiate_containers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstantiateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstantiateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Instantiate Containers",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/layout": {
+      "get": {
+        "description": "Grid + tag + contents state for one location's own children \u2014 shared by\nthe editor, the provisioning walk and the verification walk.",
+        "operationId": "read_location_layout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Location Layout",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/reapply-layout": {
+      "post": {
+        "description": "Edit an already-instantiated location's own layout, through the change\nguard.\n\nSafe edits (relabel, size-class/volume, a scheme change that doesn't move\na cell) apply outright. A slot that the new layout would delete but that\nstill holds stock or a bound tag comes back as 409 with the full list of\naffected slots. Reusing an existing slot's label at a different grid\nposition is refused outright (422) \u2014 see\n`app.services.layout_authoring.diff_instance_layout`.",
+        "operationId": "reapply_layout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReapplyLayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReapplyLayoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reapply Layout",
         "tags": [
           "locations"
         ]

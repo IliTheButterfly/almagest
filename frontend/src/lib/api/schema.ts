@@ -4,6 +4,95 @@
  */
 
 export interface paths {
+    "/api/container-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Container Types */
+        get: operations["list_container_types"];
+        put?: never;
+        /** Create Container Type */
+        post: operations["create_container_type"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/container-types/{container_type_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Container Type */
+        get: operations["read_container_type"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Container Type
+         * @description Edit a type. A seed is read-only, so editing one clones it first —
+         *     see the module docstring for why this, unlike `PartUpdate`, needs the
+         *     idempotency guard.
+         */
+        patch: operations["update_container_type"];
+        trace?: never;
+    };
+    "/api/container-types/{container_type_id}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clone Container Type
+         * @description "This cabinet is identical to that one" — the explicit form of clone,
+         *     with no edit attached. Works on any type, seed or not.
+         */
+        post: operations["clone_container_type"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/container-types/{container_type_id}/slot-template": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Slot Template
+         * @description The type's effective layout — generated or materialised, indistinguishably.
+         */
+        get: operations["read_slot_template"];
+        /**
+         * Write Slot Template
+         * @description Save the canvas. A seed clones first (see the module docstring); the
+         *     grid then materialises **unless** `slots` is exactly what the generator
+         *     would already produce for the (possibly just-updated) canvas size/scheme,
+         *     in which case nothing is written at all.
+         */
+        put: operations["write_slot_template"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/locations": {
         parameters: {
             query?: never;
@@ -95,6 +184,79 @@ export interface paths {
         get: operations["read_location"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/instantiate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Instantiate Containers
+         * @description Bulk-create `count` instances of a container type under this location.
+         *
+         *     Each instance materialises the type's *current* layout into its own child
+         *     `locations` — never a live link back to the type, which is what keeps
+         *     editing the type afterwards from touching anything created here.
+         */
+        post: operations["instantiate_containers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Location Layout
+         * @description Grid + tag + contents state for one location's own children — shared by
+         *     the editor, the provisioning walk and the verification walk.
+         */
+        get: operations["read_location_layout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/reapply-layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reapply Layout
+         * @description Edit an already-instantiated location's own layout, through the change
+         *     guard.
+         *
+         *     Safe edits (relabel, size-class/volume, a scheme change that doesn't move
+         *     a cell) apply outright. A slot that the new layout would delete but that
+         *     still holds stock or a bound tag comes back as 409 with the full list of
+         *     affected slots. Reusing an existing slot's label at a different grid
+         *     position is refused outright (422) — see
+         *     `app.services.layout_authoring.diff_instance_layout`.
+         */
+        post: operations["reapply_layout"];
         delete?: never;
         options?: never;
         head?: never;
@@ -573,6 +735,16 @@ export interface components {
             score: number;
         };
         /**
+         * CapacityModel
+         * @description Selects a Python capacity strategy class.
+         *
+         *     The *model* is data; the *formula* is code. Storing a capacity formula as a
+         *     string in the database is precisely the over-engineering that made the
+         *     prior art in this space unmaintainable.
+         * @enum {string}
+         */
+        CapacityModel: "none" | "slots" | "volume" | "positions" | "mass" | "grid_units";
+        /**
          * CapacityRead
          * @description A location's fill state. **Advisory in every case.**
          *
@@ -609,6 +781,11 @@ export interface components {
             /** Slug */
             slug: string;
         };
+        /**
+         * ChildLayout
+         * @enum {string}
+         */
+        ChildLayout: "grid" | "list" | "none";
         /** ChoiceFacet */
         ChoiceFacet: {
             /** Count */
@@ -617,6 +794,225 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+        };
+        /** CloneRequest */
+        CloneRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Slug
+             * @description Defaults to '{source-slug}-copy[-N]'.
+             */
+            slug?: string | null;
+        };
+        /** ContainerTypeCreate */
+        ContainerTypeCreate: {
+            /** Allowed Part Kinds */
+            allowed_part_kinds?: string[] | null;
+            capacity_model?: components["schemas"]["CapacityModel"] | null;
+            /** Capacity Slots */
+            capacity_slots?: number | null;
+            child_layout?: components["schemas"]["ChildLayout"] | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Default Fill Factor */
+            default_fill_factor?: number | null;
+            /** Description */
+            description?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Esd Safe */
+            esd_safe?: boolean | null;
+            /** Footprint Cols */
+            footprint_cols?: number | null;
+            /** Footprint Height U */
+            footprint_height_u?: number | null;
+            /** Footprint Rows */
+            footprint_rows?: number | null;
+            /** Front Height Mm */
+            front_height_mm?: number | null;
+            /** Front Width Mm */
+            front_width_mm?: number | null;
+            /** Full Threshold */
+            full_threshold?: number | null;
+            /** Grid Cols */
+            grid_cols?: number | null;
+            /** Grid Height Unit Mm */
+            grid_height_unit_mm?: number | null;
+            /** Grid Pitch Mm */
+            grid_pitch_mm?: number | null;
+            /** Grid Rows */
+            grid_rows?: number | null;
+            /** Inner Height Mm */
+            inner_height_mm?: number | null;
+            /** Inner Length Mm */
+            inner_length_mm?: number | null;
+            /** Inner Width Mm */
+            inner_width_mm?: number | null;
+            /** Is Placeable */
+            is_placeable?: boolean | null;
+            /** Max Item Dimension Mm */
+            max_item_dimension_mm?: number | null;
+            /** Max Parts Per Slot */
+            max_parts_per_slot?: number | null;
+            /** Slot Label Params */
+            slot_label_params?: {
+                [key: string]: unknown;
+            } | null;
+            slot_label_scheme?: components["schemas"]["SlotLabelScheme"] | null;
+            /** Slug */
+            slug: string;
+        };
+        /** ContainerTypeCreated */
+        ContainerTypeCreated: {
+            container_type: components["schemas"]["ContainerTypeRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** ContainerTypeEdited */
+        ContainerTypeEdited: {
+            /** Cloned */
+            cloned: boolean;
+            container_type: components["schemas"]["ContainerTypeRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** ContainerTypeRead */
+        ContainerTypeRead: {
+            /** Allowed Part Kinds */
+            allowed_part_kinds: string[] | null;
+            /** Capacity Model */
+            capacity_model: string;
+            /** Capacity Slots */
+            capacity_slots: number | null;
+            /** Child Layout */
+            child_layout: string;
+            /** Default Fill Factor */
+            default_fill_factor: number;
+            /** Description */
+            description: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Esd Safe */
+            esd_safe: boolean | null;
+            /** Footprint Cols */
+            footprint_cols: number | null;
+            /** Footprint Height U */
+            footprint_height_u: number | null;
+            /** Footprint Rows */
+            footprint_rows: number | null;
+            /** Front Height Mm */
+            front_height_mm: number | null;
+            /** Front Width Mm */
+            front_width_mm: number | null;
+            /** Full Threshold */
+            full_threshold: number;
+            /** Grid Cols */
+            grid_cols: number | null;
+            /** Grid Height Unit Mm */
+            grid_height_unit_mm: number | null;
+            /** Grid Pitch Mm */
+            grid_pitch_mm: number | null;
+            /** Grid Rows */
+            grid_rows: number | null;
+            /** Id */
+            id: number;
+            /** Inner Height Mm */
+            inner_height_mm: number | null;
+            /** Inner Length Mm */
+            inner_length_mm: number | null;
+            /** Inner Width Mm */
+            inner_width_mm: number | null;
+            /** Is Placeable */
+            is_placeable: boolean;
+            /** Is Seed */
+            is_seed: boolean;
+            /** Materialize Slots */
+            materialize_slots: boolean;
+            /** Max Item Dimension Mm */
+            max_item_dimension_mm: number | null;
+            /** Max Parts Per Slot */
+            max_parts_per_slot: number | null;
+            /** Slot Label Params */
+            slot_label_params: {
+                [key: string]: unknown;
+            } | null;
+            /** Slot Label Scheme */
+            slot_label_scheme: string;
+            /** Slug */
+            slug: string;
+        };
+        /** ContainerTypeUpdate */
+        ContainerTypeUpdate: {
+            /** Allowed Part Kinds */
+            allowed_part_kinds?: string[] | null;
+            capacity_model?: components["schemas"]["CapacityModel"] | null;
+            /** Capacity Slots */
+            capacity_slots?: number | null;
+            child_layout?: components["schemas"]["ChildLayout"] | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Default Fill Factor */
+            default_fill_factor?: number | null;
+            /** Description */
+            description?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Esd Safe */
+            esd_safe?: boolean | null;
+            /** Footprint Cols */
+            footprint_cols?: number | null;
+            /** Footprint Height U */
+            footprint_height_u?: number | null;
+            /** Footprint Rows */
+            footprint_rows?: number | null;
+            /** Front Height Mm */
+            front_height_mm?: number | null;
+            /** Front Width Mm */
+            front_width_mm?: number | null;
+            /** Full Threshold */
+            full_threshold?: number | null;
+            /** Grid Cols */
+            grid_cols?: number | null;
+            /** Grid Height Unit Mm */
+            grid_height_unit_mm?: number | null;
+            /** Grid Pitch Mm */
+            grid_pitch_mm?: number | null;
+            /** Grid Rows */
+            grid_rows?: number | null;
+            /** Inner Height Mm */
+            inner_height_mm?: number | null;
+            /** Inner Length Mm */
+            inner_length_mm?: number | null;
+            /** Inner Width Mm */
+            inner_width_mm?: number | null;
+            /** Is Placeable */
+            is_placeable?: boolean | null;
+            /** Max Item Dimension Mm */
+            max_item_dimension_mm?: number | null;
+            /** Max Parts Per Slot */
+            max_parts_per_slot?: number | null;
+            /** Slot Label Params */
+            slot_label_params?: {
+                [key: string]: unknown;
+            } | null;
+            slot_label_scheme?: components["schemas"]["SlotLabelScheme"] | null;
         };
         /** EmptyBinRequest */
         EmptyBinRequest: {
@@ -718,6 +1114,61 @@ export interface components {
             status: string;
             /** Version */
             version: string;
+        };
+        /**
+         * InstantiateRequest
+         * @description "Give me N of these" — the bulk-provisioning entry point.
+         *
+         *     Instances **own their own copy** of the type's layout from this moment on;
+         *     nothing here links back to `container_type_id` afterwards (docs/PLAN.md,
+         *     "Layout authoring").
+         */
+        InstantiateRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Container Type Id */
+            container_type_id: number;
+            /**
+             * Count
+             * @default 1
+             */
+            count?: number;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Naming Pattern
+             * @description '{n}' is replaced with the 1-based index; a count > 1 with no '{n}' gets ' {n}' appended so instances stay distinguishable.
+             */
+            naming_pattern: string;
+            /**
+             * @description Which new locations get a printed short_id: only the container roots, or every generated slot too.
+             * @default container
+             */
+            tag_granularity?: components["schemas"]["TagGranularity"];
+        };
+        /** InstantiateResponse */
+        InstantiateResponse: {
+            /** Locations */
+            locations: components["schemas"]["LocationRead"][];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** LayoutRead */
+        LayoutRead: {
+            /** Container Type Id */
+            container_type_id: number | null;
+            /** Grid Cols */
+            grid_cols: number;
+            /** Grid Rows */
+            grid_rows: number;
+            /** Location Id */
+            location_id: number;
+            /** Slots */
+            slots: components["schemas"]["SlotStateRead"][];
         };
         /** LedgerEntry */
         LedgerEntry: {
@@ -1214,6 +1665,36 @@ export interface components {
             /** @default manual */
             source?: components["schemas"]["LedgerSource"];
         };
+        /**
+         * ReapplyLayoutRequest
+         * @description The complete desired layout for this location's own children — never a
+         *     delta. See `app.services.layout_authoring.diff_instance_layout` for how a
+         *     slot surviving, being deleted, or being refused outright is decided.
+         */
+        ReapplyLayoutRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Slots */
+            slots: components["schemas"]["SlotSpecIn"][];
+        };
+        /** ReapplyLayoutResponse */
+        ReapplyLayoutResponse: {
+            /** Created */
+            created: number;
+            /** Deleted */
+            deleted: number;
+            layout: components["schemas"]["LayoutRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Updated */
+            updated: number;
+        };
         /** ReceiveRequest */
         ReceiveRequest: {
             /** Batch Code */
@@ -1521,6 +2002,152 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * SizeClass
+         * @description Last resort in the item-dimension cascade.
+         * @enum {string}
+         */
+        SizeClass: "tiny" | "small" | "medium" | "large" | "bulky";
+        /**
+         * SlotLabelScheme
+         * @enum {string}
+         */
+        SlotLabelScheme: "row_alpha_col_num" | "sequential" | "custom";
+        /**
+         * SlotSpecIn
+         * @description One desired compartment — a base cell, or a merged rectangular region.
+         *
+         *     Shared between `PUT /api/container-types/{id}/slot-template` (the type's
+         *     reusable canvas) and `POST /api/locations/{id}/reapply-layout` (one
+         *     instance's own copy of it): both are "here is the complete desired
+         *     layout", and the request shape a merge or a split produces is identical
+         *     either way.
+         */
+        SlotSpecIn: {
+            /** Col Idx */
+            col_idx: number;
+            /**
+             * Col Span
+             * @default 1
+             */
+            col_span?: number;
+            /** Inner Volume Mm3 */
+            inner_volume_mm3?: number | null;
+            /** Row Idx */
+            row_idx: number;
+            /**
+             * Row Span
+             * @default 1
+             */
+            row_span?: number;
+            size_class?: components["schemas"]["SizeClass"] | null;
+            /** Slot Label */
+            slot_label?: string | null;
+        };
+        /** SlotSpecOut */
+        SlotSpecOut: {
+            /** Col Idx */
+            col_idx: number;
+            /** Col Span */
+            col_span: number;
+            /** Inner Volume Mm3 */
+            inner_volume_mm3: number | null;
+            /** Row Idx */
+            row_idx: number;
+            /** Row Span */
+            row_span: number;
+            /** Size Class */
+            size_class: string | null;
+            /** Slot Label */
+            slot_label: string;
+            /** Sort Order */
+            sort_order: number;
+        };
+        /**
+         * SlotStateRead
+         * @description One slot's current physical state — the grid cell plus whatever is
+         *     bound or stocked there. Shared by the editor, the provisioning walk and
+         *     the verification walk, per `docs/PLAN.md`.
+         */
+        SlotStateRead: {
+            /** Col Idx */
+            col_idx: number;
+            /** Col Span */
+            col_span: number;
+            /** Has Tag */
+            has_tag: boolean;
+            /** Inner Volume Mm3 */
+            inner_volume_mm3: number | null;
+            /** Location Id */
+            location_id: number;
+            /** Lot Count */
+            lot_count: number;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Row Idx */
+            row_idx: number;
+            /** Row Span */
+            row_span: number;
+            /** Short Id */
+            short_id: string | null;
+            /** Size Class */
+            size_class: string | null;
+            /** Slot Label */
+            slot_label: string;
+            /** Sort Order */
+            sort_order: number;
+        };
+        /** SlotTemplateRead */
+        SlotTemplateRead: {
+            /** Container Type Id */
+            container_type_id: number;
+            /** Grid Cols */
+            grid_cols: number | null;
+            /** Grid Rows */
+            grid_rows: number | null;
+            /** Materialize Slots */
+            materialize_slots: boolean;
+            /** Slot Label Params */
+            slot_label_params: {
+                [key: string]: unknown;
+            } | null;
+            /** Slot Label Scheme */
+            slot_label_scheme: string;
+            /** Slots */
+            slots: components["schemas"]["SlotSpecOut"][];
+        };
+        /** SlotTemplateWrite */
+        SlotTemplateWrite: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Grid Cols */
+            grid_cols?: number | null;
+            /** Grid Rows */
+            grid_rows?: number | null;
+            /** Slot Label Params */
+            slot_label_params?: {
+                [key: string]: unknown;
+            } | null;
+            slot_label_scheme?: components["schemas"]["SlotLabelScheme"] | null;
+            /** Slots */
+            slots?: components["schemas"]["SlotSpecIn"][];
+        };
+        /** SlotTemplateWritten */
+        SlotTemplateWritten: {
+            /** Cloned */
+            cloned: boolean;
+            /** Container Type Id */
+            container_type_id: number;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            template: components["schemas"]["SlotTemplateRead"];
+        };
         /** SuggestRequest */
         SuggestRequest: {
             /** Client Op Id */
@@ -1566,6 +2193,21 @@ export interface components {
              */
             replayed?: boolean;
         };
+        /**
+         * TagGranularity
+         * @description Per-instantiation choice of which new locations get a printed
+         *     `short_id` (and are therefore taggable) when a container type is
+         *     instantiated.
+         *
+         *     Deliberately a per-call request field, never a property of the type:
+         *     "tagging only the cabinet and picking the drawer on screen" cuts ~90% of
+         *     the physical labour and is the right call whenever the pick already
+         *     involves a screen, but per-drawer tags earn their cost when drawers
+         *     physically travel to the station — the same cabinet type is legitimately
+         *     instantiated both ways on different days.
+         * @enum {string}
+         */
+        TagGranularity: "container" | "slot";
         /** TemplateFacets */
         TemplateFacets: {
             /** Base Unit */
@@ -1650,6 +2292,237 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_container_types: {
+        parameters: {
+            query?: {
+                is_seed?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerTypeRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_container_type: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContainerTypeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerTypeCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_container_type: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                container_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerTypeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_container_type: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                container_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContainerTypeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerTypeEdited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clone_container_type: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                container_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloneRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerTypeCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_slot_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                container_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlotTemplateRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_slot_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                container_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlotTemplateWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlotTemplateWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_location: {
         parameters: {
             query?: never;
@@ -1765,6 +2638,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    instantiate_containers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstantiateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstantiateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_location_layout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reapply_layout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReapplyLayoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReapplyLayoutResponse"];
                 };
             };
             /** @description Validation Error */

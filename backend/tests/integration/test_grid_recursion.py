@@ -279,7 +279,10 @@ def test_a_non_grid_container_is_never_incompatible(db: Session) -> None:
     using slot templates. Gridfinity is the reference case, not a privileged
     one — non-grid storage must not acquire a new failure mode."""
     irregular = ContainerType(
-        slug="akro-mils-10144",
+        # Not the real seeded "akro-mils-10144" (docs/PLAN.md's layout-authoring
+        # seed library) — this fixture only needs *an* irregular, non-grid type,
+        # and reusing that slug would collide with the seed row.
+        slug="irregular-cabinet-fixture",
         display_name="Akro-Mils 10144",
         child_layout=ChildLayout.LIST,
         capacity_model=CapacityModel.SLOTS,

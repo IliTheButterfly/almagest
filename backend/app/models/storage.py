@@ -188,6 +188,19 @@ class Location(Base, TreeMixin, TimestampMixin):
     slot_label: Mapped[str | None] = mapped_column(String(64))
     row_idx: Mapped[int | None] = mapped_column(Integer)
     col_idx: Mapped[int | None] = mapped_column(Integer)
+    #: Footprint within the parent's slot canvas, in base cells. 1x1 for an
+    #: ordinary slot; >1 for a merged region. Mirrors
+    #: `container_type_slot_templates.row_span/col_span` because an instance
+    #: needs the identical fact once it owns its own copy of the layout — the
+    #: layout-editor change guard has to know a location's *region* to tell a
+    #: safe relabel from a merge that would swallow a neighbour's stock.
+    row_span: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    col_span: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    #: Per-slot authoring metadata, editable independently of the container
+    #: type once an instance owns its own copy — the layout change guard treats
+    #: both as always-safe edits regardless of what the slot holds.
+    size_class: Mapped[str | None] = mapped_column(StrEnumType(SizeClass))
+    inner_volume_mm3: Mapped[float | None] = mapped_column(Float)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     #: Per-instance overrides of the container type's defaults. NULL means
