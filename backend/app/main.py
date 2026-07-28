@@ -16,6 +16,7 @@ from app import __version__
 from app.api.routes import (
     container_types,
     facets,
+    intake,
     labels,
     location_tags,
     locations,
@@ -55,6 +56,9 @@ def create_app() -> FastAPI:
     app.include_router(search.router)
     app.include_router(resolve.router)
     app.include_router(scan.router)
+    # Next to scan because it is the same workflow: a payload the resolver
+    # returned is parked here, and the desk pass reads it back.
+    app.include_router(intake.router)
     app.include_router(parts.router)
     app.include_router(container_types.router)
     app.include_router(locations.router)

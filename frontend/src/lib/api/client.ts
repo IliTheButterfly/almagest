@@ -70,6 +70,11 @@ export type SuggestRequest = Schemas["SuggestRequest"];
 export type SuggestResponse = Schemas["SuggestResponse"];
 export type ShortIdRequest = Schemas["ShortIdRequest"];
 export type ShortIdResponse = Schemas["ShortIdResponse"];
+export type PendingIntakeIn = Schemas["PendingIntakeIn"];
+export type PendingIntakeRead = Schemas["PendingIntakeRead"];
+export type PendingIntakeCreated = Schemas["PendingIntakeCreated"];
+export type PendingIntakeList = Schemas["PendingIntakeList"];
+export type PendingIntakeStatus = Schemas["PendingIntakeStatus"];
 
 export type LotRead = Schemas["LotRead"];
 export type LedgerEntry = Schemas["LedgerEntry"];
@@ -279,6 +284,84 @@ export async function assignLocationShortId(
   });
   if (error !== undefined) {
     fail("could not assign that printed id", error, response);
+  }
+  return data;
+}
+
+// ---------------------------------------------------------------- intake ----
+
+/**
+ * Park a scan on the server.
+ *
+ * Idempotent on `client_op_id`, which the scan minted before this call, so a
+ * retry after a lost response returns the same entry with `already_queued: true`
+ * rather than duplicating it. That is the normal case at a shelf with bad wifi,
+ * not an edge case — which is what makes re-sending a whole synced queue safe.
+ */
+export async function parkScan(request: PendingIntakeIn): Promise<PendingIntakeCreated> {
+  const { data, error, response } = await api.POST("/api/intake/pending", { body: request });
+  if (error !== undefined) {
+    fail("could not park that scan", error, response);
+  }
+  return data;
+}
+
+/** The worklist by default; pass every status for the full history. */
+export async function listPendingIntake(
+  options: { status?: PendingIntakeStatus[]; deviceId?: string; limit?: number } = {},
+): Promise<PendingIntakeList> {
+  const { data, error, response } = await api.GET("/api/intake/pending", {
+    params: {
+      query: {
+        ...(options.status === undefined ? {} : { status: options.status }),
+        ...(options.deviceId === undefined ? {} : { device_id: options.deviceId }),
+        ...(options.limit === undefined ? {} : { limit: options.limit }),
+      },
+    },
+  });
+  if (error !== undefined) {
+    fail("could not load the intake queue", error, response);
+  }
+  return data;
+}
+
+/** Mark an entry dealt with. Records the outcome; it does not perform it. */
+export async function resolvePendingIntake(
+  entryId: number,
+  request: { resolved_part_id?: number | null; note?: string | null } = {},
+): Promise<PendingIntakeRead> {
+  const { data, error, response } = await api.POST("/api/intake/pending/{entry_id}/resolve", {
+    params: { path: { entry_id: entryId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not resolve that entry", error, response);
+  }
+  return data;
+}
+
+/** Not a real intake: a duplicate scan, a shipping label, someone else's box. */
+export async function dismissPendingIntake(
+  entryId: number,
+  request: { note?: string | null } = {},
+): Promise<PendingIntakeRead> {
+  const { data, error, response } = await api.POST("/api/intake/pending/{entry_id}/dismiss", {
+    params: { path: { entry_id: entryId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not dismiss that entry", error, response);
+  }
+  return data;
+}
+
+/** Undo a wrong resolve or dismiss — a status change, not a compensating row. */
+export async function reopenPendingIntake(entryId: number): Promise<PendingIntakeRead> {
+  const { data, error, response } = await api.POST("/api/intake/pending/{entry_id}/reopen", {
+    params: { path: { entry_id: entryId } },
+  });
+  if (error !== undefined) {
+    fail("could not reopen that entry", error, response);
   }
   return data;
 }

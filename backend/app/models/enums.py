@@ -446,3 +446,25 @@ class TagPocket(StrEnum):
     FRONT = "front"
     INSIDE = "inside"
     NONE = "none"
+
+
+class PendingIntakeStatus(StrEnum):
+    """Where a parked scan is in the intake worklist.
+
+    Resolved and dismissed rows are **kept, not deleted**. The raw payload is
+    the asset — a vendor format nobody parses yet is a parser waiting to be
+    written, but only if the bytes survived — and "what did I scan last
+    Tuesday" is a question worth being able to answer. This is a worklist
+    rather than a ledger, so there are no triggers here; it just does not throw
+    the evidence away.
+    """
+
+    #: Waiting to be walked at a desk. The whole point of the fast path.
+    PENDING = "pending"
+    #: Dealt with — a part was created, or stock received against an existing
+    #: one. `resolved_part_id` records what it became, when there was one.
+    RESOLVED = "resolved"
+    #: Not a real intake after all: a duplicate scan, a shipping label, a box
+    #: someone else's. Distinguished from `RESOLVED` because the two mean
+    #: opposite things about whether the payload is worth mining.
+    DISMISSED = "dismissed"
