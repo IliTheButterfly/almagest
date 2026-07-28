@@ -2,13 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: greenfield
+## Status: Phase 1, backend underway
 
-There is no application code yet. The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the source of truth for architecture and phasing, and read the relevant section before implementing anything. Phase 1 has not started.
+The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the source of truth for architecture and phasing, and read the relevant section before implementing anything. Repo names are settled in **[docs/NAMING.md](docs/NAMING.md)**; decisions taken since are in **[docs/adr/](docs/adr/)**.
 
-Repo names and the naming scheme are settled in **[docs/NAMING.md](docs/NAMING.md)**.
+**Built and green** (`make check` passes: ruff, `mypy --strict`, pytest):
 
-The commands below describe the intended toolchain. **They do not work yet** — the scaffolding is part of Phase 1. Do not report a command as failing because the project isn't built; check whether the directory exists first.
+- `backend/` scaffolding, Alembic, CI, Docker build
+- the core schema — 23 tables, append-only ledger enforced by DB triggers
+- `services/shortid.py`, `services/tree.py`, `services/parameters.py`
+- `services/search/` — the value-parser adapter and the parametric filter executor
+- `/api/search/parts`, `/api/resolve/{short_id}`, `/s/{short_id}`, `/api/system/health`
+- both submodule libraries (`elec-value-parser`, `ecia-barcode`), tagged and pinned
+
+**Not built yet:** `frontend/`, `deviceagent/`, the scan resolver chain and alias
+learning, layout authoring, tag provisioning, label sheets, FTS5. Everything from
+Phase 2 on is untouched.
+
+The commands below **work**. If one fails, that is a real failure — do not
+attribute it to the project being unbuilt.
 
 ## What this is
 
@@ -16,28 +28,61 @@ The commands below describe the intended toolchain. **They do not work yet** —
 
 The dominant project risk is not technical. Every abandoned system in this space died because manual data entry didn't scale, or because a solo maintainer drowned in an over-engineered stack. **Bias toward boring, and toward making intake fast.**
 
-## Commands (once scaffolded)
+## Commands
+
+**Python is pinned to 3.12 and managed by [uv](https://docs.astral.sh/uv/)** — no
+system interpreter needs to match, and `uv` downloads the toolchain itself. Every
+backend command runs through `uv run`; there is no venv to activate.
 
 ```bash
-make bootstrap                      # clone submodules, create venv, install deps
+make bootstrap        # submodules, venv, deps, .env from .env.example
+make migrate          # alembic upgrade head
+make run              # API with autoreload on :8000
+make check            # everything CI runs: lint, mypy --strict, pytest
+make help             # all targets
+
+# Backend, directly
+cd backend && uv run pytest -q
+cd backend && uv run pytest tests/unit/test_shortid.py -q        # single file
+cd backend && uv run pytest -k "worked_example" -q               # single test
+cd backend && uv run pytest -m live                              # network; skipped by default
+cd backend && uv run alembic revision --autogenerate -m "description"
+
+make check-migrations # applies migrations, then `alembic check` for model drift
+make openapi          # regenerate openapi.json — CI fails if it is stale
+```
+
+Docker Compose is the desktop/NAS deployment path, not the dev loop:
+
+```bash
 docker compose up -d --build
 docker compose exec api alembic upgrade head
 docker compose exec api python -m app.scripts.seed_demo
-
-# Backend
-cd backend && pytest -q
-cd backend && pytest tests/unit/test_value_parser.py -q          # single file
-cd backend && pytest -k "test_4k7 or test_shorthand" -q          # single test
-cd backend && pytest -m live                                     # network tests, skipped by default
-cd backend && ruff check . && ruff format --check . && mypy app
-cd backend && alembic revision --autogenerate -m "description"
-
-# Frontend
-cd frontend && pnpm dev && pnpm test && pnpm lint && pnpm build
-
-# Firmware — Mensa, the bench station (submodule, ESP-IDF)
-cd mensa && idf.py build flash monitor
 ```
+
+Frontend (`pnpm`) and Mensa firmware (`idf.py`) commands land with those
+components; neither directory exists yet.
+
+## Conventions that CI enforces
+
+Learn these before writing code — each has a test that fails loudly.
+
+- **No `CHECK` constraints anywhere.** A test greps `sqlite_master`. `sa.Enum` is
+  the trap: it silently emits `VARCHAR + CHECK`. Use `sa.String` +
+  `StrEnumType(SomeStrEnum)` from `app/models/types.py`.
+- **Integration tests run real Alembic migrations**, never `create_all()` — that
+  is the only way model/migration drift and the ledger triggers are exercised.
+- **Migrations must not import from `app`.** `alembic/env.py` renders custom
+  types as `sa.String` so a migration never depends on application code.
+- **Every numeric `parameter_value` needs `value_min`/`value_max`**, equal for a
+  scalar. Search is an interval-overlap test, so a null-bounded row is invisible
+  to every range query — silently. Write through `services/parameters.py`.
+- Timestamps use `UtcDateTime`; quantities are `*_milli INTEGER`, money
+  `*_micro INTEGER`.
+
+Working on a submodule? `submodule.recurse` is on, so a `git checkout` in the
+parent **resets the submodule worktree**. Commit and push inside the submodule
+first, then bump the pointer.
 
 Highest-value test suite is `backend/tests/unit/test_value_parser.py` — the electronics-shorthand grammar. Second is the ECIA fixture set, where `tests/fixtures/ecia/*.bin` paired with hand-verified `*.expected.json` **are** the ground truth, since no reference parser exists to diff against.
 
