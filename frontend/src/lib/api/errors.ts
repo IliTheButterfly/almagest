@@ -81,6 +81,20 @@ export const REASON_HINTS: Readonly<Record<string, string>> = {
   no_source: "That movement records no source location, so there is nowhere to move back to.",
   no_lot: "That ledger row has no lot left to compensate.",
 
+  // --- printed ids ---------------------------------------------------------
+  short_id_taken:
+    "That code is already on another container. It is refused rather than swapped " +
+    "for a free one, because the code is already printed — a substitute would " +
+    "leave the label and the database permanently disagreeing.",
+  check:
+    "That code fails its own check symbol, so it was mistyped or misread. The last " +
+    "character is a checksum over the other seven, which is what catches a single " +
+    "wrong symbol or two swapped ones.",
+  length: "A short id is eight symbols, written as four and four.",
+  alphabet:
+    "That contains a symbol the alphabet excludes. `I`, `L` and `O` are read as " +
+    "`1`, `1` and `0`; `U` is not used at all.",
+
   // --- alias binding -------------------------------------------------------
   empty_code: "That payload normalises to nothing, so there is no key to bind it under.",
   code_too_long: "That payload is too long to use as a binding key.",

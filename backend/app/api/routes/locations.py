@@ -982,13 +982,23 @@ def assign_location_short_id(
                 },
             ) from error
         except shortid.ShortIdTaken as error:
+            held_by = describe_binding(db, error)
+            # The path goes in `message` as well as `held_by`, so a client that
+            # only renders the standard `{reason, message}` still tells the user
+            # which drawer to walk to. Machine-readable extras are additive; the
+            # human sentence has to stand alone.
+            message = (
+                str(error)
+                if held_by is None
+                else f"{shortid.format_display(error.short_id)} is already on {held_by}"
+            )
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 detail={
                     "reason": "short_id_taken",
-                    "message": str(error),
+                    "message": message,
                     "short_id": error.short_id,
-                    "held_by": describe_binding(db, error),
+                    "held_by": held_by,
                 },
             ) from error
 

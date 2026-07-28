@@ -18,6 +18,7 @@ import { Link, useParams } from "react-router-dom";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
 import {
+  assignLocationShortId,
   emptyBin,
   getLocation,
   getLocationTree,
@@ -86,6 +87,8 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
       </div>
 
       <Capacity location={location} />
+
+      <PrintedId location={location} onDone={onChanged} />
 
       <div className="card">
         <div className="row">
@@ -198,6 +201,131 @@ function Capacity({ location }: { location: LocationRead }) {
  * is what the endpoint does and what this renders. The destination is given by short
  * ID, because that is what is printed on the other drawer.
  */
+/**
+ * The container's printed identity: mint one, or adopt one already printed.
+ *
+ * A generated grid cell starts with no printed id — nobody sticks 96 labels on an
+ * 8×12 box — so this is where one is earned. Two paths, because they differ only
+ * in who chose the code:
+ *
+ * - **Assign one** mints it. Safe to press twice: the server returns the existing
+ *   id rather than a second one, so this needs no "does it already have one?"
+ *   check and cannot mint a spare by double-tap.
+ * - **I already have a label** adopts the code you type or scan, for pre-printed
+ *   label stock and pre-encoded tags. The server verifies the check symbol and
+ *   refuses a code held elsewhere instead of substituting a free one — a
+ *   substitute would leave the label and the database permanently disagreeing,
+ *   which is the failure the whole scheme exists to prevent.
+ *
+ * Relabelling is offered even when there is already an id, because it is
+ * non-destructive: the old code stays resolvable, so the label still stuck to the
+ * drawer and the one in your hand both keep working.
+ *
+ * The 409 is worth its own branch. `held_by` names the drawer that holds the code
+ * — "already bound to Cabinet A / Drawer B2" tells you which drawer to walk to,
+ * where "already bound to location 41" makes you go and look it up.
+ */
+function PrintedId({ location, onDone }: { location: LocationRead; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function run(adopt: boolean): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const response = await assignLocationShortId(location.id, {
+        short_id: adopt ? normalizeShortId(code) : null,
+        client_op_id: uuid4(),
+      });
+      setResult(
+        response.adopted
+          ? `Adopted ${formatShortId(response.short_id)}.` +
+              (response.previous_short_id === null
+                ? ""
+                : ` ${formatShortId(response.previous_short_id)} still resolves here, so the old label keeps working.`)
+          : `Printed id is ${formatShortId(response.short_id)}.`,
+      );
+      setCode("");
+      setOpen(false);
+      onDone();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>Printed id</h3>
+        <span className="spacer" />
+        {location.short_id === null ? (
+          <span className="muted-note">none yet</span>
+        ) : (
+          <span className="badge mono">{formatShortId(location.short_id)}</span>
+        )}
+      </div>
+
+      <p className="muted-note">
+        {location.short_id === null
+          ? "Generated cells have no printed id until one is needed. Assign one to print a card or write a tag."
+          : "This is what is on the card and the tag. A new one can be adopted without breaking the old label."}
+      </p>
+
+      <ErrorBanner error={error} fallback="The printed id was not changed." />
+      {result !== null && <Notice kind="ok">{result}</Notice>}
+
+      {open ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run(true);
+          }}
+        >
+          <label className="field">
+            <span>The code already on the label or tag</span>
+            <input
+              className="mono"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              placeholder="4K7T-92M8"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+            />
+          </label>
+          <div className="row">
+            <button type="button" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+            <span className="spacer" />
+            <button type="submit" className="primary" disabled={busy || !looksLikeShortId(code)}>
+              {busy ? "Adopting…" : "Adopt this code"}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="row">
+          {location.short_id === null && (
+            <button type="button" className="primary" disabled={busy} onClick={() => void run(false)}>
+              {busy ? "Assigning…" : "Assign one"}
+            </button>
+          )}
+          <span className="spacer" />
+          <button type="button" onClick={() => setOpen(true)}>
+            I already have a label…
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EmptyInto({ location, onDone }: { location: LocationRead; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
