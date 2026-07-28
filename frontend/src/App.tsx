@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
+import { ThemeToggle } from "./components/ThemeToggle";
 import { intakeQueue } from "./lib/intake/queue";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
 import { LocationScreen } from "./screens/LocationScreen";
@@ -41,7 +42,7 @@ export function App() {
           Almagest
         </NavLink>
         <span className="spacer" />
-        <span className="muted-note">component inventory</span>
+        <ThemeToggle />
       </header>
 
       <nav className="app-nav" aria-label="Main">

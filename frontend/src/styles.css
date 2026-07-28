@@ -6,43 +6,264 @@
  * --touch (44px) tall. A CSS framework would be the second-largest dependency
  * in the project for a handful of screens; plain CSS with custom properties is
  * the boring choice and it is enough.
+ *
+ * ===========================================================================
+ * THE PALETTE
+ * ===========================================================================
+ *
+ * Trans-inspired, and *derived* rather than pasted on. The flag's three colours
+ * — #5BCEFA light blue, #F5A9B8 pink, #FFFFFF white — are pale: their relative
+ * luminances are 0.53 and 0.51, near-identical to each other and close to
+ * white. Used for text or a 1px border they are illegible, and used side by side
+ * they are indistinguishable to a red-green colour-blind or monochrome eye. So:
+ *
+ *   1. Both flag hues are measured in OKLCH and turned into a full ramp —
+ *      50 (tint) through 950 (near-black) at constant hue. The flag colours
+ *      themselves are pinned exactly at **step 400**, the one step light enough
+ *      to be the flag and dark enough to be a usable large fill.
+ *   2. Deep shades of the *same* hues (700 in light mode) carry text, links,
+ *      borders and controls. Pale tints (50–200) carry surfaces and soft fills.
+ *   3. The neutral ramp is not grey: it sits at hue 285°, between the two flag
+ *      hues, at a tenth of their chroma. Every surface therefore belongs to the
+ *      same family without any of them shouting.
+ *
+ * **Every ratio below is computed, not eyeballed** (WCAG 2.x relative
+ * luminance), and `styles.tokens.test.ts` recomputes them from this file on
+ * every test run — so an edit that breaks AA fails the build rather than
+ * shipping. Body text is held to 4.5:1, large text and UI boundaries to 3:1.
+ *
+ * **Hue is never the only signal.** Blue and pink are a luminance match, so
+ * state is always carried by a second channel too: a glyph, a border weight, a
+ * hatch pattern, or a word. See `.fill-meter` (hatched when over capacity),
+ * `.badge` (glyph prefix), `.cell` (dashed border when staging) and `.notice`
+ * (4px left border plus a title).
  */
 
 :root {
-  --bg: #111418;
-  --bg-raised: #191d23;
-  --bg-sunken: #0c0e11;
-  --line: #2a3038;
-  --line-strong: #3b434e;
-  --text: #e7ebf0;
-  --text-dim: #99a3b1;
-  --accent: #4c9be8;
-  --accent-ink: #06121f;
-  --good: #4bb377;
-  --warn: #d9a13b;
-  --bad: #e05c5c;
+  /* ------------------------------------------------------------------------
+   * The scale. Theme-independent raw values — the only hex codes in the
+   * project. Nothing outside this block should ever name a colour literal.
+   * Generated in OKLCH: L 0.975 → 0.150 down the ramp, chroma peaking at the
+   * middle where the gamut allows it.
+   * --------------------------------------------------------------------- */
+
+  /* Light blue, hue 226.5° — taken from #5BCEFA. */
+  --pal-blue-50: #ecf9ff;
+  --pal-blue-100: #e0f5ff;
+  --pal-blue-200: #b8e6fa;
+  --pal-blue-300: #85d9fc;
+  --pal-blue-400: #5bcefa; /* the flag, exactly */
+  --pal-blue-500: #2eb0dd;
+  --pal-blue-600: #008eb9;
+  --pal-blue-700: #00739a;
+  --pal-blue-800: #005572;
+  --pal-blue-900: #003448;
+  --pal-blue-950: #001b27;
+
+  /* Pink, hue 358° — taken from #F5A9B8, nudged 8° off red so it stays
+   * distinguishable from --bad, which no amount of contrast tuning would fix. */
+  --pal-pink-50: #fff3f7;
+  --pal-pink-100: #ffeaf1;
+  --pal-pink-200: #fed0de;
+  --pal-pink-300: #ffb2cc;
+  --pal-pink-400: #f5a9b8; /* the flag, exactly */
+  --pal-pink-500: #df7fa1;
+  --pal-pink-600: #ba5d80;
+  --pal-pink-700: #9a4666;
+  --pal-pink-800: #72344b;
+  --pal-pink-900: #481d2e;
+  --pal-pink-950: #270d17;
+
+  /* Neutral, hue 285° — the midpoint of the two flag hues at 22% of their
+   * chroma. A grey that is quietly both rather than neither. */
+  --pal-ink-50: #f6f6f9;
+  --pal-ink-100: #f0f1f5;
+  --pal-ink-200: #dddde6;
+  --pal-ink-300: #cacbda;
+  --pal-ink-400: #b7b7c9;
+  --pal-ink-500: #9f9fb3;
+  --pal-ink-600: #7e7e90;
+  --pal-ink-700: #656575;
+  --pal-ink-800: #4a4a57;
+  --pal-ink-850: #393944;
+  --pal-ink-900: #2d2d35;
+  --pal-ink-925: #212127;
+  --pal-ink-950: #17171c;
+  --pal-ink-975: #0b0b0e;
+
+  /* Status hues, deliberately far from both flag hues in *both* directions:
+   * green 152°, amber 72°, red 26°. They are the only colours here that are
+   * not derived from the flag, because a warning that reads as decoration is
+   * a broken warning. */
+  --pal-green-100: #e6f6e9;
+  --pal-green-200: #c5e9cd;
+  --pal-green-300: #a0deaf;
+  --pal-green-700: #287845;
+  --pal-green-800: #1f5933;
+  --pal-green-900: #0f371d;
+  --pal-amber-100: #fcefdf;
+  --pal-amber-200: #f5d9b7;
+  --pal-amber-300: #f3c286;
+  --pal-amber-700: #8f5900;
+  --pal-amber-800: #6a4200;
+  --pal-amber-900: #422700;
+  --pal-red-100: #ffebe8;
+  --pal-red-200: #ffd0ca;
+  --pal-red-300: #ffb3aa;
+  --pal-red-700: #a24540;
+  --pal-red-800: #78342f;
+  --pal-red-900: #4c1d1a;
+
+  --pal-white: #ffffff;
+
+  /* Geometry and motion, shared by both themes. */
   --touch: 44px;
   --gap: 0.75rem;
   --radius: 10px;
   --header-h: 3.25rem;
-  color-scheme: dark;
+  --cell-min: 7.5rem;
+  --dur: 140ms;
 }
 
-@media (prefers-color-scheme: light) {
+/*
+ * The semantic layer. Two mappings of the same scale, and the *only* place a
+ * component-facing token is defined.
+ *
+ * Light is the default in `:root`; dark is applied either by the OS preference
+ * or by `data-theme="dark"` written by the toggle (see lib/theme.ts). The two
+ * dark blocks are byte-identical on purpose and a test asserts they stay that
+ * way — CSS has no way to share one body between an attribute selector and a
+ * media query without `light-dark()`, which is too new for the phone Safari
+ * versions this has to run on.
+ */
+
+/* @tokens:light */
+:root {
+  color-scheme: light;
+
+  /* surfaces. --bg-raised is the flag's white, unmodified: a card *is* the
+   * third stripe. --bg-inset is meter tracks and grid wells. */
+  --bg: var(--pal-blue-50); /* #ecf9ff */
+  --bg-raised: var(--pal-white); /* #ffffff */
+  --bg-sunken: var(--pal-blue-100); /* #e0f5ff */
+  --bg-inset: var(--pal-blue-100); /* #e0f5ff */
+
+  /* boundaries. --line is a decorative separator with no contrast duty;
+   * --line-strong is every real control edge and owes 3:1 on all surfaces. */
+  --line: var(--pal-blue-200); /* #b8e6fa — 1.33:1 raised (decorative separator only) */
+  --line-strong: var(--pal-blue-600); /* #008eb9 — 3.77:1 raised / 3.51:1 bg / 3.35:1 sunken */
+
+  /* text */
+  --text: var(--pal-ink-950); /* #17171c — 17.86:1 raised / 16.64:1 bg / 15.88:1 sunken */
+  --text-dim: var(--pal-ink-700); /* #656575 — 5.72:1 raised / 5.33:1 bg / 5.09:1 sunken */
+
+  /* identity blue: links, primary actions, a normal fill level */
+  --accent: var(--pal-blue-700); /* #00739a — 5.36:1 raised / 4.99:1 bg / 4.77:1 sunken */
+  --accent-ink: var(--pal-white); /* #ffffff — 5.36:1 on --accent */
+  --accent-soft: var(--pal-blue-100); /* #e0f5ff — --text on it is 15.88:1 */
+
+  /* identity pink: selection, focus, "you are here". Never a warning. */
+  --accent-2: var(--pal-pink-700); /* #9a4666 — 6.10:1 raised / 5.68:1 bg / 5.43:1 sunken */
+  --accent-2-ink: var(--pal-white); /* #ffffff — 6.10:1 on --accent-2 */
+  --accent-2-soft: var(--pal-pink-100); /* #ffeaf1 — --text on it is 15.56:1 */
+
+  /* status */
+  --good: var(--pal-green-700); /* #287845 — 5.44:1 raised / 5.06:1 bg / 4.83:1 sunken */
+  --good-soft: var(--pal-green-100); /* #e6f6e9 — --text on it is 15.92:1 */
+  --warn: var(--pal-amber-700); /* #8f5900 — 5.84:1 raised / 5.44:1 bg / 5.19:1 sunken */
+  --warn-soft: var(--pal-amber-100); /* #fcefdf — --text on it is 15.78:1 */
+  --bad: var(--pal-red-700); /* #a24540 — 6.07:1 raised / 5.65:1 bg / 5.39:1 sunken */
+  --bad-soft: var(--pal-red-100); /* #ffebe8 — --text on it is 15.56:1 */
+
+  /* focus: one hue reserved for one job, drawn as a 2px offset ring so the
+   * colour is never the only cue. */
+  --focus: var(--pal-pink-700); /* #9a4666 — 6.10:1 raised / 5.68:1 bg / 5.43:1 sunken */
+
+  /* The identity moment: the flag hues at full pastel, for large fills only —
+   * the header wash and the active-tab underline. Never text, never a border. */
+  --identity-a: var(--pal-blue-400); /* #5bcefa — the flag, large fills only */
+  --identity-b: var(--pal-pink-400); /* #f5a9b8 — the flag, large fills only */
+}
+/* @/tokens:light */
+
+/* @tokens:dark-attr */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: var(--pal-ink-950); /* #17171c */
+  --bg-raised: var(--pal-ink-925); /* #212127 */
+  --bg-sunken: var(--pal-ink-975); /* #0b0b0e */
+  --bg-inset: var(--pal-ink-975); /* #0b0b0e */
+  --line: var(--pal-ink-850); /* #393944 — 1.41:1 raised (decorative separator only) */
+  --line-strong: var(--pal-ink-600); /* #7e7e90 — 4.02:1 raised / 4.49:1 bg / 4.94:1 sunken */
+  --text: var(--pal-blue-50); /* #ecf9ff — 14.91:1 raised / 16.64:1 bg / 18.31:1 sunken */
+  --text-dim: var(--pal-ink-400); /* #b7b7c9 — 8.11:1 raised / 9.04:1 bg / 9.95:1 sunken */
+  --accent: var(--pal-blue-300); /* #85d9fc — 10.16:1 raised / 11.34:1 bg / 12.47:1 sunken */
+  --accent-ink: var(--pal-blue-950); /* #001b27 — 11.24:1 on --accent */
+  --accent-soft: var(--pal-blue-900); /* #003448 — --text on it is 12.34:1 */
+  --accent-2: var(--pal-pink-300); /* #ffb2cc — 9.52:1 raised / 10.62:1 bg / 11.69:1 sunken */
+  --accent-2-ink: var(--pal-pink-950); /* #270d17 — 10.80:1 on --accent-2 */
+  --accent-2-soft: var(--pal-pink-900); /* #481d2e — --text on it is 13.12:1 */
+  --good: var(--pal-green-300); /* #a0deaf — 10.34:1 raised / 11.53:1 bg / 12.69:1 sunken */
+  --good-soft: var(--pal-green-900); /* #0f371d — --text on it is 12.34:1 */
+  --warn: var(--pal-amber-300); /* #f3c286 — 9.81:1 raised / 10.95:1 bg / 12.05:1 sunken */
+  --warn-soft: var(--pal-amber-900); /* #422700 — --text on it is 12.85:1 */
+  --bad: var(--pal-red-300); /* #ffb3aa — 9.36:1 raised / 10.44:1 bg / 11.49:1 sunken */
+  --bad-soft: var(--pal-red-900); /* #4c1d1a — --text on it is 13.06:1 */
+  --focus: var(--pal-pink-300); /* #ffb2cc — 9.52:1 raised / 10.62:1 bg / 11.69:1 sunken */
+  --identity-a: var(--pal-blue-400); /* #5bcefa — the flag, large fills only */
+  --identity-b: var(--pal-pink-400); /* #f5a9b8 — the flag, large fills only */
+}
+/* @/tokens:dark-attr */
+
+@media (prefers-color-scheme: dark) {
+  /* @tokens:dark-media */
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: var(--pal-ink-950); /* #17171c */
+    --bg-raised: var(--pal-ink-925); /* #212127 */
+    --bg-sunken: var(--pal-ink-975); /* #0b0b0e */
+    --bg-inset: var(--pal-ink-975); /* #0b0b0e */
+    --line: var(--pal-ink-850); /* #393944 — 1.41:1 raised (decorative separator only) */
+    --line-strong: var(--pal-ink-600); /* #7e7e90 — 4.02:1 raised / 4.49:1 bg / 4.94:1 sunken */
+    --text: var(--pal-blue-50); /* #ecf9ff — 14.91:1 raised / 16.64:1 bg / 18.31:1 sunken */
+    --text-dim: var(--pal-ink-400); /* #b7b7c9 — 8.11:1 raised / 9.04:1 bg / 9.95:1 sunken */
+    --accent: var(--pal-blue-300); /* #85d9fc — 10.16:1 raised / 11.34:1 bg / 12.47:1 sunken */
+    --accent-ink: var(--pal-blue-950); /* #001b27 — 11.24:1 on --accent */
+    --accent-soft: var(--pal-blue-900); /* #003448 — --text on it is 12.34:1 */
+    --accent-2: var(--pal-pink-300); /* #ffb2cc — 9.52:1 raised / 10.62:1 bg / 11.69:1 sunken */
+    --accent-2-ink: var(--pal-pink-950); /* #270d17 — 10.80:1 on --accent-2 */
+    --accent-2-soft: var(--pal-pink-900); /* #481d2e — --text on it is 13.12:1 */
+    --good: var(--pal-green-300); /* #a0deaf — 10.34:1 raised / 11.53:1 bg / 12.69:1 sunken */
+    --good-soft: var(--pal-green-900); /* #0f371d — --text on it is 12.34:1 */
+    --warn: var(--pal-amber-300); /* #f3c286 — 9.81:1 raised / 10.95:1 bg / 12.05:1 sunken */
+    --warn-soft: var(--pal-amber-900); /* #422700 — --text on it is 12.85:1 */
+    --bad: var(--pal-red-300); /* #ffb3aa — 9.36:1 raised / 10.44:1 bg / 11.49:1 sunken */
+    --bad-soft: var(--pal-red-900); /* #4c1d1a — --text on it is 13.06:1 */
+    --focus: var(--pal-pink-300); /* #ffb2cc — 9.52:1 raised / 10.62:1 bg / 11.69:1 sunken */
+    --identity-a: var(--pal-blue-400); /* #5bcefa — the flag, large fills only */
+    --identity-b: var(--pal-pink-400); /* #f5a9b8 — the flag, large fills only */
+  }
+  /* @/tokens:dark-media */
+}
+
+/*
+ * Motion is decoration here, so it is the first thing to go. Everything in this
+ * file that transitions does so over --dur, and this kills all of it — including
+ * anything a future edit adds, which is why it is a universal selector rather
+ * than a list.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
   :root {
-    --bg: #f6f7f9;
-    --bg-raised: #ffffff;
-    --bg-sunken: #eceef2;
-    --line: #d8dce2;
-    --line-strong: #b9c0c9;
-    --text: #14181d;
-    --text-dim: #5c6673;
-    --accent: #1f6fbf;
-    --accent-ink: #ffffff;
-    --good: #1d7a4a;
-    --warn: #8a5d05;
-    --bad: #b3271f;
-    color-scheme: light;
+    --dur: 0.01ms;
   }
 }
 
@@ -67,6 +288,17 @@ body {
 
 a {
   color: var(--accent);
+}
+
+/*
+ * One focus ring for the whole app, in the pink. `:focus-visible` rather than
+ * `:focus` so a tap on a phone does not leave a ring behind, and an offset
+ * outline rather than a border so it never shifts layout.
+ */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 h1,
@@ -109,7 +341,25 @@ h3 {
   gap: var(--gap);
   min-height: var(--header-h);
   padding: 0 0.75rem;
+  /*
+   * The identity moment: a wash from the blue end to the pink end of the
+   * palette across the header, at 12% over the sunken surface. Large fill,
+   * no text sits on the saturated part, and it is the only place the flag
+   * pastels appear at full strength.
+   *
+   * The flat colour first is not redundant. `color-mix()` is Safari 16.2+, and a
+   * browser that does not understand the second declaration drops it entirely —
+   * which would leave a sticky header with no background at all, i.e. content
+   * scrolling through it. This way the fallback is the plain surface.
+   */
   background: var(--bg-sunken);
+  background:
+    linear-gradient(
+      100deg,
+      color-mix(in oklab, var(--identity-a) 12%, var(--bg-sunken)),
+      var(--bg-sunken) 55%,
+      color-mix(in oklab, var(--identity-b) 12%, var(--bg-sunken))
+    );
   border-bottom: 1px solid var(--line);
 }
 
@@ -118,6 +368,9 @@ h3 {
   letter-spacing: 0.02em;
   color: var(--text);
   text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--identity-a), var(--identity-b)) 1;
 }
 
 .app-main {
@@ -157,12 +410,18 @@ h3 {
   text-decoration: none;
   font-size: 0.8rem;
   border-top: 2px solid transparent;
+  transition: color var(--dur) ease-out;
 }
 
+/* The current tab is marked three ways — weight, background and the gradient
+ * bar — because the bar's colour alone is not a signal a monochrome screen
+ * can carry. */
 .app-nav a[aria-current="page"] {
   color: var(--text);
-  border-top-color: var(--accent);
+  font-weight: 650;
   background: var(--bg-raised);
+  border-top: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--identity-a), var(--identity-b)) 1;
 }
 
 /* --------------------------------------------------------------- blocks --- */
@@ -224,7 +483,9 @@ h3 {
 }
 
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
   border: 1px solid var(--line-strong);
@@ -235,19 +496,52 @@ h3 {
   white-space: nowrap;
 }
 
+/*
+ * Status badges carry a glyph as well as a colour, and the warning ones carry a
+ * 2px border where the neutral one carries 1px. Three channels, so none of them
+ * has to be the colour.
+ */
+.badge::before {
+  font-weight: 700;
+}
+
 .badge-warn {
   color: var(--warn);
   border-color: var(--warn);
+  border-width: 2px;
+}
+
+.badge-warn::before {
+  content: "!";
 }
 
 .badge-bad {
   color: var(--bad);
   border-color: var(--bad);
+  border-width: 2px;
+}
+
+.badge-bad::before {
+  content: "✕";
 }
 
 .badge-good {
   color: var(--good);
   border-color: var(--good);
+}
+
+.badge-good::before {
+  content: "✓";
+}
+
+/* The staging inbox, and only that: a downward arrow into a box. */
+.badge-accent {
+  color: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+.badge-accent::before {
+  content: "↧";
 }
 
 /* --------------------------------------------------------------- inputs --- */
@@ -275,6 +569,13 @@ input[type="checkbox"] {
   min-height: 0;
   width: 1.15rem;
   height: 1.15rem;
+  accent-color: var(--accent-2);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
 }
 
 label.check {
@@ -307,6 +608,7 @@ button {
   border-radius: 8px;
   cursor: pointer;
   touch-action: manipulation;
+  transition: background-color var(--dur) ease-out;
 }
 
 button:disabled {
@@ -323,6 +625,7 @@ button.primary {
 
 button.danger {
   border-color: var(--bad);
+  border-width: 2px;
   color: var(--bad);
 }
 
@@ -355,10 +658,15 @@ button.tall {
   border-left: 1px solid var(--line-strong);
 }
 
+/* Pressed carries the fill, the weight and a ✓ — see the note on .badge. */
 .segmented button[aria-pressed="true"] {
   background: var(--accent);
   color: var(--accent-ink);
   font-weight: 650;
+}
+
+.segmented button[aria-pressed="true"]::before {
+  content: "✓ ";
 }
 
 /* ------------------------------------------------------------- messages --- */
@@ -374,10 +682,12 @@ button.tall {
 
 .notice-error {
   border-left-color: var(--bad);
+  background: var(--bad-soft);
 }
 
 .notice-warn {
   border-left-color: var(--warn);
+  background: var(--warn-soft);
 }
 
 .notice-info {
@@ -386,6 +696,7 @@ button.tall {
 
 .notice-ok {
   border-left-color: var(--good);
+  background: var(--good-soft);
 }
 
 .notice h3 {
@@ -517,11 +828,35 @@ button.tall {
   min-width: 2rem;
 }
 
+/* ------------------------------------------------------ the fill meter --- */
+
+/*
+ * Four states, four *shapes*, because `fill_ratio` is null far more often than
+ * anyone expects and "no capacity model" must not look like "empty":
+ *
+ *   unknown  — dashed track, no bar, "n/m"
+ *   normal   — solid bar in --accent
+ *   high     — solid bar in --warn (>= 90%)
+ *   over     — full-width diagonal hatch in --bad, plus a "!" and the word
+ *
+ * Capacity is advisory everywhere in this system: an over-capacity put-away is
+ * accepted and flagged, never refused, so `over` is a real state to render and
+ * not an impossible one to assert against.
+ */
+.fill-meter {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
 .fill-bar {
   position: relative;
+  flex: 1 1 2.5rem;
   height: 0.5rem;
+  min-width: 1.5rem;
   border-radius: 999px;
-  background: var(--bg-sunken);
+  background: var(--bg-inset);
   border: 1px solid var(--line);
   overflow: hidden;
 }
@@ -529,11 +864,394 @@ button.tall {
 .fill-bar > span {
   display: block;
   height: 100%;
-  background: var(--good);
+  background: var(--accent);
+  transition: width var(--dur) ease-out;
 }
 
+.fill-bar.high > span {
+  background: var(--warn);
+}
+
+/* A hatch, not just a colour: this survives greyscale, deuteranopia and a
+ * phone screen in direct sun. */
 .fill-bar.over > span {
-  background: var(--bad);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--bad) 0 3px,
+    transparent 3px 6px
+  );
+  background-color: var(--bad-soft);
+}
+
+.fill-bar.unknown {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: transparent;
+}
+
+.fill-text {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.fill-text.over {
+  color: var(--bad);
+  font-weight: 700;
+}
+
+.fill-text.high {
+  color: var(--warn);
+  font-weight: 650;
+}
+
+/* ------------------------------------------------ storage: the map view --- */
+
+/*
+ * A cabinet should look like a cabinet. The children of a container are laid
+ * out as a real grid whenever their `slot_label`s say where they go, and cells
+ * are never allowed below the 44px touch floor — the grid scrolls sideways
+ * instead, because a squashed 12-column cabinet is unusable and an honest
+ * scrollbar is not.
+ */
+.layout-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 0.25rem;
+}
+
+.layout-grid {
+  display: grid;
+  gap: 0.4rem;
+  grid-auto-rows: minmax(var(--touch), auto);
+  /* Wide enough for a slot label, a name, a meter and a count. */
+  grid-auto-columns: minmax(var(--cell-min), 1fr);
+}
+
+.layout-flow {
+  display: grid;
+  gap: 0.4rem;
+  grid-template-columns: repeat(auto-fill, minmax(var(--cell-min), 1fr));
+}
+
+/* The fallback is *marked* as a fallback rather than left looking like a grid
+ * that failed to align. */
+.layout-fallback {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0.4rem;
+  background: var(--bg-inset);
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 4.5rem;
+  min-width: var(--cell-min);
+  padding: 0.4rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: inherit;
+  text-decoration: none;
+  text-align: left;
+  transition: background-color var(--dur) ease-out;
+}
+
+.cell .cell-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.15;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.cell .cell-sub {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.cell .cell-slot {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* An empty grid position: a real place with nothing in it. Dashed, dimmed,
+ * inert, and labelled with the slot it *would* be. */
+.cell-empty {
+  border-style: dashed;
+  /* The dashes have to be *visible* — they are what says "no container here"
+     rather than "a container with nothing in it", so this is --line-strong
+     (3:1 or better on every surface) and not the decorative separator. */
+  border-color: var(--line-strong);
+  background: var(--bg-inset);
+  align-items: flex-start;
+  justify-content: center;
+  color: var(--text-dim);
+}
+
+/* Over capacity: 2px border, hatched corner flag and the word "over" in the
+ * meter. Three cues, none of them hue alone. */
+.cell-over {
+  border-width: 2px;
+  border-color: var(--bad);
+  background: var(--bad-soft);
+}
+
+/* The permanent INBOX. Dashed pink edge plus an explicit badge — it is not an
+ * ordinary bin and must not read as one. */
+.cell-staging {
+  border-style: dashed;
+  border-width: 2px;
+  border-color: var(--accent-2);
+  background: var(--accent-2-soft);
+}
+
+.cell-current {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The recursive preview: the same layout component one level down, drawn as
+ * inert dots so a baseplate of bins looks like a baseplate of bins. */
+.mini-grid {
+  display: grid;
+  gap: 2px;
+  margin-top: 0.15rem;
+}
+
+.mini-cell {
+  height: 6px;
+  border-radius: 2px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+}
+
+.mini-cell.has-stock {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.mini-cell.over {
+  background: repeating-linear-gradient(45deg, var(--bad) 0 2px, transparent 2px 4px);
+  background-color: var(--bad-soft);
+  border-color: var(--bad);
+}
+
+.mini-cell.blank {
+  border-style: dashed;
+  background: transparent;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+}
+
+.crumbs a,
+.crumbs span {
+  padding: 0.25rem 0.35rem;
+  border-radius: 6px;
+}
+
+.crumbs .crumb {
+  min-height: var(--touch);
+  min-width: 0;
+  padding: 0.25rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.crumbs .here {
+  background: var(--accent-soft);
+  font-weight: 650;
+}
+
+.crumbs .sep {
+  color: var(--text-dim);
+  padding: 0;
+}
+
+/* ------------------------------------------------------ search: facets --- */
+
+/*
+ * Two panes on a desktop — the category rail and the facets — collapsing to
+ * one column on a phone, where they sit above the results as <details> so the
+ * results are never pushed off the screen.
+ */
+.search-layout {
+  display: grid;
+  gap: var(--gap);
+  align-items: start;
+}
+
+@media (min-width: 52rem) {
+  .search-layout {
+    grid-template-columns: 15rem minmax(0, 1fr);
+  }
+
+  .search-side {
+    position: sticky;
+    top: calc(var(--header-h) + var(--touch) + var(--gap));
+  }
+}
+
+.rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.rail button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: var(--touch);
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+/* Selected: a fill, a left bar, bold text and a ✓. The rail is the one place
+ * where a colour-only "selected" would be easiest to reach for and worst to
+ * ship. */
+.rail button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-left-color: var(--accent-2);
+  font-weight: 700;
+}
+
+.rail button[aria-pressed="true"] .tick::before {
+  content: "✓";
+  color: var(--accent-2);
+}
+
+.rail .count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.rail button:disabled .count {
+  text-decoration: line-through;
+}
+
+.facet {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-raised);
+}
+
+.facet + .facet {
+  margin-top: 0.5rem;
+}
+
+.facet > summary {
+  min-height: var(--touch);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.facet[data-active="true"] {
+  border-color: var(--accent-2);
+  border-left-width: 3px;
+}
+
+.facet[data-invalid="true"] {
+  border-color: var(--bad);
+  border-left-width: 3px;
+  background: var(--bad-soft);
+}
+
+.facet .facet-meta {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.choices {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.choices label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: var(--touch);
+  padding: 0 0.15rem;
+  font-size: 0.9rem;
+}
+
+/*
+ * A zero-count choice is disabled, not hidden. In a personal inventory zero is
+ * the most useful number on the screen — it says "don't bother" — so it is
+ * struck through and dimmed rather than removed.
+ */
+.choices label.zero {
+  color: var(--text-dim);
+}
+
+.choices label.zero .count {
+  text-decoration: line-through;
+}
+
+.choices .count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.range-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.range-row .to {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* -------------------------------------------------- take / return screen --- */
@@ -619,7 +1337,7 @@ button.tall {
 .viewfinder .roi {
   position: absolute;
   inset: 20%;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--identity-a);
   border-radius: 6px;
   pointer-events: none;
 }
@@ -671,6 +1389,30 @@ button.tall {
   overflow-x: auto;
 }
 
+/* The theme control: three states, always showing which one is live. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.theme-toggle button {
+  min-width: var(--touch);
+  min-height: 2rem;
+  padding: 0.1rem 0.5rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.85rem;
+}
+
+.theme-toggle button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
 @media (min-width: 40rem) {
   .app-nav {
     position: sticky;
@@ -691,7 +1433,9 @@ button.tall {
   }
 
   .app-nav a[aria-current="page"] {
-    border-bottom-color: var(--accent);
+    border-top: 0;
+    border-bottom: 2px solid transparent;
+    border-image: linear-gradient(90deg, var(--identity-a), var(--identity-b)) 1;
   }
 
   .app-main {
