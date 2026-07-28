@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.limits import CountMilli, RowId
 from app.db.base import Base
 from app.db.session import get_db
 from app.models.catalog import Part
@@ -63,7 +64,7 @@ _CHECKABLE: dict[str, type[Base]] = {
 
 class ScanTarget(BaseModel):
     entity_type: str
-    entity_pk: int
+    entity_pk: RowId
     label: str
     #: Derived at read time, never taken from the tag — a container that moved
     #: would make an encoded path a lie.
@@ -98,8 +99,8 @@ class ScanParsed(BaseModel):
 
 
 class ScanExistingLot(BaseModel):
-    lot_id: int
-    location_id: int
+    lot_id: RowId
+    location_id: RowId
     location_name: str
     location_label_path: str | None = None
     qty_milli: int
@@ -157,7 +158,7 @@ class ScanAliasRequest(BaseModel):
         description="Required here, unlike on resolve: an alias records what carried it.",
     )
     entity_type: EntityType
-    entity_pk: int = Field(ge=1)
+    entity_pk: RowId
     alias_kind: AliasKind = Field(
         default=AliasKind.WHOLE_PAYLOAD,
         description=(
@@ -166,7 +167,7 @@ class ScanAliasRequest(BaseModel):
             "same part on its first scan."
         ),
     )
-    hint_qty_milli: int | None = None
+    hint_qty_milli: CountMilli | None = None
     hint_batch: str | None = Field(default=None, max_length=128)
     parsed_json: str | None = Field(
         default=None,

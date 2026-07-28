@@ -21,6 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
+from app.api.limits import MassMg, RowId
 from app.api.schemas import LotRead, ReplayableResponse, lot_read
 from app.db.session import get_db
 from app.models.catalog import Packaging, Part
@@ -64,8 +65,8 @@ class CapacityRead(BaseModel):
 
 class LocationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    parent_id: int | None = None
-    container_type_id: int | None = None
+    parent_id: RowId | None = None
+    container_type_id: RowId | None = None
     description: str | None = None
     slot_label: str | None = Field(
         default=None,
@@ -84,7 +85,7 @@ class LocationCreate(BaseModel):
     )
     fill_factor: float | None = Field(default=None, gt=0, le=1)
     access_score: float | None = Field(default=None, ge=0, le=1)
-    tare_mg: int | None = Field(default=None, ge=0)
+    tare_mg: MassMg | None = None
     mint_short_id: bool | None = Field(
         default=None,
         description=(
@@ -157,7 +158,7 @@ class LocationTree(BaseModel):
 
 
 class SuggestRequest(BaseModel):
-    part_id: int
+    part_id: RowId
     packaging_id: int | None = Field(
         default=None,
         description=(
@@ -171,16 +172,16 @@ class SuggestRequest(BaseModel):
 
 
 class CandidateRead(BaseModel):
-    location_id: int
+    location_id: RowId
     label_path: str
     score: float
     free_capacity: float
 
 
 class MoveStepRead(BaseModel):
-    lot_id: int
+    lot_id: RowId
     from_location_id: int
-    to_location_id: int
+    to_location_id: RowId
     #: Zero for a whole-lot move, mirroring the ledger's own `move` semantics.
     qty_milli: int
 
@@ -192,8 +193,8 @@ class MovePlanRead(BaseModel):
 
 
 class NewSiblingRead(BaseModel):
-    parent_id: int
-    container_type_id: int
+    parent_id: RowId
+    container_type_id: RowId
     based_on_location_id: int
 
 
@@ -208,7 +209,7 @@ class SuggestResponse(ReplayableResponse):
     confident.
     """
 
-    location_id: int
+    location_id: RowId
     label_path: str
     escalation_level: str
     reason: str
@@ -222,7 +223,7 @@ class SuggestResponse(ReplayableResponse):
 # ---------------------------------------------------------------------------
 
 
-def _require_location(db: Session, location_id: int, *, label: str = "location") -> Location:
+def _require_location(db: Session, location_id: RowId, *, label: str = "location") -> Location:
     location = db.get(Location, location_id)
     if location is None:
         raise HTTPException(
@@ -510,7 +511,7 @@ def create_location(request: LocationCreate, db: Session = Depends(get_db)) -> L
 
 
 @router.get("/{location_id}", response_model=LocationRead)
-def read_location(location_id: int, db: Session = Depends(get_db)) -> LocationRead:
+def read_location(location_id: RowId, db: Session = Depends(get_db)) -> LocationRead:
     """One container: its place in the tree, its fill state, and what is in it.
 
     This is the bin screen, which is also where "empty this bin into that one"

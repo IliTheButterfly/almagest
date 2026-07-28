@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
+from app.api.limits import RowId
 from app.api.schemas import LotRead, ReplayableResponse, lot_read
 from app.db.session import get_db
 from app.models.catalog import Manufacturer, PackageType, Part, PartCategory, PartKind
@@ -46,10 +47,10 @@ class PartWrite(BaseModel):
     """Fields common to creating and updating a part."""
 
     mpn: str | None = Field(default=None, max_length=255)
-    manufacturer_id: int | None = None
-    category_id: int | None = None
-    package_type_id: int | None = None
-    uom_id: int | None = None
+    manufacturer_id: RowId | None = None
+    category_id: RowId | None = None
+    package_type_id: RowId | None = None
+    uom_id: RowId | None = None
     description: str | None = None
     keywords: str | None = None
     notes: str | None = None
@@ -150,7 +151,7 @@ class PartCreated(ReplayableResponse):
 # ---------------------------------------------------------------------------
 
 
-def _lots_of(db: Session, part_id: int) -> list[StockLot]:
+def _lots_of(db: Session, part_id: RowId) -> list[StockLot]:
     return list(
         db.execute(select(StockLot).where(StockLot.part_id == part_id).order_by(StockLot.id))
         .scalars()
@@ -314,7 +315,7 @@ def create_part(request: PartCreate, db: Session = Depends(get_db)) -> PartCreat
 
 
 @router.get("/{part_id}", response_model=PartRead)
-def read_part(part_id: int, db: Session = Depends(get_db)) -> PartRead:
+def read_part(part_id: RowId, db: Session = Depends(get_db)) -> PartRead:
     """The part, plus every lot of it and the total on hand."""
     part = db.get(Part, part_id)
     if part is None:
@@ -326,7 +327,7 @@ def read_part(part_id: int, db: Session = Depends(get_db)) -> PartRead:
 
 
 @router.patch("/{part_id}", response_model=PartRead)
-def update_part(part_id: int, request: PartUpdate, db: Session = Depends(get_db)) -> PartRead:
+def update_part(part_id: RowId, request: PartUpdate, db: Session = Depends(get_db)) -> PartRead:
     """Edit a part — the review-queue tail of intake.
 
     Deliberately **not** idempotency-guarded, unlike every other write in the
