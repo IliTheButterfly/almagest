@@ -1,0 +1,6 @@
+allowBuilds:
+  esbuild: set this to true or false
+# pnpm blocks postinstall scripts by default. esbuild needs its to fetch a
+# platform binary; without this, vite and vitest cannot start at all.
+onlyBuiltDependencies:
+  - esbuild

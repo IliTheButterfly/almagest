@@ -59,6 +59,45 @@ jobs:
           uv run python -m app.scripts.export_openapi ../openapi.json
           git diff --exit-code ../openapi.json
 
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: eslint
+        run: pnpm lint
+
+      - name: tsc
+        run: pnpm typecheck
+
+      - name: vitest
+        run: pnpm test
+
+      - name: build
+        run: pnpm build
+
+      # Closes the contract loop. The backend job checks openapi.json is fresh
+      # against the routes; this checks the generated TypeScript is fresh
+      # against openapi.json. Together they make it impossible to change a
+      # route signature without the client following.
+      - name: generated API types are current
+        run: |
+          pnpm generate:api
+          git diff --exit-code src/lib/api/schema.ts
+
   docker:
     name: docker build
     runs-on: ubuntu-latest
