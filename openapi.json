@@ -128,6 +128,84 @@
         "title": "PartSummary",
         "type": "object"
       },
+      "ResolveResponse": {
+        "properties": {
+          "normalized": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ResolveResponse",
+        "type": "object"
+      },
+      "ResolvedTarget": {
+        "properties": {
+          "display": {
+            "title": "Display",
+            "type": "string"
+          },
+          "entity_pk": {
+            "title": "Entity Pk",
+            "type": "integer"
+          },
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "label_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Path"
+          },
+          "short_id": {
+            "title": "Short Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "short_id",
+          "display",
+          "entity_type",
+          "entity_pk",
+          "label"
+        ],
+        "title": "ResolvedTarget",
+        "type": "object"
+      },
       "SearchRequest": {
         "properties": {
           "category": {
@@ -278,6 +356,49 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/resolve/{short_id}": {
+      "get": {
+        "description": "Machine-readable resolution, for the PWA and `deviceagent`.",
+        "operationId": "resolve_short_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "short_id",
+            "required": true,
+            "schema": {
+              "title": "Short Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Short Id",
+        "tags": [
+          "resolve"
+        ]
+      }
+    },
     "/api/search/parts": {
       "get": {
         "operationId": "search_parts_by_querystring",
