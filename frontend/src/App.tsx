@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 
+import { Logo } from "./components/Logo";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { intakeQueue } from "./lib/intake/queue";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
@@ -38,8 +39,11 @@ export function App() {
   return (
     <div className="app">
       <header className="app-header">
+        {/* The wordmark is its own element so the gradient underline stays under
+            the text and does not run beneath the mark. */}
         <NavLink to="/search" className="brand">
-          Almagest
+          <Logo />
+          <span>Almagest</span>
         </NavLink>
         <span className="spacer" />
         <ThemeToggle />
