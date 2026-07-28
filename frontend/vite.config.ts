@@ -14,7 +14,15 @@ export default defineConfig({
     host: true,
     proxy: {
       "/api": { target: "http://127.0.0.1:8000", changeOrigin: true },
-      "/s": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      // Regex, not the prefix "/s" — Vite matches proxy keys by prefix, so a
+      // plain "/s" also swallows "/src/main.tsx" and every other module, which
+      // silently proxies the whole app source to the API and renders a blank
+      // page. The tag-tap path itself cannot move: it is physically written
+      // into every NFC tag and printed QR.
+      "^/s/[A-Za-z0-9-]+$": {
+        target: "http://127.0.0.1:8000",
+        changeOrigin: true,
+      },
     },
   },
   test: {
