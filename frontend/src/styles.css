@@ -364,10 +364,34 @@ h3 {
 }
 
 .app-header .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text);
   text-decoration: none;
+}
+
+/*
+ * The mark takes `currentColor` for its frame, so it inherits --text from the
+ * link above and needs no colour of its own in either theme. 1.5rem is close to
+ * this drawing's floor — the divisions are 2.5/64 of its height, so much smaller
+ * and they stop resolving — which is why the small end of the range is the
+ * favicon's job, not the header's.
+ */
+.app-header .brand svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+}
+
+/*
+ * The underline sits on the wordmark rather than the whole link: stretched
+ * under the mark as well it reads as a border around the pair instead of an
+ * accent on the name.
+ */
+.app-header .brand span {
   padding-bottom: 2px;
   border-bottom: 2px solid transparent;
   border-image: linear-gradient(90deg, var(--identity-a), var(--identity-b)) 1;

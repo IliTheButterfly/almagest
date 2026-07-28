@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"
+     viewBox="0 0 180 180" role="img" aria-label="Almagest">
+  <title>Almagest</title>
+  <!--
+    Source for apple-touch-icon.png. Not referenced by the page; it exists so
+    the PNG can be regenerated rather than reverse-engineered:
+
+      rsvg-convert -w 180 -h 180 public/apple-touch-icon.svg -o public/apple-touch-icon.png
+
+    Two differences from favicon.svg, both required by how iOS treats this file:
+
+    1. The ground is opaque. iOS composites a home-screen icon onto its own
+       rounded tile and does not honour transparency, so a transparent PNG comes
+       out with a black square behind it. It is also why the star being a hole
+       matters here: the hole shows this white ground, which is the light theme's
+       raised surface.
+    2. It has padding, and does not adapt to dark mode. A home-screen icon is a
+       fixed bitmap, so there is one ground colour and it is the light one.
+
+    The mark is 125px inside 180px, so 27.5px of margin on each side.
+  -->
+  <rect width="180" height="180" fill="#ffffff"/>
+  <g transform="translate(27.5,27.5) scale(1.953125)">
+    <path fill="#9a4666" fill-rule="evenodd"
+          d="M23 23H41V41H23Z
+             M32 24.8 33.77 30.23 39.2 32 33.77 33.77 32 39.2 30.23 33.77 24.8 32 30.23 30.23Z"/>
+    <g fill="none" stroke="#00739a">
+      <path stroke-width="2.5" d="M23 5V59M41 5V59M5 23H59M5 41H59"/>
+      <rect x="5" y="5" width="54" height="54" rx="13" stroke-width="5"/>
+    </g>
+  </g>
+</svg>
