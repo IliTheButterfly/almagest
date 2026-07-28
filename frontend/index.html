@@ -6,6 +6,21 @@
     <!-- Kept in step with the resolved `--bg` by lib/theme.ts once the app boots. -->
     <meta name="theme-color" content="#ecf9ff" />
     <title>Almagest</title>
+    <!--
+      One SVG covers every desktop size, and it carries its own
+      prefers-color-scheme rule so the tab icon follows the OS rather than
+      staying dark-on-dark.
+
+      iOS still will not take an SVG for a home-screen icon, and this app is
+      meant to be added to a home screen — that is the whole point of the
+      scan-a-tag flow — so the PNG is not redundant. Regenerate it from the SVG
+      with:
+        rsvg-convert -w 180 -h 180 public/apple-touch-icon.svg -o public/apple-touch-icon.png
+      There is no manifest yet, so no maskable or 192/512 icons are declared;
+      add them when one lands rather than shipping files nothing references.
+    -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <script>
       /*
        * Apply a stored theme override before first paint.
