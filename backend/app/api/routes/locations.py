@@ -310,6 +310,40 @@ class LayoutRead(BaseModel):
     slots: list[SlotStateRead]
 
 
+class ShortIdRequest(BaseModel):
+    """Mint (`short_id` absent) or adopt (`short_id` present)."""
+
+    short_id: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "A code that is already printed on the label or written to the tag. "
+            "Accepted in any human rendering — hyphenated, lower case, with a "
+            "display prefix. Omit it to have one minted instead. The check symbol "
+            "is verified, so a code mistyped off a label is refused rather than "
+            "bound as itself."
+        ),
+    )
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class ShortIdResponse(ReplayableResponse):
+    location_id: RowId
+    short_id: str
+    #: `BIN 4K7T-92M8` — for the confirmation toast, so what is read back matches
+    #: what is printed on the card.
+    display: str
+    #: False when the code was minted, true when the caller's was bound. Lets the
+    #: UI say "printed id assigned" versus "existing label adopted" rather than
+    #: guessing from whether it echoed the request.
+    adopted: bool
+    #: Set when adoption superseded an earlier id. That id stays resolvable — a
+    #: label already stuck to the drawer must keep working — so this is reported
+    #: for the audit trail, not because anything was removed.
+    previous_short_id: str | None
+
+
 InstantiateResponse.model_rebuild()
 ReapplyLayoutResponse.model_rebuild()
 
@@ -896,3 +930,96 @@ def read_location_layout(location_id: RowId, db: Session = Depends(get_db)) -> L
     """Grid + tag + contents state for one location's own children — shared by
     the editor, the provisioning walk and the verification walk."""
     return _layout_read(db, _require_location(db, location_id))
+
+
+@router.post("/{location_id}/short-id", response_model=ShortIdResponse)
+def assign_location_short_id(
+    location_id: RowId, request: ShortIdRequest, db: Session = Depends(get_db)
+) -> ShortIdResponse:
+    """Give this location a printed identity — minted, or one it already carries.
+
+    Two orderings, one route, because they differ only in who chose the code:
+
+    * **Promotion.** A generated grid cell starts with no printed id, since
+      nobody sticks 96 labels on an 8x12 box. Send no `short_id` and one is
+      minted, which is what "any cell can be promoted later" on
+      `POST /api/locations` means. Already has one → that one comes back, so this
+      is safe to call from a print button without checking first.
+    * **Adoption.** Send a `short_id` and *that* code is bound, for pre-printed
+      label stock, pre-encoded tags, or re-adopting a tag after restoring a
+      backup older than the binding. The check symbol is verified and a collision
+      is refused rather than substituted: the code is already on the object, so a
+      substitute would put the label and the database permanently out of step.
+
+    Adoption on a location that already has an id keeps the old one resolvable
+    and makes the new one primary — the label still stuck to the drawer and the
+    one in your hand both work, which is the point of relabelling being
+    non-destructive.
+    """
+    location = _require_location(db, location_id)
+
+    def work() -> ShortIdResponse:
+        existing = shortid.primary_short_id(db, EntityType.LOCATION, location.id)
+        if request.short_id is None:
+            minted = existing or shortid.allocate(db, EntityType.LOCATION, location.id)
+            return ShortIdResponse(
+                location_id=location.id,
+                short_id=minted,
+                display=shortid.format_display(minted, EntityType.LOCATION),
+                adopted=False,
+                previous_short_id=None,
+            )
+
+        try:
+            adopted = shortid.adopt(db, EntityType.LOCATION, location.id, request.short_id)
+        except shortid.InvalidShortId as error:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "reason": error.reason,
+                    "message": str(error),
+                    "value": error.value,
+                },
+            ) from error
+        except shortid.ShortIdTaken as error:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "reason": "short_id_taken",
+                    "message": str(error),
+                    "short_id": error.short_id,
+                    "held_by": describe_binding(db, error),
+                },
+            ) from error
+
+        return ShortIdResponse(
+            location_id=location.id,
+            short_id=adopted,
+            display=shortid.format_display(adopted, EntityType.LOCATION),
+            adopted=True,
+            previous_short_id=existing if existing != adopted else None,
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="POST /api/locations/{id}/short-id",
+        payload=request,
+        response_model=ShortIdResponse,
+        work=work,
+    )
+
+
+def describe_binding(db: Session, error: shortid.ShortIdTaken) -> str | None:
+    """What already holds the refused code, in words a person can act on.
+
+    "Already bound to Cabinet A / Drawer B2" tells you which drawer to go look
+    at; "already bound to location 41" makes you go and query for it. Only
+    locations are resolved to a path, since that is the type this route binds and
+    the one whose identity is physical.
+    """
+    if error.entity_type != EntityType.LOCATION or error.entity_pk is None:
+        return None
+    holder = db.get(Location, error.entity_pk)
+    return holder.label_path if holder is not None else None
