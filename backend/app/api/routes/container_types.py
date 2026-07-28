@@ -334,6 +334,24 @@ def _slot_template_read(container_type: ContainerType, slots: list[SlotSpec]) ->
 def create_container_type(
     request: ContainerTypeCreate, db: Session = Depends(get_db)
 ) -> ContainerTypeCreated:
+    # Checked before the insert, not caught after: `idempotency.run` rolls back
+    # on IntegrityError to absorb a duplicate *client_op_id*, so letting a slug
+    # collision reach the same handler conflates two unrelated conditions and
+    # returned a bare 500. The sibling clone route already checks first.
+    if (
+        db.execute(
+            select(ContainerType.id).where(ContainerType.slug == request.slug)
+        ).scalar_one_or_none()
+        is not None
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "duplicate_slug",
+                "message": f"a container type with slug {request.slug!r} already exists",
+            },
+        )
+
     def work() -> ContainerTypeCreated:
         container_type = ContainerType(slug=request.slug, display_name=request.display_name)
         _apply(container_type, request, set(request.model_fields_set))

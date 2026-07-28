@@ -471,6 +471,16 @@ def merge_type_region(
         inner_volume_mm3=inner_volume_mm3,
     )
     remaining = [spec for spec in current if spec not in absorbed]
+    # Validated like any other desired list. An explicit `slot_label` for the
+    # merged region can collide with an untouched slot elsewhere on the canvas,
+    # and skipping the check here — which `replace_type_slots` does perform —
+    # would let a duplicate label through to the UNIQUE(container_type_id,
+    # slot_label) constraint as an IntegrityError instead of a clean refusal.
+    validate_no_overlaps(
+        [*remaining, merged],
+        grid_rows=container_type.grid_rows,
+        grid_cols=container_type.grid_cols,
+    )
     _persist_type_slots(session, container_type, [*remaining, merged])
     return merged
 
@@ -663,7 +673,19 @@ def instantiate(
     created: list[Location] = []
     for n in range(1, count + 1):
         if "{n}" in naming_pattern:
-            name = naming_pattern.format(n=n)
+            try:
+                name = naming_pattern.format(n=n)
+            except (KeyError, IndexError, ValueError) as error:
+                # `naming_pattern` is client text handed to str.format, so any
+                # placeholder other than {n} — or an unbalanced brace — raises.
+                # "Cabinet {n} {oops}" was producing an uncaught KeyError and a
+                # bare 500. Only {n} is substituted, so anything else is a
+                # malformed pattern and the user needs telling which.
+                raise LayoutError(
+                    f"naming_pattern {naming_pattern!r} is not a valid template; "
+                    "only {n} may be substituted",
+                    reason="bad_naming_pattern",
+                ) from error
         elif count > 1:
             name = f"{naming_pattern} {n}"
         else:

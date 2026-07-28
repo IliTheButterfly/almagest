@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import Any, ClassVar
 
-from sqlalchemy import Row, delete, select
+from sqlalchemy import Row, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.catalog import PackageType, Packaging, Part, PartCategory
@@ -567,6 +567,36 @@ def consumed_grid_units(session: Session, location_id: int) -> int:
         .where(Location.parent_id == location_id)
     ).all()
     return sum(max(row[0] or 1, 1) * max(row[1] or 1, 1) for row in rows)
+
+
+def all_consumed_grid_units(session: Session) -> dict[int, int]:
+    """Grid units consumed, for every parent at once.
+
+    The bulk sibling of `consumed_grid_units`. It exists because the two paths
+    that answer "how full is this?" — the single-location read and the bulk
+    rebuild that *persists* the answer — must agree. When only the read knew
+    about grid units, a baseplate reported full on its own detail screen and
+    zero in `location_occupancy`, so it was never flagged overfull and the
+    assignment scorer read a stale fill of zero. A cache being reconstructible
+    only helps if the reconstruction is the correct one.
+
+    One grouped query rather than one per location, matching the rest of the
+    bulk rebuild.
+    """
+    rows = session.execute(
+        select(
+            Location.parent_id,
+            func.sum(
+                func.max(func.coalesce(ContainerType.footprint_rows, 1), 1)
+                * func.max(func.coalesce(ContainerType.footprint_cols, 1), 1)
+            ),
+        )
+        .select_from(Location)
+        .outerjoin(ContainerType, ContainerType.id == Location.container_type_id)
+        .where(Location.parent_id.isnot(None))
+        .group_by(Location.parent_id)
+    ).all()
+    return {int(row[0]): int(row[1] or 0) for row in rows}
 
 
 def grid_incompatibility(parent: ContainerType | None, child: ContainerType | None) -> str | None:
