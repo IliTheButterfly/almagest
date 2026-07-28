@@ -13,7 +13,16 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
 from app import __version__
-from app.api.routes import locations, parts, resolve, scan, search, stock, system
+from app.api.routes import (
+    facets,
+    locations,
+    parts,
+    resolve,
+    scan,
+    search,
+    stock,
+    system,
+)
 from app.config import get_settings
 
 
@@ -45,6 +54,8 @@ def create_app() -> FastAPI:
     app.include_router(parts.router)
     app.include_router(locations.router)
     app.include_router(stock.router)
+    app.include_router(facets.router)
+    app.include_router(facets.categories_router)
     return app
 
 
