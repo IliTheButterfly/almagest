@@ -32,7 +32,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from app.api.limits import QTY_MILLI_MAX, RowId
@@ -228,7 +228,10 @@ def list_pending(
     client syncing a batch posts it in scan order, so this is both the order the
     user experienced and immune to a device clock that is wrong.
     """
-    where = []
+    # Annotated, because `in_()` yields a `ColumnElement[bool]` while `==` yields
+    # a `BinaryExpression[bool]`, and an unannotated list infers the narrower
+    # type from whichever append comes first.
+    where: list[ColumnElement[bool]] = []
     if status_filter:
         where.append(PendingIntake.status.in_(status_filter))
     if device_id is not None:
