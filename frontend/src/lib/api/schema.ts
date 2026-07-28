@@ -4,6 +4,157 @@
  */
 
 export interface paths {
+    "/api/locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Location
+         * @description Add a container to the tree.
+         *
+         *     The path cache is rebuilt immediately (`TreeRepository.insert_and_index`), so
+         *     the new row comes back with a correct `label_path` rather than one that is
+         *     right after the next nightly job.
+         */
+        post: operations["create_location"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suggest Location
+         * @description Propose where a new lot of a part should go. Workflow 1's ASSIGN step.
+         *
+         *     Idempotency-guarded because this is not a pure read: one rung of the ladder
+         *     *materialises* an empty grid cell, so a retried suggestion would otherwise
+         *     leave a second empty cell behind every time the wifi dropped.
+         *
+         *     Nothing here touches the ledger. Suggesting a destination and putting stock
+         *     in it are separate steps, and only `/api/stock/receive` does the second.
+         */
+        post: operations["suggest_location"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Location Tree
+         * @description The whole tree, or one subtree.
+         *
+         *     Subtree filtering is `id_path LIKE :prefix || '%'` — left-anchored, so the
+         *     index on `id_path` serves it, and no recursion is involved at read time.
+         */
+        get: operations["read_location_tree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Location
+         * @description One container: its place in the tree, its fill state, and what is in it.
+         *
+         *     This is the bin screen, which is also where "empty this bin into that one"
+         *     starts from — hence the lots, and hence the capacity block alongside them.
+         */
+        get: operations["read_location"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Part
+         * @description Create a part. One field is enough.
+         *
+         *     A duplicate `(mpn_norm, manufacturer_id)` is a 409: that pair is uniquely
+         *     indexed because two rows for the same part number from the same manufacturer
+         *     is nearly always a double import, and the right fix is to add stock to the
+         *     row that exists rather than to fork the catalogue.
+         */
+        post: operations["create_part"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parts/{part_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Part
+         * @description The part, plus every lot of it and the total on hand.
+         */
+        get: operations["read_part"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Part
+         * @description Edit a part — the review-queue tail of intake.
+         *
+         *     Deliberately **not** idempotency-guarded, unlike every other write in the
+         *     API: a PATCH is idempotent by construction, since replaying it sets the same
+         *     fields to the same values. The guard exists to stop a retry becoming a second
+         *     *movement*, and there is no movement here.
+         */
+        patch: operations["update_part"];
+        trace?: never;
+    };
     "/api/resolve/{short_id}": {
         parameters: {
             query?: never;
@@ -90,6 +241,230 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stock/locations/{location_id}/empty": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Empty Bin
+         * @description Move every lot out of one location into another.
+         *
+         *     **One lot failing commits the rest and reports just that failure.** Workflow
+         *     4 is explicit about this, and it is the right call for a physical task: the
+         *     user has already tipped nineteen bags into the new bin, so refusing the whole
+         *     batch over the twentieth would leave the database describing a world that no
+         *     longer exists.
+         */
+        post: operations["empty_bin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/lots/{lot_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Lot */
+        get: operations["read_lot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/lots/{lot_id}/adjust": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Adjust Stock */
+        post: operations["adjust_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/lots/{lot_id}/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consume Stock
+         * @description Take stock. Accepted even when it drives the balance negative — that is a
+         *     dashboard anomaly to investigate, not a reason to refuse the record of what
+         *     physically happened.
+         */
+        post: operations["consume_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/lots/{lot_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Lot History
+         * @description The lot's movements, newest first.
+         *
+         *     Reads the ledger directly, which is fine *here* — this endpoint is the
+         *     history, so the rows are the answer rather than an expensive way to compute
+         *     a balance.
+         */
+        get: operations["read_lot_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/lots/{lot_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Stock
+         * @description Relocate a lot, whole or in part.
+         *
+         *     Whole: one row, `delta_milli=0`, and `stock_lots.location_id` rewritten —
+         *     the lot keeps its identity and its per-lot cost. Partial: two rows sharing a
+         *     `group_uuid` that sum to zero, which is what makes the move provably
+         *     conservative.
+         */
+        post: operations["move_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/lots/{lot_id}/recount": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recount Stock
+         * @description Set the balance to what was physically counted.
+         *
+         *     A confirming recount still writes a row: "I counted it and it was right" is
+         *     evidence, and discarding it would make a verified bin indistinguishable from
+         *     one nobody has opened in a year.
+         */
+        post: operations["recount_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/lots/{lot_id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Return Stock
+         * @description Unused stock coming back. A distinct kind from a receipt: a return is not
+         *     a purchase, and conflating them inflates every intake statistic.
+         */
+        post: operations["return_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/receive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive Stock
+         * @description Stock arriving — the commit step of intake.
+         *
+         *     Nothing before this touches the ledger: workflow 1 runs scanning, enrichment,
+         *     review and dimensions entirely against draft state, so an abandoned intake
+         *     leaves no movement behind.
+         */
+        post: operations["receive_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stock/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Movement
+         * @description Undo by appending compensating rows. Never by deleting.
+         *
+         *     The eight-second undo button posts here with the `client_op_id` it already
+         *     generated at scan time, so it needs to remember nothing else about what it
+         *     did.
+         */
+        post: operations["undo_movement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/health": {
         parameters: {
             query?: never;
@@ -111,6 +486,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdjustRequest */
+        AdjustRequest: {
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Delta Milli */
+            delta_milli: number;
+            /** Device Id */
+            device_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
+        };
         /**
          * AliasKind
          * @description *Which part of a scanned label* a `barcode_aliases.code_norm` is.
@@ -126,6 +517,72 @@ export interface components {
          * @enum {string}
          */
         AliasKind: "whole_payload" | "mpn" | "supplier_sku" | "package_code" | "tag_uid";
+        /** CandidateRead */
+        CandidateRead: {
+            /** Free Capacity */
+            free_capacity: number;
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Score */
+            score: number;
+        };
+        /**
+         * CapacityRead
+         * @description A location's fill state. **Advisory in every case.**
+         *
+         *     An over-capacity put-away is accepted and `is_overfull` is raised; nothing
+         *     here ever blocks a movement, because a scan that gets rejected teaches the
+         *     user to stop scanning.
+         */
+        CapacityRead: {
+            /** Capacity */
+            capacity: number | null;
+            /** Fill Ratio */
+            fill_ratio: number | null;
+            /** Is Full */
+            is_full: boolean;
+            /** Is Overfull */
+            is_overfull: boolean;
+            /** Model */
+            model: string;
+            /** Unit */
+            unit: string;
+            /** Used */
+            used: number;
+        };
+        /** EmptyBinRequest */
+        EmptyBinRequest: {
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
+            /** To Location Id */
+            to_location_id: number;
+        };
+        /** EmptyBinResponse */
+        EmptyBinResponse: {
+            /** Failures */
+            failures: components["schemas"]["LotFailure"][];
+            /** Group Uuid */
+            group_uuid: string;
+            /** Moved Lot Ids */
+            moved_lot_ids: number[];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
         /**
          * EntityType
          * @description Discriminator for the shared short-ID space and other polymorphic links.
@@ -165,6 +622,406 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** LedgerEntry */
+        LedgerEntry: {
+            /** Counted Qty Milli */
+            counted_qty_milli: number | null;
+            /** Delta Milli */
+            delta_milli: number;
+            /** From Location Id */
+            from_location_id: number | null;
+            /** Group Uuid */
+            group_uuid: string | null;
+            /** Kind */
+            kind: string;
+            /** Note */
+            note: string | null;
+            /** Qty After Milli */
+            qty_after_milli: number;
+            /** Reversal Of Seq */
+            reversal_of_seq: number | null;
+            /** Seq */
+            seq: number;
+            /** Source */
+            source: string;
+            /** To Location Id */
+            to_location_id: number | null;
+            /** Ts */
+            ts: string;
+        };
+        /**
+         * LedgerSource
+         * @description How the movement was captured. Drives trust when balances disagree.
+         * @enum {string}
+         */
+        LedgerSource: "manual" | "scan" | "scale" | "vision" | "import" | "api" | "defrag";
+        /** LocationCreate */
+        LocationCreate: {
+            /** Access Score */
+            access_score?: number | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Col Idx */
+            col_idx?: number | null;
+            /** Container Type Id */
+            container_type_id?: number | null;
+            /** Description */
+            description?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Esd Safe
+             * @description Null inherits from the nearest ancestor that states one.
+             */
+            esd_safe?: boolean | null;
+            /** Fill Factor */
+            fill_factor?: number | null;
+            /**
+             * Is Placeable
+             * @description Null takes the container type's answer.
+             */
+            is_placeable?: boolean | null;
+            /**
+             * Mint Short Id
+             * @description Null applies the rule from the design: a standalone container gets a printed id, a generated grid cell does not — nobody sticks 96 labels on an 8x12 box. Any cell can be promoted later by asking for one.
+             */
+            mint_short_id?: boolean | null;
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id?: number | null;
+            /** Row Idx */
+            row_idx?: number | null;
+            /**
+             * Slot Label
+             * @description Set for a cell of the parent, e.g. 'C-07'. Unique among siblings.
+             */
+            slot_label?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+            /** Tare Mg */
+            tare_mg?: number | null;
+        };
+        /** LocationCreated */
+        LocationCreated: {
+            location: components["schemas"]["LocationRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /**
+         * LocationNode
+         * @description One row of the flat tree. Cheaper than `LocationRead` by design: a tree
+         *     render needs structure and fill state, not every lot in the warehouse.
+         */
+        LocationNode: {
+            /** Container Type Id */
+            container_type_id: number | null;
+            /** Depth */
+            depth: number;
+            /** Fill Ratio */
+            fill_ratio: number | null;
+            /** Id */
+            id: number;
+            /** Id Path */
+            id_path: string;
+            /** Is Overfull */
+            is_overfull: boolean;
+            /** Is Staging */
+            is_staging: boolean;
+            /** Label Path */
+            label_path: string;
+            /** Lot Count */
+            lot_count: number;
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id: number | null;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Slot Label */
+            slot_label: string | null;
+        };
+        /** LocationRead */
+        LocationRead: {
+            /** Access Score */
+            access_score: number;
+            capacity: components["schemas"]["CapacityRead"];
+            /** Child Count */
+            child_count: number;
+            /** Container Type Id */
+            container_type_id: number | null;
+            /** Depth */
+            depth: number;
+            /** Description */
+            description: string | null;
+            /** Display */
+            display: string | null;
+            /** Effective Esd Safe */
+            effective_esd_safe: boolean | null;
+            /** Esd Safe */
+            esd_safe: boolean | null;
+            /** Id */
+            id: number;
+            /** Id Path */
+            id_path: string;
+            /** Is Overfull */
+            is_overfull: boolean;
+            /** Is Placeable */
+            is_placeable: boolean | null;
+            /** Is Staging */
+            is_staging: boolean;
+            /** Label Path */
+            label_path: string;
+            /** Lots */
+            lots: components["schemas"]["LotRead"][];
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id: number | null;
+            /** Short Id */
+            short_id: string | null;
+            /** Slot Label */
+            slot_label: string | null;
+            /** Tare Mg */
+            tare_mg: number | null;
+        };
+        /** LocationTree */
+        LocationTree: {
+            /** Nodes */
+            nodes: components["schemas"]["LocationNode"][];
+        };
+        /** LotFailure */
+        LotFailure: {
+            /** Lot Id */
+            lot_id: number;
+            /** Message */
+            message: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * LotRead
+         * @description One physical package of one part at one location.
+         */
+        LotRead: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Date Code */
+            date_code?: string | null;
+            /** Id */
+            id: number;
+            /** Location Id */
+            location_id: number;
+            /** Location Label Path */
+            location_label_path?: string | null;
+            /** Packaging Id */
+            packaging_id?: number | null;
+            /** Part Id */
+            part_id: number;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Qty Reserved Milli */
+            qty_reserved_milli: number;
+            /** Serial */
+            serial?: string | null;
+            /** Status */
+            status: string;
+            /** Unit Cost Micro */
+            unit_cost_micro?: number | null;
+        };
+        /** MovePlanRead */
+        MovePlanRead: {
+            /** Rationale */
+            rationale: string;
+            /** Steps */
+            steps: components["schemas"]["MoveStepRead"][];
+        };
+        /** MoveRequest */
+        MoveRequest: {
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Qty Milli */
+            qty_milli?: number | null;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
+            /** To Location Id */
+            to_location_id: number;
+        };
+        /** MoveStepRead */
+        MoveStepRead: {
+            /** From Location Id */
+            from_location_id: number;
+            /** Lot Id */
+            lot_id: number;
+            /** Qty Milli */
+            qty_milli: number;
+            /** To Location Id */
+            to_location_id: number;
+        };
+        /** MovementResponse */
+        MovementResponse: {
+            counterpart_lot?: components["schemas"]["LotRead"] | null;
+            /** Group Uuid */
+            group_uuid?: string | null;
+            lot: components["schemas"]["LotRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Seqs */
+            seqs: number[];
+        };
+        /** NewSiblingRead */
+        NewSiblingRead: {
+            /** Based On Location Id */
+            based_on_location_id: number;
+            /** Container Type Id */
+            container_type_id: number;
+            /** Parent Id */
+            parent_id: number;
+        };
+        /** PartCreate */
+        PartCreate: {
+            /** Category Id */
+            category_id?: number | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Height Mm */
+            height_mm?: number | null;
+            /** Is Active */
+            is_active?: boolean | null;
+            /**
+             * Is Stub
+             * @description Set when the row came from a scan nothing resolved. Drives the review queue.
+             */
+            is_stub?: boolean | null;
+            /** Keywords */
+            keywords?: string | null;
+            /** Length Mm */
+            length_mm?: number | null;
+            /** Manufacturer Id */
+            manufacturer_id?: number | null;
+            /**
+             * Mint Short Id
+             * @description Allocate a printed identifier. Off by default: a part is a definition, and it is containers that get labels. Turn it on for a bagged part that needs one of its own.
+             * @default false
+             */
+            mint_short_id?: boolean;
+            /** Mpn */
+            mpn?: string | null;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            /** Package Type Id */
+            package_type_id?: number | null;
+            /**
+             * Part Kind
+             * @description `part_kinds.slug`
+             * @default component
+             */
+            part_kind?: string;
+            /** Shape Factor */
+            shape_factor?: number | null;
+            /**
+             * Unit Mass Mg
+             * @description Learned from a hand-counted reference batch. Null means counting by weight is refused for this part rather than attempted badly.
+             */
+            unit_mass_mg?: number | null;
+            /**
+             * Unit Volume Mm3
+             * @description A measured override. Setting it pins `volume_source` to 'override', so the dimension cascade stops recomputing it.
+             */
+            unit_volume_mm3?: number | null;
+            /** Uom Id */
+            uom_id?: number | null;
+            /** Width Mm */
+            width_mm?: number | null;
+        };
+        /** PartCreated */
+        PartCreated: {
+            part: components["schemas"]["PartRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** PartRead */
+        PartRead: {
+            /** Category Id */
+            category_id: number | null;
+            /** Description */
+            description: string | null;
+            /** Display */
+            display: string | null;
+            /** Height Mm */
+            height_mm: number | null;
+            /** Hot Score */
+            hot_score: number;
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            /** Is Stub */
+            is_stub: boolean;
+            /** Keywords */
+            keywords: string | null;
+            /** Length Mm */
+            length_mm: number | null;
+            /** Lots */
+            lots: components["schemas"]["LotRead"][];
+            /** Manufacturer Id */
+            manufacturer_id: number | null;
+            /** Mpn */
+            mpn: string | null;
+            /** Mpn Norm */
+            mpn_norm: string | null;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes: string | null;
+            /** Package Type Id */
+            package_type_id: number | null;
+            /** Part Kind */
+            part_kind: string;
+            /** Shape Factor */
+            shape_factor: number | null;
+            /** Short Id */
+            short_id: string | null;
+            /** Total Qty Milli */
+            total_qty_milli: number;
+            /** Unit Mass Mg */
+            unit_mass_mg: number | null;
+            /** Unit Volume Mm3 */
+            unit_volume_mm3: number | null;
+            /** Uom Id */
+            uom_id: number | null;
+            /** Volume Source */
+            volume_source: string | null;
+            /** Width Mm */
+            width_mm: number | null;
+        };
         /** PartSummary */
         PartSummary: {
             /** Category Id */
@@ -179,6 +1036,125 @@ export interface components {
             mpn: string | null;
             /** Name */
             name: string;
+        };
+        /** PartUpdate */
+        PartUpdate: {
+            /** Category Id */
+            category_id?: number | null;
+            /** Description */
+            description?: string | null;
+            /** Height Mm */
+            height_mm?: number | null;
+            /** Is Active */
+            is_active?: boolean | null;
+            /**
+             * Is Stub
+             * @description Set when the row came from a scan nothing resolved. Drives the review queue.
+             */
+            is_stub?: boolean | null;
+            /** Keywords */
+            keywords?: string | null;
+            /** Length Mm */
+            length_mm?: number | null;
+            /** Manufacturer Id */
+            manufacturer_id?: number | null;
+            /** Mpn */
+            mpn?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Package Type Id */
+            package_type_id?: number | null;
+            /** Part Kind */
+            part_kind?: string | null;
+            /** Shape Factor */
+            shape_factor?: number | null;
+            /**
+             * Unit Mass Mg
+             * @description Learned from a hand-counted reference batch. Null means counting by weight is refused for this part rather than attempted badly.
+             */
+            unit_mass_mg?: number | null;
+            /**
+             * Unit Volume Mm3
+             * @description A measured override. Setting it pins `volume_source` to 'override', so the dimension cascade stops recomputing it.
+             */
+            unit_volume_mm3?: number | null;
+            /** Uom Id */
+            uom_id?: number | null;
+            /** Width Mm */
+            width_mm?: number | null;
+        };
+        /** QuantityRequest */
+        QuantityRequest: {
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Qty Milli */
+            qty_milli: number;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
+        };
+        /** ReceiveRequest */
+        ReceiveRequest: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Date Code */
+            date_code?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Force New Lot
+             * @default false
+             */
+            force_new_lot?: boolean;
+            /** Location Id */
+            location_id: number;
+            /** Note */
+            note?: string | null;
+            /** Packaging Id */
+            packaging_id?: number | null;
+            /** Part Id */
+            part_id: number;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Serial */
+            serial?: string | null;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
+            /** Unit Cost Micro */
+            unit_cost_micro?: number | null;
+        };
+        /** RecountRequest */
+        RecountRequest: {
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Counted Qty Milli */
+            counted_qty_milli: number;
+            /** Device Id */
+            device_id?: string | null;
+            /** Measured Mass Mg */
+            measured_mass_mg?: number | null;
+            /** Note */
+            note?: string | null;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
         };
         /** ResolveResponse */
         ResolveResponse: {
@@ -432,6 +1408,93 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** SuggestRequest */
+        SuggestRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Packaging Id
+             * @description The *new* lot's packaging, when it is already known. Its pitch is what the reel/tube-rack compatibility filter reads; omitting it simply skips that filter.
+             */
+            packaging_id?: number | null;
+            /** Part Id */
+            part_id: number;
+        };
+        /**
+         * SuggestResponse
+         * @description Where to put it, and how confident that answer is.
+         *
+         *     **Never an error.** The escalation ladder always terminates in a concrete
+         *     location — dropping soft preferences, materialising an empty grid cell,
+         *     proposing a defrag move, proposing a new sibling container, and finally the
+         *     permanent `INBOX` staging row. `escalation_level` says which rung answered so
+         *     the UI can explain itself instead of presenting every answer as equally
+         *     confident.
+         */
+        SuggestResponse: {
+            /** Candidates */
+            candidates: components["schemas"]["CandidateRead"][];
+            defrag_plan?: components["schemas"]["MovePlanRead"] | null;
+            /** Escalation Level */
+            escalation_level: string;
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            new_sibling_proposal?: components["schemas"]["NewSiblingRead"] | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /**
+         * UndoRequest
+         * @description Undo by whichever handle the caller has.
+         *
+         *     Exactly one must be given. `client_op_id_to_undo` is the one the UI actually
+         *     uses — it already generated that key at scan time, so the eight-second undo
+         *     button needs to remember nothing else.
+         */
+        UndoRequest: {
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Client Op Id To Undo */
+            client_op_id_to_undo?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Group Uuid To Undo */
+            group_uuid_to_undo?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Seq */
+            seq?: number | null;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
+        };
+        /** UndoResponse */
+        UndoResponse: {
+            /** Lots */
+            lots: components["schemas"]["LotRead"][];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Reversed Seqs */
+            reversed_seqs: number[];
+            /** Seqs */
+            seqs: number[];
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -454,6 +1517,233 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    create_location: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_location: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_location_tree: {
+        parameters: {
+            query?: {
+                root_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationTree"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_location: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_part: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_part: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_part: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     resolve_short_id: {
         parameters: {
             query?: never;
@@ -611,6 +1901,346 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    empty_bin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmptyBinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmptyBinResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_lot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LotRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adjust_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdjustRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    consume_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuantityRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_lot_history: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerEntry"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recount_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecountRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    return_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuantityRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receive_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_movement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UndoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoResponse"];
                 };
             };
             /** @description Validation Error */
