@@ -20,9 +20,16 @@ from app.models.catalog import (
     Unit,
 )
 from app.models.identity import ObjectId
+from app.models.layout import LayoutSuggestion
 from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
 from app.models.stock import StockLedger, StockLot
-from app.models.storage import ContainerType, ContainerTypeSlotTemplate, Location, LocationTag
+from app.models.storage import (
+    ContainerType,
+    ContainerTypeSlotTemplate,
+    Location,
+    LocationOccupancy,
+    LocationTag,
+)
 from app.models.system import CacheState, ClientOperation, Setting
 
 __all__ = [
@@ -30,7 +37,9 @@ __all__ = [
     "ClientOperation",
     "ContainerType",
     "ContainerTypeSlotTemplate",
+    "LayoutSuggestion",
     "Location",
+    "LocationOccupancy",
     "LocationTag",
     "Manufacturer",
     "ObjectId",

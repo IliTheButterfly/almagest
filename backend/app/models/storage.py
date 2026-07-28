@@ -247,3 +247,47 @@ class LocationTag(Base):
     bind_source: Mapped[str | None] = mapped_column(String(32))
     written_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
     last_verified_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+
+class LocationOccupancy(Base):
+    """Cached fill state, one row per location.
+
+    **Dirtied by database triggers**, not application code: `AFTER INSERT ON
+    stock_ledger` and `AFTER UPDATE OF location_id ON stock_lots` both flag the
+    affected location and every ancestor (so "this shelf is 80% full" stays
+    correct without the shelf itself ever holding a lot directly), and `AFTER
+    INSERT ON locations` seeds a fresh dirty row so a brand-new location always
+    has somewhere for a dirty flag to land. All three live in the migration
+    that introduces this table, mirroring how `stock_ledger`'s append-only
+    triggers live there rather than in this module.
+
+    A full recompute of every row (`app.db.maintenance.rebuild_location_occupancy`)
+    is the escape hatch, exactly as `rebuild_lot_balances` is for lot balances:
+    the cache is 100% reconstructible from `stock_lots` and `stock_ledger`, so a
+    bug here is a stale number, never lost data.
+    """
+
+    __tablename__ = "location_occupancy"
+
+    location_id: Mapped[int] = mapped_column(
+        ForeignKey("locations.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    #: Snapshot of the strategy that produced this row, so a reader never has
+    #: to re-join `container_types` just to know how to label `used`/`capacity`.
+    capacity_model: Mapped[str] = mapped_column(StrEnumType(CapacityModel), nullable=False)
+    #: NULL means "no defined capacity" (the `none` model, or dimensions that
+    #: are not yet filled in) — never a smuggled zero.
+    capacity: Mapped[float | None] = mapped_column(Float)
+    used: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
+    fill_ratio: Mapped[float | None] = mapped_column(Float)
+    #: The *advisory* full threshold (`container_types.full_threshold`), not
+    #: the same thing as `locations.is_overfull`: this can be true at 90% full
+    #: while capacity is not literally exceeded.
+    is_full: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    is_dirty: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1", index=True
+    )
+    computed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)

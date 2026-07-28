@@ -10,15 +10,20 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.catalog import Part, PartKind
+from app.models.catalog import Packaging, Part, PartCategory, PartKind
 from app.models.enums import LedgerKind, LedgerSource
 from app.models.stock import StockLedger, StockLot
-from app.models.storage import Location
+from app.models.storage import ContainerType, Location
 
 
 def component_kind(db: Session) -> PartKind:
     """The 'component' row seeded by the initial migration."""
     return db.execute(select(PartKind).where(PartKind.slug == "component")).scalar_one()
+
+
+def inbox_location(db: Session) -> Location:
+    """The permanent staging row seeded by the capacity/assignment migration."""
+    return db.execute(select(Location).where(Location.is_staging.is_(True))).scalars().one()
 
 
 def make_part(db: Session, name: str = "Test part", **kwargs: object) -> Part:
@@ -33,6 +38,32 @@ def make_location(db: Session, name: str = "Test bin", **kwargs: object) -> Loca
     db.add(location)
     db.flush()
     return location
+
+
+def make_container_type(
+    db: Session, slug: str = "test-container", **kwargs: object
+) -> ContainerType:
+    kwargs.setdefault("display_name", slug)
+    container_type = ContainerType(slug=slug, **kwargs)
+    db.add(container_type)
+    db.flush()
+    return container_type
+
+
+def make_packaging(db: Session, code: str = "test-packaging", **kwargs: object) -> Packaging:
+    kwargs.setdefault("display_name", code)
+    packaging = Packaging(code=code, **kwargs)
+    db.add(packaging)
+    db.flush()
+    return packaging
+
+
+def make_category(db: Session, name: str = "Test category", **kwargs: object) -> PartCategory:
+    kwargs.setdefault("slug", name.lower().replace(" ", "-"))
+    category = PartCategory(name=name, **kwargs)
+    db.add(category)
+    db.flush()
+    return category
 
 
 def make_lot(db: Session, part: Part, location: Location, qty_milli: int = 0) -> StockLot:

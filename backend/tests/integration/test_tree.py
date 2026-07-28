@@ -202,10 +202,14 @@ def test_the_two_trees_are_independent(db: Session) -> None:
     a storage tree unusable as a browse tree."""
     locations = TreeRepository(db, Location)
     categories = TreeRepository(db, PartCategory)
+    # `locations` is never empty: the migration seeds a permanent `INBOX`
+    # staging row (auto-assignment's guaranteed fallback), so the baseline is
+    # captured rather than assumed to be zero.
+    locations_before = len(locations.subtree_all())
     _make(locations, "Shelf")
     _make(categories, "Passives")
     locations.rebuild_paths()
     categories.rebuild_paths()
 
-    assert len(locations.subtree_all()) == 1
+    assert len(locations.subtree_all()) == locations_before + 1
     assert len(categories.subtree_all()) == 1
