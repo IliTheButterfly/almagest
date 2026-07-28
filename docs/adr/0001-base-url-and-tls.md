@@ -57,7 +57,7 @@ Mitigation already in the design: every printed label carries the bare MPN as
 text under the QR, so a manual manufacturer-site search always works with no
 infrastructure at all.
 
-**Payload length.** `https://almagest.lan/s/4K7T92MQ` is 33 characters — QR
+**Payload length.** `https://almagest.lan/s/4K7T92M8` is 33 characters — QR
 version 3 at ECC-M, about 13 mm square at a 0.4 mm module including the quiet
 zone. Comfortably inside the budget, and shorter than the `*.ts.net`
 alternative would have been, which means a less dense QR and better scans off

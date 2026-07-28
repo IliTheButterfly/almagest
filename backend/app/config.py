@@ -34,6 +34,10 @@ class Settings(BaseSettings):
 
     db_path: Path = Field(default=Path("./data/almagest.db"), alias="ALMAGEST_DB_PATH")
     datasheet_dir: Path = Field(default=Path("./data/datasheets"), alias="ALMAGEST_DATASHEET_DIR")
+    #: Rendered label sheets and single cards land here — a PDF per sheet job,
+    #: or a directory of PNGs for `FileBackend`. Printing is not queued through
+    #: the offline outbox, so this is plain disk, not a content-addressed store.
+    label_output_dir: Path = Field(default=Path("./data/labels"), alias="ALMAGEST_LABEL_OUTPUT_DIR")
 
     #: Physically written into every NFC tag's NDEF URI record and every printed QR,
     #: as ``{base_url}/s/{short_id}``. Changing it after tags exist means rewriting
@@ -47,7 +51,7 @@ class Settings(BaseSettings):
     def _strip_trailing_slash(cls, v: str) -> str:
         return v.rstrip("/")
 
-    @field_validator("db_path", "datasheet_dir")
+    @field_validator("db_path", "datasheet_dir", "label_output_dir")
     @classmethod
     def _anchor_relative_to_repo_root(cls, v: Path) -> Path:
         return v if v.is_absolute() else (REPO_ROOT / v).resolve()

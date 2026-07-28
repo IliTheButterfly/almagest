@@ -66,6 +66,111 @@
         "title": "AliasKind",
         "type": "string"
       },
+      "BindRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tapping any cell jumps the cursor there. Omit to bind at the derived cursor, which is the walking-paced path.",
+            "title": "Location Id"
+          },
+          "move": {
+            "default": false,
+            "description": "The human answered 'Move here' to a conflict. Required for anything that displaces an existing binding \u2014 a silent rebind is how a drawer full of stock ends up answering to a tag that used to mean something else.",
+            "title": "Move",
+            "type": "boolean"
+          },
+          "tag_uid": {
+            "maxLength": 64,
+            "minLength": 4,
+            "title": "Tag Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag_uid"
+        ],
+        "title": "BindRequest",
+        "type": "object"
+      },
+      "BindResponse": {
+        "description": "`status` is one of:\n\n* `bound` \u2014 a slot that had no tag now has one, and the cursor advanced;\n* `moved` / `rebound` \u2014 a confirmed `move` displaced a prior binding, which\n  the five-deep undo can put back;\n* `already_bound_here` \u2014 the same tag tapped twice, or the client-side\n  debounce lost a race. Nothing written, and no extra undo step to unwind;\n* `already_bound_elsewhere` / `slot_already_bound` \u2014 **nothing was written.**\n  `conflict` names the binding in the way so the UI can offer Move here /\n  Cancel.",
+        "properties": {
+          "conflict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConflictRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "tag",
+          "conflict",
+          "state"
+        ],
+        "title": "BindResponse",
+        "type": "object"
+      },
       "CandidateRead": {
         "properties": {
           "free_capacity": {
@@ -95,6 +200,19 @@
         ],
         "title": "CandidateRead",
         "type": "object"
+      },
+      "CapacityModel": {
+        "description": "Selects a Python capacity strategy class.\n\nThe *model* is data; the *formula* is code. Storing a capacity formula as a\nstring in the database is precisely the over-engineering that made the\nprior art in this space unmaintainable.",
+        "enum": [
+          "none",
+          "slots",
+          "volume",
+          "positions",
+          "mass",
+          "grid_units"
+        ],
+        "title": "CapacityModel",
+        "type": "string"
       },
       "CapacityRead": {
         "description": "A location's fill state. **Advisory in every case.**\n\nAn over-capacity put-away is accepted and `is_overfull` is raised; nothing\nhere ever blocks a movement, because a scan that gets rejected teaches the\nuser to stop scanning.",
@@ -194,6 +312,126 @@
         "title": "CategoryNode",
         "type": "object"
       },
+      "CheckRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
+          "tag_uid": {
+            "maxLength": 64,
+            "minLength": 4,
+            "title": "Tag Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag_uid"
+        ],
+        "title": "CheckRequest",
+        "type": "object"
+      },
+      "CheckResponse": {
+        "description": "`status` is `match` (tick and advance) or `mismatch` (record and stop).",
+        "properties": {
+          "expected_tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Tag Uid"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "mismatch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MismatchRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "scanned_tag_uid": {
+            "title": "Scanned Tag Uid",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VerificationState"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "location_id",
+          "expected_tag_uid",
+          "scanned_tag_uid",
+          "mismatch",
+          "state"
+        ],
+        "title": "CheckResponse",
+        "type": "object"
+      },
+      "ChildLayout": {
+        "enum": [
+          "grid",
+          "list",
+          "none"
+        ],
+        "title": "ChildLayout",
+        "type": "string"
+      },
       "ChoiceFacet": {
         "properties": {
           "count": {
@@ -215,6 +453,1141 @@
           "count"
         ],
         "title": "ChoiceFacet",
+        "type": "object"
+      },
+      "CloneRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to '{source-slug}-copy[-N]'.",
+            "title": "Slug"
+          }
+        },
+        "title": "CloneRequest",
+        "type": "object"
+      },
+      "ConflictRead": {
+        "description": "The binding standing in the way, named well enough for the modal:\n\"Already bound to {label_path}\" with Move here / Cancel.",
+        "properties": {
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          },
+          "tag_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Tag Id",
+            "type": "integer"
+          },
+          "tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Uid"
+          }
+        },
+        "required": [
+          "tag_id",
+          "tag_uid",
+          "location_id",
+          "slot_label",
+          "label_path"
+        ],
+        "title": "ConflictRead",
+        "type": "object"
+      },
+      "ContainerTypeCreate": {
+        "properties": {
+          "allowed_part_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Part Kinds"
+          },
+          "capacity_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapacityModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capacity_slots": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Slots"
+          },
+          "child_layout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChildLayout"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "default_fill_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Fill Factor"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esd Safe"
+          },
+          "footprint_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Cols"
+          },
+          "footprint_height_u": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Height U"
+          },
+          "footprint_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Rows"
+          },
+          "front_height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Height Mm"
+          },
+          "front_width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Width Mm"
+          },
+          "full_threshold": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Threshold"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_height_unit_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Height Unit Mm"
+          },
+          "grid_pitch_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Pitch Mm"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "inner_height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Height Mm"
+          },
+          "inner_length_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Length Mm"
+          },
+          "inner_width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Width Mm"
+          },
+          "is_placeable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Placeable"
+          },
+          "max_item_dimension_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Item Dimension Mm"
+          },
+          "max_parts_per_slot": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Parts Per Slot"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotLabelScheme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slug": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name",
+          "slug"
+        ],
+        "title": "ContainerTypeCreate",
+        "type": "object"
+      },
+      "ContainerTypeCreated": {
+        "properties": {
+          "container_type": {
+            "$ref": "#/components/schemas/ContainerTypeRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "container_type"
+        ],
+        "title": "ContainerTypeCreated",
+        "type": "object"
+      },
+      "ContainerTypeEdited": {
+        "properties": {
+          "cloned": {
+            "title": "Cloned",
+            "type": "boolean"
+          },
+          "container_type": {
+            "$ref": "#/components/schemas/ContainerTypeRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "container_type",
+          "cloned"
+        ],
+        "title": "ContainerTypeEdited",
+        "type": "object"
+      },
+      "ContainerTypeRead": {
+        "properties": {
+          "allowed_part_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Part Kinds"
+          },
+          "capacity_model": {
+            "title": "Capacity Model",
+            "type": "string"
+          },
+          "capacity_slots": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Slots"
+          },
+          "child_layout": {
+            "title": "Child Layout",
+            "type": "string"
+          },
+          "default_fill_factor": {
+            "title": "Default Fill Factor",
+            "type": "number"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esd Safe"
+          },
+          "footprint_cols": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Cols"
+          },
+          "footprint_height_u": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Height U"
+          },
+          "footprint_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Rows"
+          },
+          "front_height_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Height Mm"
+          },
+          "front_width_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Width Mm"
+          },
+          "full_threshold": {
+            "title": "Full Threshold",
+            "type": "number"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_height_unit_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Height Unit Mm"
+          },
+          "grid_pitch_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Pitch Mm"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inner_height_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Height Mm"
+          },
+          "inner_length_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Length Mm"
+          },
+          "inner_width_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Width Mm"
+          },
+          "is_placeable": {
+            "title": "Is Placeable",
+            "type": "boolean"
+          },
+          "is_seed": {
+            "title": "Is Seed",
+            "type": "boolean"
+          },
+          "materialize_slots": {
+            "title": "Materialize Slots",
+            "type": "boolean"
+          },
+          "max_item_dimension_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Item Dimension Mm"
+          },
+          "max_parts_per_slot": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Parts Per Slot"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "title": "Slot Label Scheme",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "display_name",
+          "description",
+          "child_layout",
+          "grid_rows",
+          "grid_cols",
+          "grid_pitch_mm",
+          "grid_height_unit_mm",
+          "footprint_cols",
+          "footprint_rows",
+          "footprint_height_u",
+          "slot_label_scheme",
+          "slot_label_params",
+          "materialize_slots",
+          "capacity_model",
+          "capacity_slots",
+          "max_parts_per_slot",
+          "inner_length_mm",
+          "inner_width_mm",
+          "inner_height_mm",
+          "default_fill_factor",
+          "full_threshold",
+          "esd_safe",
+          "is_placeable",
+          "max_item_dimension_mm",
+          "allowed_part_kinds",
+          "front_width_mm",
+          "front_height_mm",
+          "is_seed"
+        ],
+        "title": "ContainerTypeRead",
+        "type": "object"
+      },
+      "ContainerTypeUpdate": {
+        "properties": {
+          "allowed_part_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Part Kinds"
+          },
+          "capacity_model": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapacityModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capacity_slots": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity Slots"
+          },
+          "child_layout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChildLayout"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "default_fill_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Fill Factor"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esd Safe"
+          },
+          "footprint_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Cols"
+          },
+          "footprint_height_u": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Height U"
+          },
+          "footprint_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Rows"
+          },
+          "front_height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Height Mm"
+          },
+          "front_width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Front Width Mm"
+          },
+          "full_threshold": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Threshold"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_height_unit_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Height Unit Mm"
+          },
+          "grid_pitch_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Pitch Mm"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "inner_height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Height Mm"
+          },
+          "inner_length_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Length Mm"
+          },
+          "inner_width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Width Mm"
+          },
+          "is_placeable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Placeable"
+          },
+          "max_item_dimension_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Item Dimension Mm"
+          },
+          "max_parts_per_slot": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Parts Per Slot"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotLabelScheme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ContainerTypeUpdate",
         "type": "object"
       },
       "EmptyBinRequest": {
@@ -457,6 +1830,387 @@
           "schema_revision"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "InstantiateRequest": {
+        "description": "\"Give me N of these\" \u2014 the bulk-provisioning entry point.\n\nInstances **own their own copy** of the type's layout from this moment on;\nnothing here links back to `container_type_id` afterwards (docs/PLAN.md,\n\"Layout authoring\").",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "container_type_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "count": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "naming_pattern": {
+            "description": "'{n}' is replaced with the 1-based index; a count > 1 with no '{n}' gets ' {n}' appended so instances stay distinguishable.",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Naming Pattern",
+            "type": "string"
+          },
+          "tag_granularity": {
+            "$ref": "#/components/schemas/TagGranularity",
+            "default": "container",
+            "description": "Which new locations get a printed short_id: only the container roots, or every generated slot too."
+          }
+        },
+        "required": [
+          "container_type_id",
+          "naming_pattern"
+        ],
+        "title": "InstantiateRequest",
+        "type": "object"
+      },
+      "InstantiateResponse": {
+        "properties": {
+          "locations": {
+            "items": {
+              "$ref": "#/components/schemas/LocationRead"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "locations"
+        ],
+        "title": "InstantiateResponse",
+        "type": "object"
+      },
+      "LabelBackendKind": {
+        "description": "Which `LabelBackend` implementation rendered a `label_sheet_jobs` row.\n\nOnly the two hardware-free backends exist this phase. The thermal\nbackends `docs/PLAN.md` sketches (`ZplBackend`, `TsplBackend`,\n`BrotherQlBackend`, `CupsBackend`, `AgentBackend`) are deliberately not\nimplemented here \u2014 no printer is owned, and the design commits to none.",
+        "enum": [
+          "file",
+          "pdf_sheet"
+        ],
+        "title": "LabelBackendKind",
+        "type": "string"
+      },
+      "LabelCardPlacementRead": {
+        "properties": {
+          "col": {
+            "title": "Col",
+            "type": "integer"
+          },
+          "col_span": {
+            "title": "Col Span",
+            "type": "integer"
+          },
+          "height_mm": {
+            "title": "Height Mm",
+            "type": "number"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "qr_included": {
+            "title": "Qr Included",
+            "type": "boolean"
+          },
+          "row": {
+            "title": "Row",
+            "type": "integer"
+          },
+          "row_span": {
+            "title": "Row Span",
+            "type": "integer"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          },
+          "width_mm": {
+            "title": "Width Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "location_id",
+          "row",
+          "col",
+          "row_span",
+          "col_span",
+          "slot_label",
+          "name",
+          "short_id",
+          "qr_included",
+          "width_mm",
+          "height_mm"
+        ],
+        "title": "LabelCardPlacementRead",
+        "type": "object"
+      },
+      "LabelSheetCreated": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/LabelSheetJobRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "title": "LabelSheetCreated",
+        "type": "object"
+      },
+      "LabelSheetJobRead": {
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "card_height_mm": {
+            "title": "Card Height Mm",
+            "type": "number"
+          },
+          "card_width_mm": {
+            "title": "Card Width Mm",
+            "type": "number"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/LabelCardPlacementRead"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dpi": {
+            "title": "Dpi",
+            "type": "integer"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "root_location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Root Location Id",
+            "type": "integer"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "template",
+          "backend",
+          "dpi",
+          "root_location_id",
+          "card_width_mm",
+          "card_height_mm",
+          "item_count",
+          "created_at",
+          "cards"
+        ],
+        "title": "LabelSheetJobRead",
+        "type": "object"
+      },
+      "LabelSheetRequest": {
+        "properties": {
+          "backend": {
+            "$ref": "#/components/schemas/LabelBackendKind",
+            "default": "pdf_sheet"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "dpi": {
+            "default": 300,
+            "maximum": 1200.0,
+            "minimum": 72.0,
+            "title": "Dpi",
+            "type": "integer"
+          },
+          "root_location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Root Location Id",
+            "type": "integer"
+          },
+          "slot_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maximum": 9.223372036854776e+18,
+                  "minimum": 1.0,
+                  "type": "integer"
+                },
+                "maxItems": 500,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Ids"
+          },
+          "template": {
+            "$ref": "#/components/schemas/LabelTemplate"
+          }
+        },
+        "required": [
+          "template",
+          "root_location_id"
+        ],
+        "title": "LabelSheetRequest",
+        "type": "object"
+      },
+      "LabelTemplate": {
+        "description": "Which card layout `app.services.labels` draws.\n\n`PART_LOT` has no route yet \u2014 the stick-on part/lot label is Phase 5's\nthermal backend, per `docs/PLAN.md`'s phasing table \u2014 but it is defined\nnow so the QR-plus-MPN-caption rule (\"print the bare MPN as text under\nevery part QR\") has a home in the renderer's template set from day one\nrather than needing a second code path bolted on when that phase starts.",
+        "enum": [
+          "drawer_card",
+          "cabinet_card",
+          "part_lot"
+        ],
+        "title": "LabelTemplate",
+        "type": "string"
+      },
+      "LayoutRead": {
+        "properties": {
+          "container_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Type Id"
+          },
+          "grid_cols": {
+            "title": "Grid Cols",
+            "type": "integer"
+          },
+          "grid_rows": {
+            "title": "Grid Rows",
+            "type": "integer"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotStateRead"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "location_id",
+          "container_type_id",
+          "grid_rows",
+          "grid_cols",
+          "slots"
+        ],
+        "title": "LayoutRead",
         "type": "object"
       },
       "LedgerEntry": {
@@ -1005,6 +2759,18 @@
             "title": "Label Path",
             "type": "string"
           },
+          "last_printed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Printed At"
+          },
           "lots": {
             "items": {
               "$ref": "#/components/schemas/LotRead"
@@ -1082,7 +2848,8 @@
           "display",
           "child_count",
           "capacity",
-          "lots"
+          "lots",
+          "last_printed_at"
         ],
         "title": "LocationRead",
         "type": "object"
@@ -1242,6 +3009,118 @@
           "status"
         ],
         "title": "LotRead",
+        "type": "object"
+      },
+      "MismatchRead": {
+        "description": "A tag found somewhere it should not be. **Never auto-fixed.**",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expected_tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Tag Uid"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "scanned_resolved_label_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Resolved Label Path"
+          },
+          "scanned_resolved_location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Resolved Location Id"
+          },
+          "scanned_resolved_slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Resolved Slot Label"
+          },
+          "scanned_tag_uid": {
+            "title": "Scanned Tag Uid",
+            "type": "string"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          }
+        },
+        "required": [
+          "id",
+          "location_id",
+          "slot_label",
+          "label_path",
+          "expected_tag_uid",
+          "scanned_tag_uid",
+          "scanned_resolved_location_id",
+          "scanned_resolved_slot_label",
+          "scanned_resolved_label_path",
+          "created_at",
+          "resolved_at"
+        ],
+        "title": "MismatchRead",
         "type": "object"
       },
       "MovePlanRead": {
@@ -2284,6 +4163,177 @@
         "title": "PartUpdate",
         "type": "object"
       },
+      "ProvisionProgressRead": {
+        "properties": {
+          "bound": {
+            "title": "Bound",
+            "type": "integer"
+          },
+          "is_complete": {
+            "title": "Is Complete",
+            "type": "boolean"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "total_slots": {
+            "title": "Total Slots",
+            "type": "integer"
+          },
+          "unbound": {
+            "title": "Unbound",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_slots",
+          "bound",
+          "unbound",
+          "skipped",
+          "is_complete"
+        ],
+        "title": "ProvisionProgressRead",
+        "type": "object"
+      },
+      "ProvisioningDevice": {
+        "description": "What is doing the reading.\n\nWeb NFC is Chromium-on-Android only, so the phone path simply does not exist\non iOS or on the Pi kiosk \u2014 the station reader is not a nicety, it is the\nonly path for those.",
+        "enum": [
+          "phone_webnfc",
+          "station_pn532",
+          "manual"
+        ],
+        "title": "ProvisioningDevice",
+        "type": "string"
+      },
+      "ProvisioningState": {
+        "description": "Everything the provisioning screen needs, in one shape.\n\nReturned by every route in the provisioning flow so a bind, a skip and an\nundo all leave the client fully up to date with no follow-up read.",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotCursorRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/ProvisionProgressRead"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "undo_depth": {
+            "title": "Undo Depth",
+            "type": "integer"
+          },
+          "undo_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undo Label"
+          }
+        },
+        "required": [
+          "session",
+          "cursor",
+          "progress",
+          "undo_depth",
+          "undo_label"
+        ],
+        "title": "ProvisioningState",
+        "type": "object"
+      },
+      "ProvisioningUndoRequest": {
+        "description": "Prefixed, not plain `UndoRequest` \u2014 `stock` already owns that name.\n\nTwo route modules sharing a model name makes FastAPI fully qualify **both**\nin the OpenAPI document, so the collision silently renames the other\nmodule's schema and breaks generated client code for a route nobody touched.\nPinned by `test_no_two_modules_share_a_response_model_name`.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          }
+        },
+        "title": "ProvisioningUndoRequest",
+        "type": "object"
+      },
+      "ProvisioningUndoResponse": {
+        "properties": {
+          "not_restored_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Restored Reason"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "restored_tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          },
+          "undone": {
+            "$ref": "#/components/schemas/UndoneRead"
+          }
+        },
+        "required": [
+          "undone",
+          "restored_tag",
+          "not_restored_reason",
+          "state"
+        ],
+        "title": "ProvisioningUndoResponse",
+        "type": "object"
+      },
       "QuantityRequest": {
         "properties": {
           "client_op_id": {
@@ -2335,6 +4385,80 @@
           "qty_milli"
         ],
         "title": "QuantityRequest",
+        "type": "object"
+      },
+      "ReapplyLayoutRequest": {
+        "description": "The complete desired layout for this location's own children \u2014 never a\ndelta. See `app.services.layout_authoring.diff_instance_layout` for how a\nslot surviving, being deleted, or being refused outright is decided.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotSpecIn"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "slots"
+        ],
+        "title": "ReapplyLayoutRequest",
+        "type": "object"
+      },
+      "ReapplyLayoutResponse": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/LayoutRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "updated",
+          "deleted",
+          "layout"
+        ],
+        "title": "ReapplyLayoutResponse",
         "type": "object"
       },
       "ReceiveRequest": {
@@ -2577,6 +4701,55 @@
           "status"
         ],
         "title": "ResolveResponse",
+        "type": "object"
+      },
+      "ResolvedLocationRead": {
+        "properties": {
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          }
+        },
+        "required": [
+          "location_id",
+          "name",
+          "slot_label",
+          "label_path",
+          "short_id"
+        ],
+        "title": "ResolvedLocationRead",
         "type": "object"
       },
       "ResolvedTarget": {
@@ -3273,6 +5446,831 @@
         "title": "SearchResponse",
         "type": "object"
       },
+      "SessionRead": {
+        "properties": {
+          "bound_count": {
+            "title": "Bound Count",
+            "type": "integer"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "device_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Kind"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "root_location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Root Location Id",
+            "type": "integer"
+          },
+          "skipped_count": {
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "root_location_id",
+          "kind",
+          "device_kind",
+          "started_at",
+          "completed_at",
+          "bound_count",
+          "skipped_count",
+          "note"
+        ],
+        "title": "SessionRead",
+        "type": "object"
+      },
+      "SessionStarted": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "SessionStarted",
+        "type": "object"
+      },
+      "ShortIdRequest": {
+        "description": "Mint (`short_id` absent) or adopt (`short_id` present).",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A code that is already printed on the label or written to the tag. Accepted in any human rendering \u2014 hyphenated, lower case, with a display prefix. Omit it to have one minted instead. The check symbol is verified, so a code mistyped off a label is refused rather than bound as itself.",
+            "title": "Short Id"
+          }
+        },
+        "title": "ShortIdRequest",
+        "type": "object"
+      },
+      "ShortIdResponse": {
+        "properties": {
+          "adopted": {
+            "title": "Adopted",
+            "type": "boolean"
+          },
+          "display": {
+            "title": "Display",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "previous_short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Short Id"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "short_id": {
+            "title": "Short Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "short_id",
+          "display",
+          "adopted",
+          "previous_short_id"
+        ],
+        "title": "ShortIdResponse",
+        "type": "object"
+      },
+      "SizeClass": {
+        "description": "Last resort in the item-dimension cascade.",
+        "enum": [
+          "tiny",
+          "small",
+          "medium",
+          "large",
+          "bulky"
+        ],
+        "title": "SizeClass",
+        "type": "string"
+      },
+      "SkipRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          }
+        },
+        "title": "SkipRequest",
+        "type": "object"
+      },
+      "SkipResponse": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "skipped": {
+            "$ref": "#/components/schemas/SlotCursorRead"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          }
+        },
+        "required": [
+          "skipped",
+          "state"
+        ],
+        "title": "SkipResponse",
+        "type": "object"
+      },
+      "SlotCursorRead": {
+        "description": "Where the walk is now. **Derived on every request** \u2014 `MIN(sort_order)`\namong the cabinet's children that still need this walk's attention.",
+        "properties": {
+          "col_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Col Idx"
+          },
+          "has_tag": {
+            "title": "Has Tag",
+            "type": "boolean"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "row_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Idx"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "slot_label",
+          "name",
+          "label_path",
+          "row_idx",
+          "col_idx",
+          "sort_order",
+          "short_id",
+          "has_tag"
+        ],
+        "title": "SlotCursorRead",
+        "type": "object"
+      },
+      "SlotLabelScheme": {
+        "enum": [
+          "row_alpha_col_num",
+          "sequential",
+          "custom"
+        ],
+        "title": "SlotLabelScheme",
+        "type": "string"
+      },
+      "SlotSpecIn": {
+        "description": "One desired compartment \u2014 a base cell, or a merged rectangular region.\n\nShared between `PUT /api/container-types/{id}/slot-template` (the type's\nreusable canvas) and `POST /api/locations/{id}/reapply-layout` (one\ninstance's own copy of it): both are \"here is the complete desired\nlayout\", and the request shape a merge or a split produces is identical\neither way.",
+        "properties": {
+          "col_idx": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Col Idx",
+            "type": "integer"
+          },
+          "col_span": {
+            "default": 1,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Col Span",
+            "type": "integer"
+          },
+          "inner_volume_mm3": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Volume Mm3"
+          },
+          "row_idx": {
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Row Idx",
+            "type": "integer"
+          },
+          "row_span": {
+            "default": 1,
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Row Span",
+            "type": "integer"
+          },
+          "size_class": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SizeClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          }
+        },
+        "required": [
+          "row_idx",
+          "col_idx"
+        ],
+        "title": "SlotSpecIn",
+        "type": "object"
+      },
+      "SlotSpecOut": {
+        "properties": {
+          "col_idx": {
+            "title": "Col Idx",
+            "type": "integer"
+          },
+          "col_span": {
+            "title": "Col Span",
+            "type": "integer"
+          },
+          "inner_volume_mm3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Volume Mm3"
+          },
+          "row_idx": {
+            "title": "Row Idx",
+            "type": "integer"
+          },
+          "row_span": {
+            "title": "Row Span",
+            "type": "integer"
+          },
+          "size_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Class"
+          },
+          "slot_label": {
+            "title": "Slot Label",
+            "type": "string"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "row_idx",
+          "col_idx",
+          "row_span",
+          "col_span",
+          "slot_label",
+          "size_class",
+          "inner_volume_mm3",
+          "sort_order"
+        ],
+        "title": "SlotSpecOut",
+        "type": "object"
+      },
+      "SlotStateRead": {
+        "description": "One slot's current physical state \u2014 the grid cell plus whatever is\nbound or stocked there. Shared by the editor, the provisioning walk and\nthe verification walk, per `docs/PLAN.md`.",
+        "properties": {
+          "col_idx": {
+            "title": "Col Idx",
+            "type": "integer"
+          },
+          "col_span": {
+            "title": "Col Span",
+            "type": "integer"
+          },
+          "has_tag": {
+            "title": "Has Tag",
+            "type": "boolean"
+          },
+          "inner_volume_mm3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Volume Mm3"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "lot_count": {
+            "title": "Lot Count",
+            "type": "integer"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "row_idx": {
+            "title": "Row Idx",
+            "type": "integer"
+          },
+          "row_span": {
+            "title": "Row Span",
+            "type": "integer"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "size_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Class"
+          },
+          "slot_label": {
+            "title": "Slot Label",
+            "type": "string"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "slot_label",
+          "row_idx",
+          "col_idx",
+          "row_span",
+          "col_span",
+          "size_class",
+          "inner_volume_mm3",
+          "sort_order",
+          "short_id",
+          "has_tag",
+          "lot_count",
+          "qty_milli"
+        ],
+        "title": "SlotStateRead",
+        "type": "object"
+      },
+      "SlotTemplateRead": {
+        "properties": {
+          "container_type_id": {
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "materialize_slots": {
+            "title": "Materialize Slots",
+            "type": "boolean"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "title": "Slot Label Scheme",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotSpecOut"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "container_type_id",
+          "materialize_slots",
+          "grid_rows",
+          "grid_cols",
+          "slot_label_scheme",
+          "slot_label_params",
+          "slots"
+        ],
+        "title": "SlotTemplateRead",
+        "type": "object"
+      },
+      "SlotTemplateWrite": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "grid_cols": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Cols"
+          },
+          "grid_rows": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Rows"
+          },
+          "slot_label_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label Params"
+          },
+          "slot_label_scheme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotLabelScheme"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotSpecIn"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "title": "SlotTemplateWrite",
+        "type": "object"
+      },
+      "SlotTemplateWritten": {
+        "properties": {
+          "cloned": {
+            "title": "Cloned",
+            "type": "boolean"
+          },
+          "container_type_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "template": {
+            "$ref": "#/components/schemas/SlotTemplateRead"
+          }
+        },
+        "required": [
+          "template",
+          "cloned",
+          "container_type_id"
+        ],
+        "title": "SlotTemplateWritten",
+        "type": "object"
+      },
+      "StartSessionRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "device_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvisioningDevice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Web NFC on a phone is primary \u2014 you are standing at the cabinet anyway; the station PN532 is the fallback and the only path on iOS."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "StartSessionRequest",
+        "type": "object"
+      },
       "SuggestRequest": {
         "properties": {
           "client_op_id": {
@@ -3389,6 +6387,174 @@
         "title": "SuggestResponse",
         "type": "object"
       },
+      "TagGranularity": {
+        "description": "Per-instantiation choice of which new locations get a printed\n`short_id` (and are therefore taggable) when a container type is\ninstantiated.\n\nDeliberately a per-call request field, never a property of the type:\n\"tagging only the cabinet and picking the drawer on screen\" cuts ~90% of\nthe physical labour and is the right call whenever the pick already\ninvolves a screen, but per-drawer tags earn their cost when drawers\nphysically travel to the station \u2014 the same cabinet type is legitimately\ninstantiated both ways on different days.",
+        "enum": [
+          "container",
+          "slot"
+        ],
+        "title": "TagGranularity",
+        "type": "string"
+      },
+      "TagRead": {
+        "properties": {
+          "bind_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bind Source"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_read_only": {
+            "title": "Is Read Only",
+            "type": "boolean"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "last_verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Verified At"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "ndef_url": {
+            "title": "Ndef Url",
+            "type": "string"
+          },
+          "tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Uid"
+          },
+          "written_at": {
+            "format": "date-time",
+            "title": "Written At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "location_id",
+          "label_path",
+          "tag_uid",
+          "ndef_url",
+          "bind_source",
+          "is_read_only",
+          "written_at",
+          "last_verified_at"
+        ],
+        "title": "TagRead",
+        "type": "object"
+      },
+      "TagResolveRequest": {
+        "description": "Either carrier, or both. Both is the useful case \u2014 it is the only way the\nserver can tell that a tag's payload and its binding disagree.",
+        "properties": {
+          "ndef_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The URI record read off the tag, verbatim. Matched host-agnostically: a tag written before a hostname change is still perfectly correct.",
+            "title": "Ndef Url"
+          },
+          "tag_uid": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 4,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Uid"
+          }
+        },
+        "title": "TagResolveRequest",
+        "type": "object"
+      },
+      "TagResolveResponse": {
+        "description": "`matched_by` is `ndef`, `uid`, or `none`.\n\n`status: unknown` is not an error \u2014 a blank tag is the normal state of a tag\nbefore it is provisioned, and the UI's answer is \"provision this container\nnow\" rather than a dead end.",
+        "properties": {
+          "disagreement": {
+            "title": "Disagreement",
+            "type": "boolean"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedLocationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matched_by": {
+            "title": "Matched By",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "matched_by",
+          "location",
+          "tag",
+          "disagreement"
+        ],
+        "title": "TagResolveResponse",
+        "type": "object"
+      },
       "TemplateFacets": {
         "properties": {
           "base_unit": {
@@ -3454,6 +6620,67 @@
           "populated_count"
         ],
         "title": "TemplateFacets",
+        "type": "object"
+      },
+      "UnbindRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free text for the operator's own record, e.g. 'drawer retired'.",
+            "title": "Reason"
+          }
+        },
+        "title": "UnbindRequest",
+        "type": "object"
+      },
+      "UnbindResponse": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "unbound": {
+            "$ref": "#/components/schemas/TagRead"
+          }
+        },
+        "required": [
+          "unbound"
+        ],
+        "title": "UnbindResponse",
         "type": "object"
       },
       "UndoRequest": {
@@ -3574,6 +6801,55 @@
         "title": "UndoResponse",
         "type": "object"
       },
+      "UndoneRead": {
+        "properties": {
+          "action_kind": {
+            "title": "Action Kind",
+            "type": "string"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          },
+          "tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Uid"
+          }
+        },
+        "required": [
+          "action_kind",
+          "location_id",
+          "slot_label",
+          "label_path",
+          "tag_uid"
+        ],
+        "title": "UndoneRead",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -3613,6 +6889,99 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VerificationStarted": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VerificationState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "VerificationStarted",
+        "type": "object"
+      },
+      "VerificationState": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotCursorRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mismatches": {
+            "items": {
+              "$ref": "#/components/schemas/MismatchRead"
+            },
+            "title": "Mismatches",
+            "type": "array"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/VerifyProgressRead"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopped": {
+            "title": "Stopped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session",
+          "cursor",
+          "progress",
+          "stopped",
+          "mismatches"
+        ],
+        "title": "VerificationState",
+        "type": "object"
+      },
+      "VerifyProgressRead": {
+        "properties": {
+          "checked": {
+            "title": "Checked",
+            "type": "integer"
+          },
+          "mismatches": {
+            "title": "Mismatches",
+            "type": "integer"
+          },
+          "remaining": {
+            "title": "Remaining",
+            "type": "integer"
+          },
+          "total_tagged": {
+            "title": "Total Tagged",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_tagged",
+          "checked",
+          "remaining",
+          "mismatches"
+        ],
+        "title": "VerifyProgressRead",
+        "type": "object"
       }
     }
   },
@@ -3623,6 +6992,532 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/container-types": {
+      "get": {
+        "operationId": "list_container_types",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "is_seed",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Seed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContainerTypeRead"
+                  },
+                  "title": "Response List Container Types",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Container Types",
+        "tags": [
+          "container-types"
+        ]
+      },
+      "post": {
+        "operationId": "create_container_type",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContainerTypeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Container Type",
+        "tags": [
+          "container-types"
+        ]
+      }
+    },
+    "/api/container-types/{container_type_id}": {
+      "get": {
+        "operationId": "read_container_type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Container Type",
+        "tags": [
+          "container-types"
+        ]
+      },
+      "patch": {
+        "description": "Edit a type. A seed is read-only, so editing one clones it first \u2014\nsee the module docstring for why this, unlike `PartUpdate`, needs the\nidempotency guard.",
+        "operationId": "update_container_type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContainerTypeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeEdited"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Container Type",
+        "tags": [
+          "container-types"
+        ]
+      }
+    },
+    "/api/container-types/{container_type_id}/clone": {
+      "post": {
+        "description": "\"This cabinet is identical to that one\" \u2014 the explicit form of clone,\nwith no edit attached. Works on any type, seed or not.",
+        "operationId": "clone_container_type",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clone Container Type",
+        "tags": [
+          "container-types"
+        ]
+      }
+    },
+    "/api/container-types/{container_type_id}/slot-template": {
+      "get": {
+        "description": "The type's effective layout \u2014 generated or materialised, indistinguishably.",
+        "operationId": "read_slot_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotTemplateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Slot Template",
+        "tags": [
+          "container-types"
+        ]
+      },
+      "put": {
+        "description": "Save the canvas. A seed clones first (see the module docstring); the\ngrid then materialises **unless** `slots` is exactly what the generator\nwould already produce for the (possibly just-updated) canvas size/scheme,\nin which case nothing is written at all.",
+        "operationId": "write_slot_template",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotTemplateWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotTemplateWritten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Write Slot Template",
+        "tags": [
+          "container-types"
+        ]
+      }
+    },
+    "/api/labels/sheets": {
+      "post": {
+        "description": "Render a sheet now, print it through the chosen backend, and record it.\n\nA replayed request (same `client_op_id`, same body) hands back the stored\nresponse without rendering again \u2014 the sheet was already written to disk\nand `label_prints`/`last_printed_at` already moved on the first attempt.",
+        "operationId": "create_label_sheet",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelSheetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelSheetCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Label Sheet",
+        "tags": [
+          "labels"
+        ]
+      }
+    },
+    "/api/labels/sheets/{job_id}": {
+      "get": {
+        "description": "Read back a past sheet job exactly as it was rendered.\n\nNot a re-render: `placements_json` is the frozen record of what was drawn\nat print time, per the same \"a reprint matches the original\" reasoning\n`label_prints` exists for. A card for a since-renamed location still\nreports the name it was printed with here \u2014 ask for a fresh `POST` to see\nthe current one.",
+        "operationId": "read_label_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelSheetJobRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Label Sheet",
+        "tags": [
+          "labels"
+        ]
+      }
+    },
+    "/api/location-tags/resolve": {
+      "post": {
+        "description": "What container is this tag stuck to?\n\nA pure read despite being a POST: an NDEF URI does not belong in a path\nsegment, and a UID read off a tag is data rather than an identifier the\nclient should be constructing URLs from.",
+        "operationId": "resolve_location_tag",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagResolveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Location Tag",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/location-tags/{tag_id}/unbind": {
+      "post": {
+        "description": "Forget a binding, leaving the tag itself resolvable.\n\nOnly the location-to-tag link is removed; the tag's payload is an opaque\nshort id, so `/s/{short_id}` still resolves afterwards. That asymmetry is\nthe point of \"a tag is a foreign key, not a record\" \u2014 the server can drop a\nbinding it holds, and can never rewrite a tag it does not physically hold.\n\nProvisioning then treats the slot as untagged, so it re-enters the cursor of\nthe next walk. This is also one of the two repairs a verification mismatch\nhands to a human, the other being a swap.",
+        "operationId": "unbind_location_tag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tag_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Tag Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnbindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnbindResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unbind Location Tag",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
     "/api/locations": {
       "post": {
         "description": "Add a container to the tree.\n\nThe path cache is rebuilt immediately (`TreeRepository.insert_and_index`), so\nthe new row comes back with a correct `label_path` rather than one that is\nright after the next nightly job.",
@@ -3799,6 +7694,371 @@
         "summary": "Read Location",
         "tags": [
           "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/instantiate": {
+      "post": {
+        "description": "Bulk-create `count` instances of a container type under this location.\n\nEach instance materialises the type's *current* layout into its own child\n`locations` \u2014 never a live link back to the type, which is what keeps\nediting the type afterwards from touching anything created here.",
+        "operationId": "instantiate_containers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstantiateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstantiateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Instantiate Containers",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/layout": {
+      "get": {
+        "description": "Grid + tag + contents state for one location's own children \u2014 shared by\nthe editor, the provisioning walk and the verification walk.",
+        "operationId": "read_location_layout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Location Layout",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/provisioning-sessions": {
+      "post": {
+        "description": "Begin (or resume) binding tags to this cabinet's drawers.\n\nAn open walk on the same cabinet is handed back rather than duplicated:\nsince the cursor is derived, a second session would report the identical\nposition, and two \"current\" sessions is a state with no correct answer.",
+        "operationId": "start_provisioning_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Provisioning Session",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/provisioning-sessions/current": {
+      "get": {
+        "description": "The open walk on this cabinet and where it is, or the cabinet's tag state\nwith `session: null` if no walk is open.\n\nThis is what makes resuming free: nothing was saved when the phone went into\na pocket mid-cabinet, and nothing needs restoring \u2014 the cursor is recomputed\nhere, so a drawer bound from somewhere else in the meantime is simply\nalready bound.",
+        "operationId": "read_current_provisioning_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisioningState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Current Provisioning Session",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/reapply-layout": {
+      "post": {
+        "description": "Edit an already-instantiated location's own layout, through the change\nguard.\n\nSafe edits (relabel, size-class/volume, a scheme change that doesn't move\na cell) apply outright. A slot that the new layout would delete but that\nstill holds stock or a bound tag comes back as 409 with the full list of\naffected slots. Reusing an existing slot's label at a different grid\nposition is refused outright (422) \u2014 see\n`app.services.layout_authoring.diff_instance_layout`.",
+        "operationId": "reapply_layout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReapplyLayoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReapplyLayoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reapply Layout",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/short-id": {
+      "post": {
+        "description": "Give this location a printed identity \u2014 minted, or one it already carries.\n\nTwo orderings, one route, because they differ only in who chose the code:\n\n* **Promotion.** A generated grid cell starts with no printed id, since\n  nobody sticks 96 labels on an 8x12 box. Send no `short_id` and one is\n  minted, which is what \"any cell can be promoted later\" on\n  `POST /api/locations` means. Already has one \u2192 that one comes back, so this\n  is safe to call from a print button without checking first.\n* **Adoption.** Send a `short_id` and *that* code is bound, for pre-printed\n  label stock, pre-encoded tags, or re-adopting a tag after restoring a\n  backup older than the binding. The check symbol is verified and a collision\n  is refused rather than substituted: the code is already on the object, so a\n  substitute would put the label and the database permanently out of step.\n\nAdoption on a location that already has an id keeps the old one resolvable\nand makes the new one primary \u2014 the label still stuck to the drawer and the\none in your hand both work, which is the point of relabelling being\nnon-destructive.",
+        "operationId": "assign_location_short_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShortIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShortIdResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assign Location Short Id",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/verification-sessions": {
+      "post": {
+        "description": "Begin (or resume) re-reading this cabinet's tags.\n\n**Not optional busywork.** No software can stop a person sticking a tag on\nthe wrong drawer; it can only detect it \u2014 and a mis-bound tag is invisible\nuntil it causes a wrong put-away, at which point the stock is somewhere the\nsystem does not think it is.",
+        "operationId": "start_verification_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Verification Session",
+        "tags": [
+          "provisioning"
         ]
       }
     },
@@ -4007,6 +8267,171 @@
         "summary": "Update Part",
         "tags": [
           "parts"
+        ]
+      }
+    },
+    "/api/provisioning-sessions/{session_id}/bind": {
+      "post": {
+        "description": "Bind the tapped tag to the cursor slot, and advance.\n\nThe response carries the written NDEF payload, the advanced cursor and the\nprogress counters together, because the phone is still holding the tag\nagainst the drawer when this returns: writing the URI record and moving on\nboth have to happen without another round trip.",
+        "operationId": "bind_tag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bind Tag",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/provisioning-sessions/{session_id}/skip": {
+      "post": {
+        "description": "Leave this slot untagged and advance past it for the rest of the walk.",
+        "operationId": "skip_slot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkipResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Skip Slot",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/provisioning-sessions/{session_id}/undo": {
+      "post": {
+        "description": "Reverse the last action, five deep.\n\nUndoing a Move puts the displaced binding back where it was \u2014 which is the\nreason the walk log keeps a copy of it, since the row itself is gone by\nthen. Works on a completed walk too, reopening it: the bind that finished\nthe cabinet is the one most likely to need taking back.",
+        "operationId": "undo_action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisioningUndoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisioningUndoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Action",
+        "tags": [
+          "provisioning"
         ]
       }
     },
@@ -4862,6 +9287,106 @@
         "summary": "Health",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/verification-sessions/{session_id}": {
+      "get": {
+        "description": "The walk's findings so far \u2014 the report a mis-tagged cabinet is fixed from.",
+        "operationId": "read_verification_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Verification Session",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/verification-sessions/{session_id}/check": {
+      "post": {
+        "description": "Re-read one tag and compare it to the expected UID.\n\nMatch: tick and advance. Mismatch: record `expected_tag_uid`,\n`scanned_tag_uid` and which slot the scanned tag actually belongs to, then\nstop \u2014 the cursor stays on this drawer. **No binding is changed on either\nbranch.** The two plausible repairs (rebind here, or swap these two drawers)\nhave different physical consequences and only the person holding the drawers\nknows which happened.",
+        "operationId": "check_tag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Tag",
+        "tags": [
+          "provisioning"
         ]
       }
     }

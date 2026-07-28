@@ -7,12 +7,13 @@
  * the canonical form as they type and the request goes out in the shape the
  * server expects.
  *
- * The **mod-37 check symbol is verified server-side only**, on purpose. A second
- * implementation of the check arithmetic would be a second thing to keep in step
- * with the first, for the sake of saving one round trip; and the illustrative
- * codes in the docs (`4K7T-92MQ`) are not check-valid, so a client that enforced
- * the check would refuse to look up the very examples the design uses. The server
- * owns that answer.
+ * The **mod-37 check symbol is verified server-side only**, on purpose, for two
+ * reasons that outlive any one example code. A second implementation of the check
+ * arithmetic would be a second thing to keep in step with the first, to save one
+ * round trip on a LAN. And this field is not only a short-ID field — it also
+ * accepts an MPN, so refusing text that fails a check symbol would refuse part
+ * numbers. Shape is enough to decide *which* lookup to attempt; the server decides
+ * whether the code is real.
  */
 
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -32,10 +33,10 @@ function squash(text: string): string {
 /**
  * Canonicalise typed or scanned text to bare symbols.
  *
- * Mirrors the server's tolerance for a display prefix (`BIN 4K7T-92MQ`) by
+ * Mirrors the server's tolerance for a display prefix (`BIN 4K7T-92M8`) by
  * keeping only the last whitespace-separated token, and only when that token is
  * itself full length — otherwise the space was the group separator
- * (`4K7T 92MQ`) and the whole string is meant. The prefix is discarded rather
+ * (`4K7T 92M8`) and the whole string is meant. The prefix is discarded rather
  * than parsed; it carries no meaning.
  */
 export function normalizeShortId(raw: string): string {

@@ -68,6 +68,8 @@ export type LocationCreated = Schemas["LocationCreated"];
 export type CapacityRead = Schemas["CapacityRead"];
 export type SuggestRequest = Schemas["SuggestRequest"];
 export type SuggestResponse = Schemas["SuggestResponse"];
+export type ShortIdRequest = Schemas["ShortIdRequest"];
+export type ShortIdResponse = Schemas["ShortIdResponse"];
 
 export type LotRead = Schemas["LotRead"];
 export type LedgerEntry = Schemas["LedgerEntry"];
@@ -253,6 +255,30 @@ export async function suggestLocation(request: SuggestRequest): Promise<SuggestR
   const { data, error, response } = await api.POST("/api/locations/suggest", { body: request });
   if (error !== undefined) {
     fail("could not suggest a location", error, response);
+  }
+  return data;
+}
+
+/**
+ * Give a container a printed identity: minted, or one it already carries.
+ *
+ * Omit `short_id` to promote a generated grid cell that has none — safe to call
+ * unconditionally, since it returns the existing id when there is one. Pass a
+ * `short_id` to adopt a code that is already printed on a card or written to a
+ * tag; the server verifies the check symbol and refuses a code held elsewhere
+ * rather than substituting a free one, because a substitute would leave the
+ * label and the database permanently disagreeing.
+ */
+export async function assignLocationShortId(
+  locationId: number,
+  request: ShortIdRequest = {},
+): Promise<ShortIdResponse> {
+  const { data, error, response } = await api.POST("/api/locations/{location_id}/short-id", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not assign that printed id", error, response);
   }
   return data;
 }

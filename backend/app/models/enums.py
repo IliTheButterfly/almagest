@@ -107,6 +107,17 @@ class CapacityModel(StrEnum):
     POSITIONS = "positions"
     MASS = "mass"
 
+    #: A measured grid of interchangeable units — Gridfinity's 42 mm pitch being
+    #: the reference case. Distinct from `SLOTS` because a slot is a compartment
+    #: and a unit is an *area*: a 2x1 bin consumes two units, not one slot, and
+    #: counting compartments would report a full baseplate as half empty.
+    #:
+    #: Adding this member is the entire schema cost of ADR 0002's recursive
+    #: container types. Had `capacity_model` been a `CHECK` constraint or an
+    #: `sa.Enum`, it would instead have meant rebuilding `container_types` and
+    #: every table referencing it.
+    GRID_UNITS = "grid_units"
+
 
 class ChildLayout(StrEnum):
     GRID = "grid"
@@ -319,3 +330,119 @@ class ScanSourceKind(StrEnum):
     BENCH_STATION = "bench_station"
     #: A human typing a code off a label the camera could not read.
     MANUAL_ENTRY = "manual_entry"
+
+
+class ProvisioningKind(StrEnum):
+    """What a provisioning session is doing.
+
+    Two kinds rather than one with a flag, because they have opposite
+    postconditions: provisioning *creates* bindings, verification asserts the
+    ones that exist are right and creates none.
+    """
+
+    PROVISION = "provision"
+    VERIFY = "verify"
+
+
+class ProvisioningActionKind(StrEnum):
+    """What one step of a walk did — the log both the cursor and the undo stack
+    are derived from.
+
+    `MOVE` and `REBIND` are separate members rather than a `BIND` with a flag
+    because undo has to put something *back*, and the two priors live in
+    different places: a move displaced a binding at another slot, a rebind
+    displaced a different tag at this one. Collapsing them would leave undo
+    guessing which.
+    """
+
+    #: A slot that had no tag now has one.
+    BIND = "bind"
+    #: A tag bound elsewhere was moved here, after the human confirmed it.
+    MOVE = "move"
+    #: This slot's tag was replaced by a different one.
+    REBIND = "rebind"
+    #: Deliberately left empty and advanced past. The one fact a cursor derived
+    #: from `location_tags` cannot recover on its own — a skipped slot is still
+    #: a slot with no tag — which is why it is written down.
+    SKIP = "skip"
+    #: A tag re-read during a verification walk and found to be the expected
+    #: one. Recorded so the verify cursor is derivable too; a mismatch
+    #: deliberately writes *no* row here, which is what makes the walk stop.
+    CHECK = "check"
+
+
+class ProvisioningDevice(StrEnum):
+    """What is doing the reading.
+
+    Web NFC is Chromium-on-Android only, so the phone path simply does not exist
+    on iOS or on the Pi kiosk — the station reader is not a nicety, it is the
+    only path for those.
+    """
+
+    PHONE_WEBNFC = "phone_webnfc"
+    STATION_PN532 = "station_pn532"
+    MANUAL = "manual"
+
+
+class TagGranularity(StrEnum):
+    """Per-instantiation choice of which new locations get a printed
+    `short_id` (and are therefore taggable) when a container type is
+    instantiated.
+
+    Deliberately a per-call request field, never a property of the type:
+    "tagging only the cabinet and picking the drawer on screen" cuts ~90% of
+    the physical labour and is the right call whenever the pick already
+    involves a screen, but per-drawer tags earn their cost when drawers
+    physically travel to the station — the same cabinet type is legitimately
+    instantiated both ways on different days.
+    """
+
+    #: The container root gets a short_id; its slots stay addressed as
+    #: `parent short_id + slot label` — no drawer-level printed identity.
+    CONTAINER = "container"
+    #: Every generated slot *also* gets its own short_id, on top of the
+    #: container's — a superset of `CONTAINER`, not a replacement for it — so
+    #: each drawer is individually tappable during a later provisioning walk.
+    SLOT = "slot"
+
+
+class LabelTemplate(StrEnum):
+    """Which card layout `app.services.labels` draws.
+
+    `PART_LOT` has no route yet — the stick-on part/lot label is Phase 5's
+    thermal backend, per `docs/PLAN.md`'s phasing table — but it is defined
+    now so the QR-plus-MPN-caption rule ("print the bare MPN as text under
+    every part QR") has a home in the renderer's template set from day one
+    rather than needing a second code path bolted on when that phase starts.
+    """
+
+    DRAWER_CARD = "drawer_card"
+    CABINET_CARD = "cabinet_card"
+    PART_LOT = "part_lot"
+
+
+class LabelBackendKind(StrEnum):
+    """Which `LabelBackend` implementation rendered a `label_sheet_jobs` row.
+
+    Only the two hardware-free backends exist this phase. The thermal
+    backends `docs/PLAN.md` sketches (`ZplBackend`, `TsplBackend`,
+    `BrotherQlBackend`, `CupsBackend`, `AgentBackend`) are deliberately not
+    implemented here — no printer is owned, and the design commits to none.
+    """
+
+    FILE = "file"
+    PDF_SHEET = "pdf_sheet"
+
+
+class TagPocket(StrEnum):
+    """Where the NFC tag lives on a printed container.
+
+    `BOTTOM` is the default and the reason the station needs no scanning
+    gesture: with the reader antenna under the platform, a container set down
+    identifies itself.
+    """
+
+    BOTTOM = "bottom"
+    FRONT = "front"
+    INSIDE = "inside"
+    NONE = "none"

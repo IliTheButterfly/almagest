@@ -65,7 +65,7 @@ def normalize_mpn(raw: str) -> str:
 def short_id_candidate(payload: str) -> str:
     """The part of `payload` that might be a short ID.
 
-    Handles the tag and QR form, `https://<host>/s/4K7T-92MQ`, as well as a bare
+    Handles the tag and QR form, `https://<host>/s/4K7T-92M8`, as well as a bare
     or hand-typed code. The **host is deliberately ignored**: the payload's
     authority is the opaque id, and matching against the configured base URL
     would strand every tag written before a hostname change — the one change
