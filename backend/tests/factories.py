@@ -14,6 +14,7 @@ from app.models.catalog import Manufacturer, Packaging, Part, PartCategory, Part
 from app.models.enums import LedgerKind, LedgerSource
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import ContainerType, Location
+from app.services.scanning.codes import normalize_mpn
 
 
 def component_kind(db: Session) -> PartKind:
@@ -27,6 +28,13 @@ def inbox_location(db: Session) -> Location:
 
 
 def make_part(db: Session, name: str = "Test part", **kwargs: object) -> Part:
+    # `mpn_norm` is derived, and deriving it here rather than leaving it NULL is
+    # what makes the resolver's bare-MPN step testable through the same door the
+    # real write path will use. A test that wants the column empty or wrong
+    # passes it explicitly.
+    mpn = kwargs.get("mpn")
+    if isinstance(mpn, str) and "mpn_norm" not in kwargs:
+        kwargs["mpn_norm"] = normalize_mpn(mpn)
     part = Part(name=name, part_kind_id=component_kind(db).id, **kwargs)
     db.add(part)
     db.flush()

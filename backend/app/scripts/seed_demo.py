@@ -23,6 +23,7 @@ from app.models.catalog import Part, PartCategory, PartKind
 from app.models.enums import SubstitutionDirection, ValueType
 from app.models.parameter import ParameterChoice, ParameterTemplate
 from app.services import parameters
+from app.services.scanning.codes import normalize_mpn
 from app.services.tree import category_tree
 
 
@@ -327,7 +328,11 @@ def seed_sample_parts(session: Session) -> int:
         part = Part(
             name=spec["name"],
             mpn=spec["mpn"],
-            mpn_norm=spec["mpn"].casefold(),
+            # Via the shared normaliser, not a local `casefold()`. The resolver's
+            # bare-MPN step looks this column up by the key `normalize_mpn`
+            # produces, so a row written under a different rule is invisible to a
+            # scan while looking perfectly correct in the table.
+            mpn_norm=normalize_mpn(spec["mpn"]),
             part_kind_id=kind.id,
             category_id=category.id if category else None,
         )

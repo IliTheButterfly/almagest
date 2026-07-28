@@ -25,11 +25,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.catalog import Part
 from app.models.enums import EntityType
 from app.models.identity import ObjectId
-from app.models.storage import Location
 from app.services import shortid
+from app.services.scanning.describe import describe
 from app.services.shortid import InvalidShortId
 
 router = APIRouter(tags=["resolve"])
@@ -58,26 +57,20 @@ class ResolveResponse(BaseModel):
 
 
 def _describe(db: Session, binding: ObjectId) -> ResolvedTarget:
-    label = f"{binding.entity_type} {binding.entity_pk}"
-    label_path: str | None = None
+    """Render the binding via the shared describer.
 
-    if binding.entity_type == EntityType.LOCATION:
-        location = db.get(Location, binding.entity_pk)
-        if location is not None:
-            label = location.name
-            label_path = location.label_path
-    elif binding.entity_type == EntityType.PART:
-        part = db.get(Part, binding.entity_pk)
-        if part is not None:
-            label = part.mpn or part.name
-
+    `services.scanning.describe` is the single answer to "what do I call this
+    row", shared with `/api/scan/resolve`. Two spellings of that answer would mean
+    one drawer labelling itself differently depending on which endpoint found it.
+    """
+    entity = describe(db, binding.entity_type, binding.entity_pk, short_id=binding.short_id)
     return ResolvedTarget(
         short_id=binding.short_id,
         display=shortid.format_display(binding.short_id, binding.entity_type),
-        entity_type=binding.entity_type,
-        entity_pk=binding.entity_pk,
-        label=label,
-        label_path=label_path,
+        entity_type=entity.entity_type,
+        entity_pk=entity.entity_pk,
+        label=entity.label,
+        label_path=entity.label_path,
     )
 
 
