@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
 from app import __version__
-from app.api.routes import system
+from app.api.routes import search, system
 from app.config import get_settings
 
 
@@ -39,6 +39,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(system.router)
+    app.include_router(search.router)
     return app
 
 

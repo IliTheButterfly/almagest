@@ -1,6 +1,39 @@
 {
   "components": {
     "schemas": {
+      "FilterIn": {
+        "properties": {
+          "template": {
+            "description": "`parameter_template.name`, e.g. 'capacitance'",
+            "title": "Template",
+            "type": "string"
+          },
+          "value": {
+            "description": "Interpreted according to the template. Numeric templates accept the full shorthand grammar ('4k7', '20-30uF', '>=50V'); enum templates accept a choice key or any alias, comma-separated for OR.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "value"
+        ],
+        "title": "FilterIn",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "database": {
@@ -35,6 +68,206 @@
         ],
         "title": "HealthResponse",
         "type": "object"
+      },
+      "PartSummary": {
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_stub": {
+            "title": "Is Stub",
+            "type": "boolean"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mpn",
+          "description",
+          "is_stub",
+          "category_id"
+        ],
+        "title": "PartSummary",
+        "type": "object"
+      },
+      "SearchRequest": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Category slug; includes descendants",
+            "title": "Category"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/FilterIn"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "in_stock_only": {
+            "default": false,
+            "title": "In Stock Only",
+            "type": "boolean"
+          },
+          "include_stubs": {
+            "default": true,
+            "title": "Include Stubs",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "search",
+            "description": "'search' matches a requirement; 'substitute' finds parts that would satisfy it, using each template's substitution_direction.",
+            "enum": [
+              "search",
+              "substitute"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "part_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Kind"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "title": "SearchRequest",
+        "type": "object"
+      },
+      "SearchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/PartSummary"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "results"
+        ],
+        "title": "SearchResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
       }
     }
   },
@@ -45,6 +278,197 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/search/parts": {
+      "get": {
+        "operationId": "search_parts_by_querystring",
+        "parameters": [
+          {
+            "description": "Repeatable `template:value`, e.g. `f=capacitance:20-30uF&f=mounting_type:THT`",
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "description": "Repeatable `template:value`, e.g. `f=capacitance:20-30uF&f=mounting_type:THT`",
+              "items": {
+                "type": "string"
+              },
+              "title": "F",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "text",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Text"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "part_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Part Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "in_stock_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "In Stock Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_stubs",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Stubs",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "search",
+              "enum": [
+                "search",
+                "substitute"
+              ],
+              "title": "Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Parts By Querystring",
+        "tags": [
+          "search"
+        ]
+      },
+      "post": {
+        "operationId": "search_parts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Parts",
+        "tags": [
+          "search"
+        ]
+      }
+    },
     "/api/system/health": {
       "get": {
         "operationId": "health",
