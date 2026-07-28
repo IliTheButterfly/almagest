@@ -101,6 +101,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/parameter-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parameter Facets
+         * @description Every filterable attribute, with counts against the current filter set.
+         */
+        post: operations["parameter_facets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/part-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Part Categories
+         * @description The category tree, for the browse-by-type rail.
+         *
+         *     Counts include descendants, computed with one prefix match per category on
+         *     the cached `id_path` — the same mechanism search uses, so the number beside
+         *     a category always agrees with what selecting it returns.
+         */
+        get: operations["list_part_categories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/parts": {
         parameters: {
             query?: never;
@@ -552,6 +596,28 @@ export interface components {
             /** Used */
             used: number;
         };
+        /** CategoryNode */
+        CategoryNode: {
+            /** Depth */
+            depth: number;
+            /** Name */
+            name: string;
+            /** Parent Slug */
+            parent_slug: string | null;
+            /** Part Count */
+            part_count: number;
+            /** Slug */
+            slug: string;
+        };
+        /** ChoiceFacet */
+        ChoiceFacet: {
+            /** Count */
+            count: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+        };
         /** EmptyBinRequest */
         EmptyBinRequest: {
             /**
@@ -593,6 +659,37 @@ export interface components {
          * @enum {string}
          */
         EntityType: "part" | "location" | "stock_lot" | "container_type" | "part_category" | "supplier_part" | "document" | "project" | "device";
+        /**
+         * FacetsRequest
+         * @description The filters already applied, so counts describe what narrowing is left.
+         */
+        FacetsRequest: {
+            /** Category */
+            category?: string | null;
+            /** Filters */
+            filters?: {
+                [key: string]: string;
+            }[];
+            /**
+             * In Stock Only
+             * @default false
+             */
+            in_stock_only?: boolean;
+            /**
+             * Include Stubs
+             * @default true
+             */
+            include_stubs?: boolean;
+            /** Text */
+            text?: string | null;
+        };
+        /** FacetsResponse */
+        FacetsResponse: {
+            /** Templates */
+            templates: components["schemas"]["TemplateFacets"][];
+            /** Total */
+            total: number;
+        };
         /** FilterIn */
         FilterIn: {
             /**
@@ -894,6 +991,22 @@ export interface components {
             container_type_id: number;
             /** Parent Id */
             parent_id: number;
+        };
+        /**
+         * NumericRange
+         * @description Bounds across the filtered set, for a slider or a pair of inputs.
+         *
+         *     Taken from `value_min`/`value_max` rather than `value_nominal`, because a
+         *     range-valued part ("20-30 µF") has no nominal and would otherwise be
+         *     invisible to the bounds — the same reason search matches on intervals.
+         */
+        NumericRange: {
+            /** Max */
+            max: number;
+            /** Min */
+            min: number;
+            /** Unit Symbol */
+            unit_symbol?: string | null;
         };
         /** PartCreate */
         PartCreate: {
@@ -1453,6 +1566,26 @@ export interface components {
              */
             replayed?: boolean;
         };
+        /** TemplateFacets */
+        TemplateFacets: {
+            /** Base Unit */
+            base_unit: string | null;
+            /** Choices */
+            choices?: components["schemas"]["ChoiceFacet"][];
+            /** Display Name */
+            display_name: string;
+            /** Name */
+            name: string;
+            numeric_range?: components["schemas"]["NumericRange"] | null;
+            /** Populated Count */
+            populated_count: number;
+            /** Sort Order */
+            sort_order: number;
+            /** Substitution Direction */
+            substitution_direction: string;
+            /** Value Type */
+            value_type: string;
+        };
         /**
          * UndoRequest
          * @description Undo by whichever handle the caller has.
@@ -1641,6 +1774,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parameter_facets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FacetsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacetsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_part_categories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryNode"][];
                 };
             };
         };

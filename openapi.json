@@ -154,6 +154,69 @@
         "title": "CapacityRead",
         "type": "object"
       },
+      "CategoryNode": {
+        "properties": {
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Slug"
+          },
+          "part_count": {
+            "title": "Part Count",
+            "type": "integer"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "parent_slug",
+          "depth",
+          "part_count"
+        ],
+        "title": "CategoryNode",
+        "type": "object"
+      },
+      "ChoiceFacet": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "count"
+        ],
+        "title": "ChoiceFacet",
+        "type": "object"
+      },
       "EmptyBinRequest": {
         "properties": {
           "client_op_id": {
@@ -257,6 +320,76 @@
         ],
         "title": "EntityType",
         "type": "string"
+      },
+      "FacetsRequest": {
+        "description": "The filters already applied, so counts describe what narrowing is left.",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "filters": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "in_stock_only": {
+            "default": false,
+            "title": "In Stock Only",
+            "type": "boolean"
+          },
+          "include_stubs": {
+            "default": true,
+            "title": "Include Stubs",
+            "type": "boolean"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "title": "FacetsRequest",
+        "type": "object"
+      },
+      "FacetsResponse": {
+        "properties": {
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/TemplateFacets"
+            },
+            "title": "Templates",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "templates"
+        ],
+        "title": "FacetsResponse",
+        "type": "object"
       },
       "FilterIn": {
         "properties": {
@@ -1302,6 +1435,36 @@
           "based_on_location_id"
         ],
         "title": "NewSiblingRead",
+        "type": "object"
+      },
+      "NumericRange": {
+        "description": "Bounds across the filtered set, for a slider or a pair of inputs.\n\nTaken from `value_min`/`value_max` rather than `value_nominal`, because a\nrange-valued part (\"20-30 \u00b5F\") has no nominal and would otherwise be\ninvisible to the bounds \u2014 the same reason search matches on intervals.",
+        "properties": {
+          "max": {
+            "title": "Max",
+            "type": "number"
+          },
+          "min": {
+            "title": "Min",
+            "type": "number"
+          },
+          "unit_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Symbol"
+          }
+        },
+        "required": [
+          "min",
+          "max"
+        ],
+        "title": "NumericRange",
         "type": "object"
       },
       "PartCreate": {
@@ -3226,6 +3389,73 @@
         "title": "SuggestResponse",
         "type": "object"
       },
+      "TemplateFacets": {
+        "properties": {
+          "base_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Unit"
+          },
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/ChoiceFacet"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "numeric_range": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NumericRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "populated_count": {
+            "title": "Populated Count",
+            "type": "integer"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "substitution_direction": {
+            "title": "Substitution Direction",
+            "type": "string"
+          },
+          "value_type": {
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "value_type",
+          "base_unit",
+          "substitution_direction",
+          "sort_order",
+          "populated_count"
+        ],
+        "title": "TemplateFacets",
+        "type": "object"
+      },
       "UndoRequest": {
         "description": "Undo by whichever handle the caller has.\n\nExactly one must be given. `client_op_id_to_undo` is the one the UI actually\nuses \u2014 it already generated that key at scan time, so the eight-second undo\nbutton needs to remember nothing else.",
         "properties": {
@@ -3569,6 +3799,74 @@
         "summary": "Read Location",
         "tags": [
           "locations"
+        ]
+      }
+    },
+    "/api/parameter-templates": {
+      "post": {
+        "description": "Every filterable attribute, with counts against the current filter set.",
+        "operationId": "parameter_facets",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FacetsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacetsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parameter Facets",
+        "tags": [
+          "facets"
+        ]
+      }
+    },
+    "/api/part-categories": {
+      "get": {
+        "description": "The category tree, for the browse-by-type rail.\n\nCounts include descendants, computed with one prefix match per category on\nthe cached `id_path` \u2014 the same mechanism search uses, so the number beside\na category always agrees with what selecting it returns.",
+        "operationId": "list_part_categories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryNode"
+                  },
+                  "title": "Response List Part Categories",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Part Categories",
+        "tags": [
+          "facets"
         ]
       }
     },
