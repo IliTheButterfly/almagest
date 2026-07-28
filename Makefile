@@ -1,10 +1,11 @@
 SHELL := /bin/bash
 UV    ?= uv
 BE    := backend
+FE    := frontend
 
 .DEFAULT_GOAL := help
 .PHONY: help bootstrap sync test test-live lint fmt typecheck check migrate revision \
-        check-migrations run openapi clean
+        check-migrations run openapi clean fe-install fe-dev fe-check fe-api
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -15,9 +16,23 @@ bootstrap: ## Clone submodules, create the venv, install deps, seed .env
 	git config submodule.recurse true
 	@test -f .env || { cp .env.example .env; echo "created .env from .env.example"; }
 	$(MAKE) sync
+	$(MAKE) fe-install
 
 sync: ## Install/refresh backend dependencies
 	cd $(BE) && $(UV) sync --all-extras --dev
+
+fe-install: ## Install frontend dependencies
+	cd $(FE) && pnpm install
+
+fe-dev: ## Vite dev server, proxying /api to the backend
+	cd $(FE) && pnpm dev
+
+fe-check: ## Frontend lint, typecheck, tests and build
+	cd $(FE) && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+
+fe-api: ## Regenerate the typed API client from openapi.json
+	$(MAKE) openapi
+	cd $(FE) && pnpm generate:api
 
 test: ## Run the backend test suite (network tests excluded)
 	cd $(BE) && $(UV) run pytest -q
