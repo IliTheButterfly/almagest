@@ -4197,6 +4197,457 @@
         "title": "PartUpdate",
         "type": "object"
       },
+      "PendingIntakeCreated": {
+        "properties": {
+          "already_queued": {
+            "title": "Already Queued",
+            "type": "boolean"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/PendingIntakeRead"
+          }
+        },
+        "required": [
+          "entry",
+          "already_queued"
+        ],
+        "title": "PendingIntakeCreated",
+        "type": "object"
+      },
+      "PendingIntakeIn": {
+        "description": "One parked scan, as the device recorded it.",
+        "properties": {
+          "client_op_id": {
+            "maxLength": 36,
+            "minLength": 1,
+            "title": "Client Op Id",
+            "type": "string"
+          },
+          "date_code": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Code"
+          },
+          "decoded_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanDecodedKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "lot_code": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Code"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "quantity_milli": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000000000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Milli"
+          },
+          "queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued At"
+          },
+          "raw_payload": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Raw Payload",
+            "type": "string"
+          },
+          "scan_event_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Event Id"
+          },
+          "supplier_part_number": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Part Number"
+          },
+          "symbology": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbology"
+          }
+        },
+        "required": [
+          "client_op_id",
+          "raw_payload"
+        ],
+        "title": "PendingIntakeIn",
+        "type": "object"
+      },
+      "PendingIntakeList": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/PendingIntakeRead"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "pending_total": {
+            "title": "Pending Total",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "pending_total",
+          "entries"
+        ],
+        "title": "PendingIntakeList",
+        "type": "object"
+      },
+      "PendingIntakeRead": {
+        "properties": {
+          "client_op_id": {
+            "title": "Client Op Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "date_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Code"
+          },
+          "decoded_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decoded Kind"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "lot_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Code"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "quantity_milli": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Milli"
+          },
+          "queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued At"
+          },
+          "raw_payload": {
+            "title": "Raw Payload",
+            "type": "string"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "resolved_part_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Part Id"
+          },
+          "scan_event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Event Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "supplier_part_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Part Number"
+          },
+          "symbology": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbology"
+          }
+        },
+        "required": [
+          "id",
+          "client_op_id",
+          "raw_payload",
+          "symbology",
+          "decoded_kind",
+          "scan_event_id",
+          "mpn",
+          "manufacturer",
+          "supplier_part_number",
+          "date_code",
+          "lot_code",
+          "quantity_milli",
+          "part_id",
+          "resolved_part_id",
+          "note",
+          "device_id",
+          "status",
+          "queued_at",
+          "created_at",
+          "resolved_at"
+        ],
+        "title": "PendingIntakeRead",
+        "type": "object"
+      },
+      "PendingIntakeStatus": {
+        "description": "Where a parked scan is in the intake worklist.\n\nResolved and dismissed rows are **kept, not deleted**. The raw payload is\nthe asset \u2014 a vendor format nobody parses yet is a parser waiting to be\nwritten, but only if the bytes survived \u2014 and \"what did I scan last\nTuesday\" is a question worth being able to answer. This is a worklist\nrather than a ledger, so there are no triggers here; it just does not throw\nthe evidence away.",
+        "enum": [
+          "pending",
+          "resolved",
+          "dismissed"
+        ],
+        "title": "PendingIntakeStatus",
+        "type": "string"
+      },
       "ProvisionProgressRead": {
         "properties": {
           "bound": {
@@ -4703,6 +5154,38 @@
         "title": "RecountRequest",
         "type": "object"
       },
+      "ResolveRequest": {
+        "description": "Mark an entry dealt with, optionally naming what it became.",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "resolved_part_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Part Id"
+          }
+        },
+        "title": "ResolveRequest",
+        "type": "object"
+      },
       "ResolveResponse": {
         "properties": {
           "normalized": {
@@ -4999,6 +5482,20 @@
         ],
         "title": "ScanCandidate",
         "type": "object"
+      },
+      "ScanDecodedKind": {
+        "description": "Which handler of the ordered resolver chain claimed a payload.\n\nRecorded on every `scan_events` row because it is the measurement that\ntells us where intake actually hurts: a rising share of `UNKNOWN` means a\nvendor format nobody parses yet, and the raw payloads to build that parser\nfrom are sitting in the same table.",
+        "enum": [
+          "short_id",
+          "alias",
+          "ecia",
+          "lcsc",
+          "mpn",
+          "ean",
+          "unknown"
+        ],
+        "title": "ScanDecodedKind",
+        "type": "string"
       },
       "ScanExistingLot": {
         "properties": {
@@ -7366,6 +7863,292 @@
         "summary": "Write Slot Template",
         "tags": [
           "container-types"
+        ]
+      }
+    },
+    "/api/intake/pending": {
+      "get": {
+        "description": "The worklist, **oldest first** \u2014 a box of reels is walked in scan order.\n\nOrdered by `id`, not `queued_at`: `id` is server-assigned and monotonic, and a\nclient syncing a batch posts it in scan order, so this is both the order the\nuser experienced and immune to a device clock that is wrong.",
+        "operationId": "list_pending",
+        "parameters": [
+          {
+            "description": "Repeatable. Defaults to the worklist; pass every value to include resolved and dismissed entries as history.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": [
+                "pending"
+              ],
+              "description": "Repeatable. Defaults to the worklist; pass every value to include resolved and dismissed entries as history.",
+              "items": {
+                "$ref": "#/components/schemas/PendingIntakeStatus"
+              },
+              "title": "Status",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "device_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Device Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingIntakeList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Pending",
+        "tags": [
+          "intake"
+        ]
+      },
+      "post": {
+        "description": "Park a scan for later. One tap, no further screens.\n\nIdempotent on `client_op_id` by an explicit lookup rather than by catching the\nUNIQUE violation, so the caller learns *which* case happened. Note this route\ndoes **not** use `app.api.idempotency`: that helper stores and replays a whole\nresponse body keyed on an operation id, which is exactly right for a ledger\nwrite that must not be repeated \u2014 but here the row itself is the record, and\nthe natural key is already on it. Two mechanisms for one guarantee would just\nbe two things to keep in step.",
+        "operationId": "park_scan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PendingIntakeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingIntakeCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Park Scan",
+        "tags": [
+          "intake"
+        ]
+      }
+    },
+    "/api/intake/pending/{entry_id}/dismiss": {
+      "post": {
+        "description": "Not a real intake: a duplicate scan, a shipping label, someone else's box.\n\nKept rather than deleted, and kept *distinguishable* from resolved, because\nthe two say opposite things about whether the payload is worth mining \u2014 a\npile of dismissed unknowns is noise, a pile of resolved ones is a parser\nworth writing.",
+        "operationId": "dismiss_entry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Entry Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingIntakeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dismiss Entry",
+        "tags": [
+          "intake"
+        ]
+      }
+    },
+    "/api/intake/pending/{entry_id}/reopen": {
+      "post": {
+        "description": "Put a resolved or dismissed entry back on the worklist.\n\nExists because the desk pass is where mistakes happen \u2014 dismissing the wrong\nrow is one tap \u2014 and nothing here is historical record, so undo is a status\nchange rather than a compensating row. That is the difference between this\ntable and `stock_ledger`, and it is why this one has no triggers.",
+        "operationId": "reopen_entry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Entry Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingIntakeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reopen Entry",
+        "tags": [
+          "intake"
+        ]
+      }
+    },
+    "/api/intake/pending/{entry_id}/resolve": {
+      "post": {
+        "description": "Mark an entry dealt with, optionally naming the part it became.\n\nRecords the outcome; it does not perform it. Creating the part and receiving\nthe stock go through the ordinary routes, so there is one code path that\nwrites the ledger and this is not it.",
+        "operationId": "resolve_entry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Entry Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingIntakeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Entry",
+        "tags": [
+          "intake"
         ]
       }
     },

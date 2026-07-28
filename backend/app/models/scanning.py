@@ -32,7 +32,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.base import TimestampMixin
-from app.models.enums import AliasKind, EntityType, ScanAction, ScanDecodedKind, ScanSourceKind
+from app.models.enums import (
+    AliasKind,
+    EntityType,
+    PendingIntakeStatus,
+    ScanAction,
+    ScanDecodedKind,
+    ScanSourceKind,
+)
 from app.models.types import StrEnumType, UtcDateTime, utcnow
 
 #: Long enough for a full ECIA/MH10.8.2 reel payload (envelope plus a dozen
@@ -213,4 +220,115 @@ class ScanEvent(Base):
         # rather than a bare index on `decoded_kind`, whose leading column this
         # already serves.
         Index("ix_scan_events_kind_ts", "decoded_kind", "ts"),
+    )
+
+
+class PendingIntake(Base, TimestampMixin):
+    """A scan parked for later — the fast path's storage.
+
+    `PLAN.md`: *"the fast path is the point"*. One tap at RESOLVING parks the
+    label and returns straight to scanning, so a box of reels is scanned in
+    under a minute and curated at a desk afterwards. This is the countermeasure
+    to the thing that actually kills projects in this space: intake that costs
+    a form per item.
+
+    **This table is why the queue survives the device.** It lived in the phone's
+    `localStorage`, which meant a queue built while standing at the shelf could
+    not be walked at the desktop, and cleared browser storage lost it silently —
+    for a queue whose entire purpose is deferring work, "you will lose it if you
+    defer too long" is a contradiction.
+
+    Every derived column is nullable and `raw_payload` is not, for the same
+    reason `scan_events` is shaped that way: the bytes are the asset, and an
+    entry nothing could be made of is exactly the one worth keeping.
+
+    Resolved and dismissed rows are **kept**. No triggers, though — this is a
+    worklist, not a ledger, so a mistake here is re-doable rather than
+    historical, and `RAISE(ABORT)` would only make correcting a typo painful.
+    """
+
+    __tablename__ = "pending_intakes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    #: The `client_op_id` minted at scan time, on the device, before this row
+    #: existed. UNIQUE, which is what makes re-posting a queue safe: a phone
+    #: that synced, lost the response and retried gets the same row back rather
+    #: than a duplicate. It is the client's identity for the entry, so the
+    #: client never needs to learn the server's `id` to keep them in step.
+    client_op_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+
+    #: The resolve that produced this entry, when there was one. `SET NULL`
+    #: rather than cascade: pruning the event log must not delete the worklist.
+    #: NULL is normal — a phone can park a scan while offline, having never
+    #: reached `/api/scan/resolve` at all.
+    scan_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("scan_events.id", ondelete="SET NULL"), index=True
+    )
+
+    #: Verbatim, control characters and all. Same reasoning as
+    #: `scan_events.raw_payload` — stripping the GS/RS separators is the lossy
+    #: step that would make an ECIA payload unmineable later.
+    raw_payload: Mapped[str] = mapped_column(Text, nullable=False)
+    symbology: Mapped[str | None] = mapped_column(String(_SYMBOLOGY_LENGTH))
+
+    #: Which resolver handler claimed the payload. Display and mining only — the
+    #: desk pass re-resolves rather than trusting this, because a parser or an
+    #: alias added in between may now do better.
+    decoded_kind: Mapped[str | None] = mapped_column(StrEnumType(ScanDecodedKind))
+
+    # Whatever the label gave up. All nullable: an unrecognised label is still a
+    # legal entry, and `parts` is shaped to accept one as a stub in a single tap.
+    mpn: Mapped[str | None] = mapped_column(String(128))
+    manufacturer: Mapped[str | None] = mapped_column(String(128))
+    supplier_part_number: Mapped[str | None] = mapped_column(String(128))
+    date_code: Mapped[str | None] = mapped_column(String(32))
+    lot_code: Mapped[str | None] = mapped_column(String(128))
+    #: Thousandths, like every quantity here, so the desk pass needs no unit
+    #: conversion to turn this into a ledger row.
+    quantity_milli: Mapped[int | None] = mapped_column(Integer)
+
+    #: The part the resolver *matched* at scan time — a hint, not a decision.
+    #: Kept distinct from `resolved_part_id` because "the scan looked like this"
+    #: and "this is what it became" are different claims, and conflating them
+    #: would quietly turn a guess into a record.
+    part_id: Mapped[int | None] = mapped_column(
+        ForeignKey("parts.id", ondelete="SET NULL"), index=True
+    )
+    #: What the desk pass actually decided. NULL on a dismissed entry, and on a
+    #: resolved one that produced no part row.
+    resolved_part_id: Mapped[int | None] = mapped_column(
+        ForeignKey("parts.id", ondelete="SET NULL")
+    )
+
+    note: Mapped[str | None] = mapped_column(Text)
+    #: Which device parked it, so a queue can be filtered to "the ones I just
+    #: scanned" on a shared install. Plain string, no FK — a browser is not a
+    #: registered `devices` row and should not have to be to park a scan.
+    device_id: Mapped[str | None] = mapped_column(String(64))
+
+    status: Mapped[str] = mapped_column(
+        StrEnumType(PendingIntakeStatus),
+        nullable=False,
+        default=PendingIntakeStatus.PENDING,
+        server_default=PendingIntakeStatus.PENDING.value,
+        # No `index=True`: `ix_pending_intakes_status_id` below leads with this
+        # column and serves every query a bare index on it would.
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+    #: When the *device* recorded the scan, which is not `created_at`: an
+    #: offline batch syncs minutes later. Stored because it is what the user
+    #: experienced, and **not** used for ordering — a device clock can be wrong
+    #: by years, and a worklist that a bad clock can scramble is a worklist
+    #: nobody trusts. See `ix_pending_intakes_status_id`.
+    queued_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+    __table_args__ = (
+        # The only query that matters: "the pending ones, oldest first", so a
+        # box of reels is walked in the order it was scanned. Ordered by `id`
+        # rather than `queued_at` deliberately — `id` is server-assigned and
+        # monotonic, and a client that syncs a batch posts it in scan order, so
+        # this is both the user's order and immune to a skewed device clock.
+        Index("ix_pending_intakes_status_id", "status", "id"),
     )

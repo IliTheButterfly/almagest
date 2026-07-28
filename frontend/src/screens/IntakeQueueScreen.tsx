@@ -6,19 +6,34 @@
  * `client_op_id` minted at its scan, so creating the part from here is idempotent
  * against the scan that produced it.
  *
- * **The queue is stored in this browser.** `POST /api/intake/pending` is in the
- * design but not in the API yet, so the queue does not follow the user from the
- * phone that scanned to the desktop that curates. That is a real limitation and the
- * screen says so rather than letting someone discover it after scanning a box.
+ * **`localStorage` is now a write-behind buffer, not the record.** Parking still
+ * writes locally first, because the fast path has to work with no network — that is
+ * most of its value. Sync then pushes to `POST /api/intake/pending`, after which the
+ * queue follows the user from the phone that scanned to the desktop that curates.
+ *
+ * Both lists are shown, and shown *separately*, on purpose. Merging them into one
+ * "queue" would hide the only thing worth knowing: whether a scan has left the
+ * device yet. Something still local is one cleared cache from gone, and the user is
+ * the only one who can decide to press Sync before walking away from the shelf.
  */
 
 import { useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
 
-import { ErrorBanner, Notice } from "../components/Feedback";
-import { bindScanAlias, createPart } from "../lib/api/client";
+import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import {
+  bindScanAlias,
+  createPart,
+  dismissPendingIntake,
+  listPendingIntake,
+  resolvePendingIntake,
+  type PendingIntakeList,
+  type PendingIntakeRead,
+} from "../lib/api/client";
 import { formatQty, formatTimestamp } from "../lib/format";
+import { useAsync } from "../lib/hooks/useAsync";
 import { intakeQueue, type PendingScan } from "../lib/intake/queue";
+import { syncIntakeQueue, type SyncOutcome } from "../lib/intake/sync";
 
 function usePending(): readonly PendingScan[] {
   return useSyncExternalStore(
@@ -29,28 +44,65 @@ function usePending(): readonly PendingScan[] {
 }
 
 export function IntakeQueueScreen() {
-  const pending = usePending();
+  const local = usePending();
+  const [syncing, setSyncing] = useState(false);
+  const [outcome, setOutcome] = useState<SyncOutcome | null>(null);
+  const [reload, setReload] = useState(0);
+
+  const server = useAsync<PendingIntakeList>(() => listPendingIntake(), [reload]);
+
+  async function sync(): Promise<void> {
+    setSyncing(true);
+    setOutcome(null);
+    try {
+      setOutcome(await syncIntakeQueue());
+    } finally {
+      setSyncing(false);
+      setReload((tick) => tick + 1);
+    }
+  }
+
+  const onServer = server.data?.entries ?? [];
 
   return (
     <div className="stack">
       <div className="card">
         <div className="row">
           <h1 style={{ flex: 1 }}>Intake queue</h1>
-          <span className="badge">{pending.length}</span>
+          <span className="badge">{local.length + onServer.length}</span>
         </div>
         <p className="muted-note" style={{ margin: 0 }}>
-          Labels parked at scan time, to be curated here. Held in this browser only —
-          the server-side pending queue is not built yet, so what was scanned on the
-          phone is curated on the phone.
+          Labels parked at scan time, curated here. Parking writes to this device first
+          so scanning never waits for the network; syncing sends them to the server,
+          after which the queue follows you to any other device.
         </p>
-        {pending.length > 0 && (
-          <button type="button" className="danger" onClick={() => intakeQueue.clear()}>
-            Discard all {pending.length}
+
+        <div className="row">
+          <button
+            type="button"
+            className="primary"
+            disabled={syncing || local.length === 0}
+            onClick={() => void sync()}
+          >
+            {syncing
+              ? "Syncing…"
+              : local.length === 0
+                ? "Nothing to sync"
+                : `Sync ${local.length} to the server`}
           </button>
-        )}
+          <span className="spacer" />
+          {local.length > 0 && (
+            <button type="button" className="danger" onClick={() => intakeQueue.clear()}>
+              Discard {local.length} unsynced
+            </button>
+          )}
+        </div>
+
+        {outcome !== null && <SyncReport outcome={outcome} />}
+        <ErrorBanner error={server.error} fallback="The server queue could not be loaded." />
       </div>
 
-      {pending.length === 0 ? (
+      {local.length + onServer.length === 0 && !server.loading ? (
         <Notice kind="info" title="Nothing parked">
           <p style={{ margin: 0 }}>
             Scan a distributor label and tap <strong>Queue for later</strong> to park it
@@ -61,14 +113,145 @@ export function IntakeQueueScreen() {
             <Link to="/scan">Go to the scanner →</Link>
           </p>
         </Notice>
+      ) : null}
+
+      {/* Local and synced are listed separately rather than merged. The one thing
+          worth knowing about a parked scan is whether it has left the device yet:
+          something still local is one cleared cache from gone. */}
+      {local.length > 0 && (
+        <div className="card">
+          <div className="row">
+            <h3 style={{ margin: 0 }}>On this device only ({local.length})</h3>
+            <span className="spacer" />
+            <span className="badge badge-warn">not synced</span>
+          </div>
+          <p className="muted-note" style={{ margin: 0 }}>
+            Not on the server yet, so clearing this browser&apos;s storage would lose
+            them.
+          </p>
+          <ul className="list">
+            {local.map((entry) => (
+              <PendingRow key={entry.id} entry={entry} />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {server.loading && onServer.length === 0 ? (
+        <Loading what="the server queue" />
       ) : (
-        <ul className="list">
-          {pending.map((entry) => (
-            <PendingRow key={entry.id} entry={entry} />
-          ))}
-        </ul>
+        onServer.length > 0 && (
+          <div className="card">
+            <div className="row">
+              <h3 style={{ margin: 0 }}>On the server ({server.data?.pending_total ?? 0})</h3>
+              <span className="spacer" />
+              <span className="badge badge-good">synced</span>
+            </div>
+            <ul className="list">
+              {onServer.map((entry) => (
+                <ServerRow
+                  key={entry.id}
+                  entry={entry}
+                  onChanged={() => setReload((tick) => tick + 1)}
+                />
+              ))}
+            </ul>
+          </div>
+        )
       )}
     </div>
+  );
+}
+
+/**
+ * What sync did, itemised.
+ *
+ * Failures are listed individually rather than summarised as a count, because the
+ * two kinds mean opposite things: a 4xx entry will never upload and needs a human,
+ * while an unreachable server will clear on its own. "3 failed" hides that
+ * difference, and hiding it is how a permanently stuck entry gets ignored forever.
+ */
+function SyncReport({ outcome }: { outcome: SyncOutcome }) {
+  const moved = outcome.uploaded + outcome.alreadyThere;
+
+  if (outcome.failed.length === 0) {
+    return (
+      <Notice kind="ok">
+        {moved === 0
+          ? "Nothing to send."
+          : `${outcome.uploaded} sent to the server` +
+            (outcome.alreadyThere === 0
+              ? "."
+              : `, ${outcome.alreadyThere} were already there (a previous sync got through).`)}
+      </Notice>
+    );
+  }
+
+  return (
+    <Notice kind="warn" title={`${outcome.failed.length} could not be sent`}>
+      {moved > 0 && <p style={{ margin: 0 }}>{moved} went up; these stayed here:</p>}
+      <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.2rem" }}>
+        {outcome.failed.map((failure) => (
+          <li key={failure.id}>{failure.message}</li>
+        ))}
+      </ul>
+    </Notice>
+  );
+}
+
+/**
+ * One entry that has made it to the server.
+ *
+ * Resolve and dismiss stay distinguishable here for the same reason they are in the
+ * schema: a pile of dismissed unknowns is noise, a pile of resolved ones is a
+ * vendor format worth writing a parser for.
+ */
+function ServerRow({ entry, onChanged }: { entry: PendingIntakeRead; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function act(what: "resolve" | "dismiss"): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await (what === "resolve"
+        ? resolvePendingIntake(entry.id)
+        : dismissPendingIntake(entry.id));
+      onChanged();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="list-item">
+      <div className="row">
+        <span className="title mono" style={{ flex: 1, overflowWrap: "anywhere" }}>
+          {entry.mpn ?? entry.supplier_part_number ?? entry.raw_payload}
+        </span>
+        {entry.decoded_kind !== null && <span className="badge">{entry.decoded_kind}</span>}
+      </div>
+      <div className="sub">
+        {/* `queued_at` is the device's scan time and may be absent or wrong; the
+            server's `created_at` is always there. Preferring the former is right —
+            it is what the user remembers — with a fallback rather than a blank. */}
+        {formatTimestamp(entry.queued_at ?? entry.created_at)}
+        {entry.quantity_milli === null ? "" : ` · ${formatQty(entry.quantity_milli)}`}
+        {entry.lot_code === null ? "" : ` · lot ${entry.lot_code}`}
+      </div>
+      <ErrorBanner error={error} fallback="That entry was not changed." />
+      <div className="row">
+        <button type="button" disabled={busy} onClick={() => void act("resolve")}>
+          Mark done
+        </button>
+        <span className="spacer" />
+        <button type="button" disabled={busy} onClick={() => void act("dismiss")}>
+          Not an intake
+        </button>
+      </div>
+    </li>
   );
 }
 

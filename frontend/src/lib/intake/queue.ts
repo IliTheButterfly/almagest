@@ -7,14 +7,17 @@
  * the countermeasure to the thing that actually kills projects in this space —
  * intake that costs a form per item.
  *
- * **It is stored client-side.** The design calls for `POST /api/intake/pending`;
- * that endpoint does not exist yet, so the queue lives in `localStorage` on the
- * device that did the scanning. The consequence is real and the UI says so: the
- * queue does not follow the user from the phone to the desktop until the endpoint
- * lands. Everything about the shape here is chosen so that swapping the storage
- * for the API is a change of transport and nothing else — each entry already
- * carries the `client_op_id` minted at scan time, which is exactly what the
- * endpoint will want in order to be idempotent.
+ * **This is a write-behind buffer, not the record.** `POST /api/intake/pending`
+ * is where a parked scan ends up; this holds it until then. Writing locally first
+ * is not a fallback — it is the design. The fast path's value is that it never
+ * stops to talk to anything, and a shelf in a basement is exactly where the wifi
+ * is worst, so an intake path that needed the network would fail at the only
+ * moment it matters.
+ *
+ * `lib/intake/sync.ts` drains it. The handover works because each entry already
+ * carries the `client_op_id` minted at scan time: that is the server's
+ * idempotency key, so pushing the same entry twice converges on one row, and an
+ * entry is only dropped from here once the server has confirmed it.
  */
 
 const STORAGE_KEY = "almagest.intake.pending.v1";

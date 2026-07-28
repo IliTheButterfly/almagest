@@ -30,7 +30,7 @@ from app.models.layout_authoring import (
     VerificationMismatch,
 )
 from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
-from app.models.scanning import BarcodeAlias, ScanEvent, ScanSource
+from app.models.scanning import BarcodeAlias, PendingIntake, ScanEvent, ScanSource
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import (
     ContainerType,
@@ -66,6 +66,7 @@ __all__ = [
     "PartKind",
     "PartSubstitute",
     "PartTag",
+    "PendingIntake",
     "ProvisioningAction",
     "ProvisioningSession",
     "ScanEvent",

@@ -93,6 +93,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/intake/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Pending
+         * @description The worklist, **oldest first** — a box of reels is walked in scan order.
+         *
+         *     Ordered by `id`, not `queued_at`: `id` is server-assigned and monotonic, and a
+         *     client syncing a batch posts it in scan order, so this is both the order the
+         *     user experienced and immune to a device clock that is wrong.
+         */
+        get: operations["list_pending"];
+        put?: never;
+        /**
+         * Park Scan
+         * @description Park a scan for later. One tap, no further screens.
+         *
+         *     Idempotent on `client_op_id` by an explicit lookup rather than by catching the
+         *     UNIQUE violation, so the caller learns *which* case happened. Note this route
+         *     does **not** use `app.api.idempotency`: that helper stores and replays a whole
+         *     response body keyed on an operation id, which is exactly right for a ledger
+         *     write that must not be repeated — but here the row itself is the record, and
+         *     the natural key is already on it. Two mechanisms for one guarantee would just
+         *     be two things to keep in step.
+         */
+        post: operations["park_scan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/intake/pending/{entry_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Entry
+         * @description Not a real intake: a duplicate scan, a shipping label, someone else's box.
+         *
+         *     Kept rather than deleted, and kept *distinguishable* from resolved, because
+         *     the two say opposite things about whether the payload is worth mining — a
+         *     pile of dismissed unknowns is noise, a pile of resolved ones is a parser
+         *     worth writing.
+         */
+        post: operations["dismiss_entry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/intake/pending/{entry_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reopen Entry
+         * @description Put a resolved or dismissed entry back on the worklist.
+         *
+         *     Exists because the desk pass is where mistakes happen — dismissing the wrong
+         *     row is one tap — and nothing here is historical record, so undo is a status
+         *     change rather than a compensating row. That is the difference between this
+         *     table and `stock_ledger`, and it is why this one has no triggers.
+         */
+        post: operations["reopen_entry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/intake/pending/{entry_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Entry
+         * @description Mark an entry dealt with, optionally naming the part it became.
+         *
+         *     Records the outcome; it does not perform it. Creating the part and receiving
+         *     the stock go through the ordinary routes, so there is one code path that
+         *     writes the ledger and this is not it.
+         */
+        post: operations["resolve_entry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/labels/sheets": {
         parameters: {
             query?: never;
@@ -2234,6 +2344,115 @@ export interface components {
             /** Width Mm */
             width_mm?: number | null;
         };
+        /** PendingIntakeCreated */
+        PendingIntakeCreated: {
+            /** Already Queued */
+            already_queued: boolean;
+            entry: components["schemas"]["PendingIntakeRead"];
+        };
+        /**
+         * PendingIntakeIn
+         * @description One parked scan, as the device recorded it.
+         */
+        PendingIntakeIn: {
+            /** Client Op Id */
+            client_op_id: string;
+            /** Date Code */
+            date_code?: string | null;
+            decoded_kind?: components["schemas"]["ScanDecodedKind"] | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Lot Code */
+            lot_code?: string | null;
+            /** Manufacturer */
+            manufacturer?: string | null;
+            /** Mpn */
+            mpn?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Part Id */
+            part_id?: number | null;
+            /** Quantity Milli */
+            quantity_milli?: number | null;
+            /** Queued At */
+            queued_at?: string | null;
+            /** Raw Payload */
+            raw_payload: string;
+            /** Scan Event Id */
+            scan_event_id?: number | null;
+            /** Supplier Part Number */
+            supplier_part_number?: string | null;
+            /** Symbology */
+            symbology?: string | null;
+        };
+        /** PendingIntakeList */
+        PendingIntakeList: {
+            /** Entries */
+            entries: components["schemas"]["PendingIntakeRead"][];
+            /** Pending Total */
+            pending_total: number;
+            /** Total */
+            total: number;
+        };
+        /** PendingIntakeRead */
+        PendingIntakeRead: {
+            /** Client Op Id */
+            client_op_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Date Code */
+            date_code: string | null;
+            /** Decoded Kind */
+            decoded_kind: string | null;
+            /** Device Id */
+            device_id: string | null;
+            /** Id */
+            id: number;
+            /** Lot Code */
+            lot_code: string | null;
+            /** Manufacturer */
+            manufacturer: string | null;
+            /** Mpn */
+            mpn: string | null;
+            /** Note */
+            note: string | null;
+            /** Part Id */
+            part_id: number | null;
+            /** Quantity Milli */
+            quantity_milli: number | null;
+            /** Queued At */
+            queued_at: string | null;
+            /** Raw Payload */
+            raw_payload: string;
+            /** Resolved At */
+            resolved_at: string | null;
+            /** Resolved Part Id */
+            resolved_part_id: number | null;
+            /** Scan Event Id */
+            scan_event_id: number | null;
+            /** Status */
+            status: string;
+            /** Supplier Part Number */
+            supplier_part_number: string | null;
+            /** Symbology */
+            symbology: string | null;
+        };
+        /**
+         * PendingIntakeStatus
+         * @description Where a parked scan is in the intake worklist.
+         *
+         *     Resolved and dismissed rows are **kept, not deleted**. The raw payload is
+         *     the asset — a vendor format nobody parses yet is a parser waiting to be
+         *     written, but only if the bytes survived — and "what did I scan last
+         *     Tuesday" is a question worth being able to answer. This is a worklist
+         *     rather than a ledger, so there are no triggers here; it just does not throw
+         *     the evidence away.
+         * @enum {string}
+         */
+        PendingIntakeStatus: "pending" | "resolved" | "dismissed";
         /** ProvisionProgressRead */
         ProvisionProgressRead: {
             /** Bound */
@@ -2403,6 +2622,16 @@ export interface components {
             /** @default manual */
             source?: components["schemas"]["LedgerSource"];
         };
+        /**
+         * ResolveRequest
+         * @description Mark an entry dealt with, optionally naming what it became.
+         */
+        ResolveRequest: {
+            /** Note */
+            note?: string | null;
+            /** Resolved Part Id */
+            resolved_part_id?: number | null;
+        };
         /** ResolveResponse */
         ResolveResponse: {
             /** Normalized */
@@ -2500,6 +2729,17 @@ export interface components {
              */
             via: string;
         };
+        /**
+         * ScanDecodedKind
+         * @description Which handler of the ordered resolver chain claimed a payload.
+         *
+         *     Recorded on every `scan_events` row because it is the measurement that
+         *     tells us where intake actually hurts: a rising share of `UNKNOWN` means a
+         *     vendor format nobody parses yet, and the raw payloads to build that parser
+         *     from are sitting in the same table.
+         * @enum {string}
+         */
+        ScanDecodedKind: "short_id" | "alias" | "ecia" | "lcsc" | "mpn" | "ean" | "unknown";
         /** ScanExistingLot */
         ScanExistingLot: {
             /** Batch Code */
@@ -3426,6 +3666,175 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SlotTemplateWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pending: {
+        parameters: {
+            query?: {
+                /** @description Repeatable. Defaults to the worklist; pass every value to include resolved and dismissed entries as history. */
+                status?: components["schemas"]["PendingIntakeStatus"][];
+                device_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingIntakeList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    park_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PendingIntakeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingIntakeCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingIntakeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reopen_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingIntakeRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingIntakeRead"];
                 };
             };
             /** @description Validation Error */
