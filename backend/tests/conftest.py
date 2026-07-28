@@ -42,6 +42,14 @@ def database_url(tmp_path: Path) -> str:
 
 
 @pytest.fixture
+def alembic_config(database_url: str) -> Config:
+    """The same migration runner `engine` uses, for the rare test that has to
+    step between revisions instead of starting at head — a data backfill can
+    only be exercised by putting data in *before* the migration runs."""
+    return _alembic_config(database_url)
+
+
+@pytest.fixture
 def engine(database_url: str) -> Iterator[Engine]:
     command.upgrade(_alembic_config(database_url), "head")
     eng = reset_engine_for_testing(database_url)

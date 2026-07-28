@@ -221,3 +221,86 @@ class EscalationLevel(StrEnum):
     DEFRAG_PLAN = "defrag_plan"
     NEW_SIBLING = "new_sibling"
     INBOX = "inbox"
+
+
+class AliasKind(StrEnum):
+    """*Which part of a scanned label* a `barcode_aliases.code_norm` is.
+
+    `entity_type` says what the alias points at and `symbology` says what
+    carried it; this says what was bound, which is the only one of the three
+    the resolver has to know in order to look anything up. The distinction is
+    load-bearing rather than descriptive: a whole DigiKey reel payload contains
+    the lot and the quantity, so binding it resolves *that one reel* forever
+    and carries `hint_qty_milli`/`hint_batch` with it — while binding the
+    supplier SKU lifted out of the same payload is what makes the *next* reel
+    of the same part resolve on its first scan.
+    """
+
+    #: The complete normalised payload. What "bind this code" writes by default.
+    WHOLE_PAYLOAD = "whole_payload"
+    #: A manufacturer part number, from a structured payload or typed in.
+    MPN = "mpn"
+    #: A distributor's own ordering code (ECIA `1P`), which is why an alias may
+    #: legitimately target a `supplier_part` rather than a `part`.
+    SUPPLIER_SKU = "supplier_sku"
+    #: Lot, serial or tracking code identifying **one physical package**
+    #: (ECIA `1T`/`S`). Binding one is how a specific bag gets recognised.
+    PACKAGE_CODE = "package_code"
+    #: An NFC tag UID, the fallback carrier when the NDEF record is unreadable.
+    TAG_UID = "tag_uid"
+
+
+class ScanDecodedKind(StrEnum):
+    """Which handler of the ordered resolver chain claimed a payload.
+
+    Recorded on every `scan_events` row because it is the measurement that
+    tells us where intake actually hurts: a rising share of `UNKNOWN` means a
+    vendor format nobody parses yet, and the raw payloads to build that parser
+    from are sitting in the same table.
+    """
+
+    SHORT_ID = "short_id"
+    ALIAS = "alias"
+    ECIA = "ecia"
+    LCSC = "lcsc"
+    MPN = "mpn"
+    EAN = "ean"
+    UNKNOWN = "unknown"
+
+
+class ScanAction(StrEnum):
+    """What the system did with a scan.
+
+    Not the same thing as `ScanDecodedKind`: a payload can decode perfectly and
+    still resolve to nothing (a known-format label for a part we have never
+    stocked), and both facts are worth keeping separately.
+    """
+
+    #: Exactly one entity matched.
+    RESOLVED = "resolved"
+    #: Several candidates matched; the user was asked to choose.
+    AMBIGUOUS = "ambiguous"
+    #: Nothing matched. The UI offers "bind this code", which is the entire
+    #: alias-learning loop — so this is a prompt, never an error.
+    UNRESOLVED = "unresolved"
+    #: The user taught a binding for this payload; a `barcode_aliases` row was
+    #: written and the same scan resolves at step 2 from now on.
+    BOUND = "bound"
+    #: Dropped by the duplicate hold-off — one label held in front of a camera
+    #: must not fire five resolves.
+    SUPPRESSED = "suppressed"
+
+
+class ScanSourceKind(StrEnum):
+    """What kind of reader a `scan_sources` row describes."""
+
+    #: `getUserMedia` + `zxing-wasm` on a phone. The primary intake path,
+    #: because autofocus is what makes a dense DataMatrix readable at all.
+    BROWSER_CAMERA = "browser_camera"
+    #: A USB HID wedge — it is a keyboard, so it needs no driver and no code.
+    HID_WEDGE = "hid_wedge"
+    NFC_READER = "nfc_reader"
+    #: Mensa, the bench station: identifies, weighs and counts a container.
+    BENCH_STATION = "bench_station"
+    #: A human typing a code off a label the camera could not read.
+    MANUAL_ENTRY = "manual_entry"

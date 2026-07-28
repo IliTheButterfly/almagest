@@ -10,7 +10,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.catalog import Packaging, Part, PartCategory, PartKind
+from app.models.catalog import Manufacturer, Packaging, Part, PartCategory, PartKind
 from app.models.enums import LedgerKind, LedgerSource
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import ContainerType, Location
@@ -56,6 +56,18 @@ def make_packaging(db: Session, code: str = "test-packaging", **kwargs: object) 
     db.add(packaging)
     db.flush()
     return packaging
+
+
+def make_manufacturer(
+    db: Session, name: str = "Test Semiconductor", **kwargs: object
+) -> Manufacturer:
+    # `name_norm` is NOT NULL and the real write path casefolds and strips
+    # punctuation; casefolding alone is enough for a test to be unambiguous.
+    kwargs.setdefault("name_norm", name.casefold())
+    manufacturer = Manufacturer(name=name, **kwargs)
+    db.add(manufacturer)
+    db.flush()
+    return manufacturer
 
 
 def make_category(db: Session, name: str = "Test category", **kwargs: object) -> PartCategory:

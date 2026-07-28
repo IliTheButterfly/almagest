@@ -22,6 +22,7 @@ from app.models.catalog import (
 from app.models.identity import ObjectId
 from app.models.layout import LayoutSuggestion
 from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
+from app.models.scanning import BarcodeAlias, ScanEvent, ScanSource
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import (
     ContainerType,
@@ -33,6 +34,7 @@ from app.models.storage import (
 from app.models.system import CacheState, ClientOperation, Setting
 
 __all__ = [
+    "BarcodeAlias",
     "CacheState",
     "ClientOperation",
     "ContainerType",
@@ -53,6 +55,8 @@ __all__ = [
     "PartKind",
     "PartSubstitute",
     "PartTag",
+    "ScanEvent",
+    "ScanSource",
     "Setting",
     "StockLedger",
     "StockLot",
