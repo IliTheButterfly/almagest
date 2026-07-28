@@ -1487,14 +1487,19 @@ export interface components {
         /**
          * FacetsRequest
          * @description The filters already applied, so counts describe what narrowing is left.
+         *
+         *     Inherits every narrowing field rather than listing its own. The version that
+         *     listed its own omitted `mode` and `part_kind`, so in substitute mode the
+         *     counts silently described the search-mode set — see `PartQueryRequest`.
          */
         FacetsRequest: {
-            /** Category */
+            /**
+             * Category
+             * @description Category slug; includes descendants
+             */
             category?: string | null;
             /** Filters */
-            filters?: {
-                [key: string]: string;
-            }[];
+            filters?: components["schemas"]["FilterIn"][];
             /**
              * In Stock Only
              * @default false
@@ -1505,6 +1510,15 @@ export interface components {
              * @default true
              */
             include_stubs?: boolean;
+            /**
+             * Mode
+             * @description 'search' matches a requirement; 'substitute' finds parts that would satisfy it, using each template's substitution_direction.
+             * @default search
+             * @enum {string}
+             */
+            mode?: "search" | "substitute";
+            /** Part Kind */
+            part_kind?: string | null;
             /** Text */
             text?: string | null;
         };
@@ -2161,10 +2175,16 @@ export interface components {
             id: number;
             /** Is Stub */
             is_stub: boolean;
+            /** Location Count */
+            location_count: number;
+            /** Lot Count */
+            lot_count: number;
             /** Mpn */
             mpn: string | null;
             /** Name */
             name: string;
+            /** Qty Milli */
+            qty_milli: number;
         };
         /** PartUpdate */
         PartUpdate: {
@@ -2600,7 +2620,11 @@ export interface components {
             /** Short Id */
             short_id?: string | null;
         };
-        /** SearchRequest */
+        /**
+         * SearchRequest
+         * @description Every narrowing field lives on the shared base, so `/api/parameter-templates`
+         *     describes the same set this returns. Only pagination is search's own.
+         */
         SearchRequest: {
             /**
              * Category

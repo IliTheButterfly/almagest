@@ -16,6 +16,7 @@ from app.api.limits import GridIndex, GridSpan
 from app.models.enums import SizeClass
 from app.models.stock import StockLot
 from app.models.storage import Location
+from app.services.search.query_builder import Filter, Mode, SearchQuery
 
 
 class ReplayableResponse(BaseModel):
@@ -116,3 +117,59 @@ class SlotSpecOut(BaseModel):
     size_class: str | None
     inner_volume_mm3: float | None
     sort_order: int
+
+
+class FilterIn(BaseModel):
+    template: str = Field(description="`parameter_template.name`, e.g. 'capacitance'")
+    value: str = Field(
+        description=(
+            "Interpreted according to the template. Numeric templates accept the "
+            "full shorthand grammar ('4k7', '20-30uF', '>=50V'); enum templates "
+            "accept a choice key or any alias, comma-separated for OR."
+        )
+    )
+
+
+class PartQueryRequest(BaseModel):
+    """Everything that narrows a set of parts, shared by search and by facets.
+
+    **Shared rather than duplicated, because a facet count has to describe
+    exactly the set search returns.** The first version of the facets request
+    listed its own fields and omitted two of these — `mode` and `part_kind` — so
+    in substitute mode every count described the *search*-mode set instead. The
+    counts stayed plausible, which is what made it bad: a panel whose numbers
+    disagree with its own results teaches the user that the counts are
+    decorative, and then they stop reading them.
+
+    Inheriting means adding a narrowing field to search cannot silently leave
+    facets behind. Only pagination differs, so only pagination lives downstream.
+    """
+
+    filters: list[FilterIn] = Field(default_factory=list)
+    text: str | None = None
+    category: str | None = Field(default=None, description="Category slug; includes descendants")
+    part_kind: str | None = None
+    in_stock_only: bool = False
+    include_stubs: bool = True
+    mode: Mode = Field(
+        default="search",
+        description=(
+            "'search' matches a requirement; 'substitute' finds parts that would "
+            "satisfy it, using each template's substitution_direction."
+        ),
+    )
+
+    def to_query(self, *, limit: int = 50, offset: int = 0) -> SearchQuery:
+        """The executor's query. One construction site, so search and facets
+        cannot interpret the same request differently."""
+        return SearchQuery(
+            filters=tuple(Filter(f.template, f.value) for f in self.filters),
+            text=self.text,
+            category_slug=self.category,
+            part_kind_slug=self.part_kind,
+            in_stock_only=self.in_stock_only,
+            include_stubs=self.include_stubs,
+            mode=self.mode,
+            limit=limit,
+            offset=offset,
+        )

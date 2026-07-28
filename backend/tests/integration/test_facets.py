@@ -254,3 +254,87 @@ def test_the_facet_routes_are_in_the_openapi_document(client: TestClient) -> Non
     paths = client.get("/openapi.json").json()["paths"]
     assert "/api/parameter-templates" in paths
     assert "/api/part-categories" in paths
+
+
+# ---------------------------------------------------------------------------
+# The counts must describe the set search returns, in *every* mode
+# ---------------------------------------------------------------------------
+
+
+def test_substitute_mode_counts_match_substitute_mode_results(client: TestClient) -> None:
+    """The defect: `FacetsRequest` listed its own fields and omitted `mode`, so
+    every count in substitute mode described the search-mode set.
+
+    Reproduced against the live API before the fix — `voltage_rating: 25V` gave
+    `facets.total=1` beside `search.total=2`. `higher_ok` means a 50 V part
+    satisfies a 25 V requirement, so substitute mode must match strictly more,
+    and a count that quietly stayed behind is exactly the "counts are decorative"
+    failure this suite exists to prevent.
+    """
+    _seed()
+    filters = [{"template": "voltage_rating", "value": "25V"}]
+
+    for mode in ("search", "substitute"):
+        facets = _facets(client, filters=filters, mode=mode)
+        searched = client.post("/api/search/parts", json={"filters": filters, "mode": mode}).json()[
+            "total"
+        ]
+        assert facets["total"] == searched, mode
+
+    # And that the two modes genuinely differ, so the test above cannot pass by
+    # `mode` being ignored again.
+    assert (
+        _facets(client, filters=filters, mode="substitute")["total"]
+        > _facets(client, filters=filters, mode="search")["total"]
+    )
+
+
+def test_every_choice_count_agrees_in_substitute_mode_too(client: TestClient) -> None:
+    """The suite's central property, re-asserted under the mode that was wrong."""
+    _seed()
+    payload = _facets(client, mode="substitute")
+
+    for template in payload["templates"]:
+        for choice in template["choices"]:
+            searched = client.post(
+                "/api/search/parts",
+                json={
+                    "filters": [{"template": template["name"], "value": choice["key"]}],
+                    "mode": "substitute",
+                },
+            ).json()["total"]
+            assert choice["count"] == searched, f"{template['name']}={choice['key']}"
+
+
+def test_part_kind_narrows_the_facets(client: TestClient) -> None:
+    """The other field the request dropped."""
+    _seed()
+    assert _facets(client, part_kind="component")["total"] == 5
+    assert _facets(client, part_kind="does-not-exist")["total"] == 0
+
+
+def test_an_incomplete_filter_is_refused_rather_than_dropped(client: TestClient) -> None:
+    """It used to be skipped by an `if spec.get(...)` guard, which meant the
+    counts described a *less* filtered set than the user had asked for while
+    looking authoritative. A 422 is the only honest answer."""
+    _seed()
+    response = client.post(
+        "/api/parameter-templates", json={"filters": [{"template": "capacitance"}]}
+    )
+    assert response.status_code == 422
+
+
+def test_search_and_facets_accept_the_same_narrowing_fields(client: TestClient) -> None:
+    """Structural guard, so the next narrowing field cannot be added to one and
+    forgotten on the other — which is the whole shape of this bug.
+
+    Compared through the OpenAPI document rather than the Python classes, because
+    the document is what every generated client is built from.
+    """
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    search = set(schemas["SearchRequest"]["properties"])
+    facets = set(schemas["FacetsRequest"]["properties"])
+
+    # Pagination is search's alone; everything that narrows is shared.
+    assert search - facets == {"limit", "offset"}
+    assert facets - search == set()

@@ -42,6 +42,7 @@ import {
   type SearchResponse,
 } from "../lib/api/client";
 import { describeError } from "../lib/api/errors";
+import { formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { useDeferredCommit } from "../lib/hooks/useDeferredCommit";
 import { useMediaQuery } from "../lib/hooks/useMediaQuery";
@@ -244,6 +245,37 @@ function Options({
   );
 }
 
+/**
+ * How much of this part you have, and how it is packaged.
+ *
+ * The list is ordered stock-first, so without this the ordering looks arbitrary
+ * — the quantity is the one number that explains the sort. `0` is stated rather
+ * than left blank: "you have none of this" is most of what a personal inventory
+ * is asked, and a blank cell reads as "unknown" instead.
+ *
+ * Lots and bins are shown only when there is more than one, because "500 in 2
+ * lots across 2 bins" is a genuinely different physical situation from "500 on a
+ * reel" — and repeating "1 lot, 1 bin" on every row would bury the cases where
+ * it matters.
+ */
+function StockLine({ part }: { part: SearchResponse["results"][number] }) {
+  if (part.qty_milli === 0) {
+    return <span className="badge">none in stock</span>;
+  }
+
+  const detail = [
+    part.lot_count > 1 ? `${part.lot_count} lots` : null,
+    part.location_count > 1 ? `${part.location_count} bins` : null,
+  ].filter((piece) => piece !== null);
+
+  return (
+    <span className="badge badge-good">
+      {formatQty(part.qty_milli)} in stock
+      {detail.length > 0 && ` · ${detail.join(", ")}`}
+    </span>
+  );
+}
+
 function Results({
   state,
   results,
@@ -288,6 +320,7 @@ function Results({
                 {part.description}
               </div>
               {part.is_stub && <span className="badge badge-warn">stub</span>}
+              <StockLine part={part} />
             </Link>
           </li>
         ))}

@@ -29,5 +29,12 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
+    // Raises the suite's *patience* so it cannot be green at 12 cores and red at
+    // 2 — see the reasoning in `src/test-setup.ts`, which sets Testing Library's
+    // own `findBy*` budget. These two cover the outer per-test limit, which has
+    // to exceed it or a slow assertion trips this instead.
+    setupFiles: ["./src/test-setup.ts"],
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
   },
 });

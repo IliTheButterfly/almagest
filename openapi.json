@@ -1695,7 +1695,7 @@
         "type": "string"
       },
       "FacetsRequest": {
-        "description": "The filters already applied, so counts describe what narrowing is left.",
+        "description": "The filters already applied, so counts describe what narrowing is left.\n\nInherits every narrowing field rather than listing its own. The version that\nlisted its own omitted `mode` and `part_kind`, so in substitute mode the\ncounts silently described the search-mode set \u2014 see `PartQueryRequest`.",
         "properties": {
           "category": {
             "anyOf": [
@@ -1706,14 +1706,12 @@
                 "type": "null"
               }
             ],
+            "description": "Category slug; includes descendants",
             "title": "Category"
           },
           "filters": {
             "items": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "type": "object"
+              "$ref": "#/components/schemas/FilterIn"
             },
             "title": "Filters",
             "type": "array"
@@ -1727,6 +1725,27 @@
             "default": true,
             "title": "Include Stubs",
             "type": "boolean"
+          },
+          "mode": {
+            "default": "search",
+            "description": "'search' matches a requirement; 'substitute' finds parts that would satisfy it, using each template's substitution_direction.",
+            "enum": [
+              "search",
+              "substitute"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "part_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Kind"
           },
           "text": {
             "anyOf": [
@@ -3910,6 +3929,14 @@
             "title": "Is Stub",
             "type": "boolean"
           },
+          "location_count": {
+            "title": "Location Count",
+            "type": "integer"
+          },
+          "lot_count": {
+            "title": "Lot Count",
+            "type": "integer"
+          },
           "mpn": {
             "anyOf": [
               {
@@ -3924,6 +3951,10 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
           }
         },
         "required": [
@@ -3932,7 +3963,10 @@
           "mpn",
           "description",
           "is_stub",
-          "category_id"
+          "category_id",
+          "qty_milli",
+          "lot_count",
+          "location_count"
         ],
         "title": "PartSummary",
         "type": "object"
@@ -5346,6 +5380,7 @@
         "type": "object"
       },
       "SearchRequest": {
+        "description": "Every narrowing field lives on the shared base, so `/api/parameter-templates`\ndescribes the same set this returns. Only pagination is search's own.",
         "properties": {
           "category": {
             "anyOf": [
