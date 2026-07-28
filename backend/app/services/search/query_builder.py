@@ -24,7 +24,17 @@ from enum import StrEnum
 from typing import Literal
 
 from elec_value_parser import ValueParseError
-from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select, true
+from sqlalchemy import (
+    ColumnElement,
+    Select,
+    and_,
+    column,
+    false,
+    func,
+    select,
+    text,
+    true,
+)
 from sqlalchemy.orm import Session, aliased
 
 from app.models.catalog import Part, PartCategory
@@ -32,6 +42,7 @@ from app.models.enums import SubstitutionDirection, ValueType
 from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
 from app.models.stock import StockLot
 from app.services.parameters import ChoiceNotFound, resolve_choice
+from app.services.search.fts import build_match_query
 from app.services.search.value_parser import parse_for_template
 
 Mode = Literal["search", "substitute"]
@@ -120,27 +131,91 @@ def build(session: Session, query: SearchQuery, *, for_count: bool = False) -> S
     if for_count:
         return statement
 
-    # Deterministic ordering: the same query must always return the same order,
-    # or pagination silently drops and repeats rows between pages.
-    return statement.order_by(Part.name, Part.id).limit(query.limit).offset(query.offset)
+    return _ordered(statement, query).limit(query.limit).offset(query.offset)
 
 
-def _apply_text(statement: Select[tuple[Part]], text: str) -> Select[tuple[Part]]:
-    """Substring match over identity fields.
+def _ordered(statement: Select[tuple[Part]], query: SearchQuery) -> Select[tuple[Part]]:
+    """Apply the ranking, then a total tie-break.
 
-    A placeholder for the FTS5 stage, which composes by **filtering first**
-    (cheap and indexed, a few hundred candidates) and only then ranking within
-    that set. The interface does not change when FTS arrives.
+    The tie-break is not decoration. Pagination over a partially-ordered result
+    silently drops and repeats rows between pages, because SQLite is free to
+    return equal-ranking rows in a different order for each OFFSET.
     """
-    needle = f"%{text.strip()}%"
-    return statement.where(
-        or_(
-            Part.name.ilike(needle),
-            Part.mpn.ilike(needle),
-            Part.description.ilike(needle),
-            Part.keywords.ilike(needle),
-        )
+    match_query = build_match_query(query.text) if query.text else None
+
+    if match_query is not None:
+        # bm25() is more negative the better the match, so ascending is
+        # best-first. Ranking happens *within* the already-filtered set: the
+        # WHERE clauses above have narrowed this to a few hundred candidates
+        # before any relevance is computed, which is the cheap ordering.
+        return statement.order_by(_bm25_expression(match_query), Part.name, Part.id)
+
+    # No free-text term: order by whether there is stock, then by name. A part
+    # you actually have is nearly always the one being looked for.
+    in_stock = (
+        select(StockLot.id)
+        .where(StockLot.part_id == Part.id, StockLot.qty_milli_cached > 0)
+        .exists()
     )
+    return statement.order_by(in_stock.desc(), Part.name, Part.id)
+
+
+def _bm25_expression(match_query: str) -> ColumnElement[float]:
+    """Relevance for the current row, correlated on `part_fts.rowid`.
+
+    **The MATCH has to be repeated here.** `bm25()` is an auxiliary function of a
+    full-text query: it scores the row against the query in its own SELECT, so a
+    subquery that filtered on `rowid` alone would be asking for a relevance with
+    no query to be relevant to. It does not error — it just returns nothing
+    useful, which is why this was caught by a ranking-order test rather than by a
+    crash.
+
+    A correlated scalar subquery rather than a join, because `_apply_text` has
+    already narrowed the candidate set; joining `part_fts` again would multiply
+    rows and force a DISTINCT that discards the ordering.
+
+    Column weights, in declaration order (mpn, description, manufacturer,
+    keywords, param_digest): `mpn` dominates, because somebody typing
+    "RC0603FR-0710KL" wants that exact part and not every part whose description
+    mentions it. `manufacturer` is weighted lowest — otherwise every part from
+    one vendor ranks equally for that vendor's name. `param_digest` sits above
+    `description` since a value match ("10k") is a stronger signal of intent than
+    a prose mention. Note `description` also carries the part's `name`, which the
+    migration folds into that bucket.
+    """
+    return (
+        select(func.bm25(text("part_fts"), 10.0, 3.0, 1.0, 2.0, 4.0))
+        .select_from(text("part_fts"))
+        .where(text("part_fts MATCH :rank_query"), text("part_fts.rowid = parts.id"))
+        .params(rank_query=match_query)
+        .scalar_subquery()
+    )
+
+
+def _apply_text(statement: Select[tuple[Part]], search_text: str) -> Select[tuple[Part]]:
+    """Restrict to parts matching the free-text term, via FTS5.
+
+    This is the *filter* half of "filter first, then rank" — an `IN` against
+    `part_fts` rowids, which is a term lookup rather than a scan. The ranking
+    lives in `_ordered`, so relevance is only ever computed for rows that already
+    survived every other predicate.
+
+    Falls back to nothing-matched rather than everything-matched when the input
+    has no searchable token: a user who typed something and got the whole
+    catalogue would reasonably conclude search is broken.
+    """
+    match_query = build_match_query(search_text)
+    if match_query is None:
+        return statement.where(false())
+
+    matching = (
+        select(column("rowid"))
+        .select_from(text("part_fts"))
+        .where(text("part_fts MATCH :fts_query"))
+        .params(fts_query=match_query)
+        .scalar_subquery()
+    )
+    return statement.where(Part.id.in_(matching))
 
 
 def _restrict_to_category_subtree(
