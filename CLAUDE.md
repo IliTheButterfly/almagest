@@ -115,7 +115,7 @@ These are non-obvious, load-bearing, and expensive to retrofit. Violating any of
 
 **Hierarchy is never encoded in a printed or tag payload.** Containers move; an encoded path becomes a lie the moment a drawer changes cabinet. Labels and tags carry only the opaque `short_id`; the human path is always derived. Same reasoning forbids `(container, index)` payloads.
 
-**`short_id`**: Crockford base32, 7 data symbols + 1 mod-37 check symbol, rendered `4K7T-92MQ`. One shared ID space across all object types via `object_ids(short_id PK, entity_type, entity_pk)`, so a scan resolves without knowing the type and survives an object being reclassified. Type is a cosmetic display prefix, never parsed.
+**`short_id`**: Crockford base32, 7 data symbols + 1 mod-37 check symbol, rendered `4K7T-92M8`. One shared ID space across all object types via `object_ids(short_id PK, entity_type, entity_pk)`, so a scan resolves without knowing the type and survives an object being reclassified. Type is a cosmetic display prefix, never parsed.
 
 **One payload, two carriers.** `https://<host>/s/{short_id}` is written both as the QR content and as the NFC NDEF URI record. Record the tag UID as well and resolve NDEF-first with a UID fallback. **Nothing mutable ever goes on a tag** — not counts, not fill state. A remote mutation (bulk import, reconciliation job, BOM pick) cannot touch a tag it does not physically hold, so the tag would go stale while still looking authoritative. A tag is a foreign key, not a record.
 

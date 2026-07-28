@@ -76,8 +76,8 @@ describe("the generated client", () => {
     stubFetch(200, {
       status: "resolved",
       target: {
-        short_id: "4K7T92MQ",
-        display: "BIN 4K7T-92MQ",
+        short_id: "4K7T92M8",
+        display: "BIN 4K7T-92M8",
         entity_type: "location",
         entity_pk: 7,
         label: "Drawer A1",
@@ -85,11 +85,11 @@ describe("the generated client", () => {
       },
     });
 
-    const resolved = await resolveShortId("4K7T92MQ");
+    const resolved = await resolveShortId("4K7T92M8");
     expect(resolved.status).toBe("resolved");
     expect(resolved.target?.label_path).toBe("Cabinet A / Drawer A1");
 
     const request = vi.mocked(fetch).mock.calls[0]?.[0] as Request;
-    expect(request.url).toContain("/api/resolve/4K7T92MQ");
+    expect(request.url).toContain("/api/resolve/4K7T92M8");
   });
 });

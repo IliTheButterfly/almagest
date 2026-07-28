@@ -9,8 +9,8 @@ name a part we hold*.
 The first question is not rhetorical. The library's contract is "degrades, never
 raises", so `parse()` returns a label for literally any input, and the DI table
 contains real one- and two-character codes — `4K` is purchase order, `P` is
-customer part number, `S` is serial. Feed it the bare short ID `4K7T92MQ` and it
-happily reports a purchase order of `7T92MQ`. That makes the library's output
+customer part number, `S` is serial. Feed it the bare short ID `4K7T92M8` and it
+happily reports a purchase order of `7T92M8`. That makes the library's output
 useless as a format test, so the test lives here instead, and it tests for
 *structure*: the `[)>` envelope, or at minimum one GS separator proving the
 payload is a separated multi-field record rather than a word.

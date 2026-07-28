@@ -29,7 +29,7 @@ export function CodeEntry({
   onSubmit,
   busy,
   label = "Short ID or part number",
-  placeholder = "4K7T-92MQ, or an MPN",
+  placeholder = "4K7T-92M8, or an MPN",
   initialValue = "",
 }: CodeEntryProps) {
   const [text, setText] = useState(initialValue);

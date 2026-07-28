@@ -192,7 +192,7 @@ def test_the_lcsc_step_never_claims_a_payload(client: TestClient) -> None:
 def test_the_ecia_step_does_not_claim_a_bare_short_id(client: TestClient, db: Session) -> None:
     """Regression guard for a real trap: `4K` is a genuine Data Identifier, so a
     library whose contract is "degrades, never raises" happily reads the short ID
-    `4K7T92MQ` as a purchase order. If step 3 accepted that, every unbound short
+    `4K7T92M8` as a purchase order. If step 3 accepted that, every unbound short
     ID would be reported as a decoded distributor label."""
     drawer = make_location(db, name="Drawer B2")
     code = shortid.allocate(db, EntityType.LOCATION, drawer.id)

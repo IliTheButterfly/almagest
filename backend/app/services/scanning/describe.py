@@ -37,7 +37,7 @@ class EntityDescription:
     #: The printed identifier, when this row has one. `None` is normal, not an
     #: error — nobody labels all 96 cells of an assortment box.
     short_id: str | None = None
-    #: `BIN 4K7T-92MQ`. The type prefix is cosmetic and never parsed back.
+    #: `BIN 4K7T-92M8`. The type prefix is cosmetic and never parsed back.
     display: str | None = None
 
 

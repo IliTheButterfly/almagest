@@ -1,6 +1,6 @@
 """Crockford base32 short IDs with a mod-37 check symbol.
 
-Format: **7 data symbols + 1 check symbol**, rendered ``4K7T-92MQ``. The hyphen
+Format: **7 data symbols + 1 check symbol**, rendered ``4K7T-92M8``. The hyphen
 is cosmetic and never stored.
 
 The alphabet drops ``I``, ``L``, ``O`` and ``U``: the first three because they
@@ -79,7 +79,7 @@ def normalize(raw: str) -> str:
 
     Tolerates the cosmetic hyphen, surrounding whitespace, lower case, and the
     ``O``/``I``/``L`` confusions. Also tolerates a leading display prefix
-    (``BIN 4K7T-92MQ``) by keeping only the final whitespace-separated token —
+    (``BIN 4K7T-92M8``) by keeping only the final whitespace-separated token —
     which is not the same as *parsing* the prefix. The prefix carries no
     meaning and is discarded, exactly as the design requires; this only stops a
     human who typed what they saw on the label from being told they are wrong.
@@ -90,7 +90,7 @@ def normalize(raw: str) -> str:
 
     # A display prefix is dropped by keeping the final whitespace-separated
     # token — but only when that token is itself a full-length code. Otherwise
-    # the whitespace was being used as the group separator ("4K7T 92MQ") and
+    # the whitespace was being used as the group separator ("4K7T 92M8") and
     # the whole string is meant. Deterministic either way; nothing is guessed.
     tokens = stripped.split()
     if len(tokens) > 1 and len(_squash(tokens[-1])) == TOTAL_SYMBOLS:
@@ -155,7 +155,7 @@ def _encode(number: int) -> str:
 
 
 def format_display(short_id: str, entity_type: str | None = None) -> str:
-    """Render for a label or a screen: ``4K7T-92MQ``, or ``BIN 4K7T-92MQ``.
+    """Render for a label or a screen: ``4K7T-92M8``, or ``BIN 4K7T-92M8``.
 
     The type prefix is **cosmetic**. It is never stored and never parsed back,
     so an object that changes type does not invalidate anything already

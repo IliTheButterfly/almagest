@@ -141,7 +141,7 @@ describe("take / return", () => {
   it("commits with the idempotency key the scan minted, not a fresh one", async () => {
     stubApi();
     // The key is generated at scan time, before this screen ever renders.
-    const session = scanSession.scan("https://almagest.lan/s/4K7T92MQ", "QRCode");
+    const session = scanSession.scan("https://almagest.lan/s/4K7T92M8", "QRCode");
     expect(session).not.toBeNull();
 
     renderScreen();
