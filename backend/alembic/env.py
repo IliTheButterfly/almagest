@@ -1,6 +1,6 @@
 """Alembic environment.
 
-Two things here are not the generated default and both matter on SQLite:
+Three things here are not the generated default and all of them matter on SQLite:
 
 * ``render_as_batch=True`` — SQLite has no ``ALTER TABLE ... DROP/ALTER COLUMN``,
   so Alembic must rebuild the table. Without batch mode most schema changes are
@@ -8,6 +8,9 @@ Two things here are not the generated default and both matter on SQLite:
 * the URL comes from :mod:`app.config`, never from ``alembic.ini``. One source of
   truth for where the database lives, so ``alembic upgrade head`` and the running
   API can never disagree about which file they are pointing at.
+* ``include_name`` hides the FTS5 tables. They cannot be SQLAlchemy models, so
+  autogenerate would otherwise "helpfully" propose dropping them — see
+  :data:`_FTS_TABLES`.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
+from alembic.runtime.environment import NameFilterParentNames, NameFilterType
 from sqlalchemy import Connection, String
 from sqlalchemy.sql.schema import SchemaItem
 from sqlalchemy.types import TypeDecorator
@@ -33,6 +37,35 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+#: The FTS5 virtual tables, which exist only in migrations. They cannot be
+#: expressed as models — a `CREATE VIRTUAL TABLE ... USING fts5(...)` has no
+#: SQLAlchemy equivalent — and each one also brings a family of `_data`,
+#: `_idx`, `_content`, `_docsize` and `_config` shadow tables that SQLite
+#: manages itself. All of those reflect as perfectly ordinary tables, so
+#: without this filter every `alembic check` would report drift and every
+#: autogenerate would emit `op.drop_table("part_fts_data")`.
+_FTS_TABLES = frozenset({"part_fts", "datasheet_fts"})
+
+
+def _is_fts_owned(name: str) -> bool:
+    return name in _FTS_TABLES or any(name.startswith(f"{fts}_") for fts in _FTS_TABLES)
+
+
+def _include_name(
+    name: str | None,
+    type_: NameFilterType,
+    parent_names: NameFilterParentNames,
+) -> bool:
+    """Keep FTS5 tables and their shadow tables out of the comparison.
+
+    Filtering at reflection time rather than with `include_object` is
+    deliberate: these tables must be invisible to autogenerate in *both*
+    directions, and a name filter never even builds a `Table` for them.
+    """
+    if type_ == "table" and name is not None:
+        return not _is_fts_owned(name)
+    return True
 
 
 def _render_item(
@@ -77,6 +110,7 @@ def run_migrations_offline() -> None:
         render_as_batch=True,
         compare_type=True,
         render_item=_render_item,
+        include_name=_include_name,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -89,6 +123,7 @@ def _run(connection: Connection) -> None:
         render_as_batch=True,
         compare_type=True,
         render_item=_render_item,
+        include_name=_include_name,
     )
     with context.begin_transaction():
         context.run_migrations()
