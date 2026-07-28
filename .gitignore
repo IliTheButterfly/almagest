@@ -51,3 +51,7 @@ frontend/coverage/
 .DS_Store
 .idea/
 *.swp
+
+# Claude Code's isolated agent worktrees. These are real git worktrees of this
+# same repo, so committing one nests a repository inside itself.
+.claude/worktrees/
