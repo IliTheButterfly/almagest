@@ -39,6 +39,33 @@ class ContainerType(Base, TimestampMixin):
     grid_rows: Mapped[int | None] = mapped_column(Integer)
     grid_cols: Mapped[int | None] = mapped_column(Integer)
 
+    # --- ADR 0002: a container type answers two *independent* questions ------
+    #
+    # "What grid do I present to my children?" and "what footprint do I occupy
+    # in my parent's grid?" Keeping them separate is what lets a type be both a
+    # child and a parent, which every level of a stacked Gridfinity setup is: a
+    # 2x1 bin occupies two units of its baseplate *and* presents its own 1x3
+    # grid of dividers. A single conflated "layout" field cannot say that.
+    #
+    # Recursion then needs no new machinery — `locations.parent_id` already has
+    # no depth limit, and a bin's top face is just another mounting surface, so
+    # a stacked bin is an ordinary child.
+
+    #: Physical pitch of the grid this type presents, in mm. Gridfinity is 42.0.
+    #: NULL for a container whose compartments are irregular — an Akro-Mils or
+    #: Raaco cabinet leaves this unset and keeps using slot templates for its
+    #: "44 small + 4 large" mix. Gridfinity is the *reference* case because it is
+    #: regular enough to generate, not a privileged one.
+    grid_pitch_mm: Mapped[float | None] = mapped_column(Float)
+    #: Height of one vertical unit, in mm. Gridfinity is 7.0.
+    grid_height_unit_mm: Mapped[float | None] = mapped_column(Float)
+
+    #: Footprint in the *parent's* grid units. A Gridfinity 2x1x6u bin is
+    #: (2, 1, 6). NULL means this type does not sit in a measured grid.
+    footprint_cols: Mapped[int | None] = mapped_column(Integer)
+    footprint_rows: Mapped[int | None] = mapped_column(Integer)
+    footprint_height_u: Mapped[int | None] = mapped_column(Integer)
+
     slot_label_scheme: Mapped[str] = mapped_column(
         StrEnumType(SlotLabelScheme), nullable=False, default=SlotLabelScheme.ROW_ALPHA_COL_NUM
     )

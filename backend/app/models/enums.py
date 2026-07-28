@@ -107,6 +107,17 @@ class CapacityModel(StrEnum):
     POSITIONS = "positions"
     MASS = "mass"
 
+    #: A measured grid of interchangeable units — Gridfinity's 42 mm pitch being
+    #: the reference case. Distinct from `SLOTS` because a slot is a compartment
+    #: and a unit is an *area*: a 2x1 bin consumes two units, not one slot, and
+    #: counting compartments would report a full baseplate as half empty.
+    #:
+    #: Adding this member is the entire schema cost of ADR 0002's recursive
+    #: container types. Had `capacity_model` been a `CHECK` constraint or an
+    #: `sa.Enum`, it would instead have meant rebuilding `container_types` and
+    #: every table referencing it.
+    GRID_UNITS = "grid_units"
+
 
 class ChildLayout(StrEnum):
     GRID = "grid"
@@ -319,3 +330,42 @@ class ScanSourceKind(StrEnum):
     BENCH_STATION = "bench_station"
     #: A human typing a code off a label the camera could not read.
     MANUAL_ENTRY = "manual_entry"
+
+
+class ProvisioningKind(StrEnum):
+    """What a provisioning session is doing.
+
+    Two kinds rather than one with a flag, because they have opposite
+    postconditions: provisioning *creates* bindings, verification asserts the
+    ones that exist are right and creates none.
+    """
+
+    PROVISION = "provision"
+    VERIFY = "verify"
+
+
+class ProvisioningDevice(StrEnum):
+    """What is doing the reading.
+
+    Web NFC is Chromium-on-Android only, so the phone path simply does not exist
+    on iOS or on the Pi kiosk — the station reader is not a nicety, it is the
+    only path for those.
+    """
+
+    PHONE_WEBNFC = "phone_webnfc"
+    STATION_PN532 = "station_pn532"
+    MANUAL = "manual"
+
+
+class TagPocket(StrEnum):
+    """Where the NFC tag lives on a printed container.
+
+    `BOTTOM` is the default and the reason the station needs no scanning
+    gesture: with the reader antenna under the platform, a container set down
+    identifies itself.
+    """
+
+    BOTTOM = "bottom"
+    FRONT = "front"
+    INSIDE = "inside"
+    NONE = "none"
