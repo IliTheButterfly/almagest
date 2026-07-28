@@ -78,6 +78,21 @@ class LotStatus(StrEnum):
     RETIRED = "retired"
 
 
+class ClientOperationStatus(StrEnum):
+    """Lifecycle of a `client_operations` row — write idempotency.
+
+    `IN_PROGRESS` is only ever *observable* if a write path commits partway
+    through an operation, and none does: the ledger row and the cached balance
+    move in one transaction, so a crash leaves no row at all and the retry
+    redoes the work. A row found in this state therefore means something
+    committed early, which is a bug worth being able to see rather than a
+    normal intermediate state.
+    """
+
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
 class CapacityModel(StrEnum):
     """Selects a Python capacity strategy class.
 
