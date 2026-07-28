@@ -19,10 +19,10 @@ import json
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, ClassVar
 
-from sqlalchemy import Row, delete, select
+from sqlalchemy import Row, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.catalog import PackageType, Packaging, Part, PartCategory
@@ -183,6 +183,19 @@ class ContainerCapacityInputs:
     fill_factor: float
     full_threshold: float
 
+    # --- grid_units (ADR 0002) ----------------------------------------------
+    #
+    # This model is the odd one out: every other strategy measures the *lots*
+    # inside a container, but a Gridfinity baseplate's occupancy is measured in
+    # the child *containers* sitting on it. Rather than widen the strategy
+    # protocol for one model, the already-resolved numbers are passed in — which
+    # is the same convention `fill_factor` above already follows.
+    grid_rows: int | None = None
+    grid_cols: int | None = None
+    #: Sum of child footprints, in units. Computed by the caller because it
+    #: needs a query, and a strategy must stay unit-testable without a session.
+    consumed_grid_units: int = 0
+
 
 @dataclass(frozen=True)
 class OccupantLot:
@@ -269,6 +282,49 @@ class SlotsCapacityStrategy(CapacityStrategy):
             fill_ratio=fill_ratio,
             is_full=is_full,
             unit="slots",
+        )
+
+
+class GridUnitsCapacityStrategy(CapacityStrategy):
+    """A measured grid of interchangeable units — Gridfinity's reference case.
+
+    Deliberately **not** `slots`. A slot is a compartment and a unit is an
+    *area*: a 2x1 bin consumes two units of its baseplate, so counting
+    compartments would report a half-covered baseplate as nearly empty and
+    happily suggest putting a third 3x2 bin on a 4x4 plate that has room for
+    one.
+
+    Capacity is `grid_rows x grid_cols`; usage is the summed footprint of the
+    child containers. Both come from `ContainerCapacityInputs` because occupancy
+    here is about children rather than lots — see the note on those fields.
+
+    Still **advisory**, like every other model: an over-capacity put-away is
+    accepted and the location is flagged, never rejected. Physically a bin
+    either seats on the plate or it does not, but the database finding out
+    second is not a reason to block a scan.
+    """
+
+    model = CapacityModel.GRID_UNITS
+
+    def snapshot(
+        self, inputs: ContainerCapacityInputs, occupants: list[OccupantLot]
+    ) -> CapacitySnapshot:
+        del occupants  # occupancy here is children, not lots
+        capacity = (
+            float(inputs.grid_rows * inputs.grid_cols)
+            if inputs.grid_rows and inputs.grid_cols
+            else None
+        )
+        used = float(inputs.consumed_grid_units)
+        fill_ratio = used / capacity if capacity else None
+        is_full = capacity is not None and used >= capacity
+        return CapacitySnapshot(
+            model=self.model,
+            capacity=capacity,
+            used=used,
+            fill_ratio=fill_ratio,
+            is_full=is_full,
+            unit="units",
         )
 
 
@@ -380,6 +436,7 @@ _STRATEGIES: dict[CapacityModel, CapacityStrategy] = {
         NoneCapacityStrategy(),
         SlotsCapacityStrategy(),
         VolumeCapacityStrategy(),
+        GridUnitsCapacityStrategy(),
         PositionsCapacityStrategy(),
         MassCapacityStrategy(),
     )
@@ -413,6 +470,8 @@ def container_inputs(
         inner_length_mm=container_type.inner_length_mm if container_type else None,
         inner_width_mm=container_type.inner_width_mm if container_type else None,
         inner_height_mm=container_type.inner_height_mm if container_type else None,
+        grid_rows=container_type.grid_rows if container_type else None,
+        grid_cols=container_type.grid_cols if container_type else None,
         fill_factor=fill_factor,
         full_threshold=full_threshold,
     )
@@ -487,8 +546,84 @@ def compute_location_snapshot(session: Session, location: Location) -> CapacityS
         else None
     )
     inputs = container_inputs(location, container_type)
+    if inputs.capacity_model == CapacityModel.GRID_UNITS:
+        inputs = replace(inputs, consumed_grid_units=consumed_grid_units(session, location.id))
     occupants = load_occupants(session, location.id)
     return get_strategy(inputs.capacity_model).snapshot(inputs, occupants)
+
+
+def consumed_grid_units(session: Session, location_id: int) -> int:
+    """Grid units taken by the child containers of `location_id`.
+
+    A child whose container type declares no footprint counts as 1x1 — the
+    conservative default, since a bin that does not say otherwise occupies one
+    cell rather than none. Counting it as zero would let a plate accumulate
+    unlimited untyped children and still report itself empty.
+    """
+    rows = session.execute(
+        select(ContainerType.footprint_rows, ContainerType.footprint_cols)
+        .select_from(Location)
+        .outerjoin(ContainerType, ContainerType.id == Location.container_type_id)
+        .where(Location.parent_id == location_id)
+    ).all()
+    return sum(max(row[0] or 1, 1) * max(row[1] or 1, 1) for row in rows)
+
+
+def all_consumed_grid_units(session: Session) -> dict[int, int]:
+    """Grid units consumed, for every parent at once.
+
+    The bulk sibling of `consumed_grid_units`. It exists because the two paths
+    that answer "how full is this?" — the single-location read and the bulk
+    rebuild that *persists* the answer — must agree. When only the read knew
+    about grid units, a baseplate reported full on its own detail screen and
+    zero in `location_occupancy`, so it was never flagged overfull and the
+    assignment scorer read a stale fill of zero. A cache being reconstructible
+    only helps if the reconstruction is the correct one.
+
+    One grouped query rather than one per location, matching the rest of the
+    bulk rebuild.
+    """
+    rows = session.execute(
+        select(
+            Location.parent_id,
+            func.sum(
+                func.max(func.coalesce(ContainerType.footprint_rows, 1), 1)
+                * func.max(func.coalesce(ContainerType.footprint_cols, 1), 1)
+            ),
+        )
+        .select_from(Location)
+        .outerjoin(ContainerType, ContainerType.id == Location.container_type_id)
+        .where(Location.parent_id.isnot(None))
+        .group_by(Location.parent_id)
+    ).all()
+    return {int(row[0]): int(row[1] or 0) for row in rows}
+
+
+def grid_incompatibility(parent: ContainerType | None, child: ContainerType | None) -> str | None:
+    """Why `child` cannot sit in `parent`'s grid, or None if it can.
+
+    **This is the one geometric constraint worth making a hard error**, unlike
+    capacity, which is advisory throughout. A pitch mismatch is not a preference
+    that a defrag can tidy up later: a 42 mm bin does not physically seat on a
+    50 mm plate, so accepting the placement would record a world that cannot
+    exist. Capacity being over is a bin that looks full; pitch being wrong is a
+    bin on the floor.
+    """
+    if parent is None or child is None:
+        return None
+    if parent.grid_pitch_mm is None or child.footprint_cols is None:
+        return None  # not a measured grid on one side; nothing to check
+
+    if child.grid_pitch_mm is not None and not math.isclose(
+        child.grid_pitch_mm, parent.grid_pitch_mm, rel_tol=1e-6
+    ):
+        return "pitch_mismatch"
+
+    if parent.grid_cols is not None and (child.footprint_cols or 1) > parent.grid_cols:
+        return "footprint_too_wide"
+    if parent.grid_rows is not None and (child.footprint_rows or 1) > parent.grid_rows:
+        return "footprint_too_deep"
+    return None
 
 
 def get_inbox_location(session: Session) -> Location:

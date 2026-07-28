@@ -39,6 +39,33 @@ class ContainerType(Base, TimestampMixin):
     grid_rows: Mapped[int | None] = mapped_column(Integer)
     grid_cols: Mapped[int | None] = mapped_column(Integer)
 
+    # --- ADR 0002: a container type answers two *independent* questions ------
+    #
+    # "What grid do I present to my children?" and "what footprint do I occupy
+    # in my parent's grid?" Keeping them separate is what lets a type be both a
+    # child and a parent, which every level of a stacked Gridfinity setup is: a
+    # 2x1 bin occupies two units of its baseplate *and* presents its own 1x3
+    # grid of dividers. A single conflated "layout" field cannot say that.
+    #
+    # Recursion then needs no new machinery — `locations.parent_id` already has
+    # no depth limit, and a bin's top face is just another mounting surface, so
+    # a stacked bin is an ordinary child.
+
+    #: Physical pitch of the grid this type presents, in mm. Gridfinity is 42.0.
+    #: NULL for a container whose compartments are irregular — an Akro-Mils or
+    #: Raaco cabinet leaves this unset and keeps using slot templates for its
+    #: "44 small + 4 large" mix. Gridfinity is the *reference* case because it is
+    #: regular enough to generate, not a privileged one.
+    grid_pitch_mm: Mapped[float | None] = mapped_column(Float)
+    #: Height of one vertical unit, in mm. Gridfinity is 7.0.
+    grid_height_unit_mm: Mapped[float | None] = mapped_column(Float)
+
+    #: Footprint in the *parent's* grid units. A Gridfinity 2x1x6u bin is
+    #: (2, 1, 6). NULL means this type does not sit in a measured grid.
+    footprint_cols: Mapped[int | None] = mapped_column(Integer)
+    footprint_rows: Mapped[int | None] = mapped_column(Integer)
+    footprint_height_u: Mapped[int | None] = mapped_column(Integer)
+
     slot_label_scheme: Mapped[str] = mapped_column(
         StrEnumType(SlotLabelScheme), nullable=False, default=SlotLabelScheme.ROW_ALPHA_COL_NUM
     )
@@ -161,6 +188,19 @@ class Location(Base, TreeMixin, TimestampMixin):
     slot_label: Mapped[str | None] = mapped_column(String(64))
     row_idx: Mapped[int | None] = mapped_column(Integer)
     col_idx: Mapped[int | None] = mapped_column(Integer)
+    #: Footprint within the parent's slot canvas, in base cells. 1x1 for an
+    #: ordinary slot; >1 for a merged region. Mirrors
+    #: `container_type_slot_templates.row_span/col_span` because an instance
+    #: needs the identical fact once it owns its own copy of the layout — the
+    #: layout-editor change guard has to know a location's *region* to tell a
+    #: safe relabel from a merge that would swallow a neighbour's stock.
+    row_span: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    col_span: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    #: Per-slot authoring metadata, editable independently of the container
+    #: type once an instance owns its own copy — the layout change guard treats
+    #: both as always-safe edits regardless of what the slot holds.
+    size_class: Mapped[str | None] = mapped_column(StrEnumType(SizeClass))
+    inner_volume_mm3: Mapped[float | None] = mapped_column(Float)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     #: Per-instance overrides of the container type's defaults. NULL means

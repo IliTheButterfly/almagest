@@ -21,6 +21,14 @@ from app.models.catalog import (
 )
 from app.models.identity import ObjectId
 from app.models.layout import LayoutSuggestion
+from app.models.layout_authoring import (
+    ContainerTypePhysical,
+    LabelPrint,
+    LabelSheetJob,
+    ProvisioningAction,
+    ProvisioningSession,
+    VerificationMismatch,
+)
 from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
 from app.models.scanning import BarcodeAlias, ScanEvent, ScanSource
 from app.models.stock import StockLedger, StockLot
@@ -38,7 +46,10 @@ __all__ = [
     "CacheState",
     "ClientOperation",
     "ContainerType",
+    "ContainerTypePhysical",
     "ContainerTypeSlotTemplate",
+    "LabelPrint",
+    "LabelSheetJob",
     "LayoutSuggestion",
     "Location",
     "LocationOccupancy",
@@ -55,6 +66,8 @@ __all__ = [
     "PartKind",
     "PartSubstitute",
     "PartTag",
+    "ProvisioningAction",
+    "ProvisioningSession",
     "ScanEvent",
     "ScanSource",
     "Setting",
@@ -62,4 +75,5 @@ __all__ = [
     "StockLot",
     "Tag",
     "Unit",
+    "VerificationMismatch",
 ]

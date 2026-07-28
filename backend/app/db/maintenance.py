@@ -10,13 +10,14 @@ of computing them.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, select, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from app.models.enums import CapacityModel
 from app.models.storage import ContainerType, Location, LocationOccupancy
 from app.models.types import utcnow
 from app.services import capacity
@@ -169,6 +170,10 @@ def rebuild_location_occupancy(session: Session, *, only_dirty: bool = False) ->
 
     container_types = {ct.id: ct for ct in session.execute(select(ContainerType)).scalars()}
     occupants_by_location = capacity.load_all_occupants(session)
+    # grid_units measures child containers, not lots, so it needs data the
+    # occupant load does not carry. Fetched in bulk here so this path and the
+    # single-location read agree — see all_consumed_grid_units on why.
+    grid_units_by_location = capacity.all_consumed_grid_units(session)
     now = utcnow()
 
     payload: list[dict[str, Any]] = []
@@ -179,6 +184,11 @@ def rebuild_location_occupancy(session: Session, *, only_dirty: bool = False) ->
             else None
         )
         inputs = capacity.container_inputs(location, container_type)
+        if inputs.capacity_model == CapacityModel.GRID_UNITS:
+            inputs = replace(
+                inputs,
+                consumed_grid_units=grid_units_by_location.get(location.id, 0),
+            )
         occupants = occupants_by_location.get(location.id, [])
         try:
             snapshot = capacity.get_strategy(inputs.capacity_model).snapshot(inputs, occupants)
