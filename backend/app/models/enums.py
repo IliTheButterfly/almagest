@@ -406,6 +406,34 @@ class TagGranularity(StrEnum):
     SLOT = "slot"
 
 
+class LabelTemplate(StrEnum):
+    """Which card layout `app.services.labels` draws.
+
+    `PART_LOT` has no route yet — the stick-on part/lot label is Phase 5's
+    thermal backend, per `docs/PLAN.md`'s phasing table — but it is defined
+    now so the QR-plus-MPN-caption rule ("print the bare MPN as text under
+    every part QR") has a home in the renderer's template set from day one
+    rather than needing a second code path bolted on when that phase starts.
+    """
+
+    DRAWER_CARD = "drawer_card"
+    CABINET_CARD = "cabinet_card"
+    PART_LOT = "part_lot"
+
+
+class LabelBackendKind(StrEnum):
+    """Which `LabelBackend` implementation rendered a `label_sheet_jobs` row.
+
+    Only the two hardware-free backends exist this phase. The thermal
+    backends `docs/PLAN.md` sketches (`ZplBackend`, `TsplBackend`,
+    `BrotherQlBackend`, `CupsBackend`, `AgentBackend`) are deliberately not
+    implemented here — no printer is owned, and the design commits to none.
+    """
+
+    FILE = "file"
+    PDF_SHEET = "pdf_sheet"
+
+
 class TagPocket(StrEnum):
     """Where the NFC tag lives on a printed container.
 

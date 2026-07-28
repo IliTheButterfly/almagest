@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.session import get_session_factory, reset_engine_for_testing
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -73,3 +74,20 @@ def client(engine: Engine) -> Iterator[TestClient]:
 
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def _isolate_label_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`app.services.labels.render_sheet` writes real PDF/PNG files to
+    `Settings.label_output_dir`, which defaults to the repo's own
+    `data/labels` — unlike `datasheet_dir`, which nothing reads yet, this is
+    a settings-derived path real test runs actually write through today.
+    Autouse so a test gains this isolation by writing to the label-printing
+    routes at all, with no per-file fixture to remember.
+
+    `get_settings()` is a process-wide `lru_cache` singleton, so this mutates
+    its one instance in place rather than swapping in a new one — `monkeypatch`
+    still restores the original value at teardown, exactly as if it were a
+    plain module attribute.
+    """
+    monkeypatch.setattr(get_settings(), "label_output_dir", tmp_path / "labels")

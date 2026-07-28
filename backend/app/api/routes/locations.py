@@ -15,6 +15,8 @@ a printed label: the moment a box changes shelf, an encoded path is a lie.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -127,6 +129,10 @@ class LocationRead(BaseModel):
     child_count: int
     capacity: CapacityRead
     lots: list[LotRead]
+    #: Drives the "never printed" badge (`docs/PLAN.md`, "Label sheets matched
+    #: to the layout"). Set by `POST /api/labels/sheets`, never by anything in
+    #: this module — a location cannot claim to be printed on its own say-so.
+    last_printed_at: datetime | None
 
 
 class LocationCreated(ReplayableResponse):
@@ -410,6 +416,7 @@ def _read(db: Session, location: Location) -> LocationRead:
         child_count=child_count,
         capacity=_capacity_read(db, location),
         lots=[lot_read(db, lot) for lot in lots],
+        last_printed_at=location.last_printed_at,
     )
 
 

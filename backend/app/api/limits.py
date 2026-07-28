@@ -88,6 +88,11 @@ GridIndex = Annotated[int, Field(ge=0, le=10_000)]
 #: it tries to materialise that many location trees in one request.
 InstanceCount = Annotated[int, Field(ge=1, le=1_000)]
 
+#: Print resolution in dots per inch. 72 is below anything legible; 1200 is
+#: past what a laser printer offers. Not a hardware ceiling — a sanity bound
+#: against a typo'd zero or a client confusing dots-per-inch with dots-per-mm.
+LabelDpi = Annotated[int, Field(ge=72, le=1200)]
+
 __all__ = [
     "MASS_MG_MAX",
     "MONEY_MICRO_MAX",
@@ -97,6 +102,7 @@ __all__ = [
     "GridIndex",
     "GridSpan",
     "InstanceCount",
+    "LabelDpi",
     "MassMg",
     "MoneyMicro",
     "QtyMilli",

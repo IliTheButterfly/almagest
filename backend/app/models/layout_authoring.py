@@ -220,3 +220,52 @@ class LabelPrint(Base, TimestampMixin):
     job_ref: Mapped[str | None] = mapped_column(String(128))
 
     __table_args__ = (Index("ix_label_prints_entity", "entity_type", "entity_pk"),)
+
+
+class LabelSheetJob(Base, TimestampMixin):
+    """One call to `POST /api/labels/sheets`: a whole multi-up sheet (or a
+    single-card "print later" run), frozen at the moment it was rendered.
+
+    Distinct from `LabelPrint`, which is one row *per printed object* across
+    all history: this is "what one sheet run looked like", including the
+    sheet's own grid geometry — the fact a reprint of one slot needs in order
+    to land in the same physical cell on a partly-cut sheet. `placements_json`
+    is therefore never recomputed from current data on read; `GET
+    /api/labels/sheets/{id}` hands back exactly what was rendered, which is
+    the entire point of keeping a job record separate from the live tree.
+    """
+
+    __tablename__ = "label_sheet_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    template: Mapped[str] = mapped_column(String(32), nullable=False)
+    backend: Mapped[str] = mapped_column(String(32), nullable=False)
+    dpi: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    #: The cabinet (drawer_card) or the single container (cabinet_card) the
+    #: sheet was generated from. CASCADE like `provisioning_sessions.
+    #: root_location_id`: this is a job log, not ledger data, so it is not
+    #: worth blocking a location delete over.
+    root_location_id: Mapped[int] = mapped_column(
+        ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: Present only when the request narrowed to a subset — recorded so a
+    #: job's history shows a partial reprint was requested, not a full sheet.
+    requested_slot_ids_json: Mapped[str | None] = mapped_column(Text)
+
+    #: The base 1x1 cell, in mm, after the lip-margin subtraction — the pitch
+    #: every card's on-sheet position is measured against, independent of how
+    #: many cells any one spanning card's rendered size actually covers.
+    card_width_mm: Mapped[float] = mapped_column(Float, nullable=False)
+    card_height_mm: Mapped[float] = mapped_column(Float, nullable=False)
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    #: Where the backend actually wrote the artifact — a PDF file, or a
+    #: directory of PNGs. Bytes are never duplicated into this row, mirroring
+    #: how `docs/PLAN.md` plans to store datasheets content-addressed on disk
+    #: rather than as a BLOB column.
+    output_path: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `list[dict]` via `app.services.labels.placements_to_json` — one entry
+    #: per card actually drawn, each carrying its grid cell and whether a QR
+    #: was included, so `GET .../sheets/{id}` needs no re-render.
+    placements_json: Mapped[str] = mapped_column(Text, nullable=False)

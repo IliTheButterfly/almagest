@@ -114,6 +114,13 @@ exclude = ["^alembic/versions/"]
 module = ["pint.*"]
 ignore_missing_imports = true
 
+# reportlab and segno ship no type stubs (segno's own annotations satisfy
+# mypy already; reportlab's do not). Both are optional ("labels") deps, so
+# this is narrower than a blanket `ignore_missing_imports` on the project.
+[[tool.mypy.overrides]]
+module = ["reportlab.*"]
+ignore_missing_imports = true
+
 # ---------------------------------------------------------------------------
 # pytest
 # ---------------------------------------------------------------------------

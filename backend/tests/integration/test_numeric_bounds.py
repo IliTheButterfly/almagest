@@ -133,6 +133,19 @@ def test_receive_cost_and_location_tare_are_bounded(client: TestClient) -> None:
     assert over_tare.status_code == 422
 
 
+@pytest.mark.parametrize("bad_dpi", [ABSURD, 0, -1, 1_000_000])
+def test_label_sheet_dpi_is_bounded(client: TestClient, bad_dpi: int) -> None:
+    """`LabelDpi` has both a floor and a ceiling, unlike a row id — 0/negative
+    catch a typo, and the upper bound catches a client confusing dpi with
+    dots-per-mm, well before either reaches a PIL image size calculation."""
+    location = client.post("/api/locations", json={"name": "dpi bounds test"}).json()["location"]
+    response = client.post(
+        "/api/labels/sheets",
+        json={"template": "cabinet_card", "root_location_id": location["id"], "dpi": bad_dpi},
+    )
+    assert response.status_code == 422, response.text
+
+
 def test_the_alias_quantity_hint_is_bounded(client: TestClient) -> None:
     """It comes straight off a scanned barcode's Q field, which is exactly the
     untrusted path this was reported against."""
@@ -222,6 +235,17 @@ def test_a_take_still_requires_a_positive_quantity(client: TestClient, bad: int)
         ("post", f"/api/verification-sessions/{ABSURD}/check", {"tag_uid": "04AABB"}),
         ("get", f"/api/verification-sessions/{ABSURD}", None),
         ("post", f"/api/location-tags/{ABSURD}/unbind", {}),
+        (
+            "post",
+            "/api/labels/sheets",
+            {"template": "drawer_card", "root_location_id": ABSURD},
+        ),
+        (
+            "post",
+            "/api/labels/sheets",
+            {"template": "drawer_card", "root_location_id": 1, "slot_ids": [ABSURD]},
+        ),
+        ("get", f"/api/labels/sheets/{ABSURD}", None),
     ],
 )
 def test_an_absurd_row_id_is_422_not_500(

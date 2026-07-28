@@ -93,6 +93,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/labels/sheets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Label Sheet
+         * @description Render a sheet now, print it through the chosen backend, and record it.
+         *
+         *     A replayed request (same `client_op_id`, same body) hands back the stored
+         *     response without rendering again — the sheet was already written to disk
+         *     and `label_prints`/`last_printed_at` already moved on the first attempt.
+         */
+        post: operations["create_label_sheet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/labels/sheets/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Label Sheet
+         * @description Read back a past sheet job exactly as it was rendered.
+         *
+         *     Not a re-render: `placements_json` is the frozen record of what was drawn
+         *     at print time, per the same "a reprint matches the original" reasoning
+         *     `label_prints` exists for. A card for a since-renamed location still
+         *     reports the name it was printed with here — ask for a fresh `POST` to see
+         *     the current one.
+         */
+        get: operations["read_label_sheet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/location-tags/resolve": {
         parameters: {
             query?: never;
@@ -1498,6 +1548,109 @@ export interface components {
              */
             replayed?: boolean;
         };
+        /**
+         * LabelBackendKind
+         * @description Which `LabelBackend` implementation rendered a `label_sheet_jobs` row.
+         *
+         *     Only the two hardware-free backends exist this phase. The thermal
+         *     backends `docs/PLAN.md` sketches (`ZplBackend`, `TsplBackend`,
+         *     `BrotherQlBackend`, `CupsBackend`, `AgentBackend`) are deliberately not
+         *     implemented here — no printer is owned, and the design commits to none.
+         * @enum {string}
+         */
+        LabelBackendKind: "file" | "pdf_sheet";
+        /** LabelCardPlacementRead */
+        LabelCardPlacementRead: {
+            /** Col */
+            col: number;
+            /** Col Span */
+            col_span: number;
+            /** Height Mm */
+            height_mm: number;
+            /** Location Id */
+            location_id: number;
+            /** Name */
+            name: string;
+            /** Qr Included */
+            qr_included: boolean;
+            /** Row */
+            row: number;
+            /** Row Span */
+            row_span: number;
+            /** Short Id */
+            short_id: string | null;
+            /** Slot Label */
+            slot_label: string | null;
+            /** Width Mm */
+            width_mm: number;
+        };
+        /** LabelSheetCreated */
+        LabelSheetCreated: {
+            job: components["schemas"]["LabelSheetJobRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** LabelSheetJobRead */
+        LabelSheetJobRead: {
+            /** Backend */
+            backend: string;
+            /** Card Height Mm */
+            card_height_mm: number;
+            /** Card Width Mm */
+            card_width_mm: number;
+            /** Cards */
+            cards: components["schemas"]["LabelCardPlacementRead"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Dpi */
+            dpi: number;
+            /** Id */
+            id: number;
+            /** Item Count */
+            item_count: number;
+            /** Root Location Id */
+            root_location_id: number;
+            /** Template */
+            template: string;
+        };
+        /** LabelSheetRequest */
+        LabelSheetRequest: {
+            /** @default pdf_sheet */
+            backend?: components["schemas"]["LabelBackendKind"];
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Dpi
+             * @default 300
+             */
+            dpi?: number;
+            /** Root Location Id */
+            root_location_id: number;
+            /** Slot Ids */
+            slot_ids?: number[] | null;
+            template: components["schemas"]["LabelTemplate"];
+        };
+        /**
+         * LabelTemplate
+         * @description Which card layout `app.services.labels` draws.
+         *
+         *     `PART_LOT` has no route yet — the stick-on part/lot label is Phase 5's
+         *     thermal backend, per `docs/PLAN.md`'s phasing table — but it is defined
+         *     now so the QR-plus-MPN-caption rule ("print the bare MPN as text under
+         *     every part QR") has a home in the renderer's template set from day one
+         *     rather than needing a second code path bolted on when that phase starts.
+         * @enum {string}
+         */
+        LabelTemplate: "drawer_card" | "cabinet_card" | "part_lot";
         /** LayoutRead */
         LayoutRead: {
             /** Container Type Id */
@@ -1665,6 +1818,8 @@ export interface components {
             is_staging: boolean;
             /** Label Path */
             label_path: string;
+            /** Last Printed At */
+            last_printed_at: string | null;
             /** Lots */
             lots: components["schemas"]["LotRead"][];
             /** Name */
@@ -3167,6 +3322,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SlotTemplateWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_label_sheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LabelSheetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelSheetCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_label_sheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelSheetJobRead"];
                 };
             };
             /** @description Validation Error */

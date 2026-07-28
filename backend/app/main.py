@@ -16,6 +16,7 @@ from app import __version__
 from app.api.routes import (
     container_types,
     facets,
+    labels,
     location_tags,
     locations,
     parts,
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(provisioning.router)
     app.include_router(provisioning.verification_router)
     app.include_router(location_tags.router)
+    app.include_router(labels.router)
     app.include_router(stock.router)
     app.include_router(facets.router)
     app.include_router(facets.categories_router)

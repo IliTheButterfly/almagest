@@ -24,6 +24,7 @@ from app.models.layout import LayoutSuggestion
 from app.models.layout_authoring import (
     ContainerTypePhysical,
     LabelPrint,
+    LabelSheetJob,
     ProvisioningAction,
     ProvisioningSession,
     VerificationMismatch,
@@ -48,6 +49,7 @@ __all__ = [
     "ContainerTypePhysical",
     "ContainerTypeSlotTemplate",
     "LabelPrint",
+    "LabelSheetJob",
     "LayoutSuggestion",
     "Location",
     "LocationOccupancy",
