@@ -1,4 +1,4 @@
-"""Starter content: parameter templates, their choices, and sample parts.
+"""Starter content: parameter templates, their choices, sample parts, and a cabinet.
 
 Distinct from the reference rows in the initial migration. Those are
 *structural* — `parts.part_kind_id` is NOT NULL, so a database without
@@ -15,16 +15,25 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session_factory
 from app.models.catalog import Part, PartCategory, PartKind
-from app.models.enums import SubstitutionDirection, ValueType
+from app.models.enums import (
+    LedgerSource,
+    SubstitutionDirection,
+    TagGranularity,
+    ValueType,
+)
 from app.models.parameter import ParameterChoice, ParameterTemplate
-from app.services import parameters
+from app.models.stock import StockLot
+from app.models.storage import ContainerType, Location
+from app.services import layout_authoring as layout
+from app.services import ledger, parameters
+from app.services.ledger import Attribution
 from app.services.scanning.codes import normalize_mpn
-from app.services.tree import category_tree
+from app.services.tree import category_tree, location_tree
 
 
 @dataclass(frozen=True)
@@ -190,6 +199,8 @@ class SeedReport:
     choices: int = 0
     categories: int = 0
     parts: int = 0
+    locations: int = 0
+    lots: int = 0
     notes: list[str] = field(default_factory=list)
 
 
@@ -352,11 +363,134 @@ def seed_sample_parts(session: Session) -> int:
     return created
 
 
-def seed_all(session: Session) -> SeedReport:
+# ---------------------------------------------------------------------------
+# Storage: a cabinet you can actually look at
+# ---------------------------------------------------------------------------
+
+#: Enough structure to exercise every storage idea the design has, and no more.
+#: Before this, a seeded database had one location — `INBOX` — so the storage
+#: screen rendered an empty tree and nothing demonstrated grids, recursion, or
+#: fill state. Chosen for what each one *shows*:
+#:
+#: * `raaco-c8-30` — 30 slots in a list layout, the ordinary case.
+#: * `gridfinity-baseplate-4x6` — a real grid under `grid_units` capacity, where
+#:   a 2x1 bin consumes two units. This is the one that would silently look fine
+#:   while being wrong, so it is the one worth seeing.
+#: * a baseplate *inside* a drawer — the recursion ADR 0002 exists for. A
+#:   container answers "what grid do I present" and "what footprint do I occupy"
+#:   independently, and nothing proves that until something is nested.
+_CABINET = "Workbench cabinet"
+
+#: The type's own slot labels, zero-padded, so they sort and read correctly on a
+#: printed card. Named here rather than guessed: the first version of this seed
+#: asked for "Drawer 3" and "Slot 1", found neither, and skipped silently — so
+#: it reported success while seeding no stock and none of the nesting.
+_TRAY_DRAWER = "03"
+
+#: Which sample parts land where, and how many. Two lots in one drawer is
+#: deliberate: quantity lives on the lot, never on the part, and a screen that
+#: assumed one lot per bin would look correct against a single-lot seed.
+_STOCK: tuple[tuple[str, str, int], ...] = (
+    ("DEMO-RES-4K7", "01", 250),
+    ("DEMO-RES-10K", "01", 500),
+    ("DEMO-RES-10K", "02", 120),
+    ("DEMO-CAP-THT-22U", "04", 40),
+    ("DEMO-CAP-SMD-22U", "05", 300),
+)
+
+
+def seed_demo_storage(session: Session) -> tuple[int, int]:
+    """A cabinet of drawers, a Gridfinity tray nested in one, and stock in some.
+
+    Uses the same `layout_authoring.instantiate` the API does rather than
+    hand-building rows, so what the demo shows is what the route produces — a
+    seed that constructs locations its own way can drift into demonstrating
+    something the application cannot actually create.
+    """
+    if session.execute(select(Location).where(Location.name == _CABINET)).scalar_one_or_none():
+        return 0, 0
+
+    types = {row.slug: row for row in session.execute(select(ContainerType)).scalars()}
+    before = session.execute(select(func.count()).select_from(Location)).scalar_one()
+
+    root = Location(name="Workshop")
+    location_tree(session).insert_and_index(root)
+
+    cabinet = layout.instantiate(
+        session,
+        root,
+        types["raaco-c8-30"],
+        count=1,
+        naming_pattern=_CABINET,
+        tag_granularity=TagGranularity.CONTAINER,
+    )[0]
+
+    # The recursion: a baseplate occupying one drawer, presenting its own grid.
+    # `scalar_one` rather than `scalar_one_or_none` on purpose — a seed that
+    # quietly skips the thing it exists to demonstrate still prints "seeded".
+    drawer = session.execute(
+        select(Location).where(
+            Location.parent_id == cabinet.id, Location.slot_label == _TRAY_DRAWER
+        )
+    ).scalar_one()
+    layout.instantiate(
+        session,
+        drawer,
+        types["gridfinity-baseplate-4x6"],
+        count=1,
+        naming_pattern="Gridfinity tray",
+        tag_granularity=TagGranularity.SLOT,
+    )
+
+    session.flush()
+    location_tree(session).rebuild_paths()
+
+    slots = {
+        row.slot_label: row
+        for row in session.execute(
+            select(Location).where(Location.parent_id == cabinet.id)
+        ).scalars()
+    }
+    parts = {row.mpn: row for row in session.execute(select(Part)).scalars()}
+
+    lots = 0
+    for mpn, slot_label, units in _STOCK:
+        # Indexed, not `.get()`: a typo here is a bug in the seed, and the whole
+        # point of this data is that it is visible on a screen.
+        part, slot = parts[mpn], slots[slot_label]
+        lot = StockLot(part_id=part.id, location_id=slot.id)
+        session.add(lot)
+        session.flush()
+        # Through the ledger, never by writing `qty_milli_cached`: the cache is
+        # derived, and a seed that set it directly would seed drift on day one.
+        ledger.receive(session, lot, units * 1000, attribution=Attribution(source=LedgerSource.API))
+        lots += 1
+
+    session.flush()
+    after = session.execute(select(func.count()).select_from(Location)).scalar_one()
+    return after - before, lots
+
+
+def seed_catalogue(session: Session) -> SeedReport:
+    """The searchable content — categories, templates, parts — and no storage.
+
+    Split out because search and facet tests want a catalogue whose *stock* they
+    control: the demo cabinet deliberately puts stock in four of the five sample
+    parts, which is right for a screen to look at and wrong as a fixture for
+    "which parts are in stock". Both halves still run through the same functions
+    the CLI does, so neither can drift into seeding something the other cannot.
+    """
     report = SeedReport()
     report.categories = seed_categories(session)
     report.templates, report.choices = seed_parameter_templates(session)
     report.parts = seed_sample_parts(session)
+    return report
+
+
+def seed_all(session: Session) -> SeedReport:
+    """Everything: the catalogue, plus a cabinet with stock in it."""
+    report = seed_catalogue(session)
+    report.locations, report.lots = seed_demo_storage(session)
     return report
 
 
@@ -370,7 +504,8 @@ def main() -> int:
 
     print(
         f"seeded: {report.categories} categories, {report.templates} templates, "
-        f"{report.choices} choices, {report.parts} parts"
+        f"{report.choices} choices, {report.parts} parts, "
+        f"{report.locations} locations, {report.lots} lots"
     )
     return 0
 

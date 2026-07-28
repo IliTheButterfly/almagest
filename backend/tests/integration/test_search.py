@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models.catalog import Part
 from app.models.parameter import ParameterTemplate
-from app.scripts.seed_demo import seed_all
+from app.scripts.seed_demo import seed_catalogue
 from app.services.search.query_builder import (
     Filter,
     FilterError,
@@ -29,7 +29,7 @@ from tests.factories import make_location, make_lot, make_part
 
 @pytest.fixture
 def catalogue(db: Session) -> Session:
-    seed_all(db)
+    seed_catalogue(db)
     db.commit()
     return db
 
