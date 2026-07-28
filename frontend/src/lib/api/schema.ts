@@ -93,6 +93,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/location-tags/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Location Tag
+         * @description What container is this tag stuck to?
+         *
+         *     A pure read despite being a POST: an NDEF URI does not belong in a path
+         *     segment, and a UID read off a tag is data rather than an identifier the
+         *     client should be constructing URLs from.
+         */
+        post: operations["resolve_location_tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/location-tags/{tag_id}/unbind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unbind Location Tag
+         * @description Forget a binding, leaving the tag itself resolvable.
+         *
+         *     Only the location-to-tag link is removed; the tag's payload is an opaque
+         *     short id, so `/s/{short_id}` still resolves afterwards. That asymmetry is
+         *     the point of "a tag is a foreign key, not a record" — the server can drop a
+         *     binding it holds, and can never rewrite a tag it does not physically hold.
+         *
+         *     Provisioning then treats the slot as untagged, so it re-enters the cursor of
+         *     the next walk. This is also one of the two repairs a verification mismatch
+         *     hands to a human, the other being a swap.
+         */
+        post: operations["unbind_location_tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/locations": {
         parameters: {
             query?: never;
@@ -235,6 +288,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/locations/{location_id}/provisioning-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Provisioning Session
+         * @description Begin (or resume) binding tags to this cabinet's drawers.
+         *
+         *     An open walk on the same cabinet is handed back rather than duplicated:
+         *     since the cursor is derived, a second session would report the identical
+         *     position, and two "current" sessions is a state with no correct answer.
+         */
+        post: operations["start_provisioning_session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/provisioning-sessions/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Current Provisioning Session
+         * @description The open walk on this cabinet and where it is, or the cabinet's tag state
+         *     with `session: null` if no walk is open.
+         *
+         *     This is what makes resuming free: nothing was saved when the phone went into
+         *     a pocket mid-cabinet, and nothing needs restoring — the cursor is recomputed
+         *     here, so a drawer bound from somewhere else in the meantime is simply
+         *     already bound.
+         */
+        get: operations["read_current_provisioning_session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/locations/{location_id}/reapply-layout": {
         parameters: {
             query?: never;
@@ -257,6 +360,31 @@ export interface paths {
          *     `app.services.layout_authoring.diff_instance_layout`.
          */
         post: operations["reapply_layout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/verification-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Verification Session
+         * @description Begin (or resume) re-reading this cabinet's tags.
+         *
+         *     **Not optional busywork.** No software can stop a person sticking a tag on
+         *     the wrong drawer; it can only detect it — and a mis-bound tag is invisible
+         *     until it causes a wrong put-away, at which point the stock is somewhere the
+         *     system does not think it is.
+         */
+        post: operations["start_verification_session"];
         delete?: never;
         options?: never;
         head?: never;
@@ -359,6 +487,76 @@ export interface paths {
          *     *movement*, and there is no movement here.
          */
         patch: operations["update_part"];
+        trace?: never;
+    };
+    "/api/provisioning-sessions/{session_id}/bind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind Tag
+         * @description Bind the tapped tag to the cursor slot, and advance.
+         *
+         *     The response carries the written NDEF payload, the advanced cursor and the
+         *     progress counters together, because the phone is still holding the tag
+         *     against the drawer when this returns: writing the URI record and moving on
+         *     both have to happen without another round trip.
+         */
+        post: operations["bind_tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/provisioning-sessions/{session_id}/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Skip Slot
+         * @description Leave this slot untagged and advance past it for the rest of the walk.
+         */
+        post: operations["skip_slot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/provisioning-sessions/{session_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Action
+         * @description Reverse the last action, five deep.
+         *
+         *     Undoing a Move puts the displaced binding back where it was — which is the
+         *     reason the walk log keeps a copy of it, since the row itself is gone by
+         *     then. Works on a completed walk too, reopening it: the bind that finished
+         *     the cabinet is the one most likely to need taking back.
+         */
+        post: operations["undo_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/resolve/{short_id}": {
@@ -688,6 +886,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/verification-sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Verification Session
+         * @description The walk's findings so far — the report a mis-tagged cabinet is fixed from.
+         */
+        get: operations["read_verification_session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/verification-sessions/{session_id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Tag
+         * @description Re-read one tag and compare it to the expected UID.
+         *
+         *     Match: tick and advance. Mismatch: record `expected_tag_uid`,
+         *     `scanned_tag_uid` and which slot the scanned tag actually belongs to, then
+         *     stop — the cursor stays on this drawer. **No binding is changed on either
+         *     branch.** The two plausible repairs (rebind here, or swap these two drawers)
+         *     have different physical consequences and only the person holding the drawers
+         *     knows which happened.
+         */
+        post: operations["check_tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -723,6 +968,52 @@ export interface components {
          * @enum {string}
          */
         AliasKind: "whole_payload" | "mpn" | "supplier_sku" | "package_code" | "tag_uid";
+        /** BindRequest */
+        BindRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Location Id
+             * @description Tapping any cell jumps the cursor there. Omit to bind at the derived cursor, which is the walking-paced path.
+             */
+            location_id?: number | null;
+            /**
+             * Move
+             * @description The human answered 'Move here' to a conflict. Required for anything that displaces an existing binding — a silent rebind is how a drawer full of stock ends up answering to a tag that used to mean something else.
+             * @default false
+             */
+            move?: boolean;
+            /** Tag Uid */
+            tag_uid: string;
+        };
+        /**
+         * BindResponse
+         * @description `status` is one of:
+         *
+         *     * `bound` — a slot that had no tag now has one, and the cursor advanced;
+         *     * `moved` / `rebound` — a confirmed `move` displaced a prior binding, which
+         *       the five-deep undo can put back;
+         *     * `already_bound_here` — the same tag tapped twice, or the client-side
+         *       debounce lost a race. Nothing written, and no extra undo step to unwind;
+         *     * `already_bound_elsewhere` / `slot_already_bound` — **nothing was written.**
+         *       `conflict` names the binding in the way so the UI can offer Move here /
+         *       Cancel.
+         */
+        BindResponse: {
+            conflict: components["schemas"]["ConflictRead"] | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            state: components["schemas"]["ProvisioningState"];
+            /** Status */
+            status: string;
+            tag: components["schemas"]["TagRead"] | null;
+        };
         /** CandidateRead */
         CandidateRead: {
             /** Free Capacity */
@@ -781,6 +1072,39 @@ export interface components {
             /** Slug */
             slug: string;
         };
+        /** CheckRequest */
+        CheckRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Location Id */
+            location_id?: number | null;
+            /** Tag Uid */
+            tag_uid: string;
+        };
+        /**
+         * CheckResponse
+         * @description `status` is `match` (tick and advance) or `mismatch` (record and stop).
+         */
+        CheckResponse: {
+            /** Expected Tag Uid */
+            expected_tag_uid: string | null;
+            /** Location Id */
+            location_id: number;
+            mismatch: components["schemas"]["MismatchRead"] | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Scanned Tag Uid */
+            scanned_tag_uid: string;
+            state: components["schemas"]["VerificationState"];
+            /** Status */
+            status: string;
+        };
         /**
          * ChildLayout
          * @enum {string}
@@ -808,6 +1132,23 @@ export interface components {
              * @description Defaults to '{source-slug}-copy[-N]'.
              */
             slug?: string | null;
+        };
+        /**
+         * ConflictRead
+         * @description The binding standing in the way, named well enough for the modal:
+         *     "Already bound to {label_path}" with Move here / Cancel.
+         */
+        ConflictRead: {
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Slot Label */
+            slot_label: string | null;
+            /** Tag Id */
+            tag_id: number;
+            /** Tag Uid */
+            tag_uid: string | null;
         };
         /** ContainerTypeCreate */
         ContainerTypeCreate: {
@@ -1383,6 +1724,37 @@ export interface components {
             /** Unit Cost Micro */
             unit_cost_micro?: number | null;
         };
+        /**
+         * MismatchRead
+         * @description A tag found somewhere it should not be. **Never auto-fixed.**
+         */
+        MismatchRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expected Tag Uid */
+            expected_tag_uid: string | null;
+            /** Id */
+            id: number;
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Resolved At */
+            resolved_at: string | null;
+            /** Scanned Resolved Label Path */
+            scanned_resolved_label_path: string | null;
+            /** Scanned Resolved Location Id */
+            scanned_resolved_location_id: number | null;
+            /** Scanned Resolved Slot Label */
+            scanned_resolved_slot_label: string | null;
+            /** Scanned Tag Uid */
+            scanned_tag_uid: string;
+            /** Slot Label */
+            slot_label: string | null;
+        };
         /** MovePlanRead */
         MovePlanRead: {
             /** Rationale */
@@ -1649,6 +2021,45 @@ export interface components {
             /** Width Mm */
             width_mm?: number | null;
         };
+        /** ProvisionProgressRead */
+        ProvisionProgressRead: {
+            /** Bound */
+            bound: number;
+            /** Is Complete */
+            is_complete: boolean;
+            /** Skipped */
+            skipped: number;
+            /** Total Slots */
+            total_slots: number;
+            /** Unbound */
+            unbound: number;
+        };
+        /**
+         * ProvisioningDevice
+         * @description What is doing the reading.
+         *
+         *     Web NFC is Chromium-on-Android only, so the phone path simply does not exist
+         *     on iOS or on the Pi kiosk — the station reader is not a nicety, it is the
+         *     only path for those.
+         * @enum {string}
+         */
+        ProvisioningDevice: "phone_webnfc" | "station_pn532" | "manual";
+        /**
+         * ProvisioningState
+         * @description Everything the provisioning screen needs, in one shape.
+         *
+         *     Returned by every route in the provisioning flow so a bind, a skip and an
+         *     undo all leave the client fully up to date with no follow-up read.
+         */
+        ProvisioningState: {
+            cursor: components["schemas"]["SlotCursorRead"] | null;
+            progress: components["schemas"]["ProvisionProgressRead"];
+            session: components["schemas"]["SessionRead"] | null;
+            /** Undo Depth */
+            undo_depth: number;
+            /** Undo Label */
+            undo_label: string | null;
+        };
         /** QuantityRequest */
         QuantityRequest: {
             /**
@@ -1757,6 +2168,19 @@ export interface components {
             /** Status */
             status: string;
             target?: components["schemas"]["ResolvedTarget"] | null;
+        };
+        /** ResolvedLocationRead */
+        ResolvedLocationRead: {
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Name */
+            name: string;
+            /** Short Id */
+            short_id: string | null;
+            /** Slot Label */
+            slot_label: string | null;
         };
         /** ResolvedTarget */
         ResolvedTarget: {
@@ -2002,12 +2426,91 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** SessionRead */
+        SessionRead: {
+            /** Bound Count */
+            bound_count: number;
+            /** Completed At */
+            completed_at: string | null;
+            /** Device Kind */
+            device_kind: string | null;
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Note */
+            note: string | null;
+            /** Root Location Id */
+            root_location_id: number;
+            /** Skipped Count */
+            skipped_count: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /** SessionStarted */
+        SessionStarted: {
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            state: components["schemas"]["ProvisioningState"];
+        };
         /**
          * SizeClass
          * @description Last resort in the item-dimension cascade.
          * @enum {string}
          */
         SizeClass: "tiny" | "small" | "medium" | "large" | "bulky";
+        /** SkipRequest */
+        SkipRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Location Id */
+            location_id?: number | null;
+        };
+        /** SkipResponse */
+        SkipResponse: {
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            skipped: components["schemas"]["SlotCursorRead"];
+            state: components["schemas"]["ProvisioningState"];
+        };
+        /**
+         * SlotCursorRead
+         * @description Where the walk is now. **Derived on every request** — `MIN(sort_order)`
+         *     among the cabinet's children that still need this walk's attention.
+         */
+        SlotCursorRead: {
+            /** Col Idx */
+            col_idx: number | null;
+            /** Has Tag */
+            has_tag: boolean;
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Name */
+            name: string;
+            /** Row Idx */
+            row_idx: number | null;
+            /** Short Id */
+            short_id: string | null;
+            /** Slot Label */
+            slot_label: string | null;
+            /** Sort Order */
+            sort_order: number;
+        };
         /**
          * SlotLabelScheme
          * @enum {string}
@@ -2148,6 +2651,17 @@ export interface components {
             replayed?: boolean;
             template: components["schemas"]["SlotTemplateRead"];
         };
+        /** StartSessionRequest */
+        StartSessionRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** @description Web NFC on a phone is primary — you are standing at the cabinet anyway; the station PN532 is the fallback and the only path on iOS. */
+            device_kind?: components["schemas"]["ProvisioningDevice"] | null;
+            /** Note */
+            note?: string | null;
+        };
         /** SuggestRequest */
         SuggestRequest: {
             /** Client Op Id */
@@ -2208,6 +2722,62 @@ export interface components {
          * @enum {string}
          */
         TagGranularity: "container" | "slot";
+        /** TagRead */
+        TagRead: {
+            /** Bind Source */
+            bind_source: string | null;
+            /** Id */
+            id: number;
+            /** Is Read Only */
+            is_read_only: boolean;
+            /** Label Path */
+            label_path: string;
+            /** Last Verified At */
+            last_verified_at: string | null;
+            /** Location Id */
+            location_id: number;
+            /** Ndef Url */
+            ndef_url: string;
+            /** Tag Uid */
+            tag_uid: string | null;
+            /**
+             * Written At
+             * Format: date-time
+             */
+            written_at: string;
+        };
+        /**
+         * TagResolveRequest
+         * @description Either carrier, or both. Both is the useful case — it is the only way the
+         *     server can tell that a tag's payload and its binding disagree.
+         */
+        TagResolveRequest: {
+            /**
+             * Ndef Url
+             * @description The URI record read off the tag, verbatim. Matched host-agnostically: a tag written before a hostname change is still perfectly correct.
+             */
+            ndef_url?: string | null;
+            /** Tag Uid */
+            tag_uid?: string | null;
+        };
+        /**
+         * TagResolveResponse
+         * @description `matched_by` is `ndef`, `uid`, or `none`.
+         *
+         *     `status: unknown` is not an error — a blank tag is the normal state of a tag
+         *     before it is provisioned, and the UI's answer is "provision this container
+         *     now" rather than a dead end.
+         */
+        TagResolveResponse: {
+            /** Disagreement */
+            disagreement: boolean;
+            location: components["schemas"]["ResolvedLocationRead"] | null;
+            /** Matched By */
+            matched_by: string;
+            /** Status */
+            status: string;
+            tag: components["schemas"]["TagRead"] | null;
+        };
         /** TemplateFacets */
         TemplateFacets: {
             /** Base Unit */
@@ -2228,6 +2798,106 @@ export interface components {
             /** Value Type */
             value_type: string;
         };
+        /** UnbindRequest */
+        UnbindRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Reason
+             * @description Free text for the operator's own record, e.g. 'drawer retired'.
+             */
+            reason?: string | null;
+        };
+        /** UnbindResponse */
+        UnbindResponse: {
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            unbound: components["schemas"]["TagRead"];
+        };
+        /** UndoneRead */
+        UndoneRead: {
+            /** Action Kind */
+            action_kind: string;
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Slot Label */
+            slot_label: string | null;
+            /** Tag Uid */
+            tag_uid: string | null;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+        };
+        /** VerificationStarted */
+        VerificationStarted: {
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            state: components["schemas"]["VerificationState"];
+        };
+        /** VerificationState */
+        VerificationState: {
+            cursor: components["schemas"]["SlotCursorRead"] | null;
+            /** Mismatches */
+            mismatches: components["schemas"]["MismatchRead"][];
+            progress: components["schemas"]["VerifyProgressRead"];
+            session: components["schemas"]["SessionRead"] | null;
+            /** Stopped */
+            stopped: boolean;
+        };
+        /** VerifyProgressRead */
+        VerifyProgressRead: {
+            /** Checked */
+            checked: number;
+            /** Mismatches */
+            mismatches: number;
+            /** Remaining */
+            remaining: number;
+            /** Total Tagged */
+            total_tagged: number;
+        };
+        /** UndoRequest */
+        app__api__routes__provisioning__UndoRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+        };
+        /** UndoResponse */
+        app__api__routes__provisioning__UndoResponse: {
+            /** Not Restored Reason */
+            not_restored_reason: string | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            restored_tag: components["schemas"]["TagRead"] | null;
+            state: components["schemas"]["ProvisioningState"];
+            undone: components["schemas"]["UndoneRead"];
+        };
         /**
          * UndoRequest
          * @description Undo by whichever handle the caller has.
@@ -2236,7 +2906,7 @@ export interface components {
          *     uses — it already generated that key at scan time, so the eight-second undo
          *     button needs to remember nothing else.
          */
-        UndoRequest: {
+        app__api__routes__stock__UndoRequest: {
             /**
              * Client Op Id
              * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
@@ -2256,7 +2926,7 @@ export interface components {
             source?: components["schemas"]["LedgerSource"];
         };
         /** UndoResponse */
-        UndoResponse: {
+        app__api__routes__stock__UndoResponse: {
             /** Lots */
             lots: components["schemas"]["LotRead"][];
             /**
@@ -2269,19 +2939,6 @@ export interface components {
             reversed_seqs: number[];
             /** Seqs */
             seqs: number[];
-        };
-        /** ValidationError */
-        ValidationError: {
-            /** Context */
-            ctx?: Record<string, never>;
-            /** Input */
-            input?: unknown;
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
         };
     };
     responses: never;
@@ -2523,6 +3180,74 @@ export interface operations {
             };
         };
     };
+    resolve_location_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagResolveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unbind_location_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnbindRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnbindResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_location: {
         parameters: {
             query?: never;
@@ -2717,6 +3442,72 @@ export interface operations {
             };
         };
     };
+    start_provisioning_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionStarted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_current_provisioning_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvisioningState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     reapply_layout: {
         parameters: {
             query?: never;
@@ -2739,6 +3530,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReapplyLayoutResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_verification_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationStarted"];
                 };
             };
             /** @description Validation Error */
@@ -2891,6 +3717,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bind_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BindRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    skip_slot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkipRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkipResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["app__api__routes__provisioning__UndoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["app__api__routes__provisioning__UndoResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3390,7 +4321,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UndoRequest"];
+                "application/json": components["schemas"]["app__api__routes__stock__UndoRequest"];
             };
         };
         responses: {
@@ -3400,7 +4331,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UndoResponse"];
+                    "application/json": components["schemas"]["app__api__routes__stock__UndoResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3430,6 +4361,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    read_verification_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_tag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

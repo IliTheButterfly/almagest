@@ -16,8 +16,10 @@ from app import __version__
 from app.api.routes import (
     container_types,
     facets,
+    location_tags,
     locations,
     parts,
+    provisioning,
     resolve,
     scan,
     search,
@@ -55,6 +57,13 @@ def create_app() -> FastAPI:
     app.include_router(parts.router)
     app.include_router(container_types.router)
     app.include_router(locations.router)
+    # The provisioning walk's own `/api/locations/{id}/...` routes ride a second
+    # router with the same prefix, kept in the provisioning module because
+    # everything they return belongs to the walk rather than to the tree.
+    app.include_router(provisioning.locations_router)
+    app.include_router(provisioning.router)
+    app.include_router(provisioning.verification_router)
+    app.include_router(location_tags.router)
     app.include_router(stock.router)
     app.include_router(facets.router)
     app.include_router(facets.categories_router)

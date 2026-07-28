@@ -19,7 +19,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.base import TimestampMixin
-from app.models.enums import ProvisioningDevice, ProvisioningKind, TagPocket
+from app.models.enums import (
+    ProvisioningActionKind,
+    ProvisioningDevice,
+    ProvisioningKind,
+    TagPocket,
+)
 from app.models.types import StrEnumType, UtcDateTime, utcnow
 
 
@@ -90,6 +95,68 @@ class ProvisioningSession(Base):
     bound_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     note: Mapped[str | None] = mapped_column(Text)
+
+
+class ProvisioningAction(Base):
+    """One step of a walk, kept so the walk can be undone and resumed.
+
+    The session itself stores no position, and this table is not one either: it
+    records what *happened*, and both the cursor and the undo stack are derived
+    from it. Two facts genuinely need writing down, and only two:
+
+    * **what a move displaced.** By the time undo runs, the `location_tags` row
+      the move overwrote is gone, so restoring it means having kept a copy;
+    * **that a slot was skipped.** A skipped slot still has no tag, so a cursor
+      reading only `location_tags` would walk straight back onto it.
+
+    **Undoability is derived, never stored.** An action is undoable while it has
+    not been undone *and* fewer than five actions in the same session came after
+    it — counting undone ones. Counting only the not-undone ones instead would
+    make the stack bottomless: each undo would promote a sixth action into the
+    window, and a five-deep button would eventually walk back the whole session.
+    """
+
+    __tablename__ = "provisioning_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("provisioning_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(StrEnumType(ProvisioningActionKind), nullable=False)
+    #: The slot acted on. Never null, including for a skip — "which slot did I
+    #: leave empty" is the whole content of that action.
+    location_id: Mapped[int] = mapped_column(
+        ForeignKey("locations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    tag_uid: Mapped[str | None] = mapped_column(String(32))
+    ndef_url: Mapped[str | None] = mapped_column(Text)
+
+    #: The binding this action displaced, copied field by field because the row
+    #: it came from no longer exists once the action has run. Present together
+    #: or not at all: a `MOVE` names another slot, a `REBIND` names this one.
+    prior_location_id: Mapped[int | None] = mapped_column(
+        ForeignKey("locations.id", ondelete="SET NULL")
+    )
+    prior_tag_uid: Mapped[str | None] = mapped_column(String(32))
+    prior_ndef_url: Mapped[str | None] = mapped_column(Text)
+    prior_bind_source: Mapped[str | None] = mapped_column(String(32))
+    prior_written_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    #: Restored along with the rest: `makeReadOnly()` is irreversible, so a
+    #: binding brought back as writable would misreport the physical tag.
+    prior_is_read_only: Mapped[bool | None] = mapped_column(Boolean)
+
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
+    #: Set rather than deleted — an undone action stays in the log, both as
+    #: history and so it still counts towards the five-deep window.
+    undone_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+    #: `(session_id, id)` rather than `session_id` alone: every read of this
+    #: table is "this walk's log, newest first" — the undo window, the skip set,
+    #: the verify ticks — so the id has to be in the index or each of them is a
+    #: sort. The composite covers a plain `session_id` lookup as its prefix, so
+    #: there is no reason to carry both.
+    __table_args__ = (Index("ix_provisioning_actions_session_id_id", "session_id", "id"),)
 
 
 class VerificationMismatch(Base):

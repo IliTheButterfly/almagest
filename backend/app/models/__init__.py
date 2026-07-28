@@ -24,6 +24,7 @@ from app.models.layout import LayoutSuggestion
 from app.models.layout_authoring import (
     ContainerTypePhysical,
     LabelPrint,
+    ProvisioningAction,
     ProvisioningSession,
     VerificationMismatch,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "PartKind",
     "PartSubstitute",
     "PartTag",
+    "ProvisioningAction",
     "ProvisioningSession",
     "ScanEvent",
     "ScanSource",

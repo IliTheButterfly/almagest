@@ -209,6 +209,19 @@ def test_a_take_still_requires_a_positive_quantity(client: TestClient, bad: int)
         ("get", f"/api/locations/{ABSURD}", None),
         ("get", f"/api/stock/lots/{ABSURD}", None),
         ("get", f"/api/stock/lots/{ABSURD}/history", None),
+        # The provisioning walk: session ids in the path, and the slot id a tap
+        # jumps the cursor to. `tag_uid` needs no bound of this kind — it is a
+        # string — but it is length-capped for the same reason.
+        ("post", f"/api/locations/{ABSURD}/provisioning-sessions", {}),
+        ("get", f"/api/locations/{ABSURD}/provisioning-sessions/current", None),
+        ("post", f"/api/locations/{ABSURD}/verification-sessions", {}),
+        ("post", f"/api/provisioning-sessions/{ABSURD}/bind", {"tag_uid": "04AABB"}),
+        ("post", "/api/provisioning-sessions/1/bind", {"tag_uid": "04AABB", "location_id": ABSURD}),
+        ("post", f"/api/provisioning-sessions/{ABSURD}/skip", {}),
+        ("post", f"/api/provisioning-sessions/{ABSURD}/undo", {}),
+        ("post", f"/api/verification-sessions/{ABSURD}/check", {"tag_uid": "04AABB"}),
+        ("get", f"/api/verification-sessions/{ABSURD}", None),
+        ("post", f"/api/location-tags/{ABSURD}/unbind", {}),
     ],
 )
 def test_an_absurd_row_id_is_422_not_500(

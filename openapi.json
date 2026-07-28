@@ -66,6 +66,111 @@
         "title": "AliasKind",
         "type": "string"
       },
+      "BindRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tapping any cell jumps the cursor there. Omit to bind at the derived cursor, which is the walking-paced path.",
+            "title": "Location Id"
+          },
+          "move": {
+            "default": false,
+            "description": "The human answered 'Move here' to a conflict. Required for anything that displaces an existing binding \u2014 a silent rebind is how a drawer full of stock ends up answering to a tag that used to mean something else.",
+            "title": "Move",
+            "type": "boolean"
+          },
+          "tag_uid": {
+            "maxLength": 64,
+            "minLength": 4,
+            "title": "Tag Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag_uid"
+        ],
+        "title": "BindRequest",
+        "type": "object"
+      },
+      "BindResponse": {
+        "description": "`status` is one of:\n\n* `bound` \u2014 a slot that had no tag now has one, and the cursor advanced;\n* `moved` / `rebound` \u2014 a confirmed `move` displaced a prior binding, which\n  the five-deep undo can put back;\n* `already_bound_here` \u2014 the same tag tapped twice, or the client-side\n  debounce lost a race. Nothing written, and no extra undo step to unwind;\n* `already_bound_elsewhere` / `slot_already_bound` \u2014 **nothing was written.**\n  `conflict` names the binding in the way so the UI can offer Move here /\n  Cancel.",
+        "properties": {
+          "conflict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConflictRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "tag",
+          "conflict",
+          "state"
+        ],
+        "title": "BindResponse",
+        "type": "object"
+      },
       "CandidateRead": {
         "properties": {
           "free_capacity": {
@@ -207,6 +312,117 @@
         "title": "CategoryNode",
         "type": "object"
       },
+      "CheckRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
+          "tag_uid": {
+            "maxLength": 64,
+            "minLength": 4,
+            "title": "Tag Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag_uid"
+        ],
+        "title": "CheckRequest",
+        "type": "object"
+      },
+      "CheckResponse": {
+        "description": "`status` is `match` (tick and advance) or `mismatch` (record and stop).",
+        "properties": {
+          "expected_tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Tag Uid"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "mismatch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MismatchRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "scanned_tag_uid": {
+            "title": "Scanned Tag Uid",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VerificationState"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "location_id",
+          "expected_tag_uid",
+          "scanned_tag_uid",
+          "mismatch",
+          "state"
+        ],
+        "title": "CheckResponse",
+        "type": "object"
+      },
       "ChildLayout": {
         "enum": [
           "grid",
@@ -291,6 +507,58 @@
           }
         },
         "title": "CloneRequest",
+        "type": "object"
+      },
+      "ConflictRead": {
+        "description": "The binding standing in the way, named well enough for the modal:\n\"Already bound to {label_path}\" with Move here / Cancel.",
+        "properties": {
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          },
+          "tag_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Tag Id",
+            "type": "integer"
+          },
+          "tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Uid"
+          }
+        },
+        "required": [
+          "tag_id",
+          "tag_uid",
+          "location_id",
+          "slot_label",
+          "label_path"
+        ],
+        "title": "ConflictRead",
         "type": "object"
       },
       "ContainerTypeCreate": {
@@ -2476,6 +2744,118 @@
         "title": "LotRead",
         "type": "object"
       },
+      "MismatchRead": {
+        "description": "A tag found somewhere it should not be. **Never auto-fixed.**",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expected_tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Tag Uid"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "scanned_resolved_label_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Resolved Label Path"
+          },
+          "scanned_resolved_location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Resolved Location Id"
+          },
+          "scanned_resolved_slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned Resolved Slot Label"
+          },
+          "scanned_tag_uid": {
+            "title": "Scanned Tag Uid",
+            "type": "string"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          }
+        },
+        "required": [
+          "id",
+          "location_id",
+          "slot_label",
+          "label_path",
+          "expected_tag_uid",
+          "scanned_tag_uid",
+          "scanned_resolved_location_id",
+          "scanned_resolved_slot_label",
+          "scanned_resolved_label_path",
+          "created_at",
+          "resolved_at"
+        ],
+        "title": "MismatchRead",
+        "type": "object"
+      },
       "MovePlanRead": {
         "properties": {
           "rationale": {
@@ -3516,6 +3896,101 @@
         "title": "PartUpdate",
         "type": "object"
       },
+      "ProvisionProgressRead": {
+        "properties": {
+          "bound": {
+            "title": "Bound",
+            "type": "integer"
+          },
+          "is_complete": {
+            "title": "Is Complete",
+            "type": "boolean"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          },
+          "total_slots": {
+            "title": "Total Slots",
+            "type": "integer"
+          },
+          "unbound": {
+            "title": "Unbound",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_slots",
+          "bound",
+          "unbound",
+          "skipped",
+          "is_complete"
+        ],
+        "title": "ProvisionProgressRead",
+        "type": "object"
+      },
+      "ProvisioningDevice": {
+        "description": "What is doing the reading.\n\nWeb NFC is Chromium-on-Android only, so the phone path simply does not exist\non iOS or on the Pi kiosk \u2014 the station reader is not a nicety, it is the\nonly path for those.",
+        "enum": [
+          "phone_webnfc",
+          "station_pn532",
+          "manual"
+        ],
+        "title": "ProvisioningDevice",
+        "type": "string"
+      },
+      "ProvisioningState": {
+        "description": "Everything the provisioning screen needs, in one shape.\n\nReturned by every route in the provisioning flow so a bind, a skip and an\nundo all leave the client fully up to date with no follow-up read.",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotCursorRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress": {
+            "$ref": "#/components/schemas/ProvisionProgressRead"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "undo_depth": {
+            "title": "Undo Depth",
+            "type": "integer"
+          },
+          "undo_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Undo Label"
+          }
+        },
+        "required": [
+          "session",
+          "cursor",
+          "progress",
+          "undo_depth",
+          "undo_label"
+        ],
+        "title": "ProvisioningState",
+        "type": "object"
+      },
       "QuantityRequest": {
         "properties": {
           "client_op_id": {
@@ -3883,6 +4358,55 @@
           "status"
         ],
         "title": "ResolveResponse",
+        "type": "object"
+      },
+      "ResolvedLocationRead": {
+        "properties": {
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          }
+        },
+        "required": [
+          "location_id",
+          "name",
+          "slot_label",
+          "label_path",
+          "short_id"
+        ],
+        "title": "ResolvedLocationRead",
         "type": "object"
       },
       "ResolvedTarget": {
@@ -4579,6 +5103,104 @@
         "title": "SearchResponse",
         "type": "object"
       },
+      "SessionRead": {
+        "properties": {
+          "bound_count": {
+            "title": "Bound Count",
+            "type": "integer"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "device_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Kind"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "root_location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Root Location Id",
+            "type": "integer"
+          },
+          "skipped_count": {
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "root_location_id",
+          "kind",
+          "device_kind",
+          "started_at",
+          "completed_at",
+          "bound_count",
+          "skipped_count",
+          "note"
+        ],
+        "title": "SessionRead",
+        "type": "object"
+      },
+      "SessionStarted": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "SessionStarted",
+        "type": "object"
+      },
       "SizeClass": {
         "description": "Last resort in the item-dimension cascade.",
         "enum": [
@@ -4590,6 +5212,155 @@
         ],
         "title": "SizeClass",
         "type": "string"
+      },
+      "SkipRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          }
+        },
+        "title": "SkipRequest",
+        "type": "object"
+      },
+      "SkipResponse": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "skipped": {
+            "$ref": "#/components/schemas/SlotCursorRead"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          }
+        },
+        "required": [
+          "skipped",
+          "state"
+        ],
+        "title": "SkipResponse",
+        "type": "object"
+      },
+      "SlotCursorRead": {
+        "description": "Where the walk is now. **Derived on every request** \u2014 `MIN(sort_order)`\namong the cabinet's children that still need this walk's attention.",
+        "properties": {
+          "col_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Col Idx"
+          },
+          "has_tag": {
+            "title": "Has Tag",
+            "type": "boolean"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "row_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Idx"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "slot_label",
+          "name",
+          "label_path",
+          "row_idx",
+          "col_idx",
+          "sort_order",
+          "short_id",
+          "has_tag"
+        ],
+        "title": "SlotCursorRead",
+        "type": "object"
       },
       "SlotLabelScheme": {
         "enum": [
@@ -5013,6 +5784,58 @@
         "title": "SlotTemplateWritten",
         "type": "object"
       },
+      "StartSessionRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "device_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvisioningDevice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Web NFC on a phone is primary \u2014 you are standing at the cabinet anyway; the station PN532 is the fallback and the only path on iOS."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "StartSessionRequest",
+        "type": "object"
+      },
       "SuggestRequest": {
         "properties": {
           "client_op_id": {
@@ -5138,6 +5961,165 @@
         "title": "TagGranularity",
         "type": "string"
       },
+      "TagRead": {
+        "properties": {
+          "bind_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bind Source"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_read_only": {
+            "title": "Is Read Only",
+            "type": "boolean"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "last_verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Verified At"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "ndef_url": {
+            "title": "Ndef Url",
+            "type": "string"
+          },
+          "tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Uid"
+          },
+          "written_at": {
+            "format": "date-time",
+            "title": "Written At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "location_id",
+          "label_path",
+          "tag_uid",
+          "ndef_url",
+          "bind_source",
+          "is_read_only",
+          "written_at",
+          "last_verified_at"
+        ],
+        "title": "TagRead",
+        "type": "object"
+      },
+      "TagResolveRequest": {
+        "description": "Either carrier, or both. Both is the useful case \u2014 it is the only way the\nserver can tell that a tag's payload and its binding disagree.",
+        "properties": {
+          "ndef_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The URI record read off the tag, verbatim. Matched host-agnostically: a tag written before a hostname change is still perfectly correct.",
+            "title": "Ndef Url"
+          },
+          "tag_uid": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 4,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Uid"
+          }
+        },
+        "title": "TagResolveRequest",
+        "type": "object"
+      },
+      "TagResolveResponse": {
+        "description": "`matched_by` is `ndef`, `uid`, or `none`.\n\n`status: unknown` is not an error \u2014 a blank tag is the normal state of a tag\nbefore it is provisioned, and the UI's answer is \"provision this container\nnow\" rather than a dead end.",
+        "properties": {
+          "disagreement": {
+            "title": "Disagreement",
+            "type": "boolean"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedLocationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matched_by": {
+            "title": "Matched By",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "matched_by",
+          "location",
+          "tag",
+          "disagreement"
+        ],
+        "title": "TagResolveResponse",
+        "type": "object"
+      },
       "TemplateFacets": {
         "properties": {
           "base_unit": {
@@ -5205,7 +6187,325 @@
         "title": "TemplateFacets",
         "type": "object"
       },
-      "UndoRequest": {
+      "UnbindRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free text for the operator's own record, e.g. 'drawer retired'.",
+            "title": "Reason"
+          }
+        },
+        "title": "UnbindRequest",
+        "type": "object"
+      },
+      "UnbindResponse": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "unbound": {
+            "$ref": "#/components/schemas/TagRead"
+          }
+        },
+        "required": [
+          "unbound"
+        ],
+        "title": "UnbindResponse",
+        "type": "object"
+      },
+      "UndoneRead": {
+        "properties": {
+          "action_kind": {
+            "title": "Action Kind",
+            "type": "string"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          },
+          "tag_uid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Uid"
+          }
+        },
+        "required": [
+          "action_kind",
+          "location_id",
+          "slot_label",
+          "label_path",
+          "tag_uid"
+        ],
+        "title": "UndoneRead",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VerificationStarted": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VerificationState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "VerificationStarted",
+        "type": "object"
+      },
+      "VerificationState": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlotCursorRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mismatches": {
+            "items": {
+              "$ref": "#/components/schemas/MismatchRead"
+            },
+            "title": "Mismatches",
+            "type": "array"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/VerifyProgressRead"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopped": {
+            "title": "Stopped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session",
+          "cursor",
+          "progress",
+          "stopped",
+          "mismatches"
+        ],
+        "title": "VerificationState",
+        "type": "object"
+      },
+      "VerifyProgressRead": {
+        "properties": {
+          "checked": {
+            "title": "Checked",
+            "type": "integer"
+          },
+          "mismatches": {
+            "title": "Mismatches",
+            "type": "integer"
+          },
+          "remaining": {
+            "title": "Remaining",
+            "type": "integer"
+          },
+          "total_tagged": {
+            "title": "Total Tagged",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_tagged",
+          "checked",
+          "remaining",
+          "mismatches"
+        ],
+        "title": "VerifyProgressRead",
+        "type": "object"
+      },
+      "app__api__routes__provisioning__UndoRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          }
+        },
+        "title": "UndoRequest",
+        "type": "object"
+      },
+      "app__api__routes__provisioning__UndoResponse": {
+        "properties": {
+          "not_restored_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Restored Reason"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "restored_tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProvisioningState"
+          },
+          "undone": {
+            "$ref": "#/components/schemas/UndoneRead"
+          }
+        },
+        "required": [
+          "undone",
+          "restored_tag",
+          "not_restored_reason",
+          "state"
+        ],
+        "title": "UndoResponse",
+        "type": "object"
+      },
+      "app__api__routes__stock__UndoRequest": {
         "description": "Undo by whichever handle the caller has.\n\nExactly one must be given. `client_op_id_to_undo` is the one the UI actually\nuses \u2014 it already generated that key at scan time, so the eight-second undo\nbutton needs to remember nothing else.",
         "properties": {
           "client_op_id": {
@@ -5285,7 +6585,7 @@
         "title": "UndoRequest",
         "type": "object"
       },
-      "UndoResponse": {
+      "app__api__routes__stock__UndoResponse": {
         "properties": {
           "lots": {
             "items": {
@@ -5321,46 +6621,6 @@
           "lots"
         ],
         "title": "UndoResponse",
-        "type": "object"
-      },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
         "type": "object"
       }
     }
@@ -5714,6 +6974,103 @@
         ]
       }
     },
+    "/api/location-tags/resolve": {
+      "post": {
+        "description": "What container is this tag stuck to?\n\nA pure read despite being a POST: an NDEF URI does not belong in a path\nsegment, and a UID read off a tag is data rather than an identifier the\nclient should be constructing URLs from.",
+        "operationId": "resolve_location_tag",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagResolveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Location Tag",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/location-tags/{tag_id}/unbind": {
+      "post": {
+        "description": "Forget a binding, leaving the tag itself resolvable.\n\nOnly the location-to-tag link is removed; the tag's payload is an opaque\nshort id, so `/s/{short_id}` still resolves afterwards. That asymmetry is\nthe point of \"a tag is a foreign key, not a record\" \u2014 the server can drop a\nbinding it holds, and can never rewrite a tag it does not physically hold.\n\nProvisioning then treats the slot as untagged, so it re-enters the cursor of\nthe next walk. This is also one of the two repairs a verification mismatch\nhands to a human, the other being a swap.",
+        "operationId": "unbind_location_tag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tag_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Tag Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnbindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnbindResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unbind Location Tag",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
     "/api/locations": {
       "post": {
         "description": "Add a container to the tree.\n\nThe path cache is rebuilt immediately (`TreeRepository.insert_and_index`), so\nthe new row comes back with a correct `label_path` rather than one that is\nright after the next nightly job.",
@@ -5993,6 +7350,106 @@
         ]
       }
     },
+    "/api/locations/{location_id}/provisioning-sessions": {
+      "post": {
+        "description": "Begin (or resume) binding tags to this cabinet's drawers.\n\nAn open walk on the same cabinet is handed back rather than duplicated:\nsince the cursor is derived, a second session would report the identical\nposition, and two \"current\" sessions is a state with no correct answer.",
+        "operationId": "start_provisioning_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Provisioning Session",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/provisioning-sessions/current": {
+      "get": {
+        "description": "The open walk on this cabinet and where it is, or the cabinet's tag state\nwith `session: null` if no walk is open.\n\nThis is what makes resuming free: nothing was saved when the phone went into\na pocket mid-cabinet, and nothing needs restoring \u2014 the cursor is recomputed\nhere, so a drawer bound from somewhere else in the meantime is simply\nalready bound.",
+        "operationId": "read_current_provisioning_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvisioningState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Current Provisioning Session",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
     "/api/locations/{location_id}/reapply-layout": {
       "post": {
         "description": "Edit an already-instantiated location's own layout, through the change\nguard.\n\nSafe edits (relabel, size-class/volume, a scheme change that doesn't move\na cell) apply outright. A slot that the new layout would delete but that\nstill holds stock or a bound tag comes back as 409 with the full list of\naffected slots. Reusing an existing slot's label at a different grid\nposition is refused outright (422) \u2014 see\n`app.services.layout_authoring.diff_instance_layout`.",
@@ -6045,6 +7502,61 @@
         "summary": "Reapply Layout",
         "tags": [
           "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/verification-sessions": {
+      "post": {
+        "description": "Begin (or resume) re-reading this cabinet's tags.\n\n**Not optional busywork.** No software can stop a person sticking a tag on\nthe wrong drawer; it can only detect it \u2014 and a mis-bound tag is invisible\nuntil it causes a wrong put-away, at which point the stock is somewhere the\nsystem does not think it is.",
+        "operationId": "start_verification_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Verification Session",
+        "tags": [
+          "provisioning"
         ]
       }
     },
@@ -6253,6 +7765,171 @@
         "summary": "Update Part",
         "tags": [
           "parts"
+        ]
+      }
+    },
+    "/api/provisioning-sessions/{session_id}/bind": {
+      "post": {
+        "description": "Bind the tapped tag to the cursor slot, and advance.\n\nThe response carries the written NDEF payload, the advanced cursor and the\nprogress counters together, because the phone is still holding the tag\nagainst the drawer when this returns: writing the URI record and moving on\nboth have to happen without another round trip.",
+        "operationId": "bind_tag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BindResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bind Tag",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/provisioning-sessions/{session_id}/skip": {
+      "post": {
+        "description": "Leave this slot untagged and advance past it for the rest of the walk.",
+        "operationId": "skip_slot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkipResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Skip Slot",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/provisioning-sessions/{session_id}/undo": {
+      "post": {
+        "description": "Reverse the last action, five deep.\n\nUndoing a Move puts the displaced binding back where it was \u2014 which is the\nreason the walk log keeps a copy of it, since the row itself is gone by\nthen. Works on a completed walk too, reopening it: the bind that finished\nthe cabinet is the one most likely to need taking back.",
+        "operationId": "undo_action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__routes__provisioning__UndoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__routes__provisioning__UndoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Action",
+        "tags": [
+          "provisioning"
         ]
       }
     },
@@ -7056,7 +8733,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UndoRequest"
+                "$ref": "#/components/schemas/app__api__routes__stock__UndoRequest"
               }
             }
           },
@@ -7067,7 +8744,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UndoResponse"
+                  "$ref": "#/components/schemas/app__api__routes__stock__UndoResponse"
                 }
               }
             },
@@ -7108,6 +8785,106 @@
         "summary": "Health",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/verification-sessions/{session_id}": {
+      "get": {
+        "description": "The walk's findings so far \u2014 the report a mis-tagged cabinet is fixed from.",
+        "operationId": "read_verification_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificationState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Verification Session",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/verification-sessions/{session_id}/check": {
+      "post": {
+        "description": "Re-read one tag and compare it to the expected UID.\n\nMatch: tick and advance. Mismatch: record `expected_tag_uid`,\n`scanned_tag_uid` and which slot the scanned tag actually belongs to, then\nstop \u2014 the cursor stays on this drawer. **No binding is changed on either\nbranch.** The two plausible repairs (rebind here, or swap these two drawers)\nhave different physical consequences and only the person holding the drawers\nknows which happened.",
+        "operationId": "check_tag",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Tag",
+        "tags": [
+          "provisioning"
         ]
       }
     }

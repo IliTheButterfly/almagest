@@ -344,6 +344,33 @@ class ProvisioningKind(StrEnum):
     VERIFY = "verify"
 
 
+class ProvisioningActionKind(StrEnum):
+    """What one step of a walk did — the log both the cursor and the undo stack
+    are derived from.
+
+    `MOVE` and `REBIND` are separate members rather than a `BIND` with a flag
+    because undo has to put something *back*, and the two priors live in
+    different places: a move displaced a binding at another slot, a rebind
+    displaced a different tag at this one. Collapsing them would leave undo
+    guessing which.
+    """
+
+    #: A slot that had no tag now has one.
+    BIND = "bind"
+    #: A tag bound elsewhere was moved here, after the human confirmed it.
+    MOVE = "move"
+    #: This slot's tag was replaced by a different one.
+    REBIND = "rebind"
+    #: Deliberately left empty and advanced past. The one fact a cursor derived
+    #: from `location_tags` cannot recover on its own — a skipped slot is still
+    #: a slot with no tag — which is why it is written down.
+    SKIP = "skip"
+    #: A tag re-read during a verification walk and found to be the expected
+    #: one. Recorded so the verify cursor is derivable too; a mismatch
+    #: deliberately writes *no* row here, which is what makes the walk stop.
+    CHECK = "check"
+
+
 class ProvisioningDevice(StrEnum):
     """What is doing the reading.
 
