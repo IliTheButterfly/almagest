@@ -1,6 +1,57 @@
 {
   "components": {
     "schemas": {
+      "AdjustRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "delta_milli": {
+            "title": "Delta Milli",
+            "type": "integer"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          }
+        },
+        "required": [
+          "delta_milli"
+        ],
+        "title": "AdjustRequest",
+        "type": "object"
+      },
       "AliasKind": {
         "description": "*Which part of a scanned label* a `barcode_aliases.code_norm` is.\n\n`entity_type` says what the alias points at and `symbology` says what\ncarried it; this says what was bound, which is the only one of the three\nthe resolver has to know in order to look anything up. The distinction is\nload-bearing rather than descriptive: a whole DigiKey reel payload contains\nthe lot and the quantity, so binding it resolves *that one reel* forever\nand carries `hint_qty_milli`/`hint_batch` with it \u2014 while binding the\nsupplier SKU lifted out of the same payload is what makes the *next* reel\nof the same part resolve on its first scan.",
         "enum": [
@@ -12,6 +63,178 @@
         ],
         "title": "AliasKind",
         "type": "string"
+      },
+      "CandidateRead": {
+        "properties": {
+          "free_capacity": {
+            "title": "Free Capacity",
+            "type": "number"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "location_id",
+          "label_path",
+          "score",
+          "free_capacity"
+        ],
+        "title": "CandidateRead",
+        "type": "object"
+      },
+      "CapacityRead": {
+        "description": "A location's fill state. **Advisory in every case.**\n\nAn over-capacity put-away is accepted and `is_overfull` is raised; nothing\nhere ever blocks a movement, because a scan that gets rejected teaches the\nuser to stop scanning.",
+        "properties": {
+          "capacity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity"
+          },
+          "fill_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Ratio"
+          },
+          "is_full": {
+            "title": "Is Full",
+            "type": "boolean"
+          },
+          "is_overfull": {
+            "title": "Is Overfull",
+            "type": "boolean"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "used": {
+            "title": "Used",
+            "type": "number"
+          }
+        },
+        "required": [
+          "model",
+          "capacity",
+          "used",
+          "fill_ratio",
+          "is_full",
+          "is_overfull",
+          "unit"
+        ],
+        "title": "CapacityRead",
+        "type": "object"
+      },
+      "EmptyBinRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          },
+          "to_location_id": {
+            "title": "To Location Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to_location_id"
+        ],
+        "title": "EmptyBinRequest",
+        "type": "object"
+      },
+      "EmptyBinResponse": {
+        "properties": {
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/LotFailure"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "group_uuid": {
+            "title": "Group Uuid",
+            "type": "string"
+          },
+          "moved_lot_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Moved Lot Ids",
+            "type": "array"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "moved_lot_ids",
+          "failures",
+          "group_uuid"
+        ],
+        "title": "EmptyBinResponse",
+        "type": "object"
       },
       "EntityType": {
         "description": "Discriminator for the shared short-ID space and other polymorphic links.\n\nOne ID space across all object types means a scan resolves without knowing\nwhat it scanned, and an object that gets reclassified keeps its printed\nlabel. The type is a *display prefix* only \u2014 never parsed from the code.",
@@ -97,6 +320,1488 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "LedgerEntry": {
+        "properties": {
+          "counted_qty_milli": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counted Qty Milli"
+          },
+          "delta_milli": {
+            "title": "Delta Milli",
+            "type": "integer"
+          },
+          "from_location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Location Id"
+          },
+          "group_uuid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Uuid"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "qty_after_milli": {
+            "title": "Qty After Milli",
+            "type": "integer"
+          },
+          "reversal_of_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reversal Of Seq"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "to_location_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Location Id"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "ts",
+          "kind",
+          "delta_milli",
+          "qty_after_milli",
+          "from_location_id",
+          "to_location_id",
+          "counted_qty_milli",
+          "group_uuid",
+          "reversal_of_seq",
+          "source",
+          "note"
+        ],
+        "title": "LedgerEntry",
+        "type": "object"
+      },
+      "LedgerSource": {
+        "description": "How the movement was captured. Drives trust when balances disagree.",
+        "enum": [
+          "manual",
+          "scan",
+          "scale",
+          "vision",
+          "import",
+          "api",
+          "defrag"
+        ],
+        "title": "LedgerSource",
+        "type": "string"
+      },
+      "LocationCreate": {
+        "properties": {
+          "access_score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Score"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "col_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Col Idx"
+          },
+          "container_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Type Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null inherits from the nearest ancestor that states one.",
+            "title": "Esd Safe"
+          },
+          "fill_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Factor"
+          },
+          "is_placeable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null takes the container type's answer.",
+            "title": "Is Placeable"
+          },
+          "mint_short_id": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null applies the rule from the design: a standalone container gets a printed id, a generated grid cell does not \u2014 nobody sticks 96 labels on an 8x12 box. Any cell can be promoted later by asking for one.",
+            "title": "Mint Short Id"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "row_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Idx"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set for a cell of the parent, e.g. 'C-07'. Unique among siblings.",
+            "title": "Slot Label"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          },
+          "tare_mg": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tare Mg"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "LocationCreate",
+        "type": "object"
+      },
+      "LocationCreated": {
+        "properties": {
+          "location": {
+            "$ref": "#/components/schemas/LocationRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "location"
+        ],
+        "title": "LocationCreated",
+        "type": "object"
+      },
+      "LocationNode": {
+        "description": "One row of the flat tree. Cheaper than `LocationRead` by design: a tree\nrender needs structure and fill state, not every lot in the warehouse.",
+        "properties": {
+          "container_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Type Id"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "fill_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Ratio"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "id_path": {
+            "title": "Id Path",
+            "type": "string"
+          },
+          "is_overfull": {
+            "title": "Is Overfull",
+            "type": "boolean"
+          },
+          "is_staging": {
+            "title": "Is Staging",
+            "type": "boolean"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "lot_count": {
+            "title": "Lot Count",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "parent_id",
+          "depth",
+          "id_path",
+          "label_path",
+          "container_type_id",
+          "slot_label",
+          "is_overfull",
+          "is_staging",
+          "fill_ratio",
+          "lot_count",
+          "qty_milli"
+        ],
+        "title": "LocationNode",
+        "type": "object"
+      },
+      "LocationRead": {
+        "properties": {
+          "access_score": {
+            "title": "Access Score",
+            "type": "number"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/CapacityRead"
+          },
+          "child_count": {
+            "title": "Child Count",
+            "type": "integer"
+          },
+          "container_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Type Id"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display"
+          },
+          "effective_esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Esd Safe"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esd Safe"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "id_path": {
+            "title": "Id Path",
+            "type": "string"
+          },
+          "is_overfull": {
+            "title": "Is Overfull",
+            "type": "boolean"
+          },
+          "is_placeable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Placeable"
+          },
+          "is_staging": {
+            "title": "Is Staging",
+            "type": "boolean"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "lots": {
+            "items": {
+              "$ref": "#/components/schemas/LotRead"
+            },
+            "title": "Lots",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "slot_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Label"
+          },
+          "tare_mg": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tare Mg"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "parent_id",
+          "depth",
+          "id_path",
+          "label_path",
+          "container_type_id",
+          "slot_label",
+          "esd_safe",
+          "effective_esd_safe",
+          "is_placeable",
+          "is_overfull",
+          "is_staging",
+          "access_score",
+          "tare_mg",
+          "short_id",
+          "display",
+          "child_count",
+          "capacity",
+          "lots"
+        ],
+        "title": "LocationRead",
+        "type": "object"
+      },
+      "LocationTree": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/LocationNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "title": "LocationTree",
+        "type": "object"
+      },
+      "LotFailure": {
+        "properties": {
+          "lot_id": {
+            "title": "Lot Id",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lot_id",
+          "reason",
+          "message"
+        ],
+        "title": "LotFailure",
+        "type": "object"
+      },
+      "LotRead": {
+        "description": "One physical package of one part at one location.",
+        "properties": {
+          "batch_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Code"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "date_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Code"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "location_id": {
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "location_label_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Label Path"
+          },
+          "packaging_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packaging Id"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "qty_reserved_milli": {
+            "title": "Qty Reserved Milli",
+            "type": "integer"
+          },
+          "serial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "unit_cost_micro": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Cost Micro"
+          }
+        },
+        "required": [
+          "id",
+          "part_id",
+          "location_id",
+          "qty_milli",
+          "qty_reserved_milli",
+          "status"
+        ],
+        "title": "LotRead",
+        "type": "object"
+      },
+      "MovePlanRead": {
+        "properties": {
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/MoveStepRead"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rationale",
+          "steps"
+        ],
+        "title": "MovePlanRead",
+        "type": "object"
+      },
+      "MoveRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "qty_milli": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qty Milli"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          },
+          "to_location_id": {
+            "title": "To Location Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to_location_id"
+        ],
+        "title": "MoveRequest",
+        "type": "object"
+      },
+      "MoveStepRead": {
+        "properties": {
+          "from_location_id": {
+            "title": "From Location Id",
+            "type": "integer"
+          },
+          "lot_id": {
+            "title": "Lot Id",
+            "type": "integer"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "to_location_id": {
+            "title": "To Location Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lot_id",
+          "from_location_id",
+          "to_location_id",
+          "qty_milli"
+        ],
+        "title": "MoveStepRead",
+        "type": "object"
+      },
+      "MovementResponse": {
+        "properties": {
+          "counterpart_lot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LotRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "group_uuid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Uuid"
+          },
+          "lot": {
+            "$ref": "#/components/schemas/LotRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "seqs": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Seqs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "seqs",
+          "lot"
+        ],
+        "title": "MovementResponse",
+        "type": "object"
+      },
+      "NewSiblingRead": {
+        "properties": {
+          "based_on_location_id": {
+            "title": "Based On Location Id",
+            "type": "integer"
+          },
+          "container_type_id": {
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "parent_id",
+          "container_type_id",
+          "based_on_location_id"
+        ],
+        "title": "NewSiblingRead",
+        "type": "object"
+      },
+      "PartCreate": {
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Mm"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "is_stub": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the row came from a scan nothing resolved. Drives the review queue.",
+            "title": "Is Stub"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords"
+          },
+          "length_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Mm"
+          },
+          "manufacturer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer Id"
+          },
+          "mint_short_id": {
+            "default": false,
+            "description": "Allocate a printed identifier. Off by default: a part is a definition, and it is containers that get labels. Turn it on for a bagged part that needs one of its own.",
+            "title": "Mint Short Id",
+            "type": "boolean"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "package_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Type Id"
+          },
+          "part_kind": {
+            "default": "component",
+            "description": "`part_kinds.slug`",
+            "maxLength": 64,
+            "title": "Part Kind",
+            "type": "string"
+          },
+          "shape_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape Factor"
+          },
+          "unit_mass_mg": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Learned from a hand-counted reference batch. Null means counting by weight is refused for this part rather than attempted badly.",
+            "title": "Unit Mass Mg"
+          },
+          "unit_volume_mm3": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A measured override. Setting it pins `volume_source` to 'override', so the dimension cascade stops recomputing it.",
+            "title": "Unit Volume Mm3"
+          },
+          "uom_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uom Id"
+          },
+          "width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width Mm"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PartCreate",
+        "type": "object"
+      },
+      "PartCreated": {
+        "properties": {
+          "part": {
+            "$ref": "#/components/schemas/PartRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "part"
+        ],
+        "title": "PartCreated",
+        "type": "object"
+      },
+      "PartRead": {
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display"
+          },
+          "height_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Mm"
+          },
+          "hot_score": {
+            "title": "Hot Score",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "is_stub": {
+            "title": "Is Stub",
+            "type": "boolean"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords"
+          },
+          "length_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Mm"
+          },
+          "lots": {
+            "items": {
+              "$ref": "#/components/schemas/LotRead"
+            },
+            "title": "Lots",
+            "type": "array"
+          },
+          "manufacturer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer Id"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "mpn_norm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn Norm"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "package_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Type Id"
+          },
+          "part_kind": {
+            "title": "Part Kind",
+            "type": "string"
+          },
+          "shape_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape Factor"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          },
+          "total_qty_milli": {
+            "title": "Total Qty Milli",
+            "type": "integer"
+          },
+          "unit_mass_mg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Mass Mg"
+          },
+          "unit_volume_mm3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Volume Mm3"
+          },
+          "uom_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uom Id"
+          },
+          "volume_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume Source"
+          },
+          "width_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width Mm"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "part_kind",
+          "category_id",
+          "mpn",
+          "mpn_norm",
+          "manufacturer_id",
+          "description",
+          "keywords",
+          "notes",
+          "package_type_id",
+          "uom_id",
+          "is_stub",
+          "is_active",
+          "length_mm",
+          "width_mm",
+          "height_mm",
+          "shape_factor",
+          "unit_volume_mm3",
+          "volume_source",
+          "unit_mass_mg",
+          "hot_score",
+          "short_id",
+          "display",
+          "total_qty_milli",
+          "lots"
+        ],
+        "title": "PartRead",
+        "type": "object"
+      },
       "PartSummary": {
         "properties": {
           "category_id": {
@@ -154,6 +1859,472 @@
           "category_id"
         ],
         "title": "PartSummary",
+        "type": "object"
+      },
+      "PartUpdate": {
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "height_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height Mm"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "is_stub": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when the row came from a scan nothing resolved. Drives the review queue.",
+            "title": "Is Stub"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords"
+          },
+          "length_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Mm"
+          },
+          "manufacturer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer Id"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "package_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Type Id"
+          },
+          "part_kind": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Kind"
+          },
+          "shape_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape Factor"
+          },
+          "unit_mass_mg": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Learned from a hand-counted reference batch. Null means counting by weight is refused for this part rather than attempted badly.",
+            "title": "Unit Mass Mg"
+          },
+          "unit_volume_mm3": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A measured override. Setting it pins `volume_source` to 'override', so the dimension cascade stops recomputing it.",
+            "title": "Unit Volume Mm3"
+          },
+          "uom_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uom Id"
+          },
+          "width_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width Mm"
+          }
+        },
+        "title": "PartUpdate",
+        "type": "object"
+      },
+      "QuantityRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "qty_milli": {
+            "exclusiveMinimum": 0.0,
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          }
+        },
+        "required": [
+          "qty_milli"
+        ],
+        "title": "QuantityRequest",
+        "type": "object"
+      },
+      "ReceiveRequest": {
+        "properties": {
+          "batch_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Code"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "date_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Code"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "force_new_lot": {
+            "default": false,
+            "title": "Force New Lot",
+            "type": "boolean"
+          },
+          "location_id": {
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "packaging_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packaging Id"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          },
+          "qty_milli": {
+            "exclusiveMinimum": 0.0,
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "serial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          },
+          "unit_cost_micro": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Cost Micro"
+          }
+        },
+        "required": [
+          "part_id",
+          "location_id",
+          "qty_milli"
+        ],
+        "title": "ReceiveRequest",
+        "type": "object"
+      },
+      "RecountRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "counted_qty_milli": {
+            "minimum": 0.0,
+            "title": "Counted Qty Milli",
+            "type": "integer"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "measured_mass_mg": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Mass Mg"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          }
+        },
+        "required": [
+          "counted_qty_milli"
+        ],
+        "title": "RecountRequest",
         "type": "object"
       },
       "ResolveResponse": {
@@ -873,6 +3044,234 @@
         "title": "SearchResponse",
         "type": "object"
       },
+      "SuggestRequest": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "packaging_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The *new* lot's packaging, when it is already known. Its pitch is what the reel/tube-rack compatibility filter reads; omitting it simply skips that filter.",
+            "title": "Packaging Id"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id"
+        ],
+        "title": "SuggestRequest",
+        "type": "object"
+      },
+      "SuggestResponse": {
+        "description": "Where to put it, and how confident that answer is.\n\n**Never an error.** The escalation ladder always terminates in a concrete\nlocation \u2014 dropping soft preferences, materialising an empty grid cell,\nproposing a defrag move, proposing a new sibling container, and finally the\npermanent `INBOX` staging row. `escalation_level` says which rung answered so\nthe UI can explain itself instead of presenting every answer as equally\nconfident.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateRead"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "defrag_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MovePlanRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "escalation_level": {
+            "title": "Escalation Level",
+            "type": "string"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "new_sibling_proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NewSiblingRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "location_id",
+          "label_path",
+          "escalation_level",
+          "reason",
+          "candidates"
+        ],
+        "title": "SuggestResponse",
+        "type": "object"
+      },
+      "UndoRequest": {
+        "description": "Undo by whichever handle the caller has.\n\nExactly one must be given. `client_op_id_to_undo` is the one the UI actually\nuses \u2014 it already generated that key at scan time, so the eight-second undo\nbutton needs to remember nothing else.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "client_op_id_to_undo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id To Undo"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "group_uuid_to_undo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Uuid To Undo"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          }
+        },
+        "title": "UndoRequest",
+        "type": "object"
+      },
+      "UndoResponse": {
+        "properties": {
+          "lots": {
+            "items": {
+              "$ref": "#/components/schemas/LotRead"
+            },
+            "title": "Lots",
+            "type": "array"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "reversed_seqs": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Reversed Seqs",
+            "type": "array"
+          },
+          "seqs": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Seqs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "seqs",
+          "reversed_seqs",
+          "lots"
+        ],
+        "title": "UndoResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -922,6 +3321,319 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/locations": {
+      "post": {
+        "description": "Add a container to the tree.\n\nThe path cache is rebuilt immediately (`TreeRepository.insert_and_index`), so\nthe new row comes back with a correct `label_path` rather than one that is\nright after the next nightly job.",
+        "operationId": "create_location",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Location",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/suggest": {
+      "post": {
+        "description": "Propose where a new lot of a part should go. Workflow 1's ASSIGN step.\n\nIdempotency-guarded because this is not a pure read: one rung of the ladder\n*materialises* an empty grid cell, so a retried suggestion would otherwise\nleave a second empty cell behind every time the wifi dropped.\n\nNothing here touches the ledger. Suggesting a destination and putting stock\nin it are separate steps, and only `/api/stock/receive` does the second.",
+        "operationId": "suggest_location",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Location",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/tree": {
+      "get": {
+        "description": "The whole tree, or one subtree.\n\nSubtree filtering is `id_path LIKE :prefix || '%'` \u2014 left-anchored, so the\nindex on `id_path` serves it, and no recursion is involved at read time.",
+        "operationId": "read_location_tree",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "root_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Root Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationTree"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Location Tree",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}": {
+      "get": {
+        "description": "One container: its place in the tree, its fill state, and what is in it.\n\nThis is the bin screen, which is also where \"empty this bin into that one\"\nstarts from \u2014 hence the lots, and hence the capacity block alongside them.",
+        "operationId": "read_location",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Location",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/parts": {
+      "post": {
+        "description": "Create a part. One field is enough.\n\nA duplicate `(mpn_norm, manufacturer_id)` is a 409: that pair is uniquely\nindexed because two rows for the same part number from the same manufacturer\nis nearly always a double import, and the right fix is to add stock to the\nrow that exists rather than to fork the catalogue.",
+        "operationId": "create_part",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Part",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
+    "/api/parts/{part_id}": {
+      "get": {
+        "description": "The part, plus every lot of it and the total on hand.",
+        "operationId": "read_part",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Part",
+        "tags": [
+          "parts"
+        ]
+      },
+      "patch": {
+        "description": "Edit a part \u2014 the review-queue tail of intake.\n\nDeliberately **not** idempotency-guarded, unlike every other write in the\nAPI: a PATCH is idempotent by construction, since replaying it sets the same\nfields to the same values. The guard exists to stop a retry becoming a second\n*movement*, and there is no movement here.",
+        "operationId": "update_part",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Part",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
     "/api/resolve/{short_id}": {
       "get": {
         "description": "Machine-readable resolution, for the PWA and `deviceagent`.",
@@ -1237,6 +3949,506 @@
         "summary": "Search Parts",
         "tags": [
           "search"
+        ]
+      }
+    },
+    "/api/stock/locations/{location_id}/empty": {
+      "post": {
+        "description": "Move every lot out of one location into another.\n\n**One lot failing commits the rest and reports just that failure.** Workflow\n4 is explicit about this, and it is the right call for a physical task: the\nuser has already tipped nineteen bags into the new bin, so refusing the whole\nbatch over the twentieth would leave the database describing a world that no\nlonger exists.",
+        "operationId": "empty_bin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmptyBinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyBinResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Empty Bin",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/lots/{lot_id}": {
+      "get": {
+        "operationId": "read_lot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lot_id",
+            "required": true,
+            "schema": {
+              "title": "Lot Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LotRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Lot",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/lots/{lot_id}/adjust": {
+      "post": {
+        "operationId": "adjust_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lot_id",
+            "required": true,
+            "schema": {
+              "title": "Lot Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Adjust Stock",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/lots/{lot_id}/consume": {
+      "post": {
+        "description": "Take stock. Accepted even when it drives the balance negative \u2014 that is a\ndashboard anomaly to investigate, not a reason to refuse the record of what\nphysically happened.",
+        "operationId": "consume_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lot_id",
+            "required": true,
+            "schema": {
+              "title": "Lot Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuantityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Consume Stock",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/lots/{lot_id}/history": {
+      "get": {
+        "description": "The lot's movements, newest first.\n\nReads the ledger directly, which is fine *here* \u2014 this endpoint is the\nhistory, so the rows are the answer rather than an expensive way to compute\na balance.",
+        "operationId": "read_lot_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lot_id",
+            "required": true,
+            "schema": {
+              "title": "Lot Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LedgerEntry"
+                  },
+                  "title": "Response Read Lot History",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Lot History",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/lots/{lot_id}/move": {
+      "post": {
+        "description": "Relocate a lot, whole or in part.\n\nWhole: one row, `delta_milli=0`, and `stock_lots.location_id` rewritten \u2014\nthe lot keeps its identity and its per-lot cost. Partial: two rows sharing a\n`group_uuid` that sum to zero, which is what makes the move provably\nconservative.",
+        "operationId": "move_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lot_id",
+            "required": true,
+            "schema": {
+              "title": "Lot Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Stock",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/lots/{lot_id}/recount": {
+      "post": {
+        "description": "Set the balance to what was physically counted.\n\nA confirming recount still writes a row: \"I counted it and it was right\" is\nevidence, and discarding it would make a verified bin indistinguishable from\none nobody has opened in a year.",
+        "operationId": "recount_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lot_id",
+            "required": true,
+            "schema": {
+              "title": "Lot Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Recount Stock",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/lots/{lot_id}/return": {
+      "post": {
+        "description": "Unused stock coming back. A distinct kind from a receipt: a return is not\na purchase, and conflating them inflates every intake statistic.",
+        "operationId": "return_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lot_id",
+            "required": true,
+            "schema": {
+              "title": "Lot Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuantityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Return Stock",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/receive": {
+      "post": {
+        "description": "Stock arriving \u2014 the commit step of intake.\n\nNothing before this touches the ledger: workflow 1 runs scanning, enrichment,\nreview and dimensions entirely against draft state, so an abandoned intake\nleaves no movement behind.",
+        "operationId": "receive_stock",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Receive Stock",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/undo": {
+      "post": {
+        "description": "Undo by appending compensating rows. Never by deleting.\n\nThe eight-second undo button posts here with the `client_op_id` it already\ngenerated at scan time, so it needs to remember nothing else about what it\ndid.",
+        "operationId": "undo_movement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UndoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Movement",
+        "tags": [
+          "stock"
         ]
       }
     },

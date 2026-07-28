@@ -9,7 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.base import TimestampMixin
-from app.models.types import UtcDateTime, utcnow
+from app.models.enums import ClientOperationStatus
+from app.models.types import StrEnumType, UtcDateTime, utcnow
 
 
 class Setting(Base, TimestampMixin):
@@ -56,6 +57,8 @@ class ClientOperation(Base):
 
     A phone on flaky wifi double-submits; the resolver's 3-second hold-off
     stops most duplicates client-side, and this stops the rest server-side.
+
+    `app.api.idempotency` is the one implementation. Nothing else may write here.
     """
 
     __tablename__ = "client_operations"
@@ -67,6 +70,13 @@ class ClientOperation(Base):
     #: body is a client bug, and conflating it with a genuine retry would apply
     #: the wrong write silently.
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(
+        StrEnumType(ClientOperationStatus),
+        nullable=False,
+        default=ClientOperationStatus.IN_PROGRESS,
+    )
+    #: The response the first run produced, replayed verbatim to a retry. NULL
+    #: while `status` is `in_progress`, which is what makes "a completed row
+    #: always has an answer" true by construction rather than by convention.
     response_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
