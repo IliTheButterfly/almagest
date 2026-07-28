@@ -1,6 +1,34 @@
 {
   "components": {
     "schemas": {
+      "AliasKind": {
+        "description": "*Which part of a scanned label* a `barcode_aliases.code_norm` is.\n\n`entity_type` says what the alias points at and `symbology` says what\ncarried it; this says what was bound, which is the only one of the three\nthe resolver has to know in order to look anything up. The distinction is\nload-bearing rather than descriptive: a whole DigiKey reel payload contains\nthe lot and the quantity, so binding it resolves *that one reel* forever\nand carries `hint_qty_milli`/`hint_batch` with it \u2014 while binding the\nsupplier SKU lifted out of the same payload is what makes the *next* reel\nof the same part resolve on its first scan.",
+        "enum": [
+          "whole_payload",
+          "mpn",
+          "supplier_sku",
+          "package_code",
+          "tag_uid"
+        ],
+        "title": "AliasKind",
+        "type": "string"
+      },
+      "EntityType": {
+        "description": "Discriminator for the shared short-ID space and other polymorphic links.\n\nOne ID space across all object types means a scan resolves without knowing\nwhat it scanned, and an object that gets reclassified keeps its printed\nlabel. The type is a *display prefix* only \u2014 never parsed from the code.",
+        "enum": [
+          "part",
+          "location",
+          "stock_lot",
+          "container_type",
+          "part_category",
+          "supplier_part",
+          "document",
+          "project",
+          "device"
+        ],
+        "title": "EntityType",
+        "type": "string"
+      },
       "FilterIn": {
         "properties": {
           "template": {
@@ -206,6 +234,544 @@
         "title": "ResolvedTarget",
         "type": "object"
       },
+      "ScanAliasRequest": {
+        "properties": {
+          "alias_kind": {
+            "$ref": "#/components/schemas/AliasKind",
+            "default": "whole_payload",
+            "description": "What part of the label `code` is. Binding a whole payload recognises that one package; binding the supplier SKU out of it recognises the next reel of the same part on its first scan."
+          },
+          "code": {
+            "maxLength": 4096,
+            "title": "Code",
+            "type": "string"
+          },
+          "entity_pk": {
+            "minimum": 1.0,
+            "title": "Entity Pk",
+            "type": "integer"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/EntityType"
+          },
+          "hint_batch": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint Batch"
+          },
+          "hint_qty_milli": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint Qty Milli"
+          },
+          "parsed_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parse this binding was taught from, so a better parser can be diffed.",
+            "title": "Parsed Json"
+          },
+          "source_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Slug"
+          },
+          "symbology": {
+            "description": "Required here, unlike on resolve: an alias records what carried it.",
+            "maxLength": 32,
+            "title": "Symbology",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "symbology",
+          "entity_type",
+          "entity_pk"
+        ],
+        "title": "ScanAliasRequest",
+        "type": "object"
+      },
+      "ScanAliasResponse": {
+        "properties": {
+          "alias_id": {
+            "title": "Alias Id",
+            "type": "integer"
+          },
+          "alias_kind": {
+            "title": "Alias Kind",
+            "type": "string"
+          },
+          "code_norm": {
+            "title": "Code Norm",
+            "type": "string"
+          },
+          "created": {
+            "description": "False when an identical binding already existed.",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "hit_count": {
+            "title": "Hit Count",
+            "type": "integer"
+          },
+          "scan_event_id": {
+            "title": "Scan Event Id",
+            "type": "integer"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ScanTarget"
+          }
+        },
+        "required": [
+          "alias_id",
+          "code_norm",
+          "created",
+          "hit_count",
+          "alias_kind",
+          "target",
+          "scan_event_id"
+        ],
+        "title": "ScanAliasResponse",
+        "type": "object"
+      },
+      "ScanCandidate": {
+        "properties": {
+          "alias_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias Id"
+          },
+          "hit_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Count"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ScanTarget"
+          },
+          "via": {
+            "description": "How this candidate was found. Display text, never parsed.",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "via"
+        ],
+        "title": "ScanCandidate",
+        "type": "object"
+      },
+      "ScanExistingLot": {
+        "properties": {
+          "batch_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Code"
+          },
+          "location_id": {
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "location_label_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Label Path"
+          },
+          "location_name": {
+            "title": "Location Name",
+            "type": "string"
+          },
+          "lot_id": {
+            "title": "Lot Id",
+            "type": "integer"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lot_id",
+          "location_id",
+          "location_name",
+          "qty_milli",
+          "status"
+        ],
+        "title": "ScanExistingLot",
+        "type": "object"
+      },
+      "ScanParsed": {
+        "description": "Fields read off the payload. Pre-fills the intake form; never authority.",
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "country_of_origin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country Of Origin"
+          },
+          "date_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Code"
+          },
+          "di_fields": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Di Fields",
+            "type": "object"
+          },
+          "ean": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ean"
+          },
+          "lot_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Code"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "purchase_order": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Order"
+          },
+          "quantity_milli": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity Milli"
+          },
+          "serial": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial"
+          },
+          "supplier_part_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Part Number"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "title": "ScanParsed",
+        "type": "object"
+      },
+      "ScanResolveRequest": {
+        "properties": {
+          "code": {
+            "description": "The decoded payload, verbatim, control characters included.",
+            "maxLength": 4096,
+            "title": "Code",
+            "type": "string"
+          },
+          "source_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`scan_sources.slug`. An unknown slug is recorded as no source, never refused.",
+            "title": "Source Slug"
+          },
+          "symbology": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whatever the decoder calls the format it read. Recorded, not validated.",
+            "title": "Symbology"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ScanResolveRequest",
+        "type": "object"
+      },
+      "ScanResolveResponse": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ScanCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "decoded_kind": {
+            "description": "Which handler claimed the payload: short_id, alias, ecia, lcsc, mpn, ean, unknown. Independent of `status` \u2014 a label can decode perfectly and still resolve to nothing.",
+            "title": "Decoded Kind",
+            "type": "string"
+          },
+          "existing_lots": {
+            "description": "Lots of the matched part with quantity above zero, so the UI can branch to known-part re-stock before enrichment or dimensions run.",
+            "items": {
+              "$ref": "#/components/schemas/ScanExistingLot"
+            },
+            "title": "Existing Lots",
+            "type": "array"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "normalized": {
+            "description": "The key this payload would bind under.",
+            "title": "Normalized",
+            "type": "string"
+          },
+          "parsed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanParsed"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scan_event_id": {
+            "title": "Scan Event Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "`resolved`, `ambiguous` or `unknown`.",
+            "title": "Status",
+            "type": "string"
+          },
+          "suggest_bind": {
+            "description": "True on `ambiguous`/`unknown`: offer POST /api/scan/alias.",
+            "title": "Suggest Bind",
+            "type": "boolean"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "decoded_kind",
+          "normalized",
+          "suggest_bind",
+          "latency_ms",
+          "scan_event_id"
+        ],
+        "title": "ScanResolveResponse",
+        "type": "object"
+      },
+      "ScanTarget": {
+        "properties": {
+          "display": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display"
+          },
+          "entity_pk": {
+            "title": "Entity Pk",
+            "type": "integer"
+          },
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "label_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Path"
+          },
+          "short_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Id"
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_pk",
+          "label"
+        ],
+        "title": "ScanTarget",
+        "type": "object"
+      },
       "SearchRequest": {
         "properties": {
           "category": {
@@ -396,6 +962,90 @@
         "summary": "Resolve Short Id",
         "tags": [
           "resolve"
+        ]
+      }
+    },
+    "/api/scan/alias": {
+      "post": {
+        "description": "Teach the system what a payload means. The other half of the loop.\n\nIdempotent: re-binding the same code to the same entity updates the row and\ncounts as a hit rather than failing, because a user who binds the same label\ntwice is confirming it.",
+        "operationId": "bind_barcode_alias",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanAliasRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanAliasResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bind Barcode Alias",
+        "tags": [
+          "scan"
+        ]
+      }
+    },
+    "/api/scan/resolve": {
+      "post": {
+        "description": "Identify a scanned payload. **Never rejects one.**\n\nAn unrecognised code comes back `unknown` with `suggest_bind`, not as an\nerror \u2014 a scan that gets refused teaches the user to stop scanning, and\nintake friction is what kills systems like this one.",
+        "operationId": "resolve_scan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResolveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Scan",
+        "tags": [
+          "scan"
         ]
       }
     },

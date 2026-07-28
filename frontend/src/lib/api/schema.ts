@@ -24,6 +24,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scan/alias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind Barcode Alias
+         * @description Teach the system what a payload means. The other half of the loop.
+         *
+         *     Idempotent: re-binding the same code to the same entity updates the row and
+         *     counts as a hit rather than failing, because a user who binds the same label
+         *     twice is confirming it.
+         */
+        post: operations["bind_barcode_alias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scan/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Scan
+         * @description Identify a scanned payload. **Never rejects one.**
+         *
+         *     An unrecognised code comes back `unknown` with `suggest_bind`, not as an
+         *     error — a scan that gets refused teaches the user to stop scanning, and
+         *     intake friction is what kills systems like this one.
+         */
+        post: operations["resolve_scan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/search/parts": {
         parameters: {
             query?: never;
@@ -63,6 +111,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AliasKind
+         * @description *Which part of a scanned label* a `barcode_aliases.code_norm` is.
+         *
+         *     `entity_type` says what the alias points at and `symbology` says what
+         *     carried it; this says what was bound, which is the only one of the three
+         *     the resolver has to know in order to look anything up. The distinction is
+         *     load-bearing rather than descriptive: a whole DigiKey reel payload contains
+         *     the lot and the quantity, so binding it resolves *that one reel* forever
+         *     and carries `hint_qty_milli`/`hint_batch` with it — while binding the
+         *     supplier SKU lifted out of the same payload is what makes the *next* reel
+         *     of the same part resolve on its first scan.
+         * @enum {string}
+         */
+        AliasKind: "whole_payload" | "mpn" | "supplier_sku" | "package_code" | "tag_uid";
+        /**
+         * EntityType
+         * @description Discriminator for the shared short-ID space and other polymorphic links.
+         *
+         *     One ID space across all object types means a scan resolves without knowing
+         *     what it scanned, and an object that gets reclassified keeps its printed
+         *     label. The type is a *display prefix* only — never parsed from the code.
+         * @enum {string}
+         */
+        EntityType: "part" | "location" | "stock_lot" | "container_type" | "part_category" | "supplier_part" | "document" | "project" | "device";
         /** FilterIn */
         FilterIn: {
             /**
@@ -129,6 +202,187 @@ export interface components {
             label_path?: string | null;
             /** Short Id */
             short_id: string;
+        };
+        /** ScanAliasRequest */
+        ScanAliasRequest: {
+            /**
+             * @description What part of the label `code` is. Binding a whole payload recognises that one package; binding the supplier SKU out of it recognises the next reel of the same part on its first scan.
+             * @default whole_payload
+             */
+            alias_kind?: components["schemas"]["AliasKind"];
+            /** Code */
+            code: string;
+            /** Entity Pk */
+            entity_pk: number;
+            entity_type: components["schemas"]["EntityType"];
+            /** Hint Batch */
+            hint_batch?: string | null;
+            /** Hint Qty Milli */
+            hint_qty_milli?: number | null;
+            /**
+             * Parsed Json
+             * @description The parse this binding was taught from, so a better parser can be diffed.
+             */
+            parsed_json?: string | null;
+            /** Source Slug */
+            source_slug?: string | null;
+            /**
+             * Symbology
+             * @description Required here, unlike on resolve: an alias records what carried it.
+             */
+            symbology: string;
+        };
+        /** ScanAliasResponse */
+        ScanAliasResponse: {
+            /** Alias Id */
+            alias_id: number;
+            /** Alias Kind */
+            alias_kind: string;
+            /** Code Norm */
+            code_norm: string;
+            /**
+             * Created
+             * @description False when an identical binding already existed.
+             */
+            created: boolean;
+            /** Hit Count */
+            hit_count: number;
+            /** Scan Event Id */
+            scan_event_id: number;
+            target: components["schemas"]["ScanTarget"];
+        };
+        /** ScanCandidate */
+        ScanCandidate: {
+            /** Alias Id */
+            alias_id?: number | null;
+            /** Hit Count */
+            hit_count?: number | null;
+            target: components["schemas"]["ScanTarget"];
+            /**
+             * Via
+             * @description How this candidate was found. Display text, never parsed.
+             */
+            via: string;
+        };
+        /** ScanExistingLot */
+        ScanExistingLot: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /** Location Id */
+            location_id: number;
+            /** Location Label Path */
+            location_label_path?: string | null;
+            /** Location Name */
+            location_name: string;
+            /** Lot Id */
+            lot_id: number;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Status */
+            status: string;
+        };
+        /**
+         * ScanParsed
+         * @description Fields read off the payload. Pre-fills the intake form; never authority.
+         */
+        ScanParsed: {
+            /** Confidence */
+            confidence?: number | null;
+            /** Country Of Origin */
+            country_of_origin?: string | null;
+            /** Date Code */
+            date_code?: string | null;
+            /** Di Fields */
+            di_fields?: {
+                [key: string]: string[];
+            };
+            /** Ean */
+            ean?: string | null;
+            /** Lot Code */
+            lot_code?: string | null;
+            /** Manufacturer */
+            manufacturer?: string | null;
+            /** Mpn */
+            mpn?: string | null;
+            /** Purchase Order */
+            purchase_order?: string | null;
+            /** Quantity Milli */
+            quantity_milli?: number | null;
+            /** Serial */
+            serial?: string | null;
+            /** Supplier Part Number */
+            supplier_part_number?: string | null;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /** ScanResolveRequest */
+        ScanResolveRequest: {
+            /**
+             * Code
+             * @description The decoded payload, verbatim, control characters included.
+             */
+            code: string;
+            /**
+             * Source Slug
+             * @description `scan_sources.slug`. An unknown slug is recorded as no source, never refused.
+             */
+            source_slug?: string | null;
+            /**
+             * Symbology
+             * @description Whatever the decoder calls the format it read. Recorded, not validated.
+             */
+            symbology?: string | null;
+        };
+        /** ScanResolveResponse */
+        ScanResolveResponse: {
+            /** Candidates */
+            candidates?: components["schemas"]["ScanCandidate"][];
+            /**
+             * Decoded Kind
+             * @description Which handler claimed the payload: short_id, alias, ecia, lcsc, mpn, ean, unknown. Independent of `status` — a label can decode perfectly and still resolve to nothing.
+             */
+            decoded_kind: string;
+            /**
+             * Existing Lots
+             * @description Lots of the matched part with quantity above zero, so the UI can branch to known-part re-stock before enrichment or dimensions run.
+             */
+            existing_lots?: components["schemas"]["ScanExistingLot"][];
+            /** Latency Ms */
+            latency_ms: number;
+            /**
+             * Normalized
+             * @description The key this payload would bind under.
+             */
+            normalized: string;
+            parsed?: components["schemas"]["ScanParsed"] | null;
+            /** Scan Event Id */
+            scan_event_id: number;
+            /**
+             * Status
+             * @description `resolved`, `ambiguous` or `unknown`.
+             */
+            status: string;
+            /**
+             * Suggest Bind
+             * @description True on `ambiguous`/`unknown`: offer POST /api/scan/alias.
+             */
+            suggest_bind: boolean;
+            target?: components["schemas"]["ScanTarget"] | null;
+        };
+        /** ScanTarget */
+        ScanTarget: {
+            /** Display */
+            display?: string | null;
+            /** Entity Pk */
+            entity_pk: number;
+            /** Entity Type */
+            entity_type: string;
+            /** Label */
+            label: string;
+            /** Label Path */
+            label_path?: string | null;
+            /** Short Id */
+            short_id?: string | null;
         };
         /** SearchRequest */
         SearchRequest: {
@@ -218,6 +472,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResolveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bind_barcode_alias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanAliasRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanAliasResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanResolveResponse"];
                 };
             };
             /** @description Validation Error */
