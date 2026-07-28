@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "pint>=0.24",
     "elec-value-parser>=0.1",
+    "ecia-barcode>=0.1",
 ]
 
 # The publishable libraries are submodules, consumed from the checkout rather
@@ -25,6 +26,7 @@ dependencies = [
 # as a guarantee it is not currently enforcing.
 [tool.uv.sources]
 elec-value-parser = { path = "../elec-value-parser", editable = true }
+ecia-barcode = { path = "../ecia-barcode", editable = true }
 
 [project.optional-dependencies]
 # Kept out of the default install so the API image stays small. Phase 4+.
