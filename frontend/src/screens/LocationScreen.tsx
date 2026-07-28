@@ -16,6 +16,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { FillMeter } from "../components/FillMeter";
 import {
   emptyBin,
   getLocation,
@@ -28,7 +29,6 @@ import { formatFillRatio, formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { uuid4 } from "../lib/scan/session";
 import { formatShortId, looksLikeShortId, normalizeShortId } from "../lib/shortid";
-import { FillBar } from "./TreeScreen";
 
 export function LocationScreen() {
   const { locationId: raw } = useParams();
@@ -75,8 +75,8 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
         </div>
         {location.description !== null && <p style={{ margin: 0 }}>{location.description}</p>}
         <div className="row">
-          {location.is_staging && <span className="badge badge-warn">staging</span>}
-          {location.is_overfull && <span className="badge badge-bad">overfull</span>}
+          {location.is_staging && <span className="badge badge-accent">inbox</span>}
+          {location.is_overfull && <span className="badge badge-warn">over</span>}
           {location.effective_esd_safe === true && <span className="badge badge-good">ESD safe</span>}
           {location.is_placeable === false && <span className="badge">not placeable</span>}
           {location.parent_id !== null && (
@@ -123,7 +123,13 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
 
       {location.child_count > 0 && (
         <div className="card">
-          <h3>Inside ({location.child_count})</h3>
+          <div className="row">
+            <h3 style={{ margin: 0 }}>Inside ({location.child_count})</h3>
+            <span className="spacer" />
+            {/* The spatial view of the same children, laid out from their slot
+                labels rather than listed. */}
+            <Link to={`/tree?at=${location.id}`}>See the layout →</Link>
+          </div>
           {children.data === null ? (
             <Loading what="the children" />
           ) : (
@@ -139,11 +145,15 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
                         {node.slot_label !== null && (
                           <span className="badge mono">{node.slot_label}</span>
                         )}
-                        {node.is_overfull && <span className="badge badge-bad">overfull</span>}
+                        {node.is_overfull && <span className="badge badge-warn">over</span>}
                       </div>
                       <div className="sub">
                         {node.lot_count} lot(s) · {formatQty(node.qty_milli)} ·{" "}
-                        {formatFillRatio(node.fill_ratio)} full
+                        {/* Null fill is "no capacity model", which is not the same
+                            claim as "empty" and must not read like it. */}
+                        {node.fill_ratio === null
+                          ? "fill not measured"
+                          : `${formatFillRatio(node.fill_ratio)} full`}
                       </div>
                     </Link>
                   </li>
@@ -165,7 +175,7 @@ function Capacity({ location }: { location: LocationRead }) {
         <span className="spacer" />
         <span className="muted-note mono">{capacity.model}</span>
       </div>
-      <FillBar ratio={capacity.fill_ratio} overfull={capacity.is_overfull} />
+      <FillMeter ratio={capacity.fill_ratio} overfull={capacity.is_overfull} />
       <p className="muted-note" style={{ margin: 0 }}>
         {capacity.used} of {capacity.capacity ?? "?"} {capacity.unit} used
         {capacity.fill_ratio === null ? "" : ` · ${formatFillRatio(capacity.fill_ratio)}`}

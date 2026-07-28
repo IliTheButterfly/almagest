@@ -48,6 +48,13 @@ export type ResolveResponse = Schemas["ResolveResponse"];
 /** One parametric predicate: a template name plus a raw value string. */
 export type SearchFilter = Schemas["FilterIn"];
 
+export type CategoryNode = Schemas["CategoryNode"];
+export type FacetsRequest = Schemas["FacetsRequest"];
+export type FacetsResponse = Schemas["FacetsResponse"];
+export type TemplateFacets = Schemas["TemplateFacets"];
+export type ChoiceFacet = Schemas["ChoiceFacet"];
+export type NumericRange = Schemas["NumericRange"];
+
 export type PartRead = Schemas["PartRead"];
 export type PartCreate = Schemas["PartCreate"];
 export type PartCreated = Schemas["PartCreated"];
@@ -116,6 +123,32 @@ export async function searchParts(request: SearchRequest): Promise<SearchRespons
   const { data, error, response } = await api.POST("/api/search/parts", { body: request });
   if (error !== undefined) {
     fail("search failed", error, response);
+  }
+  return data;
+}
+
+/**
+ * The filterable attributes, with counts against the filters already applied.
+ *
+ * Counts are the point rather than a nicety: a facet list without them makes
+ * every option look equally promising, so the user finds the empty result set by
+ * clicking into it. They are computed against the current filter set, which is
+ * why this has to be re-requested whenever the filters change — the numbers
+ * answer "what can I narrow to from *here*", not "what exists".
+ */
+export async function getParameterFacets(request: FacetsRequest): Promise<FacetsResponse> {
+  const { data, error, response } = await api.POST("/api/parameter-templates", { body: request });
+  if (error !== undefined) {
+    fail("could not load the filters", error, response);
+  }
+  return data;
+}
+
+/** The category tree for the browse-by-type rail. Counts include descendants. */
+export async function listPartCategories(): Promise<CategoryNode[]> {
+  const { data, error, response } = await api.GET("/api/part-categories", {});
+  if (error !== undefined) {
+    fail("could not load the categories", error, response);
   }
   return data;
 }
