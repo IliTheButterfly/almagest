@@ -27,6 +27,7 @@ WORKDIR /app/backend
 # The libraries are copied whole here since they *are* dependencies: changing
 # one should invalidate this layer.
 COPY elec-value-parser/ /app/elec-value-parser/
+COPY ecia-barcode/ /app/ecia-barcode/
 COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev

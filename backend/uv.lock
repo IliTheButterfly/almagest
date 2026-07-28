@@ -22,6 +22,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "ecia-barcode" },
     { name = "elec-value-parser" },
     { name = "fastapi" },
     { name = "pint" },
@@ -50,6 +51,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
+    { name = "ecia-barcode", editable = "../ecia-barcode" },
     { name = "elec-value-parser", editable = "../elec-value-parser" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "pillow", marker = "extra == 'labels'", specifier = ">=11.0" },
@@ -196,8 +198,22 @@ wheels = [
 ]
 
 [[package]]
-name = "elec-value-parser"
+name = "ecia-barcode"
 version = "0.1.0"
+source = { editable = "../ecia-barcode" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "elec-value-parser"
+version = "0.1.2"
 source = { editable = "../elec-value-parser" }
 
 [package.metadata]
