@@ -170,7 +170,7 @@ class Location(Base, TreeMixin, TimestampMixin):
     two sources of truth that can disagree. Absence of an `object_ids` row
     expresses "no printed ID" exactly, and promoting a slot to a printed ID is
     an insert. Addressing an unlabelled cell stays `parent short_id + slot
-    label` (`BIN 4K7T-92MQ / C-07`), which needs no column either.
+    label` (`BIN 4K7T-92M8 / C-07`), which needs no column either.
     """
 
     __tablename__ = "locations"

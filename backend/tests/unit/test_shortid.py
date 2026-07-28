@@ -68,11 +68,11 @@ def test_every_adjacent_transposition_is_detected() -> None:
 @pytest.mark.parametrize(
     ("typed", "expected"),
     [
-        ("4K7T-92MQ", "4K7T92MQ"),
-        ("4k7t92mq", "4K7T92MQ"),
-        ("4K7T 92MQ", "4K7T92MQ"),
-        ("  4K7T-92MQ  ", "4K7T92MQ"),
-        ("4K7T_92MQ", "4K7T92MQ"),
+        ("4K7T-92M8", "4K7T92M8"),
+        ("4k7t92m8", "4K7T92M8"),
+        ("4K7T 92M8", "4K7T92M8"),
+        ("  4K7T-92M8  ", "4K7T92M8"),
+        ("4K7T_92M8", "4K7T92M8"),
     ],
 )
 def test_normalisation_of_cosmetic_variation(typed: str, expected: str) -> None:
@@ -95,12 +95,12 @@ def test_u_is_not_remapped() -> None:
 def test_a_display_prefix_is_discarded_not_parsed() -> None:
     """The type prefix is cosmetic. Tolerating it when a human types what they
     saw is not the same as giving it meaning."""
-    assert shortid.normalize("BIN 4K7T-92MQ") == "4K7T92MQ"
+    assert shortid.normalize("BIN 4K7T-92M8") == "4K7T92M8"
 
 
 @pytest.mark.parametrize(
     ("bad", "reason"),
-    [("", "empty"), ("   ", "empty"), ("4K7T", "length"), ("4K7T92MQXX", "length")],
+    [("", "empty"), ("   ", "empty"), ("4K7T", "length"), ("4K7T92M8XX", "length")],
 )
 def test_malformed_input(bad: str, reason: str) -> None:
     with pytest.raises(InvalidShortId) as excinfo:
@@ -116,10 +116,21 @@ def test_wrong_check_symbol_is_reported_as_such() -> None:
     assert excinfo.value.reason == "check"
 
 
+def test_the_documented_example_code_is_check_valid() -> None:
+    """`4K7T-92M8` is the one code every docstring, docs page and input
+    placeholder uses, so it is the code that gets pasted into the entry field
+    first. The one originally shipped (`4K7T-92MQ`) failed its own check symbol,
+    which the server correctly refused — reading as a bug in the field rather
+    than in the example. Pinned here because prose cannot be type-checked.
+    """
+    assert shortid.is_valid("4K7T92M8")
+    assert shortid.normalize("4K7T-92M8") == "4K7T92M8"
+
+
 def test_display_formatting() -> None:
-    assert shortid.format_display("4K7T92MQ") == "4K7T-92MQ"
-    assert shortid.format_display("4K7T92MQ", "location") == "BIN 4K7T-92MQ"
-    assert shortid.format_display("4K7T92MQ", "part") == "PART 4K7T-92MQ"
+    assert shortid.format_display("4K7T92M8") == "4K7T-92M8"
+    assert shortid.format_display("4K7T92M8", "location") == "BIN 4K7T-92M8"
+    assert shortid.format_display("4K7T92M8", "part") == "PART 4K7T-92M8"
 
 
 def test_display_round_trips_through_normalisation() -> None:

@@ -37,7 +37,7 @@ router = APIRouter(tags=["resolve"])
 
 class ResolvedTarget(BaseModel):
     short_id: str
-    #: Grouped for display, `4K7T-92MQ`, with the cosmetic type prefix.
+    #: Grouped for display, `4K7T-92M8`, with the cosmetic type prefix.
     display: str
     entity_type: str
     entity_pk: RowId

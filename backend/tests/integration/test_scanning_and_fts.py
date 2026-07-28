@@ -337,7 +337,7 @@ def test_retiring_a_scanner_keeps_its_history(db: Session) -> None:
     db.add(
         ScanEvent(
             source_id=source.id,
-            raw_payload="4K7T92MQ",
+            raw_payload="4K7T92M8",
             payload_sha256="1" * 64,
             decoded_kind=ScanDecodedKind.SHORT_ID,
             action_taken=ScanAction.RESOLVED,
@@ -353,7 +353,7 @@ def test_retiring_a_scanner_keeps_its_history(db: Session) -> None:
 
     event = db.execute(select(ScanEvent)).scalar_one()
     assert event.source_id is None
-    assert event.raw_payload == "4K7T92MQ"
+    assert event.raw_payload == "4K7T92M8"
     assert event.decoded_kind == ScanDecodedKind.SHORT_ID
 
 

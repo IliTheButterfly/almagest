@@ -100,22 +100,22 @@ def test_the_mpn_key_of_pure_decoration_is_empty() -> None:
 def test_the_tag_url_is_unwrapped_to_the_code_inside_it() -> None:
     """`{base_url}/s/{short_id}` is what is physically written to every tag and
     QR, so this is the *normal* case, not an edge one."""
-    assert codes.short_id_candidate("https://almagest.lan/s/4K7T-92MQ") == "4K7T-92MQ"
-    assert codes.short_id_candidate("HTTPS://ALMAGEST.LAN/S/4K7T92MQ") == "4K7T92MQ"
-    assert codes.short_id_candidate("https://almagest.lan/s/4K7T92MQ?utm=nfc") == "4K7T92MQ"
-    assert codes.short_id_candidate("https://almagest.lan/s/4K7T92MQ/") == "4K7T92MQ"
+    assert codes.short_id_candidate("https://almagest.lan/s/4K7T-92M8") == "4K7T-92M8"
+    assert codes.short_id_candidate("HTTPS://ALMAGEST.LAN/S/4K7T92M8") == "4K7T92M8"
+    assert codes.short_id_candidate("https://almagest.lan/s/4K7T92M8?utm=nfc") == "4K7T92M8"
+    assert codes.short_id_candidate("https://almagest.lan/s/4K7T92M8/") == "4K7T92M8"
 
 
 def test_the_host_in_a_tag_url_is_deliberately_ignored() -> None:
     """A tag written before a hostname change must keep resolving. Rewriting the
     payload of every tag is the one repair this design cannot make cheaply, so
     the code — not the host — is the payload's authority."""
-    assert codes.short_id_candidate("http://192.168.1.9:8000/s/4K7T92MQ") == "4K7T92MQ"
-    assert codes.short_id_candidate("https://someone-elses-host/s/4K7T92MQ") == "4K7T92MQ"
+    assert codes.short_id_candidate("http://192.168.1.9:8000/s/4K7T92M8") == "4K7T92M8"
+    assert codes.short_id_candidate("https://someone-elses-host/s/4K7T92M8") == "4K7T92M8"
 
 
 def test_a_bare_code_is_its_own_candidate() -> None:
-    assert codes.short_id_candidate("  4K7T-92MQ  ") == "4K7T-92MQ"
+    assert codes.short_id_candidate("  4K7T-92M8  ") == "4K7T-92M8"
     assert codes.short_id_candidate("LM358N") == "LM358N"
 
 
@@ -185,11 +185,11 @@ def test_the_quantity_becomes_milli_units() -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        "4K7T92MQ",  # a short ID — and `4K` is a real DI (purchase order)
+        "4K7T92M8",  # a short ID — and `4K` is a real DI (purchase order)
         "PARTS123",  # `P` is a real DI (customer part number)
         "SN12345678",  # `S` is a real DI (serial)
         "4006381333931",  # an EAN-13
-        "https://almagest.lan/s/4K7T92MQ",
+        "https://almagest.lan/s/4K7T92M8",
         "LM358N",
         "",
     ],
@@ -197,7 +197,7 @@ def test_the_quantity_becomes_milli_units() -> None:
 def test_the_ecia_gate_refuses_payloads_that_belong_to_other_steps(payload: str) -> None:
     """**The other load-bearing test.** The library's contract is "degrades, never
     raises", so `parse()` returns a *label* for any input at all — feed it the
-    bare short ID `4K7T92MQ` and it reports a purchase order of `7T92MQ`, because
+    bare short ID `4K7T92M8` and it reports a purchase order of `7T92M8`, because
     `4K` is a genuine Data Identifier. That makes its output useless as a format
     test, so the test lives in the adapter and looks for structure: the envelope,
     or at minimum one GS separator. Without this, step 3 would swallow payloads

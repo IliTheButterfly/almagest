@@ -123,7 +123,7 @@ export function ProvisionScreen() {
               className="mono"
               value={targetCode}
               onChange={(event) => setTargetCode(event.target.value)}
-              placeholder="4K7T-92MQ"
+              placeholder="4K7T-92M8"
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}

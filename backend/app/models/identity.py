@@ -18,7 +18,7 @@ class ObjectId(Base):
     **One ID space across every object type.** A scan therefore resolves with
     no context about what was scanned, and an object that gets reclassified
     keeps its printed label instead of invalidating it. Readability is
-    recovered by rendering the type as a display prefix (`BIN 4K7T-92MQ`) that
+    recovered by rendering the type as a display prefix (`BIN 4K7T-92M8`) that
     is never parsed and never stored as part of the code.
 
     `short_id` is the primary key, so a generator collision is *detected* and
@@ -30,7 +30,7 @@ class ObjectId(Base):
     __tablename__ = "object_ids"
 
     #: Crockford base32, 7 data symbols + 1 mod-37 check symbol. Stored
-    #: unhyphenated and normalised; the `4K7T-92MQ` hyphen is display only.
+    #: unhyphenated and normalised; the `4K7T-92M8` hyphen is display only.
     short_id: Mapped[str] = mapped_column(String(8), primary_key=True)
 
     entity_type: Mapped[str] = mapped_column(StrEnumType(EntityType), nullable=False)

@@ -259,7 +259,7 @@ function EmptyInto({ location, onDone }: { location: LocationRead; onDone: () =>
           className="mono"
           value={code}
           onChange={(event) => setCode(event.target.value)}
-          placeholder="4K7T-92MQ"
+          placeholder="4K7T-92M8"
           autoComplete="off"
           autoCapitalize="characters"
           spellCheck={false}

@@ -26,7 +26,7 @@ from app.services.label_rendering import (
     render_card_image,
 )
 
-_PAYLOAD = "https://almagest.example/s/4K7TG92MQ"
+_PAYLOAD = "https://almagest.example/s/4K7T92M8"
 
 
 def _spec(
@@ -44,7 +44,7 @@ def _spec(
         width_mm=width_mm,
         height_mm=height_mm,
         dpi=dpi,
-        fields=fields or LabelFields(primary="A1", secondary="4K7T-92MQ", tertiary="Cabinet"),
+        fields=fields or LabelFields(primary="A1", secondary="4K7T-92M8", tertiary="Cabinet"),
         qr_payload=_PAYLOAD if qr else None,
         outlined=outlined,
     )
@@ -125,11 +125,11 @@ def test_the_short_dimension_gates_inclusion_not_the_long_one() -> None:
 def test_drawer_card_shows_its_short_id_unconditionally_on_the_qr() -> None:
     """The short id is its own always-shown text block — unlike a part QR's
     caption, it never depends on whether a QR is drawn at all."""
-    fields = LabelFields(primary="A1", secondary="4K7T-92MQ", tertiary="Cabinet A")
+    fields = LabelFields(primary="A1", secondary="4K7T-92M8", tertiary="Cabinet A")
     spec = _spec(10.0, 10.0, fields=fields)  # too small for a QR
     layout = compute_card_layout(spec)
     assert layout.qr_payload is None
-    assert [block.text for block in layout.text] == ["A1", "4K7T-92MQ", "Cabinet A"]
+    assert [block.text for block in layout.text] == ["A1", "4K7T-92M8", "Cabinet A"]
 
 
 def test_caption_is_dropped_when_the_qr_is_omitted() -> None:
