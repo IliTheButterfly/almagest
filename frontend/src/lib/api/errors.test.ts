@@ -73,3 +73,54 @@ describe("surfacing the server's reason code", () => {
     expect(problemOf(new Error("boom"))).toBeNull();
   });
 });
+
+describe("the layout change guard's affected-slot list", () => {
+  it("extracts every blocked slot from a slots_hold_content 409", () => {
+    const error = new ApiError(
+      "could not reapply that layout",
+      {
+        detail: {
+          reason: "slots_hold_content",
+          message: "some slots hold content",
+          affected_slots: [
+            { location_id: 41, slot_label: "B2", reasons: ["has_stock"] },
+            { location_id: 42, slot_label: "B3", reasons: ["has_tag", "has_children"] },
+          ],
+        },
+      },
+      409,
+    );
+    const report = describeError(error);
+    expect(report.reason).toBe("slots_hold_content");
+    expect(report.headline).toContain("Move their contents");
+    expect(report.affectedSlots).toEqual([
+      { locationId: 41, slotLabel: "B2", reasons: ["has_stock"] },
+      { locationId: 42, slotLabel: "B3", reasons: ["has_tag", "has_children"] },
+    ]);
+  });
+
+  it("is null for a refusal that carries no such list", () => {
+    const error = new ApiError(
+      "refused",
+      { detail: { reason: "slot_identity_reinterpreted", message: "would reinterpret A1" } },
+      422,
+    );
+    const report = describeError(error);
+    expect(report.reason).toBe("slot_identity_reinterpreted");
+    expect(report.affectedSlots).toBeNull();
+  });
+
+  it("tolerates a malformed entry rather than throwing", () => {
+    const error = new ApiError(
+      "could not reapply that layout",
+      {
+        detail: {
+          reason: "slots_hold_content",
+          affected_slots: [{ location_id: "not a number", slot_label: "B2" }, null, 42],
+        },
+      },
+      409,
+    );
+    expect(describeError(error).affectedSlots).toBeNull();
+  });
+});

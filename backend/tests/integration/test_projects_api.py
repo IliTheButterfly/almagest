@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.enums import AllocationState
+from app.models.projects import StockAllocation
 from tests.factories import (
     make_allocation,
     make_bom_line,
@@ -163,6 +164,71 @@ def test_patch_build_to_in_progress_sets_started_at(client: TestClient) -> None:
     assert patched.json()["completed_at"] is None
 
 
+def test_raising_assembly_count_triples_demand_and_writes_no_allocation(
+    client: TestClient, db: Session
+) -> None:
+    """The user's stated mental model, verbatim: "changing the number of
+    assemblies would mark those parts as needed". `needed_milli` must move on
+    the very next read with **nothing** written to `stock_allocations` — ADR
+    0004's whole point in deriving demand rather than backfilling it."""
+    project_row = make_project(db)
+    build_row = make_build(db, project_row, assembly_count=1)
+    make_bom_line(db, project_row, qty_per_assembly_milli=1_000)
+    db.commit()
+
+    before = client.get(f"/api/builds/{build_row.id}/shortages").json()
+    assert before["assembly_count"] == 1
+    assert before["lines"][0]["required_milli"] == 1_000
+    assert before["lines"][0]["needed_milli"] == 1_000
+
+    allocation_count_before = (
+        db.query(StockAllocation).filter(StockAllocation.build_id == build_row.id).count()
+    )
+
+    patched = client.patch(f"/api/builds/{build_row.id}", json={"assembly_count": 3})
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["assembly_count"] == 3
+
+    allocation_count_after = (
+        db.query(StockAllocation).filter(StockAllocation.build_id == build_row.id).count()
+    )
+    assert allocation_count_after == allocation_count_before == 0
+
+    after = client.get(f"/api/builds/{build_row.id}/shortages").json()
+    assert after["assembly_count"] == 3
+    assert after["lines"][0]["required_milli"] == 3_000
+    assert after["lines"][0]["needed_milli"] == 3_000
+
+
+def test_lowering_assembly_count_never_touches_an_open_reservation(
+    client: TestClient, db: Session
+) -> None:
+    """Dropping the count must shrink only what is reported *needed* — it must
+    never release, downgrade, or otherwise touch a hold already taken, which is
+    what would strand or double-free real stock."""
+    project_row = make_project(db)
+    build_row = make_build(db, project_row, assembly_count=3)
+    part = make_part(db, "resistor")
+    location = make_location(db)
+    lot = make_lot(db, part, location, qty_milli=10_000)
+    line = make_bom_line(db, project_row, qty_per_assembly_milli=1_000, part_id=part.id)
+    allocation = make_allocation(
+        db, build_row, part, 3_000, state=AllocationState.RESERVED, lot=lot, bom_line_id=line.id
+    )
+    db.commit()
+
+    response = client.patch(f"/api/builds/{build_row.id}", json={"assembly_count": 1})
+    assert response.status_code == 200, response.text
+
+    db.refresh(allocation)
+    assert allocation.state == AllocationState.RESERVED
+    assert allocation.qty_milli == 3_000
+
+    after = client.get(f"/api/builds/{build_row.id}/shortages").json()
+    assert after["lines"][0]["required_milli"] == 1_000
+    assert after["lines"][0]["needed_milli"] == 0  # fully covered by the hold now
+
+
 def test_closing_a_build_releases_its_open_reservations(client: TestClient, db: Session) -> None:
     project_row = make_project(db)
     build_row = make_build(db, project_row)
@@ -309,6 +375,138 @@ def test_editing_a_line_from_another_project_is_rejected(client: TestClient, db:
     )
     assert response.status_code == 422
     assert response.json()["detail"]["reason"] == "line_not_in_project"
+
+
+def test_a_hand_added_line_lands_unmatched_and_after_the_imported_ones(
+    client: TestClient, db: Session
+) -> None:
+    """Omitting `id` is "I can't add parts to a project" — the exact request
+    the task states verbatim. A hand-added line with no `part_id` must be as
+    legal as an imported one KiCad could not match; it is not rejected for
+    lacking a part."""
+    project_row = make_project(db)
+    make_bom_line(db, project_row, line_no=1, designators="R1")
+    db.commit()
+
+    response = client.put(
+        f"/api/projects/{project_row.id}/bom",
+        json={
+            "edits": [{"qty_per_assembly_milli": 2_000, "designators": "R2", "ref_value": "4k7"}]
+        },
+    )
+    assert response.status_code == 200, response.text
+    added = response.json()["lines"][0]
+    assert added["part_id"] is None
+    assert added["is_match_confirmed"] is False
+    assert added["qty_per_assembly_milli"] == 2_000
+    assert added["designators"] == "R2"
+    # Lands after the imported line, not colliding with its number.
+    assert added["line_no"] == 2
+
+    listing = client.get(f"/api/projects/{project_row.id}/bom").json()
+    assert listing["total"] == 2
+
+
+def test_a_hand_added_line_can_name_a_part_and_be_confirmed_by_default(
+    client: TestClient, db: Session
+) -> None:
+    project_row = make_project(db)
+    part = make_part(db, "10k resistor")
+    db.commit()
+
+    response = client.put(
+        f"/api/projects/{project_row.id}/bom",
+        json={"edits": [{"qty_per_assembly_milli": 1_000, "part_id": part.id}]},
+    )
+    added = response.json()["lines"][0]
+    assert added["part_id"] == part.id
+    # Choosing the part through this route *is* the human agreement — the same
+    # default `_apply_bom_line_edit` already applies to a manual match on an
+    # existing line.
+    assert added["is_match_confirmed"] is True
+
+
+def test_adding_a_line_without_a_quantity_is_rejected(client: TestClient) -> None:
+    project = _project(client)
+    response = client.put(
+        f"/api/projects/{project['id']}/bom",
+        json={"edits": [{"designators": "R9"}]},
+    )
+    assert response.status_code == 422
+
+
+def test_two_lines_can_be_added_in_one_request_with_sequential_line_numbers(
+    client: TestClient, db: Session
+) -> None:
+    project_row = make_project(db)
+    db.commit()
+
+    response = client.put(
+        f"/api/projects/{project_row.id}/bom",
+        json={
+            "edits": [
+                {"qty_per_assembly_milli": 1_000, "designators": "R1"},
+                {"qty_per_assembly_milli": 2_000, "designators": "R2"},
+            ]
+        },
+    )
+    assert response.status_code == 200, response.text
+    line_nos = sorted(line["line_no"] for line in response.json()["lines"])
+    assert line_nos == [1, 2]
+
+
+def test_deleting_a_line_removes_it_and_reports_the_id(client: TestClient, db: Session) -> None:
+    project_row = make_project(db)
+    line = make_bom_line(db, project_row, designators="R1")
+    db.commit()
+
+    response = client.put(
+        f"/api/projects/{project_row.id}/bom",
+        json={"edits": [{"id": line.id, "delete": True}]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["deleted_ids"] == [line.id]
+    assert response.json()["lines"] == []
+
+    listing = client.get(f"/api/projects/{project_row.id}/bom").json()
+    assert listing["total"] == 0
+
+
+def test_deleting_a_line_does_not_release_what_was_already_allocated_against_it(
+    client: TestClient, db: Session
+) -> None:
+    """A BOM edit is paperwork; it must not silently give back a hold on real
+    stock. The allocation survives with `bom_line_id` cleared — the same shape
+    the roster already renders for a pick that never matched a line."""
+    project_row = make_project(db)
+    build_row = make_build(db, project_row)
+    part = make_part(db, "resistor")
+    location = make_location(db)
+    lot = make_lot(db, part, location, qty_milli=10_000)
+    line = make_bom_line(db, project_row, part_id=part.id)
+    allocation = make_allocation(
+        db, build_row, part, 1_000, state=AllocationState.RESERVED, lot=lot, bom_line_id=line.id
+    )
+    db.commit()
+
+    response = client.put(
+        f"/api/projects/{project_row.id}/bom",
+        json={"edits": [{"id": line.id, "delete": True}]},
+    )
+    assert response.status_code == 200, response.text
+
+    db.refresh(allocation)
+    assert allocation.state == AllocationState.RESERVED
+    assert allocation.bom_line_id is None
+
+
+def test_deleting_a_line_that_was_never_created_is_rejected(client: TestClient) -> None:
+    project = _project(client)
+    response = client.put(
+        f"/api/projects/{project['id']}/bom",
+        json={"edits": [{"delete": True, "qty_per_assembly_milli": 1_000}]},
+    )
+    assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +694,11 @@ def test_every_new_route_is_in_the_openapi_document(client: TestClient) -> None:
         ("/api/builds/{build_id}/shortages", "get"),
         ("/api/builds/{build_id}/allocate", "post"),
         ("/api/builds/{build_id}/release", "post"),
+        # ADR 0004 — see `test_staging.py` for the behaviour behind these.
+        ("/api/projects/{project_id}", "delete"),
+        ("/api/builds/{build_id}/stage", "post"),
+        ("/api/builds/{build_id}/unstage", "post"),
+        ("/api/builds/{build_id}/consume-staged", "post"),
     }
     for path, method in expected:
         assert path in paths, f"{path} missing from openapi.json"
@@ -522,6 +725,7 @@ def test_every_numeric_field_rejects_an_absurd_value(client: TestClient, db: Ses
         ("patch", f"/api/projects/{ABSURD}", {"notes": "x"}),
         ("post", f"/api/projects/{ABSURD}/builds", {}),
         ("post", f"/api/projects/{project_row.id}/builds", {"assembly_count": ABSURD}),
+        ("patch", f"/api/builds/{build_row.id}", {"assembly_count": ABSURD}),
         ("get", f"/api/builds/{ABSURD}", {}),
         (
             "put",

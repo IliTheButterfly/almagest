@@ -630,9 +630,19 @@ def get_inbox_location(session: Session) -> Location:
     """The permanent staging fallback. Guaranteed to exist — seeded by the
     migration that introduces `locations.is_staging` — so this is the one
     lookup in the whole escalation ladder that must never come back empty.
+
+    `is_staging` alone stopped identifying it uniquely when ADR 0004 gave every
+    project a staging box, so the filter also requires the row to be
+    **placeable**: this function's whole job is to name somewhere stock can
+    legitimately be put, and a project box is explicitly not that. Ordering by
+    `id` would have kept returning the seeded row by luck; luck is not a filter.
     """
     location = (
-        session.execute(select(Location).where(Location.is_staging.is_(True)).order_by(Location.id))
+        session.execute(
+            select(Location)
+            .where(Location.is_staging.is_(True), Location.is_placeable.is_not(False))
+            .order_by(Location.id)
+        )
         .scalars()
         .first()
     )

@@ -348,3 +348,119 @@ describe("releasing every hold on a build", () => {
     expect(release?.body["allocation_id"]).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Changing the assembly count moves the shortfall — with nothing recomputed
+// client-side. Demand is derived server-side (ADR 0004); this only proves
+// the screen shows the server's new numbers after the save, not that it
+// computed them itself.
+// ---------------------------------------------------------------------------
+
+describe("changing the assembly count", () => {
+  const PER_ASSEMBLY_MILLI = 1_000;
+
+  /**
+   * A stand-in server that actually multiplies `qty_per_assembly_milli` by
+   * whatever `assembly_count` a `PATCH` last set — so the shortage report
+   * that comes back after the edit is not a second fixture the test hands
+   * it, but the same derivation the backend performs. A test that instead
+   * stubbed a pre-computed "after" response could pass even if the screen
+   * never actually re-read the shortage report at all.
+   */
+  function stubDerivingApi(): void {
+    let assemblyCount = 1;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const url = new URL(request.url);
+        const raw = request.method === "GET" ? "" : await request.text();
+        calls.push({
+          url: url.pathname,
+          method: request.method,
+          body: raw === "" ? {} : (JSON.parse(raw) as Record<string, unknown>),
+        });
+        const json = (body: unknown): Response =>
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+
+        if (url.pathname === "/api/builds/5" && request.method === "GET") {
+          return json({ ...BUILD, assembly_count: assemblyCount });
+        }
+        if (url.pathname === "/api/builds/5" && request.method === "PATCH") {
+          const body = JSON.parse(raw) as { assembly_count?: number };
+          if (body.assembly_count !== undefined) {
+            assemblyCount = body.assembly_count;
+          }
+          return json({ ...BUILD, assembly_count: assemblyCount });
+        }
+        if (url.pathname === "/api/builds/5/shortages") {
+          const required = PER_ASSEMBLY_MILLI * assemblyCount;
+          return json({
+            build_id: 5,
+            assembly_count: assemblyCount,
+            is_buildable: required === 0,
+            lines: [
+              {
+                ...SATISFIED_LINE,
+                bom_line_id: 20,
+                line_no: 1,
+                required_milli: required,
+                allocated_milli: PER_ASSEMBLY_MILLI,
+                shortfall_milli: Math.max(0, required - PER_ASSEMBLY_MILLI),
+                kind: required > PER_ASSEMBLY_MILLI ? "short" : "satisfied",
+              },
+            ],
+          });
+        }
+        throw new Error(`unstubbed request: ${request.method} ${url.pathname}`);
+      }),
+    );
+  }
+
+  it("raising it from 1 to 3 triples the required quantity the report shows", async () => {
+    stubDerivingApi();
+    renderScreen();
+
+    // At count 1, one held unit exactly covers one required unit.
+    expect(await screen.findByText(/1 required/)).toBeTruthy();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Assemblies"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(calls.some((call) => call.method === "PATCH")).toBe(true));
+    expect(calls.find((call) => call.method === "PATCH")?.body["assembly_count"]).toBe(3);
+
+    // The same held unit no longer covers triple the demand — the shortfall
+    // moved on screen with no second "recompute" request of any kind.
+    expect(await screen.findByText(/3 required/)).toBeTruthy();
+    expect(await screen.findByText(/short 2/)).toBeTruthy();
+    expect(
+      calls.filter((call) => call.method === "PATCH" || call.method === "POST"),
+    ).toHaveLength(1);
+  });
+
+  it("warns, in the user's own words, that raising it only marks parts as needed", async () => {
+    stubDerivingApi();
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Assemblies"), { target: { value: "3" } });
+
+    expect(
+      await screen.findByText(/marks the extra parts as needed on the shortage report/),
+    ).toBeTruthy();
+  });
+
+  it("says nothing extra when the count is left unchanged", async () => {
+    stubDerivingApi();
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    expect(
+      screen.queryByText(/marks the extra parts as needed on the shortage report/),
+    ).toBeNull();
+  });
+});

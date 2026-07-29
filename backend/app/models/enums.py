@@ -70,6 +70,20 @@ class LedgerSource(StrEnum):
     API = "api"
     DEFRAG = "defrag"
 
+    #: **Reconstructed after the fact**, from a finished board rather than from
+    #: the movement as it happened — the as-built roster correction ADR 0004
+    #: requires ("record what was actually used", for parts that were never
+    #: tracked). Distinct from `MANUAL`, which is a human recording a movement
+    #: *at the time*: this one is a human recording it from memory or by
+    #: counting what is soldered in, which is a strictly weaker claim and is
+    #: exactly what the trust ordering exists to express.
+    #:
+    #: Forced by `app.services.reservations.record_used` rather than accepted
+    #: from the caller. The roster's whole value is that an edit admits to being
+    #: an edit, and a client that could label a correction `scan` would erase
+    #: the one fact that makes the roster trustworthy.
+    RECONCILED = "reconciled"
+
 
 class LotStatus(StrEnum):
     ACTIVE = "active"
@@ -670,7 +684,9 @@ class AllocationState(StrEnum):
 
     The consequence to keep in mind when adding a member: any new state that
     should hold stock has to be added to that predicate *and* to the rebuild,
-    or the cache silently stops matching. Prefer states that do not.
+    or the cache silently stops matching. Prefer states that do not — `STAGED`
+    is exactly such a state, which is why adding it changed no predicate
+    anywhere.
 
     Two states people expect and that are deliberately **not** here:
 
@@ -690,6 +706,25 @@ class AllocationState(StrEnum):
     #: A named lot is held for this build. `lot_id IS NOT NULL`, and **these
     #: rows and only these rows** sum into `qty_reserved_milli_cached`.
     RESERVED = "reserved"
+    #: **The parts have physically moved to the project's staging location**
+    #: (ADR 0004). A real `stock_ledger` move put them there, pointed at by
+    #: `staged_ledger_seq`, and `lot_id` now names the lot in the project box
+    #: rather than the one in the drawer.
+    #:
+    #: Deliberately **not** counted as reserved, and that is the subtle part:
+    #: the parts are not in the source lot any more, so counting them there
+    #: would count the same units twice — once as a hold on a drawer that no
+    #: longer holds them, once as real stock at their new location. The
+    #: single-predicate definition above survives because a staged row holds
+    #: stock at its *new* place in the ordinary way.
+    #:
+    #: Adding this member was a one-line change *only* because there is no
+    #: `CHECK` constraint on `stock_allocations.state`. That is the second time
+    #: the no-`CHECK` rule has paid for itself outright (the first was
+    #: `CapacityModel.GRID_UNITS` for ADR 0002's recursive container types); a
+    #: `CHECK` enum would have made "parts set aside for a project" a full
+    #: rebuild of the table every reservation points into.
+    STAGED = "staged"
     #: The parts left the bin. The ledger row that recorded it is pointed at by
     #: `consumed_ledger_seq`, so this stops counting as reserved at the same
     #: instant `qty_milli_cached` drops — double-counting a pick is otherwise

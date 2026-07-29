@@ -29,6 +29,7 @@ import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
 import { getLocationTree, type LocationNode, type LocationTree } from "../lib/api/client";
 import { formatQty } from "../lib/format";
+import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
 import { ancestorsOf, childrenOf, descendantsOf, indexTree } from "../lib/locations/tree";
 import { useAsync } from "../lib/hooks/useAsync";
 
@@ -183,7 +184,8 @@ function HereSummary({
       <div className="row">
         <h1 style={{ flex: 1 }}>{here.name}</h1>
         {here.slot_label !== null && <span className="badge mono">{here.slot_label}</span>}
-        {here.is_staging && <span className="badge badge-accent">inbox</span>}
+        {isInbox(here) && <span className="badge badge-accent">inbox</span>}
+        {isProjectStagingBox(here) && <span className="badge badge-accent">project parts</span>}
         {here.is_overfull && <span className="badge badge-warn">over</span>}
         <Link to={`/locations/${here.id}`}>Open this container →</Link>
       </div>
@@ -197,11 +199,24 @@ function HereSummary({
           {formatQty(qty)} total
         </span>
       </div>
-      {here.is_staging && (
+      {/* Two staging kinds, opposite advice. This notice used to fire on
+          `is_staging` alone, so a project's box was told it "is meant to be
+          emptied rather than lived in" — the exact opposite of true for a box
+          deliberately holding a board's parts, and advice that would have someone
+          undo a withdrawal they meant to make. */}
+      {isInbox(here) && (
         <Notice kind="warn" title="This is the staging inbox">
           The permanent catch-all, not an ordinary bin. Anything here landed because
           auto-assignment ran out of options, and it is meant to be emptied rather
           than lived in.
+        </Notice>
+      )}
+      {isProjectStagingBox(here) && (
+        <Notice kind="info" title="These parts are set aside for a project">
+          Not a catch-all and not somewhere to empty: parts here were taken out of
+          stock on purpose and are waiting to be built in. They are still real stock
+          and still findable — they are just not free for anything else, so no other
+          build counts them as available. Put them back from the build's roster tab.
         </Notice>
       )}
       {overfull.length > 0 && (
@@ -308,7 +323,10 @@ function TreeGrid({ nodes, rootId }: { nodes: readonly LocationNode[]; rootId: n
                 <Link className="tree-label" to={`/locations/${node.id}`}>
                   <span className="name">{matching === null ? node.name : node.label_path}</span>
                   {node.slot_label !== null && <span className="badge mono">{node.slot_label}</span>}
-                  {node.is_staging && <span className="badge badge-accent">inbox</span>}
+                  {isInbox(node) && <span className="badge badge-accent">inbox</span>}
+                  {isProjectStagingBox(node) && (
+                    <span className="badge badge-accent">project parts</span>
+                  )}
                   {node.is_overfull && <span className="badge badge-warn">over</span>}
                 </Link>
               </div>

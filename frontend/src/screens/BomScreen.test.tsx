@@ -8,7 +8,7 @@
  * how many lines needed a human.
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -283,5 +283,189 @@ describe("importing a CSV", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Import CSV" }));
     expect(screen.getByRole("button", { name: "Import" })).toHaveProperty("disabled", true);
     expect(callsTo("/api/projects/1/bom/import")).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Adding, editing and removing a line by hand
+// ---------------------------------------------------------------------------
+
+/**
+ * A stateful stand-in for the server: `PUT` actually mutates the list `GET`
+ * serves next, so a test can assert on what the *screen* shows after a
+ * round trip — the row appearing, being edited, or disappearing — rather
+ * than only on the request body sent.
+ */
+function stubMutableApi(initial: readonly Record<string, unknown>[]): void {
+  let lines = [...initial];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (request: Request) => {
+      const url = new URL(request.url);
+      const raw = request.method === "GET" ? "" : await request.text();
+      calls.push({
+        url: url.pathname + url.search,
+        method: request.method,
+        body: raw === "" ? {} : (JSON.parse(raw) as Record<string, unknown>),
+      });
+      const json = (body: unknown): Response =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+
+      if (url.pathname === "/api/projects/1") {
+        return json(PROJECT);
+      }
+      if (url.pathname === "/api/projects/1/bom" && request.method === "GET") {
+        return json({ total: lines.length, lines });
+      }
+      if (url.pathname === "/api/projects/1/bom" && request.method === "PUT") {
+        const body = JSON.parse(raw) as { edits: Record<string, unknown>[] };
+        const touched: Record<string, unknown>[] = [];
+        const deletedIds: number[] = [];
+        let nextLineNo = lines.reduce((max, l) => Math.max(max, l["line_no"] as number), 0);
+        for (const edit of body.edits) {
+          if (edit["id"] === undefined || edit["id"] === null) {
+            nextLineNo += 1;
+            const created = bomLine({
+              id: 1000 + nextLineNo,
+              line_no: nextLineNo,
+              designators: null,
+              ref_value: null,
+              mpn_raw: null,
+              manufacturer_raw: null,
+              part_id: null,
+              is_match_confirmed: false,
+              ...edit,
+            });
+            lines = [...lines, created];
+            touched.push(created);
+            continue;
+          }
+          if (edit["delete"] === true) {
+            deletedIds.push(edit["id"] as number);
+            lines = lines.filter((l) => l["id"] !== edit["id"]);
+            continue;
+          }
+          lines = lines.map((l) => (l["id"] === edit["id"] ? { ...l, ...edit } : l));
+          const updated = lines.find((l) => l["id"] === edit["id"]);
+          if (updated !== undefined) {
+            touched.push(updated);
+          }
+        }
+        return json({ lines: touched, deleted_ids: deletedIds });
+      }
+      throw new Error(`unstubbed request: ${request.method} ${url.pathname}${url.search}`);
+    }),
+  );
+}
+
+describe("adding a line by hand", () => {
+  it("sends a create edit with no id and the typed fields", async () => {
+    stubMutableApi([UNMATCHED]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add a line" }));
+    fireEvent.change(screen.getByPlaceholderText("R7, or R7,R8"), {
+      target: { value: "C9" },
+    });
+    fireEvent.change(screen.getByLabelText("Quantity per assembly"), {
+      target: { value: "2" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add line" }));
+
+    await waitFor(() => {
+      const put = calls.find((call) => call.url === "/api/projects/1/bom" && call.method === "PUT");
+      expect(put).toBeDefined();
+    });
+    const put = calls.find((call) => call.url === "/api/projects/1/bom" && call.method === "PUT");
+    expect(put?.body["edits"]).toEqual([
+      { qty_per_assembly_milli: 2000, designators: "C9", part_id: null },
+    ]);
+
+    // The added line is unmatched — a normal, expected state — and shows up
+    // on the next read without a page reload.
+    expect(await screen.findByText("C9")).toBeTruthy();
+  });
+
+  it("requires a quantity greater than zero before the button is enabled", async () => {
+    stubMutableApi([UNMATCHED]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add a line" }));
+    fireEvent.change(screen.getByLabelText("Quantity per assembly"), {
+      target: { value: "0" },
+    });
+    expect(screen.getByRole("button", { name: "Add line" })).toHaveProperty("disabled", true);
+  });
+});
+
+describe("editing a line by hand", () => {
+  it("sends the designators, value and quantity for that line's id", async () => {
+    stubMutableApi([UNMATCHED]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    // Only one line is stubbed, so its designator input ("R1") is the only
+    // match — the row's own title text is not a form control and cannot be
+    // confused with it.
+    fireEvent.change(screen.getByDisplayValue("R1"), { target: { value: "R1,R9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const put = calls.find((call) => call.url === "/api/projects/1/bom" && call.method === "PUT");
+      expect(put).toBeDefined();
+    });
+    const put = calls.find((call) => call.url === "/api/projects/1/bom" && call.method === "PUT");
+    expect(put?.body["edits"]).toEqual([
+      { id: UNMATCHED.id, designators: "R1,R9", ref_value: "10k", qty_per_assembly_milli: 1000 },
+    ]);
+  });
+});
+
+describe("removing a line by hand", () => {
+  it("sends delete:true for that line's id and the row disappears from the list", async () => {
+    stubMutableApi([UNMATCHED, MATCHED]);
+    renderScreen();
+
+    const designator = await screen.findByText("R1");
+    // Scoped to R1's own row: two lines are stubbed, so a bare `getByRole`
+    // would be ambiguous between the two "Remove line" buttons, and picking
+    // "whichever is first" would silently stop proving *this* row was the
+    // one removed the moment the render order changed.
+    const row = designator.closest("li");
+    if (row === null) {
+      throw new Error("R1's row was not found");
+    }
+    fireEvent.click(within(row).getByRole("button", { name: "Remove line" }));
+
+    await waitFor(() => {
+      const put = calls.find((call) => call.url === "/api/projects/1/bom" && call.method === "PUT");
+      expect(put).toBeDefined();
+    });
+    const put = calls.find((call) => call.url === "/api/projects/1/bom" && call.method === "PUT");
+    expect(put?.body["edits"]).toEqual([{ id: UNMATCHED.id, delete: true }]);
+
+    await waitFor(() => expect(screen.queryByText("R1")).toBeNull());
+    // The other line is untouched — a delete removes one row, not the table.
+    expect(screen.getByText("R3")).toBeTruthy();
+  });
+
+  it("does not release stock already allocated against the deleted line", async () => {
+    // The server is the source of truth for that guarantee (an allocation's
+    // `bom_line_id` is set NULL, not released) — this only pins that the UI
+    // issues a plain delete, with no separate "release holds" request beside
+    // it that could be mistaken for doing that itself.
+    stubMutableApi([UNMATCHED]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove line" }));
+
+    await waitFor(() => {
+      const puts = calls.filter((call) => call.url === "/api/projects/1/bom" && call.method === "PUT");
+      expect(puts).toHaveLength(1);
+    });
+    expect(calls.filter((call) => call.url.includes("/release"))).toHaveLength(0);
   });
 });

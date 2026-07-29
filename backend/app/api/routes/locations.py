@@ -153,6 +153,14 @@ class LocationNode(BaseModel):
     slot_label: str | None
     is_overfull: bool
     is_staging: bool
+    #: Carried because **`is_staging` alone no longer identifies the INBOX**. ADR
+    #: 0004 gives every project a staging box with the same flag, and the two want
+    #: opposite words on screen: the INBOX is a catch-all meant to be emptied,
+    #: while a project box holding parts for six months is doing its job. The pair
+    #: `(is_staging, is_placeable is False)` is exactly how `capacity`'s own
+    #: `get_inbox_location` tells them apart, so the tree asks the same question
+    #: rather than sniffing the label path for `PROJECTS`.
+    is_placeable: bool | None
     #: Cached in `location_occupancy`, so the tree costs one extra join rather
     #: than a capacity computation per node.
     fill_ratio: float | None
@@ -682,6 +690,7 @@ def read_location_tree(
                 slot_label=node.slot_label,
                 is_overfull=node.is_overfull,
                 is_staging=node.is_staging,
+                is_placeable=node.is_placeable,
                 fill_ratio=fill.get(node.id),
                 lot_count=totals.get(node.id, (0, 0))[0],
                 qty_milli=totals.get(node.id, (0, 0))[1],
