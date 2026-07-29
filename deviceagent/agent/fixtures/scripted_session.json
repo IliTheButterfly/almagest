@@ -1,0 +1,45 @@
+{
+  "description": "One bench session, poll by poll, at the default 300 ms cadence. HAND-WRITTEN, NOT RECORDED: no PN532 has ever been attached to this code, so every field here is what adafruit_pn532 is documented to return, not what it was observed to return. Re-record this file from real polls the day a reader is wired up, and re-run deviceagent/tests against it unchanged.",
+  "polls": [
+    {"note": "empty platform", "tag": null},
+    {"note": "empty platform", "tag": null},
+
+    {"note": "a drawer lands: both carriers read", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.lan/s/4K7T92M8"}},
+    {"note": "still there, and the station must stay silent", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.lan/s/4K7T92M8"}},
+    {"note": "still there, this time user memory missed — same tag, not a swap", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": null}},
+    {"note": "still there", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.lan/s/4K7T92M8"}},
+
+    {"note": "a hand passes over the platform: one dropped read, NOT a removal", "tag": null},
+    {"note": "back", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.lan/s/4K7T92M8"}},
+
+    {"note": "lifted off", "tag": null},
+    {"note": "lifted off", "tag": null},
+    {"note": "lifted off — the debounce is satisfied here", "tag": null},
+
+    {"note": "an unreadable tag: in the field, neither carrier answers", "tag": {"uid": null, "ndef_url": null}},
+    {"note": "unreadable", "tag": {"uid": null, "ndef_url": null}},
+    {"note": "unreadable", "tag": {"uid": null, "ndef_url": null}},
+    {"note": "unreadable", "tag": {"uid": null, "ndef_url": null}},
+    {"note": "unreadable — the identify budget is spent here", "tag": {"uid": null, "ndef_url": null}},
+    {"note": "still unreadable, and the station must not repeat the timeout", "tag": {"uid": null, "ndef_url": null}},
+    {"note": "taken away", "tag": null},
+    {"note": "taken away", "tag": null},
+    {"note": "taken away", "tag": null},
+
+    {"note": "the reader itself faults", "error": "PN532 did not ACK: SAMConfig timed out on /dev/ttyAMA0"},
+    {"note": "and again — one cable, one event", "error": "PN532 did not ACK: SAMConfig timed out on /dev/ttyAMA0"},
+    {"note": "recovered, empty platform", "tag": null},
+
+    {"note": "a tag whose NDEF was never written but whose UID is fine", "tag": {"uid": "04AABBCCDDEE10", "ndef_url": null}},
+    {"note": "still there", "tag": {"uid": "04AABBCCDDEE10", "ndef_url": null}},
+
+    {"note": "swapped for another drawer with no gap in between", "tag": {"uid": "0499887766554433", "ndef_url": "https://almagest.lan/s/NX6C5ZTQ"}},
+    {"note": "still there", "tag": {"uid": "0499887766554433", "ndef_url": "https://almagest.lan/s/NX6C5ZTQ"}},
+
+    {"note": "a foreign card: an NDEF record that is not ours", "tag": {"uid": "0455555555555555", "ndef_url": "https://example.invalid/loyalty/1234"}},
+
+    {"note": "bench clear", "tag": null},
+    {"note": "bench clear", "tag": null},
+    {"note": "bench clear", "tag": null}
+  ]
+}
