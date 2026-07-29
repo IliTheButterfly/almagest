@@ -26,6 +26,13 @@ The contract is:
 `stock_ledger.client_op_id` is UNIQUE as a second, independent backstop: even if
 this guard were bypassed, the database itself refuses to record the same keyed
 movement twice.
+
+`run` guards one request. A **batch** — a cart checkout, ADR 0007 — needs the
+same contract one level down as well, because a batch may not fail as a whole
+over one bad line and so a retry of it is genuinely partial. `replay_line` and
+`record_line` give a line inside a batch its own key against the same table, and
+they are deliberately here rather than in a route: two implementations of "has
+this already been applied" is the thing this module exists to prevent.
 """
 
 from __future__ import annotations
@@ -41,6 +48,22 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ReplayableResponse
 from app.models.enums import ClientOperationStatus
 from app.models.system import ClientOperation
+
+
+class LineIdempotencyError(Exception):
+    """A per-line idempotency key that cannot be honoured.
+
+    Raised instead of `HTTPException` because the caller is a **batch** route,
+    and a batch may not fail as a whole over one bad line (ADR 0007): a cart
+    checkout that 4xx'd because one of forty keys was reused would leave the
+    client unable to say which row to fix. The batch converts this into that
+    line's failure entry and keeps going, exactly as `stock.empty_bin` does with
+    a `LedgerError`.
+    """
+
+    def __init__(self, message: str, *, reason: str) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 def request_digest(payload: BaseModel) -> str:
@@ -109,6 +132,80 @@ def run[ResponseT: ReplayableResponse](
     record.response_json = result.model_dump_json()
     session.commit()
     return result
+
+
+def replay_line[ResponseT: ReplayableResponse](
+    session: Session,
+    *,
+    client_op_id: str | None,
+    endpoint: str,
+    payload: BaseModel,
+    response_model: type[ResponseT],
+) -> ResponseT | None:
+    """The stored result of **one line** of a batch, or None if the line is new.
+
+    `run` guards a whole request; this guards a line inside one, and both are
+    needed for a cart checkout. `run` alone protects a retry that reuses the
+    batch key — but a client that regenerated its batch key after a *partial*
+    success (nineteen lines applied, one refused) would resubmit the nineteen as
+    new work. The line key is what makes that resubmission a no-op for the lines
+    that already landed, so the honest retry (send the whole cart again) is safe.
+
+    Only *applied* lines are recorded, by `record_line`. A failed line has no row
+    here on purpose: "the lot had moved" is a state the user can fix, and a
+    retry must be allowed to succeed.
+
+    Raises `LineIdempotencyError` rather than an `HTTPException` for the two
+    cases that are not retries — see that class for why a batch must not 4xx.
+    """
+    if client_op_id is None:
+        return None
+    record = session.get(ClientOperation, client_op_id)
+    if record is None:
+        return None
+    if record.endpoint != endpoint or record.request_hash != request_digest(payload):
+        raise LineIdempotencyError(
+            "client_op_id was already used for a different line; generate a new key",
+            reason="request_mismatch",
+        )
+    if record.status != ClientOperationStatus.COMPLETED or record.response_json is None:
+        raise LineIdempotencyError(
+            "an earlier attempt with this client_op_id did not complete",
+            reason="operation_in_flight",
+        )
+    return _revive(response_model, record.response_json)
+
+
+def record_line(
+    session: Session,
+    *,
+    client_op_id: str | None,
+    device_id: str | None,
+    endpoint: str,
+    payload: BaseModel,
+    result: ReplayableResponse,
+) -> None:
+    """Remember that this line was applied, so a resubmission replays it.
+
+    Written `COMPLETED` in one go rather than `IN_PROGRESS` then updated: the
+    line's own work is already staged on this session when this is called, and
+    the enclosing `run` owns the single `commit()` that makes both durable
+    together. There is therefore no window in which the row could claim a line
+    landed that did not.
+    """
+    if client_op_id is None:
+        return
+    session.add(
+        ClientOperation(
+            client_op_id=client_op_id,
+            device_id=device_id,
+            endpoint=endpoint,
+            request_hash=request_digest(payload),
+            status=ClientOperationStatus.COMPLETED,
+            response_json=result.model_dump_json(),
+        )
+    )
+    session.flush()
 
 
 def _replay(session: Session, client_op_id: str, *, endpoint: str, digest: str) -> str | None:
