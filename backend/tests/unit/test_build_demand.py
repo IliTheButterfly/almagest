@@ -129,6 +129,24 @@ def test_a_dnp_line_generates_no_demand_at_any_assembly_count() -> None:
 
     assert shortage.kind is ShortageKind.NOT_FITTED
     assert (shortage.required_milli, shortage.needed_milli) == (0, 0)
+    # The per-assembly figure is the reason the field exists: it is *not*
+    # recoverable from `required / assembly_count` here, because required is zero
+    # on purpose, and a UI dividing it back out would print "0 per assembly" for a
+    # line that plainly asks for three.
+    assert shortage.qty_per_assembly_milli == 3_000
+
+
+def test_the_per_assembly_quantity_is_reported_rather_than_divided_back_out() -> None:
+    """The factors, not only their product.
+
+    A screen showing "15 required" asserts a product without its factors, so
+    raising the assembly count moved a number with no visible cause. Reported off
+    the line rather than derived, so the DNP case above stays honest too.
+    """
+    shortage = _net_one_line(_line(3_000), _build(5), {7: 0}, (), {})
+
+    assert shortage.qty_per_assembly_milli == 3_000
+    assert shortage.required_milli == 15_000
 
 
 def test_an_unmatched_line_still_reports_needed() -> None:

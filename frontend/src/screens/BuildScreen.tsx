@@ -548,11 +548,12 @@ function ShortageLine({
  * `required_milli`: a DNP line reports zero required on purpose, and the division
  * would erase the only quantity such a line has.
  *
- * The "in use" half is deliberately the three states spelled out and not their
- * sum. ADR 0004 is explicit that merging them lets a BOM look covered off parts
- * already soldered into last week's board, and each has a different next action:
- * a hold can be released, a staged part is in a box on a shelf, a consumed one is
- * gone.
+ * The "in use" half is the *next* line of the row, where the three states are
+ * spelled out rather than summed — ADR 0004 is explicit that merging them lets a
+ * BOM look covered off parts already soldered into last week's board, and each has
+ * a different next action. All this one adds is the "none of it in use yet" case,
+ * which that line cannot state because it does not render at all when there is
+ * nothing to report.
  */
 function DemandLine({
   line,
@@ -561,12 +562,6 @@ function DemandLine({
   line: LineShortageRead;
   assemblyCount: number;
 }) {
-  const inUse = [
-    line.reserved_milli > 0 ? `${formatQty(line.reserved_milli)} held` : null,
-    line.staged_milli > 0 ? `${formatQty(line.staged_milli)} set aside` : null,
-    line.consumed_milli > 0 ? `${formatQty(line.consumed_milli)} built in` : null,
-  ].filter((piece) => piece !== null);
-
   return (
     <div className="sub">
       {line.kind === "not_fitted" ? (
@@ -578,7 +573,7 @@ function DemandLine({
           <strong>{formatQty(line.required_milli)} required</strong> for this build
         </>
       )}
-      {inUse.length === 0 && line.kind !== "not_fitted" && " · none of it in use yet"}
+      {line.allocated_milli === 0 && line.kind !== "not_fitted" && " · none of it in use yet"}
     </div>
   );
 }

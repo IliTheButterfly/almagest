@@ -59,6 +59,22 @@ const UNIDENTIFIED_LINE = {
   is_blocking: true,
 };
 
+/** A line on the BOM but not on the board: zero required, and still a quantity. */
+const NOT_FITTED_LINE = {
+  bom_line_id: 13,
+  line_no: 4,
+  part_id: 44,
+  kind: "not_fitted",
+  required_milli: 0,
+  qty_per_assembly_milli: 2_000,
+  allocated_milli: 0,
+  available_milli: null,
+  shortfall_milli: 0,
+  undeliverable_milli: 0,
+  substitute_part_ids: [],
+  is_blocking: false,
+};
+
 const SATISFIED_LINE = {
   bom_line_id: 12,
   line_no: 3,
@@ -225,6 +241,19 @@ describe("the two shortage kinds", () => {
     // fields must not render as "0 short", which would read as buildable.
     expect(screen.queryByText(/0 free/)).toBeNull();
     expect(screen.queryByText(/0 not in stock anywhere/)).toBeNull();
+  });
+
+  it("keeps a not-fitted line's own quantity, instead of dividing zero required back out", async () => {
+    // The reason `qty_per_assembly_milli` is reported rather than derived: a DNP
+    // line requires zero on purpose, so `required / assemblies` is zero and the
+    // one quantity such a line has would vanish. It must also not claim a demand:
+    // no "× 3 assemblies" on a line that is not on the board.
+    stubApi({ lines: [NOT_FITTED_LINE], isBuildable: true });
+    renderScreen();
+
+    expect(await screen.findByText(/2 per assembly, not fitted — 0 required/)).toBeTruthy();
+    expect(screen.queryByText(/per assembly × 3 assemblies/)).toBeNull();
+    expect(screen.queryByText(/none of it in use yet/)).toBeNull();
   });
 
   it("marks the whole build not buildable when anything is unidentified, even satisfied lines present", async () => {
