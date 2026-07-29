@@ -1522,6 +1522,20 @@ def _next_line_no(db: Session, project_id: int) -> int:
 _BOM_LINE_ENDPOINT = "projects.bom_line"
 
 
+def _bom_line_endpoint(project_id: int) -> str:
+    """The per-edit endpoint, **scoped to the project**.
+
+    An edit's idempotency record is keyed on `(client_op_id, endpoint, digest of
+    the edit)`, and `BomLineEdit` carries no `project_id` — that comes from the
+    path. Unscoped, a cart whose response was lost and which was then retargeted
+    at a different project replayed the *first* project's outcome, reported the
+    line as applied, and left the project the user actually chose with nothing.
+    Scoped, the retry is a `request_mismatch` refusal on that line: visible, and
+    fixable by re-keying the row.
+    """
+    return f"{_BOM_LINE_ENDPOINT}:{project_id}"
+
+
 def _http_failure(error: HTTPException) -> tuple[str, str]:
     """`(reason, message)` out of a per-line `HTTPException`.
 
@@ -1609,7 +1623,7 @@ def update_bom_lines(
                 stored = idempotency.replay_line(
                     db,
                     client_op_id=key,
-                    endpoint=_BOM_LINE_ENDPOINT,
+                    endpoint=_bom_line_endpoint(project_id),
                     payload=edit,
                     response_model=BomLineOutcome,
                 )
@@ -1627,7 +1641,11 @@ def update_bom_lines(
                         deleted_ids.append(stored.bom_line_id)
                     else:
                         replayed = db.get(BomLine, stored.bom_line_id)
-                        if replayed is not None:
+                        # Membership re-checked rather than assumed. The scoped
+                        # endpoint already makes a cross-project replay impossible,
+                        # and this is the belt to that brace: a `PUT` on one project
+                        # must never answer with a row belonging to another.
+                        if replayed is not None and replayed.project_id == project_id:
                             touched.append(replayed)
                 continue
 
@@ -1712,7 +1730,7 @@ def update_bom_lines(
                 db,
                 client_op_id=key,
                 device_id=request.device_id,
-                endpoint=_BOM_LINE_ENDPOINT,
+                endpoint=_bom_line_endpoint(project_id),
                 payload=edit,
                 result=outcome,
             )
@@ -1899,6 +1917,14 @@ def allocate_stock(
 _ALLOCATE_LINE_ENDPOINT = "builds.allocate_line"
 
 
+def _allocate_line_endpoint(build_id: int) -> str:
+    """The per-line endpoint, **scoped to the build** — for the reason spelled out
+    on `_bom_line_endpoint`. `AllocateLine` names a lot and a quantity but not
+    which build is holding it, so without the scope a retry aimed at a second
+    build would replay the first build's hold and report it as placed."""
+    return f"{_ALLOCATE_LINE_ENDPOINT}:{build_id}"
+
+
 @builds_router.post("/{build_id}/allocate-batch", response_model=AllocateBatchResponse)
 def allocate_stock_batch(
     build_id: RowId, request: AllocateBatchRequest, db: Session = Depends(get_db)
@@ -1981,7 +2007,7 @@ def _apply_allocate_line(
         stored = idempotency.replay_line(
             db,
             client_op_id=line.client_op_id,
-            endpoint=_ALLOCATE_LINE_ENDPOINT,
+            endpoint=_allocate_line_endpoint(build.id),
             payload=line,
             response_model=AllocateLineResult,
         )
@@ -2028,7 +2054,7 @@ def _apply_allocate_line(
         db,
         client_op_id=line.client_op_id,
         device_id=request.device_id,
-        endpoint=_ALLOCATE_LINE_ENDPOINT,
+        endpoint=_allocate_line_endpoint(build.id),
         payload=line,
         result=result,
     )

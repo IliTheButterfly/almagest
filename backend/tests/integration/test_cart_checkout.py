@@ -267,6 +267,67 @@ def test_resubmitting_a_cart_replays_only_the_lines_that_already_landed(
     assert _ledger_count() == 3
 
 
+def test_a_line_key_does_not_replay_against_a_different_container(
+    client: TestClient, db: Session
+) -> None:
+    """Retargeting a cart is not a retry of it.
+
+    The lost-response case is exactly what invites this: the movement applied,
+    the client never heard, so the row is still in the cart with its key — and
+    then the user realises it was the wrong drawer and scans another one. The
+    line's digest covers the line, and `MovementLine` carries no `location_id`,
+    so without the container in the endpoint the second request replayed bin A's
+    take, reported the line applied, and left bin B untouched.
+    """
+    bin_a = make_location(db, "Bin A")
+    bin_b = make_location(db, "Bin B")
+    resistor = make_part(db, "10k")
+    lot_a = make_lot(db, resistor, bin_a, qty_milli=10_000)
+    lot_b = make_lot(db, resistor, bin_b, qty_milli=10_000)
+    db.commit()
+
+    line_key = _key()
+    first = client.post(
+        "/api/stock/movements",
+        json={
+            "location_id": bin_a.id,
+            "client_op_id": _key(),
+            "lines": [
+                {
+                    "part_id": resistor.id,
+                    "direction": "take",
+                    "qty_milli": 3_000,
+                    "client_op_id": line_key,
+                }
+            ],
+        },
+    ).json()
+    assert first["results"][0]["applied"] is True
+
+    retargeted = client.post(
+        "/api/stock/movements",
+        json={
+            "location_id": bin_b.id,
+            "client_op_id": _key(),
+            "lines": [
+                {
+                    "part_id": resistor.id,
+                    "direction": "take",
+                    "qty_milli": 3_000,
+                    "client_op_id": line_key,
+                }
+            ],
+        },
+    ).json()
+
+    # Refused, and refused *visibly* — never reported as applied to bin B.
+    assert retargeted["results"][0]["applied"] is False
+    assert retargeted["results"][0]["reason"] == "request_mismatch"
+    assert _balance(lot_a.id) == 7_000
+    assert _balance(lot_b.id) == 10_000
+    assert _ledger_count() == 1
+
+
 def test_two_lines_sharing_one_line_key_is_the_second_line_s_failure(
     client: TestClient, db: Session
 ) -> None:
@@ -698,6 +759,73 @@ def test_resubmitting_a_bom_cart_does_not_add_the_same_line_twice(
     assert second["results"][0]["replayed"] is True
     assert second["results"][0]["bom_line_id"] == first["results"][0]["bom_line_id"]
     assert client.get(f"/api/projects/{project.id}/bom").json()["total"] == 2
+
+
+def test_an_edit_key_does_not_replay_against_a_different_project(
+    client: TestClient, db: Session
+) -> None:
+    """The same retargeting hazard as the container one, on the BOM door.
+
+    `BomLineEdit` carries no `project_id`, so an unscoped per-edit key made a
+    resubmission against project B replay project A's outcome: B's BOM got
+    nothing, the row was reported applied and therefore dropped from the cart,
+    and the response of a `PUT` on B even carried A's row.
+    """
+    mine = make_project(db, "Mine")
+    theirs = make_project(db, "Theirs")
+    resistor = make_part(db, "10k")
+    db.commit()
+
+    edit = {
+        "qty_per_assembly_milli": 2_000,
+        "designators": "R1",
+        "part_id": resistor.id,
+        "client_op_id": _key(),
+    }
+    first = client.put(
+        f"/api/projects/{mine.id}/bom", json={"partial": True, "edits": [edit]}
+    ).json()
+    assert first["results"][0]["applied"] is True
+
+    second = client.put(
+        f"/api/projects/{theirs.id}/bom", json={"partial": True, "edits": [edit]}
+    ).json()
+
+    assert second["results"][0]["applied"] is False
+    assert second["results"][0]["reason"] == "request_mismatch"
+    assert second["lines"] == []
+    assert client.get(f"/api/projects/{mine.id}/bom").json()["total"] == 1
+    assert client.get(f"/api/projects/{theirs.id}/bom").json()["total"] == 0
+
+
+def test_a_hold_key_does_not_replay_against_a_different_build(
+    client: TestClient, db: Session
+) -> None:
+    """And on the build door: `AllocateLine` names a lot, not the build holding
+    it, so an unscoped key reported the second build's hold as placed while only
+    the first build actually held anything."""
+    project = make_project(db)
+    first_build = make_build(db, project, build_no=1)
+    second_build = make_build(db, project, build_no=2)
+    resistor = make_part(db, "10k")
+    bin_a = make_location(db, "Bin A")
+    lot = make_lot(db, resistor, bin_a, qty_milli=10_000)
+    db.commit()
+
+    line = {"lot_id": lot.id, "qty_milli": 4_000, "client_op_id": _key()}
+    placed = client.post(
+        f"/api/builds/{first_build.id}/allocate-batch", json={"lines": [line]}
+    ).json()
+    assert placed["results"][0]["applied"] is True
+
+    elsewhere = client.post(
+        f"/api/builds/{second_build.id}/allocate-batch", json={"lines": [line]}
+    ).json()
+
+    assert elsewhere["results"][0]["applied"] is False
+    assert elsewhere["results"][0]["reason"] == "request_mismatch"
+    assert _allocation_count() == 1
+    assert _reserved(lot.id) == 4_000
 
 
 def test_a_bom_line_of_another_project_fails_only_its_own_line(

@@ -612,6 +612,20 @@ def empty_bin(
 _MOVEMENT_LINE_ENDPOINT = "stock.movement_line"
 
 
+def _movement_line_endpoint(location_id: int | None) -> str:
+    """The line endpoint, **scoped to the container**.
+
+    A line's idempotency record is keyed on `(client_op_id, endpoint, digest of
+    the line)`, and `MovementLine` does not carry `location_id` — it is the
+    request's. Without the scope here, a cart whose response was lost and which
+    was then retargeted at a different bin would replay the *old* bin's movement
+    and be reported as applied, leaving the bin the user actually scanned
+    untouched. Scoped, that retry is a `request_mismatch` refusal on the line,
+    which is a state the client can see and fix rather than a silent wrong write.
+    """
+    return f"{_MOVEMENT_LINE_ENDPOINT}:{'none' if location_id is None else location_id}"
+
+
 @router.post("/movements", response_model=BatchMovementResponse)
 def batch_movements(
     request: BatchMovementRequest, db: Session = Depends(get_db)
@@ -707,7 +721,7 @@ def _apply_movement_line(
         stored = idempotency.replay_line(
             db,
             client_op_id=line.client_op_id,
-            endpoint=_MOVEMENT_LINE_ENDPOINT,
+            endpoint=_movement_line_endpoint(request.location_id),
             payload=line,
             response_model=MovementLineResult,
         )
@@ -758,7 +772,7 @@ def _apply_movement_line(
         db,
         client_op_id=line.client_op_id,
         device_id=request.device_id,
-        endpoint=_MOVEMENT_LINE_ENDPOINT,
+        endpoint=_movement_line_endpoint(request.location_id),
         payload=line,
         result=result,
     )
