@@ -237,9 +237,14 @@ describe("adding a container", () => {
   it("carries the position you are already looking at, so it lands here", async () => {
     // Otherwise the parent has to be picked out of a list of every location in
     // the system, having just navigated to the one that was meant.
+    //
+    // And it goes to that container's *own* page in edit mode, with the add panel
+    // open, rather than to a separate create screen: one container, one place it is
+    // edited. The top level keeps the standalone screen because there is no
+    // container page there to open — a fact about the API, not a level's privilege.
     renderTree("/tree?at=1");
     const add = await screen.findByRole("link", { name: "Add containers in Cabinet A" });
-    expect(add.getAttribute("href")).toBe("/containers/new?parent=1");
+    expect(add.getAttribute("href")).toBe("/locations/1?edit=1&panel=add");
   });
 
   it("links on to the type library, which is what a container is stamped from", async () => {

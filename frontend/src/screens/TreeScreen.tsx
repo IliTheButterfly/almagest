@@ -113,11 +113,19 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
           to put a part, so this is where "add one" has to be — carrying the
           position they are already looking at, so the new containers land here
           rather than making them pick their own location out of a list again.
+
+          When there *is* a container to add into, this goes to that container's own
+          page in edit mode rather than to `/containers/new?parent=`. There is one
+          place a container is edited, and a second surface that also adds children
+          to it is a second thing to keep in step — which is the whole complaint
+          edit mode answers. The top of the tree is different in kind, not in level:
+          there is no container page to open, so the standalone screen remains the
+          only way to make the first one.
         */}
         <div className="row">
           <Link
             className="button-link"
-            to={here === null ? "/containers/new" : `/containers/new?parent=${here.id}`}
+            to={here === null ? "/containers/new" : `/locations/${here.id}?edit=1&panel=add`}
           >
             {here === null ? "Add a container" : `Add containers in ${here.name}`}
           </Link>

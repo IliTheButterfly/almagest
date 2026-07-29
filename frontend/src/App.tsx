@@ -137,10 +137,14 @@ export function App() {
               landing on "not found" would read as the feature having been
               removed. `?panel=layout` opens the panel it used to be. */}
           <Route path="/locations/:locationId/layout" element={<LayoutRedirect />} />
-          {/* Creating real containers out of a type. Deliberately **not** under
-              `/locations/...`: every path in that space is a `/s/{short_id}`
-              redirect target, and this one is reached from the tree, from a
-              container's own screen and from a type — never from a tag. */}
+          {/* Creating real containers out of a *type*, which is the one create
+              path that has no container page to live on: it is reached from the
+              type library and from a type's own page, which know what to stamp and
+              not where it goes, and from the empty tree, where no container exists
+              yet. Adding into a container you are looking at is that container's
+              own edit mode instead. Deliberately **not** under `/locations/...`:
+              every path in that space is a `/s/{short_id}` redirect target, and
+              this one is never reached from a tag. */}
           <Route path="/containers/new" element={<NewContainersScreen />} />
           {/* Projects, BOMs and builds — not a scan target; reached from the tab. */}
           <Route path="/projects" element={<ProjectsScreen />} />
