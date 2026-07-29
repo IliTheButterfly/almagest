@@ -2157,10 +2157,12 @@ export interface paths {
          *     did in order to protect the twentieth, and 4xx-ing it would leave the client
          *     unable to say which row to fix.
          *
-         *     Every row still goes through `app.services.ledger`, one `SAVEPOINT` per
-         *     line, all under the single `commit()` `idempotency.run` owns. Both keys
-         *     matter: the batch key makes a whole resubmission a no-op, and the per-line
-         *     keys make a *partial* resubmission one — see `idempotency.replay_line`.
+         *     Every row still goes through `app.services.ledger`, all of them under the
+         *     single `commit()` `idempotency.run` owns — a refused line needs no rollback
+         *     because nothing is mutated until it has passed (see `_apply_movement_line`).
+         *     Both keys matter: the batch key makes a whole resubmission a no-op, and the
+         *     per-line keys make a *partial* resubmission one — see
+         *     `idempotency.replay_line`.
          */
         post: operations["batch_movements"];
         delete?: never;
@@ -4127,6 +4129,8 @@ export interface components {
             needed_milli: number;
             /** Part Id */
             part_id: number | null;
+            /** Qty Per Assembly Milli */
+            qty_per_assembly_milli: number;
             /** Required Milli */
             required_milli: number;
             /** Reserved Milli */

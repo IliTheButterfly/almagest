@@ -638,6 +638,11 @@ class LineShortageRead(BaseModel):
     part_id: int | None
     kind: str
     required_milli: int
+    #: The line's per-assembly quantity, so a client can render the arithmetic
+    #: — `qty_per_assembly × assembly_count = required` — rather than assert a
+    #: total it cannot explain. Not derivable client-side: a DNP line reports
+    #: `required_milli == 0`.
+    qty_per_assembly_milli: int
     allocated_milli: int
     #: The three states `allocated_milli` is the sum of, kept apart on the wire
     #: because ADR 0004 is explicit that merging them lets a BOM look buildable
@@ -1002,6 +1007,7 @@ def _line_shortage_read(line: LineShortage) -> LineShortageRead:
         part_id=line.part_id,
         kind=line.kind.value,
         required_milli=line.required_milli,
+        qty_per_assembly_milli=line.qty_per_assembly_milli,
         allocated_milli=line.allocated_milli,
         reserved_milli=line.reserved_milli,
         staged_milli=line.staged_milli,

@@ -5241,6 +5241,10 @@
             ],
             "title": "Part Id"
           },
+          "qty_per_assembly_milli": {
+            "title": "Qty Per Assembly Milli",
+            "type": "integer"
+          },
           "required_milli": {
             "title": "Required Milli",
             "type": "integer"
@@ -5282,6 +5286,7 @@
           "part_id",
           "kind",
           "required_milli",
+          "qty_per_assembly_milli",
           "allocated_milli",
           "reserved_milli",
           "staged_milli",
@@ -18013,7 +18018,7 @@
     },
     "/api/stock/movements": {
       "post": {
-        "description": "Take or put back several parts in one request \u2014 a cart checkout to plain\nstock, with no project involved (ADR 0007).\n\n**One line failing applies the rest and reports just that failure**, the\nsame rule `empty_bin` follows and for a sharper version of the same reason:\na cart is gathered over minutes at a shelf, so by checkout time a line's lot\nmay have been moved, emptied or deleted by somebody else. Rolling the batch\nback would discard nineteen correct statements about what the user physically\ndid in order to protect the twentieth, and 4xx-ing it would leave the client\nunable to say which row to fix.\n\nEvery row still goes through `app.services.ledger`, one `SAVEPOINT` per\nline, all under the single `commit()` `idempotency.run` owns. Both keys\nmatter: the batch key makes a whole resubmission a no-op, and the per-line\nkeys make a *partial* resubmission one \u2014 see `idempotency.replay_line`.",
+        "description": "Take or put back several parts in one request \u2014 a cart checkout to plain\nstock, with no project involved (ADR 0007).\n\n**One line failing applies the rest and reports just that failure**, the\nsame rule `empty_bin` follows and for a sharper version of the same reason:\na cart is gathered over minutes at a shelf, so by checkout time a line's lot\nmay have been moved, emptied or deleted by somebody else. Rolling the batch\nback would discard nineteen correct statements about what the user physically\ndid in order to protect the twentieth, and 4xx-ing it would leave the client\nunable to say which row to fix.\n\nEvery row still goes through `app.services.ledger`, all of them under the\nsingle `commit()` `idempotency.run` owns \u2014 a refused line needs no rollback\nbecause nothing is mutated until it has passed (see `_apply_movement_line`).\nBoth keys matter: the batch key makes a whole resubmission a no-op, and the\nper-line keys make a *partial* resubmission one \u2014 see\n`idempotency.replay_line`.",
         "operationId": "batch_movements",
         "requestBody": {
           "content": {
