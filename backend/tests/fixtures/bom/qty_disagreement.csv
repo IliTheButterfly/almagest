@@ -1,0 +1,5 @@
+Reference,Value,Footprint,Qty,MPN
+"R1,R2,R3",1k,R_0603,4,
+"C1,C2",100nF,C_0603,2,
+R10-R13,220R,R_0603,4,
+D1,1N4148,D_SOD-123,,

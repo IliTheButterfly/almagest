@@ -1,0 +1,10 @@
+Source:,/home/ada/proj/lamp/lamp.sch
+Date:,"Tuesday 14 May 2024 10:12:33"
+Tool:,"Eeschema 5.1.12"
+Generator:,/usr/share/kicad/plugins/bom2grouped_csv.xsl
+Component Count:,4
+,
+Ref,Qnty,Value,Cmp name,Footprint,Description,Vendor
+C1,1,100nF,C,Capacitor_SMD:C_0603_1608Metric,,
+"R1, R2",2,4k7,R,Resistor_SMD:R_0603_1608Metric,,
+J1,1,Conn_01x02,Conn_01x02,Connector:Screw_Terminal_01x02,,

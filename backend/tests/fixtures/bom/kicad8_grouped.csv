@@ -1,0 +1,8 @@
+"Reference","Value","Datasheet","Footprint","Qty","DNP","MPN","Manufacturer"
+"C1,C2,C3,C4","100nF","~","Capacitor_SMD:C_0603_1608Metric","4","","CL10B104KB8NNNC","Samsung"
+"C5","10uF","~","Capacitor_SMD:C_0805_2012Metric","1","","GRM21BR61E106KA73L","Murata"
+"R1,R2","10k","~","Resistor_SMD:R_0603_1608Metric","2","","",""
+"R3","0","~","Resistor_SMD:R_0603_1608Metric","1","","",""
+"U1","LM358","~","Package_SO:SOIC-8_3.9x4.9mm_P1.27mm","1","","LM358DR","Texas Instruments"
+"U2","ATmega328P-AU","~","Package_QFP:TQFP-32_7x7mm_P0.8mm","1","","",""
+"D1,D2,D3","RED","~","LED_SMD:LED_0603_1608Metric","3","DNP","",""

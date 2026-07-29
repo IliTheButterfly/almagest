@@ -468,3 +468,111 @@ class PendingIntakeStatus(StrEnum):
     #: someone else's. Distinguished from `RESOLVED` because the two mean
     #: opposite things about whether the payload is worth mining.
     DISMISSED = "dismissed"
+
+
+class ProjectStatus(StrEnum):
+    """Where a project sits in its own lifecycle.
+
+    Deliberately about the *design*, not about building it — a project has many
+    builds and each carries its own `BuildStatus`, so "half built" is never a
+    fact about this column. `ARCHIVED` exists so a finished design can leave
+    the default list without being deleted, because deleting it would take its
+    BOM (and therefore the answer to "what was in that board") with it.
+    """
+
+    PLANNING = "planning"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+class BuildStatus(StrEnum):
+    """Where one *run* of building a project sits.
+
+    Distinct from `AllocationState` and not derivable from it: a build with
+    every allocation consumed may still be open because the human has not said
+    they are done, and a build with no allocations at all is a legitimate empty
+    plan. The two are checked together — closing a build that still holds
+    `RESERVED` rows is what releases them, which is the only reason the
+    reserved cache cannot drift upwards forever.
+    """
+
+    PLANNED = "planned"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    #: Given up on. Its reservations are released; its `CONSUMED` allocations
+    #: stay, because the parts really were used and the ledger says so.
+    ABANDONED = "abandoned"
+
+
+class AllocationState(StrEnum):
+    """What a `stock_allocations` row currently asserts about stock.
+
+    The set is chosen so that **`stock_lots.qty_reserved_milli_cached` is
+    exactly `SUM(qty_milli) WHERE state = 'reserved'`**, per lot, and nothing
+    else. That single-predicate definition is the whole design: the reserved
+    cache is derived and rebuildable in one statement (see
+    `app.models.projects.StockAllocation`), never a hand-maintained counter
+    that drifts and cannot be reconstructed.
+
+    The consequence to keep in mind when adding a member: any new state that
+    should hold stock has to be added to that predicate *and* to the rebuild,
+    or the cache silently stops matching. Prefer states that do not.
+
+    Two states people expect and that are deliberately **not** here:
+
+    * *shortage* — demand exceeding available stock is computed by comparing
+      the BOM to `qty_milli_cached - qty_reserved_milli_cached`. Storing it
+      would be a cache of a cache, wrong the moment anything is received.
+    * *substituted* — allocating an alternate is an ordinary allocation whose
+      `part_id` is the substitute. A separate state would mean every consumer
+      of this enum had to know that it also counts as reserved.
+    """
+
+    #: Demand, with no specific lot chosen: `lot_id IS NULL`. Holds nothing, so
+    #: it never touches the reserved cache. This is what a freshly imported BOM
+    #: expands into, and it is the state a line with no matched part can still
+    #: legitimately be in — the shortage report is built from these.
+    PLANNED = "planned"
+    #: A named lot is held for this build. `lot_id IS NOT NULL`, and **these
+    #: rows and only these rows** sum into `qty_reserved_milli_cached`.
+    RESERVED = "reserved"
+    #: The parts left the bin. The ledger row that recorded it is pointed at by
+    #: `consumed_ledger_seq`, so this stops counting as reserved at the same
+    #: instant `qty_milli_cached` drops — double-counting a pick is otherwise
+    #: the obvious way to make available stock read low forever.
+    CONSUMED = "consumed"
+    #: The hold was given back: build cancelled, line deleted, or a
+    #: re-plan picked a different lot. Kept rather than deleted so "we planned
+    #: this and dropped it" stays visible and an undo has something to point
+    #: at; harmless to the cache because the predicate excludes it.
+    RELEASED = "released"
+
+
+class ShortageKind(StrEnum):
+    """What stands between one BOM line and being built.
+
+    **Never persisted**, like `EscalationLevel` — a shortage is derived by
+    comparing demand to `qty_milli_cached - qty_reserved_milli_cached`, so
+    storing it would be a cache of a cache that is wrong the moment anything is
+    received. It lives here anyway so every enumerated "kind of thing" stays in
+    one file.
+
+    `UNIDENTIFIED` and `SHORT` are deliberately **separate members and not one
+    "cannot build" flag.** They are different problems with different fixes: a
+    short line needs stock ordered, an unidentified line needs a human to say
+    what the part *is*, and no quantity can be computed for it at all. Folding
+    the second into the first — or worse, treating an unmatched line as needing
+    zero — is what makes a BOM report "buildable" for a board nobody can build.
+    """
+
+    #: Enough free stock (its own or an accepted alternate's) exists for the
+    #: outstanding demand, given what this build already holds.
+    SATISFIED = "satisfied"
+    #: A known part, a known number missing. Actionable by ordering.
+    SHORT = "short"
+    #: `bom_lines.part_id IS NULL`. The requirement is known; the *thing* is
+    #: not, so availability and shortfall are `None` rather than zero.
+    UNIDENTIFIED = "unidentified"
+    #: `is_dnp` — in the file, not on the board. Generates no demand, and is
+    #: reported rather than dropped so the BOM the user sees is the whole BOM.
+    NOT_FITTED = "not_fitted"

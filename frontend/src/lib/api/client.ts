@@ -100,6 +100,36 @@ export type ScanExistingLot = Schemas["ScanExistingLot"];
 export type EntityType = Schemas["EntityType"];
 export type AliasKind = Schemas["AliasKind"];
 
+export type ProjectRead = Schemas["ProjectRead"];
+export type ProjectCreate = Schemas["ProjectCreate"];
+export type ProjectCreated = Schemas["ProjectCreated"];
+export type ProjectUpdate = Schemas["ProjectUpdate"];
+export type ProjectList = Schemas["ProjectList"];
+export type ProjectStatus = Schemas["ProjectStatus"];
+
+export type BuildRead = Schemas["BuildRead"];
+export type BuildCreate = Schemas["BuildCreate"];
+export type BuildCreated = Schemas["BuildCreated"];
+export type BuildUpdate = Schemas["BuildUpdate"];
+export type BuildStatus = Schemas["BuildStatus"];
+
+export type BomLineRead = Schemas["BomLineRead"];
+export type BomLineList = Schemas["BomLineList"];
+export type BomLineEdit = Schemas["BomLineEdit"];
+export type BomLinesUpdateRequest = Schemas["BomLinesUpdateRequest"];
+export type BomLinesUpdateResponse = Schemas["BomLinesUpdateResponse"];
+export type BomImportRequest = Schemas["BomImportRequest"];
+export type BomImportResponse = Schemas["BomImportResponse"];
+
+export type AllocationRead = Schemas["AllocationRead"];
+export type AllocateRequest = Schemas["AllocateRequest"];
+export type AllocateResponse = Schemas["AllocateResponse"];
+export type ReleaseRequest = Schemas["ReleaseRequest"];
+export type ReleaseResponse = Schemas["ReleaseResponse"];
+
+export type ShortageResponse = Schemas["ShortageResponse"];
+export type LineShortageRead = Schemas["LineShortageRead"];
+
 export class ApiError extends Error {
   readonly detail: unknown;
   /** The HTTP status, so a screen can tell a 409 refusal from a 404. */
@@ -483,6 +513,194 @@ export async function undoMovement(request: UndoRequest): Promise<UndoResponse> 
   const { data, error, response } = await api.POST("/api/stock/undo", { body: request });
   if (error !== undefined) {
     fail("could not undo that movement", error, response);
+  }
+  return data;
+}
+
+// -------------------------------------------------------------- projects ----
+
+export async function listProjects(
+  options: { status?: ProjectStatus[]; limit?: number; offset?: number } = {},
+): Promise<ProjectList> {
+  const { data, error, response } = await api.GET("/api/projects", {
+    params: {
+      query: {
+        ...(options.status === undefined ? {} : { status: options.status }),
+        ...(options.limit === undefined ? {} : { limit: options.limit }),
+        ...(options.offset === undefined ? {} : { offset: options.offset }),
+      },
+    },
+  });
+  if (error !== undefined) {
+    fail("could not load the projects", error, response);
+  }
+  return data;
+}
+
+export async function createProject(request: ProjectCreate): Promise<ProjectCreated> {
+  const { data, error, response } = await api.POST("/api/projects", { body: request });
+  if (error !== undefined) {
+    fail("could not create that project", error, response);
+  }
+  return data;
+}
+
+export async function getProject(projectId: number): Promise<ProjectRead> {
+  const { data, error, response } = await api.GET("/api/projects/{project_id}", {
+    params: { path: { project_id: projectId } },
+  });
+  if (error !== undefined) {
+    fail(`no project ${projectId}`, error, response);
+  }
+  return data;
+}
+
+/** Unguarded, like `updatePart`: a replayed PATCH is the same fields set to
+ * the same values, so there is nothing an idempotency key would protect. */
+export async function updateProject(
+  projectId: number,
+  request: ProjectUpdate,
+): Promise<ProjectRead> {
+  const { data, error, response } = await api.PATCH("/api/projects/{project_id}", {
+    params: { path: { project_id: projectId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save that project", error, response);
+  }
+  return data;
+}
+
+// -------------------------------------------------------------------- BOM ----
+
+/**
+ * Land a CSV/TSV export as `bom_lines`. **Appends; never replaces** — a
+ * re-import of the same file doubles every line, so the caller is responsible
+ * for only importing once per revision. Idempotency-guarded on the server, so
+ * a retried upload after a lost response does not double anyway.
+ */
+export async function importBom(
+  projectId: number,
+  request: BomImportRequest,
+): Promise<BomImportResponse> {
+  const { data, error, response } = await api.POST("/api/projects/{project_id}/bom/import", {
+    params: { path: { project_id: projectId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not import that BOM", error, response);
+  }
+  return data;
+}
+
+export async function listBomLines(
+  projectId: number,
+  options: { unmatchedOnly?: boolean; limit?: number; offset?: number } = {},
+): Promise<BomLineList> {
+  const { data, error, response } = await api.GET("/api/projects/{project_id}/bom", {
+    params: {
+      path: { project_id: projectId },
+      query: {
+        ...(options.unmatchedOnly === undefined ? {} : { unmatched_only: options.unmatchedOnly }),
+        ...(options.limit === undefined ? {} : { limit: options.limit }),
+        ...(options.offset === undefined ? {} : { offset: options.offset }),
+      },
+    },
+  });
+  if (error !== undefined) {
+    fail("could not load the BOM", error, response);
+  }
+  return data;
+}
+
+/** A batch of per-line edits — corrections, DNP toggles, and manual matching. */
+export async function updateBomLines(
+  projectId: number,
+  request: BomLinesUpdateRequest,
+): Promise<BomLinesUpdateResponse> {
+  const { data, error, response } = await api.PUT("/api/projects/{project_id}/bom", {
+    params: { path: { project_id: projectId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save those BOM edits", error, response);
+  }
+  return data;
+}
+
+// ----------------------------------------------------------------- builds ----
+
+export async function createBuild(projectId: number, request: BuildCreate): Promise<BuildCreated> {
+  const { data, error, response } = await api.POST("/api/projects/{project_id}/builds", {
+    params: { path: { project_id: projectId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not plan that build", error, response);
+  }
+  return data;
+}
+
+export async function getBuild(buildId: number): Promise<BuildRead> {
+  const { data, error, response } = await api.GET("/api/builds/{build_id}", {
+    params: { path: { build_id: buildId } },
+  });
+  if (error !== undefined) {
+    fail(`no build ${buildId}`, error, response);
+  }
+  return data;
+}
+
+/** Edit a build, including the status transition that closes it and releases
+ * its reservations — see `BuildUpdate`'s server-side docstring. Idempotent by
+ * construction, like `updateProject`. */
+export async function updateBuild(buildId: number, request: BuildUpdate): Promise<BuildRead> {
+  const { data, error, response } = await api.PATCH("/api/builds/{build_id}", {
+    params: { path: { build_id: buildId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save that build", error, response);
+  }
+  return data;
+}
+
+/** What stands between this build and being built, line by line. A pure read. */
+export async function getShortages(buildId: number): Promise<ShortageResponse> {
+  const { data, error, response } = await api.GET("/api/builds/{build_id}/shortages", {
+    params: { path: { build_id: buildId } },
+  });
+  if (error !== undefined) {
+    fail("could not load the shortage report", error, response);
+  }
+  return data;
+}
+
+export async function allocateStock(
+  buildId: number,
+  request: AllocateRequest,
+): Promise<AllocateResponse> {
+  const { data, error, response } = await api.POST("/api/builds/{build_id}/allocate", {
+    params: { path: { build_id: buildId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not reserve that stock", error, response);
+  }
+  return data;
+}
+
+/** Release one hold (`allocationId` given) or every open hold this build has. */
+export async function releaseStock(
+  buildId: number,
+  request: ReleaseRequest,
+): Promise<ReleaseResponse> {
+  const { data, error, response } = await api.POST("/api/builds/{build_id}/release", {
+    params: { path: { build_id: buildId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not release that hold", error, response);
   }
   return data;
 }

@@ -55,6 +55,9 @@ def test_enum_columns_are_plain_varchar(db: Session) -> None:
         ("scan_sources", "kind"),
         ("scan_events", "decoded_kind"),
         ("scan_events", "action_taken"),
+        ("projects", "status"),
+        ("project_builds", "status"),
+        ("stock_allocations", "state"),
     ]
     for table, column in enum_columns:
         info = db.execute(text(f"PRAGMA table_info({table})")).all()

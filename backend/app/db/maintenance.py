@@ -18,6 +18,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.models.enums import CapacityModel
+from app.models.projects import RESERVED_CACHE_REBUILD_SQL, RESERVED_SUM_SQL
 from app.models.storage import ContainerType, Location, LocationOccupancy
 from app.models.types import utcnow
 from app.services import capacity
@@ -241,6 +242,64 @@ def rebuild_location_occupancy(session: Session, *, only_dirty: bool = False) ->
     session.execute(stmt)
     _mark_rebuilt(session, LOCATION_OCCUPANCY)
     return len(payload)
+
+
+RESERVATIONS = "reservations"
+
+#: The string the initial migration already seeded into `cache_state`, so the
+#: nightly check has a row to write to. Straight from the model, so the rebuild
+#: this module runs is byte-identical to the one the design documents.
+_REBUILD_RESERVED_QUANTITIES = text(RESERVED_CACHE_REBUILD_SQL)
+
+_COUNT_RESERVED_DRIFT = text(
+    "SELECT COUNT(*) FROM stock_lots AS l"
+    f" WHERE l.qty_reserved_milli_cached <> {RESERVED_SUM_SQL.format(lot='l.id')}"
+)
+
+_DRIFTING_RESERVED_LOT_IDS = text(
+    "SELECT l.id FROM stock_lots AS l"
+    f" WHERE l.qty_reserved_milli_cached <> {RESERVED_SUM_SQL.format(lot='l.id')}"
+    " ORDER BY l.id LIMIT :limit"
+)
+
+
+def rebuild_reserved_quantities(session: Session) -> int:
+    """Recompute every `stock_lots.qty_reserved_milli_cached` from allocations.
+
+    The exact counterpart of `rebuild_lot_balances`, and load-bearing for the
+    same reason: `app.services.reservations` maintains this counter
+    incrementally on every reserve/release/consume, and an incrementally
+    maintained counter is only safe *because* one statement can reconstruct it.
+    A half-applied cancel or a crashed pick leaves a number that is wrong in a
+    way no user can see, and this is what makes that a stale value a nightly job
+    repairs rather than lost state.
+
+    Returns the number of lots touched — every lot, deliberately: the case that
+    needs repairing most is a lot whose cache is *too high* because a release
+    never decremented it, and that lot has no allocations left to find.
+    """
+    result = cast(CursorResult[Any], session.execute(_REBUILD_RESERVED_QUANTITIES))
+    _mark_rebuilt(session, RESERVATIONS)
+    return result.rowcount
+
+
+def check_reserved_quantity_drift(session: Session, *, sample_limit: int = 20) -> DriftReport:
+    """Compare cached reservations against `stock_allocations`, changing nothing.
+
+    Run nightly beside `check_lot_balance_drift`. Non-zero is a correctness
+    alert: an over-stated reservation reads as missing stock, so it hides parts
+    the user owns, and an under-stated one lets two builds promise the same
+    parts.
+    """
+    drift_count = session.execute(_COUNT_RESERVED_DRIFT).scalar_one()
+    sample: tuple[int, ...] = ()
+    if drift_count:
+        rows = session.execute(_DRIFTING_RESERVED_LOT_IDS, {"limit": sample_limit}).scalars().all()
+        sample = tuple(rows)
+
+    report = DriftReport(cache_name=RESERVATIONS, drift_count=drift_count, sample_ids=sample)
+    _record_check(session, report)
+    return report
 
 
 def _record_check(session: Session, report: DriftReport) -> None:

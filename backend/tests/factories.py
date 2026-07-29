@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.catalog import Manufacturer, Packaging, Part, PartCategory, PartKind
-from app.models.enums import LedgerKind, LedgerSource
+from app.models.enums import AllocationState, LedgerKind, LedgerSource
+from app.models.projects import BomLine, Project, ProjectBuild, StockAllocation
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import ContainerType, Location
 from app.services.scanning.codes import normalize_mpn
@@ -119,3 +120,57 @@ def post(
     db.add(row)
     db.flush()
     return row
+
+
+def make_project(db: Session, name: str = "Test board", **kwargs: object) -> Project:
+    project = Project(name=name, **kwargs)
+    db.add(project)
+    db.flush()
+    return project
+
+
+def make_build(db: Session, project: Project, build_no: int = 1, **kwargs: object) -> ProjectBuild:
+    build = ProjectBuild(project_id=project.id, build_no=build_no, **kwargs)
+    db.add(build)
+    db.flush()
+    return build
+
+
+def make_bom_line(
+    db: Session, project: Project, qty_per_assembly_milli: int = 1_000, **kwargs: object
+) -> BomLine:
+    """A BOM line. Note `part_id` is *not* defaulted: an unmatched line is the
+    normal case an import produces, so a test has to opt in to a matched one."""
+    line = BomLine(project_id=project.id, qty_per_assembly_milli=qty_per_assembly_milli, **kwargs)
+    db.add(line)
+    db.flush()
+    return line
+
+
+def make_allocation(
+    db: Session,
+    build: ProjectBuild,
+    part: Part,
+    qty_milli: int,
+    state: AllocationState = AllocationState.PLANNED,
+    lot: StockLot | None = None,
+    **kwargs: object,
+) -> StockAllocation:
+    """An allocation row, written **without** touching
+    `stock_lots.qty_reserved_milli_cached`.
+
+    That omission is the point: the cache is derived, so a test proves the
+    rebuild reconstructs it from allocations alone. A factory that maintained
+    the counter here would make every such test tautological.
+    """
+    allocation = StockAllocation(
+        build_id=build.id,
+        part_id=part.id,
+        lot_id=None if lot is None else lot.id,
+        qty_milli=qty_milli,
+        state=state,
+        **kwargs,
+    )
+    db.add(allocation)
+    db.flush()
+    return allocation

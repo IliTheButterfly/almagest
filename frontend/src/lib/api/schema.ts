@@ -4,6 +4,101 @@
  */
 
 export interface paths {
+    "/api/builds/{build_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Build */
+        get: operations["read_build"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Build
+         * @description Edit a build, including the status transition that closes it.
+         *
+         *     Closing (`COMPLETED` or `ABANDONED`) releases every open reservation via
+         *     `reservations.release_build` — the same rule `ProjectBuild`'s docstring
+         *     states: a closed build holding `RESERVED` rows reads as missing inventory
+         *     forever, because nothing else would ever come back to free them.
+         *     Idempotent by construction: replaying "mark it completed" a second time
+         *     finds no open allocations left to release and leaves `completed_at`
+         *     untouched, so no `client_op_id` is needed here either.
+         */
+        patch: operations["update_build"];
+        trace?: never;
+    };
+    "/api/builds/{build_id}/allocate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Allocate Stock
+         * @description Hold stock for a build. Delegates every refusal to
+         *     `reservations.reserve` — see its docstring for why a reservation, unlike a
+         *     ledger movement, is allowed to say no.
+         */
+        post: operations["allocate_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/builds/{build_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release Stock
+         * @description Give back one hold, or (no `allocation_id`) every open hold this build
+         *     has — the same choice `stock.empty_bin` makes between one lot and a whole
+         *     location, for the same reason: a build being abandoned outright and a
+         *     build correcting one bad pick are different-sized actions.
+         */
+        post: operations["release_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/builds/{build_id}/shortages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Shortages
+         * @description What stands between this build and being built, line by line. A pure
+         *     read — see `reservations.shortage_for_build` for the netting rules.
+         */
+        get: operations["read_shortages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/container-types": {
         parameters: {
             query?: never;
@@ -687,6 +782,133 @@ export interface paths {
         patch: operations["update_part"];
         trace?: never;
     };
+    "/api/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Projects
+         * @description Projects, newest first. `status` is repeatable and unset means "all" —
+         *     unlike `intake.list_pending`'s worklist, there is no single default status
+         *     a project view should hide, since `ARCHIVED` is still a real board someone
+         *     may re-plan a build against.
+         */
+        get: operations["list_projects"];
+        put?: never;
+        /**
+         * Create Project
+         * @description Create a project. `name` is the only required field, and is not unique
+         *     — two revisions of a board legitimately share one, per `Project`'s
+         *     docstring.
+         */
+        post: operations["create_project"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Project */
+        get: operations["read_project"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Project
+         * @description Edit a project. Unguarded like `parts.update_part`: a PATCH replayed is
+         *     the same fields set to the same values, so there is nothing an idempotency
+         *     key would protect that the request body does not already guarantee.
+         */
+        patch: operations["update_project"];
+        trace?: never;
+    };
+    "/api/projects/{project_id}/bom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Bom Lines */
+        get: operations["list_bom_lines"];
+        /**
+         * Update Bom Lines
+         * @description Apply a batch of per-line edits — corrections, DNP toggles, and manual
+         *     part matching. Idempotency-guarded because, unlike `parts.update_part`,
+         *     the edit that matters most here (confirming a match) has a
+         *     request-shape-dependent default (see `_apply_bom_line_edit`): a retried
+         *     POST that landed and a retried POST that never reached the server are only
+         *     safely indistinguishable with a key.
+         */
+        put: operations["update_bom_lines"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/bom/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Bom
+         * @description Land a KiCad-style CSV/TSV export as `bom_lines`. **Appends; never
+         *     replaces** — see `app.services.bom_import`'s module docstring for why a
+         *     "this is a new revision" merge is not attempted. A retried upload without
+         *     `client_op_id` therefore double-imports, the same at-least-once contract
+         *     every unguarded write in this API already has.
+         */
+        post: operations["import_bom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Build
+         * @description Plan a build. `build_no` is assigned here, never accepted from the
+         *     client, so it stays a stable, gapless-per-project ordinal even as builds
+         *     are created concurrently by different desks. `bom_revision` is copied from
+         *     `projects.revision` at this instant — see `ProjectBuild`'s docstring for
+         *     why that copy, and not a live reference, is the record of what the build
+         *     was actually planned against.
+         */
+        post: operations["create_build"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/provisioning-sessions/{session_id}/bind": {
         parameters: {
             query?: never;
@@ -1166,6 +1388,64 @@ export interface components {
          * @enum {string}
          */
         AliasKind: "whole_payload" | "mpn" | "supplier_sku" | "package_code" | "tag_uid";
+        /** AllocateRequest */
+        AllocateRequest: {
+            /**
+             * Allow Overcommit
+             * @default false
+             */
+            allow_overcommit?: boolean;
+            /** Bom Line Id */
+            bom_line_id?: number | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Lot Id */
+            lot_id: number;
+            /** Note */
+            note?: string | null;
+            /** Part Id */
+            part_id?: number | null;
+            /** Qty Milli */
+            qty_milli: number;
+        };
+        /** AllocateResponse */
+        AllocateResponse: {
+            allocation: components["schemas"]["AllocationRead"];
+            lot: components["schemas"]["LotRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** AllocationRead */
+        AllocationRead: {
+            /** Bom Line Id */
+            bom_line_id: number | null;
+            /** Build Id */
+            build_id: number;
+            /** Consumed At */
+            consumed_at: string | null;
+            /** Consumed Ledger Seq */
+            consumed_ledger_seq: number | null;
+            /** Id */
+            id: number;
+            /** Lot Id */
+            lot_id: number | null;
+            /** Note */
+            note: string | null;
+            /** Part Id */
+            part_id: number;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Reserved At */
+            reserved_at: string | null;
+            /** State */
+            state: string;
+        };
         /** BindRequest */
         BindRequest: {
             /** Client Op Id */
@@ -1211,6 +1491,238 @@ export interface components {
             /** Status */
             status: string;
             tag: components["schemas"]["TagRead"] | null;
+        };
+        /** BomImportRequest */
+        BomImportRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Content */
+            content: string;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Match
+             * @default true
+             */
+            match?: boolean;
+            /** Source Ref */
+            source_ref?: string | null;
+        };
+        /** BomImportResponse */
+        BomImportResponse: {
+            /** Ambiguous Keys */
+            ambiguous_keys: string[];
+            /** Dnp Count */
+            dnp_count: number;
+            /** Lines */
+            lines: components["schemas"]["BomLineRead"][];
+            /** Matched Count */
+            matched_count: number;
+            /** Project Id */
+            project_id: number;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Unmatched Count */
+            unmatched_count: number;
+            /** Warnings */
+            warnings: string[];
+        };
+        /**
+         * BomLineEdit
+         * @description One line's edit. Only the fields actually present in the request are
+         *     applied — `model_fields_set`, exactly as `parts.PartUpdate` does — so a
+         *     client can clear `note` with an explicit `null` without every other
+         *     field on the line needing to be restated.
+         */
+        BomLineEdit: {
+            /** Description */
+            description?: string | null;
+            /** Designators */
+            designators?: string | null;
+            /** Footprint */
+            footprint?: string | null;
+            /** Id */
+            id: number;
+            /** Is Dnp */
+            is_dnp?: boolean | null;
+            /** Is Match Confirmed */
+            is_match_confirmed?: boolean | null;
+            /** Manufacturer Raw */
+            manufacturer_raw?: string | null;
+            /** Mpn Raw */
+            mpn_raw?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Part Id */
+            part_id?: number | null;
+            /** Qty Per Assembly Milli */
+            qty_per_assembly_milli?: number | null;
+            /** Ref Value */
+            ref_value?: string | null;
+        };
+        /** BomLineList */
+        BomLineList: {
+            /** Lines */
+            lines: components["schemas"]["BomLineRead"][];
+            /** Total */
+            total: number;
+        };
+        /** BomLineRead */
+        BomLineRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Description */
+            description: string | null;
+            /** Designators */
+            designators: string | null;
+            /** Footprint */
+            footprint: string | null;
+            /** Id */
+            id: number;
+            /** Is Dnp */
+            is_dnp: boolean;
+            /** Is Match Confirmed */
+            is_match_confirmed: boolean;
+            /** Line No */
+            line_no: number;
+            /** Manufacturer Raw */
+            manufacturer_raw: string | null;
+            /** Mpn Norm */
+            mpn_norm: string | null;
+            /** Mpn Raw */
+            mpn_raw: string | null;
+            /** Note */
+            note: string | null;
+            /** Part Id */
+            part_id: number | null;
+            /** Project Id */
+            project_id: number;
+            /** Qty Per Assembly Milli */
+            qty_per_assembly_milli: number;
+            /** Ref Value */
+            ref_value: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** BomLinesUpdateRequest */
+        BomLinesUpdateRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Edits */
+            edits: components["schemas"]["BomLineEdit"][];
+        };
+        /** BomLinesUpdateResponse */
+        BomLinesUpdateResponse: {
+            /** Lines */
+            lines: components["schemas"]["BomLineRead"][];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** BuildCreate */
+        BuildCreate: {
+            /**
+             * Assembly Count
+             * @default 1
+             */
+            assembly_count?: number;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Label */
+            label?: string | null;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** BuildCreated */
+        BuildCreated: {
+            build: components["schemas"]["BuildRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** BuildRead */
+        BuildRead: {
+            /** Assembly Count */
+            assembly_count: number;
+            /** Bom Revision */
+            bom_revision: string | null;
+            /** Build No */
+            build_no: number;
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Label */
+            label: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Project Id */
+            project_id: number;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * BuildStatus
+         * @description Where one *run* of building a project sits.
+         *
+         *     Distinct from `AllocationState` and not derivable from it: a build with
+         *     every allocation consumed may still be open because the human has not said
+         *     they are done, and a build with no allocations at all is a legitimate empty
+         *     plan. The two are checked together — closing a build that still holds
+         *     `RESERVED` rows is what releases them, which is the only reason the
+         *     reserved cache cannot drift upwards forever.
+         * @enum {string}
+         */
+        BuildStatus: "planned" | "in_progress" | "completed" | "abandoned";
+        /**
+         * BuildUpdate
+         * @description Label, notes, and the status transition that closes a build.
+         *
+         *     Not in the route list this module was scoped from — added because nothing
+         *     else can ever set `project_builds.status`, and closing a build is what
+         *     releases its reservations (see `_apply_build_status`). Idempotent by
+         *     construction like `parts.update_part`: replaying "mark it completed" a
+         *     second time finds nothing left to release and leaves `completed_at` alone,
+         *     so no idempotency key is needed.
+         */
+        BuildUpdate: {
+            /** Label */
+            label?: string | null;
+            /** Notes */
+            notes?: string | null;
+            status?: components["schemas"]["BuildStatus"] | null;
         };
         /** CandidateRead */
         CandidateRead: {
@@ -1859,6 +2371,31 @@ export interface components {
          * @enum {string}
          */
         LedgerSource: "manual" | "scan" | "scale" | "vision" | "import" | "api" | "defrag";
+        /** LineShortageRead */
+        LineShortageRead: {
+            /** Allocated Milli */
+            allocated_milli: number;
+            /** Available Milli */
+            available_milli: number | null;
+            /** Bom Line Id */
+            bom_line_id: number;
+            /** Is Blocking */
+            is_blocking: boolean;
+            /** Kind */
+            kind: string;
+            /** Line No */
+            line_no: number;
+            /** Part Id */
+            part_id: number | null;
+            /** Required Milli */
+            required_milli: number;
+            /** Shortfall Milli */
+            shortfall_milli: number | null;
+            /** Substitute Part Ids */
+            substitute_part_ids: number[];
+            /** Undeliverable Milli */
+            undeliverable_milli: number;
+        };
         /** LocationCreate */
         LocationCreate: {
             /** Access Score */
@@ -2453,6 +2990,96 @@ export interface components {
          * @enum {string}
          */
         PendingIntakeStatus: "pending" | "resolved" | "dismissed";
+        /** ProjectCreate */
+        ProjectCreate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes?: string | null;
+            /** Revision */
+            revision?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            status?: components["schemas"]["ProjectStatus"] | null;
+        };
+        /** ProjectCreated */
+        ProjectCreated: {
+            project: components["schemas"]["ProjectRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** ProjectList */
+        ProjectList: {
+            /** Projects */
+            projects: components["schemas"]["ProjectRead"][];
+            /** Total */
+            total: number;
+        };
+        /** ProjectRead */
+        ProjectRead: {
+            /** Builds */
+            builds: components["schemas"]["BuildRead"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Description */
+            description: string | null;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes: string | null;
+            /** Revision */
+            revision: string | null;
+            /** Source Ref */
+            source_ref: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * ProjectStatus
+         * @description Where a project sits in its own lifecycle.
+         *
+         *     Deliberately about the *design*, not about building it — a project has many
+         *     builds and each carries its own `BuildStatus`, so "half built" is never a
+         *     fact about this column. `ARCHIVED` exists so a finished design can leave
+         *     the default list without being deleted, because deleting it would take its
+         *     BOM (and therefore the answer to "what was in that board") with it.
+         * @enum {string}
+         */
+        ProjectStatus: "planning" | "active" | "archived";
+        /** ProjectUpdate */
+        ProjectUpdate: {
+            /** Description */
+            description?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Revision */
+            revision?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            status?: components["schemas"]["ProjectStatus"] | null;
+        };
         /** ProvisionProgressRead */
         ProvisionProgressRead: {
             /** Bound */
@@ -2621,6 +3248,37 @@ export interface components {
             note?: string | null;
             /** @default manual */
             source?: components["schemas"]["LedgerSource"];
+        };
+        /**
+         * ReleaseRequest
+         * @description Release one hold, or — when `allocation_id` is omitted — every open
+         *     hold the build has. The bulk form is what a `BuildUpdate` close calls
+         *     internally; exposed here too because abandoning a build outside of that
+         *     transition (a plan dropped before it is ever started) is a legitimate
+         *     reason to free stock without touching `status`.
+         */
+        ReleaseRequest: {
+            /** Allocation Id */
+            allocation_id?: number | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** ReleaseResponse */
+        ReleaseResponse: {
+            allocation?: components["schemas"]["AllocationRead"] | null;
+            lot?: components["schemas"]["LotRead"] | null;
+            /** Released Count */
+            released_count: number;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
         };
         /**
          * ResolveRequest
@@ -2979,6 +3637,17 @@ export interface components {
             replayed?: boolean;
             /** Short Id */
             short_id: string;
+        };
+        /** ShortageResponse */
+        ShortageResponse: {
+            /** Assembly Count */
+            assembly_count: number;
+            /** Build Id */
+            build_id: number;
+            /** Is Buildable */
+            is_buildable: boolean;
+            /** Lines */
+            lines: components["schemas"]["LineShortageRead"][];
         };
         /**
          * SizeClass
@@ -3448,6 +4117,173 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_build: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_build: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    allocate_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllocateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllocateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    release_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_shortages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShortageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_container_types: {
         parameters: {
             query?: {
@@ -4484,6 +5320,279 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PartRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_projects: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["ProjectStatus"][] | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_bom_lines: {
+        parameters: {
+            query?: {
+                /** @description Only lines with no part_id — the worklist `ix_bom_lines_unmatched` serves. */
+                unmatched_only?: boolean;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BomLineList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_bom_lines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BomLinesUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BomLinesUpdateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_bom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BomImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BomImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_build: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildCreated"];
                 };
             };
             /** @description Validation Error */
