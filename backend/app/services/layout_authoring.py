@@ -531,6 +531,15 @@ def split_type_region(
 _CLONABLE_FIELDS = (
     "description",
     "child_layout",
+    # A clone that lost its pinned drawing would silently redraw every cabinet
+    # stamped from it, and the clone path is how a seed type is edited at all.
+    "child_view",
+    # Same argument as `child_view` just above: a clone that lost its pinned
+    # pictogram would silently go back to a placeholder for every cabinet
+    # stamped from it. The clone's *photo* — a `document_links` row, not a
+    # column — is deliberately **not** carried across; see
+    # `app.api.routes.container_types.clone_container_type`.
+    "glyph",
     "grid_rows",
     "grid_cols",
     "grid_pitch_mm",

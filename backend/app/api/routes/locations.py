@@ -24,14 +24,15 @@ from sqlalchemy.orm import Session
 
 from app.api import idempotency
 from app.api.limits import InstanceCount, MassMg, RowId
+from app.api.routes.documents import DocumentRead, primary_photo
 from app.api.schemas import LotRead, ReplayableResponse, SlotSpecIn, lot_read
 from app.db.session import get_db
 from app.models.catalog import Packaging, Part
-from app.models.enums import CapacityModel, EntityType, TagGranularity
+from app.models.enums import CapacityModel, ChildView, ContainerGlyph, EntityType, TagGranularity
 from app.models.identity import ObjectId
 from app.models.stock import StockLot
 from app.models.storage import ContainerType, Location, LocationOccupancy, LocationTag
-from app.services import assignment, capacity, shortid
+from app.services import assignment, capacity, glyphs, shortid, views
 from app.services import layout_authoring as layout
 from app.services.assignment import AssignmentResult
 from app.services.capacity import DefragPlan
@@ -89,6 +90,23 @@ class LocationCreate(BaseModel):
         default=None, description="Null takes the container type's answer."
     )
     fill_factor: float | None = Field(default=None, gt=0, le=1)
+    child_view: ChildView | None = Field(
+        default=None,
+        description=(
+            "How this one container draws its children, overriding the container "
+            "type's answer (ADR 0006). Null takes the type's, which in turn falls "
+            "back to deriving it from the type's declared geometry."
+        ),
+    )
+    glyph: ContainerGlyph | None = Field(
+        default=None,
+        description=(
+            "This one container's own pictogram, overriding the container type's "
+            "(see `ContainerGlyph`). Null takes the type's; if the type has none "
+            "either, that is 'no glyph', drawn as a neutral placeholder rather "
+            "than guessed at."
+        ),
+    )
     access_score: float | None = Field(default=None, ge=0, le=1)
     tare_mg: MassMg | None = None
     mint_short_id: bool | None = Field(
@@ -120,6 +138,31 @@ class LocationRead(BaseModel):
     #: applies — marking a whole cabinet ESD-safe has to be one edit.
     effective_esd_safe: bool | None
     is_placeable: bool | None
+    #: This location's own override, or null for "use the type" — reported beside
+    #: the resolved value for the same reason `esd_safe` is: an editor cannot
+    #: offer "stop overriding this" without knowing whether an override exists.
+    child_view: str | None
+    #: The instance override, else the type's, else derived from the type's
+    #: geometry. Never null, and never inherited from an ancestor — see
+    #: `app.models.storage.Location.child_view`.
+    effective_child_view: str
+    #: This container's own pictogram override, or null — reported beside
+    #: `effective_glyph` for the same reason `child_view` is: an editor cannot
+    #: offer "stop overriding this" without knowing whether an override exists.
+    glyph: str | None
+    #: The instance override, else the type's, else null — "no glyph chosen" is
+    #: a real, terminal state here (unlike `effective_child_view`, there is no
+    #: derived rung), and the renderer draws a neutral placeholder for it.
+    effective_glyph: str | None
+    #: This container's own photo, or null. A `role=photo` document attached
+    #: directly to *this* location — not the type's.
+    photo: DocumentRead | None
+    #: This container's own photo if it has one, else its container type's, else
+    #: null. What the detail screen actually shows; the dense tree view shows
+    #: `effective_glyph` instead, never this — see `app.models.enums.
+    #: ContainerGlyph` for why loading a photo per cell of a 96-cell grid would
+    #: be the wrong trade.
+    effective_photo: DocumentRead | None
     is_overfull: bool
     is_staging: bool
     access_score: float
@@ -161,6 +204,44 @@ class LocationNode(BaseModel):
     #: `get_inbox_location` tells them apart, so the tree asks the same question
     #: rather than sniffing the label path for `PROJECTS`.
     is_placeable: bool | None
+    #: **How this node's own children are drawn** (ADR 0006), already resolved:
+    #: instance override, else the container type's, else derived from the type's
+    #: declared geometry. Resolved server-side rather than left to the client
+    #: because the fallback reads `container_types`, and a tree render that had to
+    #: join the type library itself would be the N+1 the rest of this response
+    #: exists to avoid — as well as a second copy of the rule to disagree with.
+    #:
+    #: Only the effective value is carried, not the raw override: `LocationNode`
+    #: is deliberately the cheap shape, and the map needs to know what to draw,
+    #: not who decided. `LocationRead` carries both.
+    effective_child_view: str
+    #: The canvas this node presents to **its own** children — `grid_rows` and
+    #: `grid_cols` off its container type, or null when it declares none.
+    #:
+    #: Carried because `effective_child_view` is *derived* from exactly these two
+    #: columns (`app.services.views.derive_child_view`), so a client that could
+    #: not see them could not honour the drawing they promise. A type whose slot
+    #: labels are a plain sequence — both seeded Raacos — labels its drawers
+    #: `01`...`30`, and a sequential label carries an order and no column: the
+    #: server said `cabinet_face` and the client had no canvas to lay that face
+    #: out on. Now the fact that decides the picture and the fact that makes it
+    #: drawable travel together.
+    #:
+    #: Null is meaningful and must stay reportable: it is what makes the client
+    #: refuse to draw a slotted view rather than guess a column count, which is
+    #: the same rule `lib/locations/slots.ts` already applies to labels.
+    child_grid_rows: int | None
+    child_grid_cols: int | None
+    #: The pictogram this node draws in the dense tree view, already resolved —
+    #: instance override, else the container type's, else null. **Deliberately
+    #: not a photo.** `ContainerLayout.tsx` can lay out dozens of these nodes in
+    #: one screen (a baseplate's grid, a cabinet's drawer fronts), and a photo is
+    #: a real image fetched and decoded from the document store — loading one
+    #: per cell of a 12x8 grid to draw a picture that renders at a few dozen
+    #: pixels is the exact waste this axis exists to avoid. `LocationRead`, drawn
+    #: for exactly one container at a time, carries the actual `effective_photo`
+    #: instead.
+    effective_glyph: str | None
     #: Cached in `location_occupancy`, so the tree costs one extra join rather
     #: than a capacity computation per node.
     fill_ratio: float | None
@@ -318,6 +399,63 @@ class LayoutRead(BaseModel):
     slots: list[SlotStateRead]
 
 
+class LocationChildViewUpdate(BaseModel):
+    """Pin, or stop pinning, how this one container draws its children.
+
+    The instance half of ADR 0006's override. There is no `PATCH /api/locations`
+    to fold this into, and inventing one to carry a single field would put every
+    other column of `locations` on the wire as writable — so this is its own
+    narrow route, the same shape as `.../short-id` beside it.
+    """
+
+    child_view: ChildView | None = Field(
+        default=None,
+        description=(
+            "Null clears the override, handing the drawing back to the container "
+            "type (and through it to the derivation). Sending null is therefore a "
+            "real edit, not an omission."
+        ),
+    )
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class LocationChildViewResponse(ReplayableResponse):
+    location_id: RowId
+    #: What was stored: the caller's value, or null if the override was cleared.
+    child_view: str | None
+    #: What this container now actually draws with. Equal to `child_view` when one
+    #: is set; the type's answer or the derived one when it was cleared — which is
+    #: the whole reason this is reported rather than left for the client to guess.
+    effective_child_view: str
+
+
+class LocationGlyphUpdate(BaseModel):
+    """Pin, or stop pinning, this one container's own pictogram. The instance
+    half of the type/instance override — same shape and same reasoning as
+    `LocationChildViewUpdate` beside it, one field over."""
+
+    glyph: ContainerGlyph | None = Field(
+        default=None,
+        description=(
+            "Null clears the override, handing the glyph back to the container "
+            "type. Unlike `child_view` there is no derivation underneath it, so "
+            "clearing both this and the type's own glyph is 'no glyph', drawn as "
+            "a neutral placeholder rather than guessed at."
+        ),
+    )
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class LocationGlyphResponse(ReplayableResponse):
+    location_id: RowId
+    #: What was stored: the caller's value, or null if the override was cleared.
+    glyph: str | None
+    #: This container's own glyph if set, else its container type's, else null.
+    effective_glyph: str | None
+
+
 class ShortIdRequest(BaseModel):
     """Mint (`short_id` absent) or adopt (`short_id` present)."""
 
@@ -426,6 +564,11 @@ def _capacity_read(db: Session, location: Location) -> CapacityRead:
 
 def _read(db: Session, location: Location) -> LocationRead:
     entity = describe(db, EntityType.LOCATION, location.id)
+    container_type = (
+        db.get(ContainerType, location.container_type_id)
+        if location.container_type_id is not None
+        else None
+    )
     lots = list(
         db.execute(
             select(StockLot).where(StockLot.location_id == location.id).order_by(StockLot.id)
@@ -436,6 +579,12 @@ def _read(db: Session, location: Location) -> LocationRead:
     child_count = db.execute(
         select(func.count()).select_from(Location).where(Location.parent_id == location.id)
     ).scalar_one()
+    own_photo = primary_photo(db, entity_type=EntityType.LOCATION, entity_pk=location.id)
+    type_photo = (
+        primary_photo(db, entity_type=EntityType.CONTAINER_TYPE, entity_pk=container_type.id)
+        if container_type is not None
+        else None
+    )
     return LocationRead(
         id=location.id,
         name=location.name,
@@ -449,6 +598,12 @@ def _read(db: Session, location: Location) -> LocationRead:
         esd_safe=location.esd_safe,
         effective_esd_safe=location_tree(db).nearest_ancestor_value(location, "esd_safe"),
         is_placeable=location.is_placeable,
+        child_view=location.child_view,
+        effective_child_view=views.resolve_child_view(location, container_type),
+        glyph=location.glyph,
+        effective_glyph=glyphs.resolve_glyph(location, container_type),
+        photo=own_photo,
+        effective_photo=own_photo if own_photo is not None else type_photo,
         is_overfull=location.is_overfull,
         is_staging=location.is_staging,
         access_score=location.access_score,
@@ -676,6 +831,14 @@ def read_location_tree(
             select(LocationOccupancy.location_id, LocationOccupancy.fill_ratio)
         ).all()
     }
+    # One more query for the whole tree, in the same spirit as the two above: the
+    # drawing of a level falls back to its container type, and resolving that per
+    # node would be one lookup per location. The picture and the canvas it is drawn
+    # on come back together because they are read off the same type row.
+    drawings = views.resolve_child_drawings(db, nodes)
+    # And the glyph each node draws in this same map — batched for the identical
+    # reason, and never the photo: see `LocationNode.effective_glyph`.
+    node_glyphs = glyphs.resolve_glyphs(db, nodes)
 
     return LocationTree(
         nodes=[
@@ -691,6 +854,10 @@ def read_location_tree(
                 is_overfull=node.is_overfull,
                 is_staging=node.is_staging,
                 is_placeable=node.is_placeable,
+                effective_child_view=drawings[node.id].view,
+                child_grid_rows=drawings[node.id].grid_rows,
+                child_grid_cols=drawings[node.id].grid_cols,
+                effective_glyph=node_glyphs[node.id],
                 fill_ratio=fill.get(node.id),
                 lot_count=totals.get(node.id, (0, 0))[0],
                 qty_milli=totals.get(node.id, (0, 0))[1],
@@ -778,6 +945,8 @@ def create_location(request: LocationCreate, db: Session = Depends(get_db)) -> L
             esd_safe=request.esd_safe,
             is_placeable=request.is_placeable,
             fill_factor=request.fill_factor,
+            child_view=request.child_view,
+            glyph=request.glyph,
             tare_mg=request.tare_mg,
         )
         if request.sort_order is not None:
@@ -939,6 +1108,82 @@ def read_location_layout(location_id: RowId, db: Session = Depends(get_db)) -> L
     """Grid + tag + contents state for one location's own children — shared by
     the editor, the provisioning walk and the verification walk."""
     return _layout_read(db, _require_location(db, location_id))
+
+
+@router.put("/{location_id}/child-view", response_model=LocationChildViewResponse)
+def set_location_child_view(
+    location_id: RowId, request: LocationChildViewUpdate, db: Session = Depends(get_db)
+) -> LocationChildViewResponse:
+    """Override how this container draws its children, or clear the override.
+
+    Nothing about the tree's *shape* changes here and nothing is validated
+    against the geometry on purpose: a drawing is a preference, and refusing to
+    draw a cabinet as a floor plan because its type declares a grid would be the
+    editor overruling the person holding the cabinet. The grid machinery still
+    knows where each slot is either way — only the picture changes.
+    """
+    location = _require_location(db, location_id)
+
+    def work() -> LocationChildViewResponse:
+        location.child_view = request.child_view
+        db.flush()
+        container_type = (
+            db.get(ContainerType, location.container_type_id)
+            if location.container_type_id is not None
+            else None
+        )
+        return LocationChildViewResponse(
+            location_id=location.id,
+            child_view=location.child_view,
+            effective_child_view=views.resolve_child_view(location, container_type),
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="PUT /api/locations/{id}/child-view",
+        payload=request,
+        response_model=LocationChildViewResponse,
+        work=work,
+    )
+
+
+@router.put("/{location_id}/glyph", response_model=LocationGlyphResponse)
+def set_location_glyph(
+    location_id: RowId, request: LocationGlyphUpdate, db: Session = Depends(get_db)
+) -> LocationGlyphResponse:
+    """Override this container's pictogram, or clear the override.
+
+    Its own narrow route rather than a field on `.../child-view`, for the same
+    reason that one is its own route rather than a general `PATCH /api/locations`
+    — see `LocationChildViewUpdate`'s docstring.
+    """
+    location = _require_location(db, location_id)
+
+    def work() -> LocationGlyphResponse:
+        location.glyph = request.glyph
+        db.flush()
+        container_type = (
+            db.get(ContainerType, location.container_type_id)
+            if location.container_type_id is not None
+            else None
+        )
+        return LocationGlyphResponse(
+            location_id=location.id,
+            glyph=location.glyph,
+            effective_glyph=glyphs.resolve_glyph(location, container_type),
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="PUT /api/locations/{id}/glyph",
+        payload=request,
+        response_model=LocationGlyphResponse,
+        work=work,
+    )
 
 
 @router.post("/{location_id}/short-id", response_model=ShortIdResponse)

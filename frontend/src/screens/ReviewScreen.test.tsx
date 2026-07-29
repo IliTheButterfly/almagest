@@ -319,6 +319,33 @@ describe("correcting a value", () => {
       await screen.findByText(/Nothing is waiting on a human right now/),
     ).toBeTruthy();
   });
+
+  it("disables Save correction and says why when the value is cleared, rather than silently doing nothing", async () => {
+    stubApi();
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Correct" }));
+    fireEvent.change(screen.getByDisplayValue("100nF"), { target: { value: "" } });
+
+    expect(screen.getByRole("button", { name: "Save correction" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByText(/Enter a value/)).toBeTruthy();
+    expect(calls.some((call) => call.url.endsWith("/correct"))).toBe(false);
+  });
+
+  it("does not silently drop a submit attempt while the value is empty", async () => {
+    stubApi();
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Correct" }));
+    fireEvent.change(screen.getByDisplayValue("100nF"), { target: { value: "" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Save correction" }).closest("form")!);
+
+    expect(await screen.findByText(/an empty correction is not saved/)).toBeTruthy();
+    expect(calls.some((call) => call.url.endsWith("/correct"))).toBe(false);
+  });
 });
 
 describe("accepting one candidate", () => {

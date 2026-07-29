@@ -18,7 +18,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.base import TimestampMixin, TreeMixin
-from app.models.enums import CapacityModel, ChildLayout, SizeClass, SlotLabelScheme
+from app.models.enums import (
+    CapacityModel,
+    ChildLayout,
+    ChildView,
+    ContainerGlyph,
+    SizeClass,
+    SlotLabelScheme,
+)
 from app.models.types import StrEnumType, UtcDateTime
 
 
@@ -38,6 +45,40 @@ class ContainerType(Base, TimestampMixin):
     )
     grid_rows: Mapped[int | None] = mapped_column(Integer)
     grid_cols: Mapped[int | None] = mapped_column(Integer)
+
+    # --- ADR 0006: and a *third* independent question --------------------------
+    #
+    # "How should my children be drawn?" A Raaco cabinet and a Gridfinity
+    # baseplate both answer `child_layout=grid`, and want entirely different
+    # pictures — drawer fronts in a vertical face versus square cells seen from
+    # above. A workshop presents no grid at all and still has to render as
+    # something better than a bullet list.
+    #
+    #: NULL means **derive it** from the geometry this type already declares
+    #: (`app.services.views.derive_child_view`), which is why no seed row needed
+    #: a value backfilled: a baseplate's declared pitch already says "cells seen
+    #: from above", and a stored copy of that would be a second version of the
+    #: same fact, free to drift from the geometry it was read off.
+    #:
+    #: Set it to pin the drawing for every instance of the type — "every Raaco
+    #: cabinet draws the same way" is a fact about the type, not about one
+    #: cabinet. `locations.child_view` then overrides it per instance, the same
+    #: type-default-with-instance-override shape `esd_safe`, `is_placeable` and
+    #: `default_fill_factor`/`fill_factor` already use.
+    child_view: Mapped[str | None] = mapped_column(StrEnumType(ChildView))
+
+    #: The pictogram every instance of this type is drawn with, in the dense
+    #: tree view where a real photograph would be too expensive to load ninety-
+    #: six of. `locations.glyph` overrides it per instance, the same two-rung
+    #: shape as `esd_safe`/`is_placeable`/`fill_factor` — but unlike those and
+    #: unlike `child_view`, there is no third rung: nothing about a type's
+    #: geometry implies what it *looks like*, so NULL here simply means no
+    #: glyph is chosen and the renderer falls back to a neutral placeholder
+    #: rather than a guess. See `app.models.enums.ContainerGlyph` for why this
+    #: is a separate concern from the photo a phone takes of the real drawer
+    #: (`DocumentRole.PHOTO`, attached through `document_links` — no column
+    #: for that here, on purpose: Phase 4's document store already models it).
+    glyph: Mapped[str | None] = mapped_column(StrEnumType(ContainerGlyph))
 
     # --- ADR 0002: a container type answers two *independent* questions ------
     #
@@ -209,6 +250,27 @@ class Location(Base, TreeMixin, TimestampMixin):
     esd_safe: Mapped[bool | None] = mapped_column(Boolean)
     is_placeable: Mapped[bool | None] = mapped_column(Boolean)
     fill_factor: Mapped[float | None] = mapped_column(Float)
+
+    #: How *this* container's children are drawn (ADR 0006), overriding the
+    #: type's answer. NULL means "use the type", exactly as the three overrides
+    #: above do — the same precedent, so there is one rule to remember rather
+    #: than a second convention for the newest column.
+    #:
+    #: Unlike `esd_safe` this is **not** walked up the ancestor chain: ESD safety
+    #: is a physical property that genuinely propagates downwards (a cabinet
+    #: lined with dissipative foam makes its drawers safe), whereas a drawing is
+    #: a fact about one level's own children. Inheriting it would mean choosing a
+    #: floor plan for a room silently redrew every drawer inside it.
+    child_view: Mapped[str | None] = mapped_column(StrEnumType(ChildView))
+
+    #: This one container's own pictogram, overriding the type's — NULL means
+    #: "use the type", exactly as `child_view` does, and for the same reason
+    #: this is not walked up the ancestor chain either: what a container looks
+    #: like is a fact about that container, not something a cabinet imposes on
+    #: its drawers. Also not inherited from the type via any derivation — see
+    #: `app.models.storage.ContainerType.glyph` — so both this and the type
+    #: being unset is a real, renderable state ("no glyph"), not an error.
+    glyph: Mapped[str | None] = mapped_column(StrEnumType(ContainerGlyph))
 
     #: 0..1, how easy this place is to reach. Multiplied by the part's
     #: hot_score in the assignment scorer, so frequently-used parts drift

@@ -1239,10 +1239,20 @@ function RecordUsed({
 
   const qtyMilli = Math.round((Number(qty) || 0) * 1000);
   const lot = Number(lotId);
-  const ready = Number.isSafeInteger(lot) && lot > 0 && qtyMilli > 0;
+  const lotInvalid = !(Number.isSafeInteger(lot) && lot > 0);
+  const qtyInvalid = qtyMilli <= 0;
+  const ready = !lotInvalid && !qtyInvalid;
+  const readyMessage = lotInvalid && qtyInvalid
+    ? "Enter the lot it came from and a quantity above zero before this can be recorded."
+    : lotInvalid
+      ? "Enter the lot it came from."
+      : "Enter a quantity above zero.";
 
   async function submit(): Promise<void> {
     if (!ready) {
+      // "Record as used" is disabled for the same reason; this guards a
+      // stray Enter-key submit from going nowhere with no explanation.
+      setError(new Error(readyMessage));
       return;
     }
     setBusy(true);
@@ -1292,6 +1302,7 @@ function RecordUsed({
         <span>Why (optional, and worth writing)</span>
         <input value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
+      {!ready && <p className="muted-note">{readyMessage}</p>}
       <ErrorBanner error={error} fallback="That could not be recorded." />
       <button
         type="button"

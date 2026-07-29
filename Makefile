@@ -108,3 +108,6 @@ clean: ## Remove caches and build artefacts
 	find . -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 	rm -rf $(BE)/.pytest_cache $(BE)/.ruff_cache $(BE)/.mypy_cache
 	rm -rf $(AG)/.pytest_cache $(AG)/.ruff_cache $(AG)/.mypy_cache
+
+certs: ## Generate a local private CA + dev certificate (ADR 0001; certs/ is gitignored)
+	@./scripts/make-certs.sh

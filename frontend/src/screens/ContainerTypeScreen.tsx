@@ -1,6 +1,16 @@
 /**
- * `/container-types/:id` — the canvas editor for one container type's
- * reusable slot layout.
+ * `/container-types/:id` — one container type: what it is, and the canvas
+ * editor for its reusable slot layout.
+ *
+ * Two halves, deliberately in this order. **What it is** — ADR 0002's two
+ * questions, its capacity model, its label scheme, its picture — is edited
+ * through `ContainerTypeForm`, the same component the create screen uses, so the
+ * two questions are never phrased two ways. **What its slots are** is the canvas,
+ * which is `.../slot-template`'s single door and stays exactly as it was.
+ *
+ * A type is a template, so this screen also has to answer "and now what?": the
+ * actions that turn it into something usable — stamp containers from it, or copy
+ * it — are a card of their own near the top rather than being left implicit.
  *
  * **Editing this never touches a cabinet already built from it.** A type
  * has no children of its own, so there is nothing here for the change
@@ -19,20 +29,33 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { ContainerPhotoPanel } from "../components/ContainerPhotoPanel";
+import { ContainerTypeForm } from "../components/ContainerTypeForm";
 import { LayoutEditor } from "../components/LayoutEditor";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import {
+  cloneContainerType,
+  detachContainerTypeDocument,
   getContainerType,
   getSlotTemplate,
   putSlotTemplate,
   updateContainerType,
+  uploadDocument,
   type ContainerTypeRead,
   type SlotLabelScheme,
   type SlotTemplateRead,
 } from "../lib/api/client";
+import {
+  describeOccupies,
+  describePresents,
+  draftFromType,
+  toUpdateRequest,
+  type TypeDraft,
+} from "../lib/containers/typeDraft";
 import { useAsync } from "../lib/hooks/useAsync";
 import { toSlotSpecIn, type DraftSlot } from "../lib/locations/layoutDraft";
 import { slotLabelFor } from "../lib/locations/slots";
+import { known, VIEW_LABELS } from "../lib/locations/views";
 import { uuid4 } from "../lib/scan/session";
 
 function suggestLabel(rowIdx: number, colIdx: number): string {
@@ -145,6 +168,16 @@ function TypeEditor({
         <p className="muted-note mono" style={{ margin: 0 }}>
           {type.slug}
         </p>
+        {/* ADR 0002's two answers, stated apart before the form is even opened —
+            they are what somebody is checking when they ask "is this the right
+            type", and one merged "size" line would answer neither question. */}
+        <p className="muted-note" style={{ margin: 0 }}>
+          Offers: {describePresents(type)} · Takes up: {describeOccupies(type)}
+        </p>
+        <p className="muted-note" style={{ margin: 0 }}>
+          {VIEW_LABELS[known(type.effective_child_view)]}
+          {type.child_view === null && " (worked out from the layout)"}
+        </p>
         {type.description !== null && <p style={{ margin: 0 }}>{type.description}</p>}
         {type.is_seed && (
           <Notice kind="info" title="This is a seed type">
@@ -155,15 +188,68 @@ function TypeEditor({
         )}
       </div>
 
+      <UseThisType type={type} />
+
       {editingDetails && (
         <EditDetails
           type={type}
-          onDone={() => {
+          onDone={(nextId) => {
             setEditingDetails(false);
-            onReload();
+            if (nextId === type.id) {
+              onReload();
+            } else {
+              // The edit landed on a clone, because this is a seed. Follow it, or
+              // the next save would clone the seed a second time.
+              navigate(`/container-types/${nextId}`, { replace: true });
+            }
           }}
         />
       )}
+
+      <div className="card">
+        <h3>Picture</h3>
+        <p className="muted-note" style={{ margin: 0 }}>
+          What every instance of this type looks like by default. One particular
+          container can still be given its own photo on its own screen.
+        </p>
+        <ContainerPhotoPanel
+          displayPhoto={type.photo}
+          ownPhoto={type.photo}
+          glyph={type.glyph}
+          onUpload={async (file) => {
+            const result = await uploadDocument(file, {
+              mediaType: file.type !== "" ? file.type : "image/jpeg",
+              kind: "photo",
+              role: "photo",
+              containerTypeId: type.id,
+              isPrimary: true,
+            });
+            // A photo is an edit like any other, so a seed clones — and this
+            // screen has to follow the copy for the same reason `EditDetails`
+            // and "Save layout" do: staying put would leave every later save
+            // aimed at the seed, minting a fresh clone per click.
+            if (result.cloned_container_type && result.container_type_id !== null) {
+              setSaved(
+                `Saved as a new type, since "${type.display_name}" is a seed and cannot be ` +
+                  "changed directly — the rest of this screen now points at that copy.",
+              );
+              navigate(`/container-types/${result.container_type_id}`, { replace: true });
+              return;
+            }
+            onReload();
+          }}
+          onRemoveOwn={
+            type.photo === null
+              ? null
+              : async () => {
+                  if (type.photo !== null) {
+                    await detachContainerTypeDocument(type.id, type.photo.sha256);
+                  }
+                  onReload();
+                }
+          }
+        />
+      </div>
 
       <Notice kind="info" title="This never reaches into an already-built container">
         A cabinet already stamped from this type keeps whatever layout it had at the moment
@@ -215,22 +301,26 @@ function TypeEditor({
   );
 }
 
-function EditDetails({ type, onDone }: { type: ContainerTypeRead; onDone: () => void }) {
-  const [displayName, setDisplayName] = useState(type.display_name);
-  const [description, setDescription] = useState(type.description ?? "");
+/**
+ * "And now what?" — the two things you do *with* a type, rather than to it.
+ *
+ * Prominent and near the top because a type on its own holds nothing, and both
+ * routes already exist: `POST .../clone` for "this cabinet is identical to that
+ * one", and `POST /api/locations/{id}/instantiate` for turning the template into
+ * containers. Leaving those to be discovered elsewhere is how a complete backend
+ * still reads as "I can't create my own containers".
+ */
+function UseThisType({ type }: { type: ContainerTypeRead }) {
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  async function save(): Promise<void> {
+  async function clone(): Promise<void> {
     setBusy(true);
     setError(null);
     try {
-      await updateContainerType(type.id, {
-        display_name: displayName,
-        description: description === "" ? null : description,
-        client_op_id: uuid4(),
-      });
-      onDone();
+      const response = await cloneContainerType(type.id, { client_op_id: uuid4() });
+      navigate(`/container-types/${response.container_type.id}`);
     } catch (cause) {
       setError(cause);
     } finally {
@@ -239,26 +329,72 @@ function EditDetails({ type, onDone }: { type: ContainerTypeRead; onDone: () => 
   }
 
   return (
-    <form
-      className="card"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
-    >
-      <h3>Edit details</h3>
-      <label className="field">
-        <span>Display name</span>
-        <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-      </label>
-      <label className="field">
-        <span>Description</span>
-        <textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} />
-      </label>
+    <div className="card">
+      <h3>Use this type</h3>
+      <div className="row">
+        <Link className="button-link" to={`/containers/new?type=${type.id}`}>
+          Create containers from it
+        </Link>
+        <button type="button" onClick={() => void clone()} disabled={busy}>
+          {busy ? "Copying…" : "Clone it"}
+        </button>
+      </div>
+      <p className="muted-note" style={{ margin: 0 }}>
+        A type is a template — nothing can be put inside one. Stamping it produces real
+        containers under a parent you choose, each with its own copy of the layout below.
+        Cloning is for "the same, but with two things changed"; the copy is yours to edit
+        even when this one is not.
+      </p>
+      <ErrorBanner error={error} fallback="That type could not be copied." />
+    </div>
+  );
+}
+
+/**
+ * Everything about the type that is not its slot canvas, through the same form
+ * the create screen uses — so ADR 0002's two questions are asked in one voice.
+ *
+ * `onDone` is handed the id that was actually written. Editing a seed clones it
+ * (`ensure_editable`), so that id is not always the one in the URL, and a screen
+ * that ignored the difference would keep showing the untouched seed while a
+ * second save minted a second copy.
+ */
+function EditDetails({
+  type,
+  onDone,
+}: {
+  type: ContainerTypeRead;
+  onDone: (writtenTypeId: number) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function save(draft: TypeDraft): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await updateContainerType(type.id, toUpdateRequest(draft, uuid4()));
+      onDone(response.container_type.id);
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>What it is</h3>
       <ErrorBanner error={error} fallback="Those details could not be saved." />
-      <button type="submit" className="primary wide" disabled={busy || displayName.trim() === ""}>
-        {busy ? "Saving…" : "Save"}
-      </button>
-    </form>
+      <ContainerTypeForm
+        initial={draftFromType(type)}
+        mode="edit"
+        clonesOnSave={type.is_seed}
+        busy={busy}
+        derivedChildView={type.effective_child_view}
+        onSubmit={(draft) => void save(draft)}
+        onCancel={() => onDone(type.id)}
+      />
+    </div>
   );
 }

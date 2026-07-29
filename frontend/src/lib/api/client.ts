@@ -72,6 +72,9 @@ export type DocumentLinkList = Schemas["DocumentLinkList"];
 export type DocumentUploadResult = Schemas["DocumentUploadResult"];
 export type DocumentAttachRequest = Schemas["DocumentAttachRequest"];
 export type DocumentAttachResult = Schemas["DocumentAttachResult"];
+/** A container type's own attach result: it also says *which* type it landed on,
+ * because attaching to a seed clones it first. */
+export type ContainerTypeDocumentAttached = Schemas["ContainerTypeDocumentAttached"];
 export type DocumentDetachResult = Schemas["DocumentDetachResult"];
 export type DocumentKind = Schemas["DocumentKind"];
 export type DocumentRole = Schemas["DocumentRole"];
@@ -87,13 +90,38 @@ export type SuggestResponse = Schemas["SuggestResponse"];
 export type ShortIdRequest = Schemas["ShortIdRequest"];
 export type ShortIdResponse = Schemas["ShortIdResponse"];
 
+// --- ADR 0006: how each layer of the tree is drawn ------------------------
+export type ChildView = Schemas["ChildView"];
+export type LocationChildViewUpdate = Schemas["LocationChildViewUpdate"];
+export type LocationChildViewResponse = Schemas["LocationChildViewResponse"];
+
+// --- container pictograms: cheap, drawn at every node of the dense tree ----
+export type ContainerGlyph = Schemas["ContainerGlyph"];
+export type LocationGlyphUpdate = Schemas["LocationGlyphUpdate"];
+export type LocationGlyphResponse = Schemas["LocationGlyphResponse"];
+
+// --- container photos: one real image, drawn only on that container's own
+// detail screen — the `document_links` role a container type's and a
+// location's own photo both attach through.
+export type ContainerTypeDocumentLinkList = Schemas["ContainerTypeDocumentLinkList"];
+export type LocationDocumentLinkList = Schemas["LocationDocumentLinkList"];
+
 // --- layout authoring: container types, their canvas, and one instance's --
 // own copy of it (docs/PLAN.md, "Layout authoring"; ADR 0002). ---------------
 export type ContainerTypeRead = Schemas["ContainerTypeRead"];
+export type ContainerTypeCreate = Schemas["ContainerTypeCreate"];
 export type ContainerTypeUpdate = Schemas["ContainerTypeUpdate"];
 export type ContainerTypeCreated = Schemas["ContainerTypeCreated"];
 export type ContainerTypeEdited = Schemas["ContainerTypeEdited"];
 export type CloneRequest = Schemas["CloneRequest"];
+/** ADR 0002's two questions are these two groups of columns; the enums that go
+ * with them are exported here so a form can offer exactly what the API accepts
+ * and nothing else. */
+export type CapacityModel = Schemas["CapacityModel"];
+export type ChildLayout = Schemas["ChildLayout"];
+export type TagGranularity = Schemas["TagGranularity"];
+export type InstantiateRequest = Schemas["InstantiateRequest"];
+export type InstantiateResponse = Schemas["InstantiateResponse"];
 export type SlotSpecIn = Schemas["SlotSpecIn"];
 export type SlotSpecOut = Schemas["SlotSpecOut"];
 export type SlotLabelScheme = Schemas["SlotLabelScheme"];
@@ -354,8 +382,10 @@ export async function listPartDocuments(partId: number): Promise<DocumentLinkLis
 }
 
 /**
- * Upload a file, storing it under the sha256 of its bytes and — when `partId`
- * is given — attaching it in one request.
+ * Upload a file, storing it under the sha256 of its bytes and — when `partId`,
+ * `containerTypeId` or `locationId` is given — attaching it in one request. At
+ * most one of those three may be set, mirroring the backend route's own refusal
+ * of an ambiguous attachment.
  *
  * Not routed through `api.POST`. `openapi-fetch`'s default body serializer
  * JSON-encodes anything that is not `FormData`, which would corrupt a binary
@@ -372,6 +402,8 @@ export async function uploadDocument(
     mediaType: string;
     kind?: DocumentKind;
     partId?: number;
+    containerTypeId?: number;
+    locationId?: number;
     role?: DocumentRole;
     isPrimary?: boolean;
     filename?: string;
@@ -381,6 +413,10 @@ export async function uploadDocument(
   const query = new URLSearchParams({ media_type: options.mediaType });
   if (options.kind !== undefined) query.set("kind", options.kind);
   if (options.partId !== undefined) query.set("part_id", String(options.partId));
+  if (options.containerTypeId !== undefined) {
+    query.set("container_type_id", String(options.containerTypeId));
+  }
+  if (options.locationId !== undefined) query.set("location_id", String(options.locationId));
   if (options.role !== undefined) query.set("role", options.role);
   if (options.isPrimary !== undefined) query.set("is_primary", String(options.isPrimary));
   if (options.filename !== undefined) query.set("filename", options.filename);
@@ -506,6 +542,47 @@ export async function suggestLocation(request: SuggestRequest): Promise<SuggestR
  * rather than substituting a free one, because a substitute would leave the
  * label and the database permanently disagreeing.
  */
+/**
+ * Pin — or, with `child_view: null`, stop pinning — how one container draws its
+ * children (ADR 0006).
+ *
+ * A narrow route rather than a `PATCH /api/locations/{id}`, because there is no
+ * such route and inventing one to carry a single field would put every other
+ * column of `locations` on the wire as writable.
+ */
+export async function setLocationChildView(
+  locationId: number,
+  request: LocationChildViewUpdate,
+): Promise<LocationChildViewResponse> {
+  const { data, error, response } = await api.PUT("/api/locations/{location_id}/child-view", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not change how this container is drawn", error, response);
+  }
+  return data;
+}
+
+/**
+ * Pin — or, with `glyph: null`, stop pinning — this one container's own
+ * pictogram, overriding its container type's. Same narrow-route shape as
+ * `setLocationChildView`, one field over.
+ */
+export async function setLocationGlyph(
+  locationId: number,
+  request: LocationGlyphUpdate,
+): Promise<LocationGlyphResponse> {
+  const { data, error, response } = await api.PUT("/api/locations/{location_id}/glyph", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not change this container's pictogram", error, response);
+  }
+  return data;
+}
+
 export async function assignLocationShortId(
   locationId: number,
   request: ShortIdRequest = {},
@@ -516,6 +593,48 @@ export async function assignLocationShortId(
   });
   if (error !== undefined) {
     fail("could not assign that printed id", error, response);
+  }
+  return data;
+}
+
+/** Every document attached to this one location — its own photo, overriding
+ * its container type's, if it has one. */
+export async function listLocationDocuments(locationId: number): Promise<LocationDocumentLinkList> {
+  const { data, error, response } = await api.GET("/api/locations/{location_id}/documents", {
+    params: { path: { location_id: locationId } },
+  });
+  if (error !== undefined) {
+    fail("could not load this container's attached documents", error, response);
+  }
+  return data;
+}
+
+export async function attachLocationDocument(
+  locationId: number,
+  request: DocumentAttachRequest,
+): Promise<DocumentAttachResult> {
+  const { data, error, response } = await api.POST("/api/locations/{location_id}/documents", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not attach that document", error, response);
+  }
+  return data;
+}
+
+/** Detach this location's own photo. Falls back to the container type's,
+ * which this call never touches — see `LocationRead.effective_photo`. */
+export async function detachLocationDocument(
+  locationId: number,
+  sha256: string,
+): Promise<DocumentDetachResult> {
+  const { data, error, response } = await api.DELETE(
+    "/api/locations/{location_id}/documents/{sha256}",
+    { params: { path: { location_id: locationId, sha256 } } },
+  );
+  if (error !== undefined) {
+    fail("could not remove that document", error, response);
   }
   return data;
 }
@@ -535,6 +654,24 @@ export async function listContainerTypes(
   });
   if (error !== undefined) {
     fail("could not load the container types", error, response);
+  }
+  return data;
+}
+
+/**
+ * Author a brand-new type.
+ *
+ * `slug` is the one field with no `PATCH` counterpart — `ContainerTypeWrite`
+ * omits it — so it is chosen exactly once, here. A collision comes back as a 409
+ * `duplicate_slug`, checked before the insert rather than caught after it, so it
+ * is a refusal a form can point at a field rather than a bare 500.
+ */
+export async function createContainerType(
+  request: ContainerTypeCreate,
+): Promise<ContainerTypeCreated> {
+  const { data, error, response } = await api.POST("/api/container-types", { body: request });
+  if (error !== undefined) {
+    fail("could not create that container type", error, response);
   }
   return data;
 }
@@ -584,6 +721,58 @@ export async function cloneContainerType(
   return data;
 }
 
+/** Every document attached to a container type — its photo, if it has one. */
+export async function listContainerTypeDocuments(
+  containerTypeId: number,
+): Promise<ContainerTypeDocumentLinkList> {
+  const { data, error, response } = await api.GET(
+    "/api/container-types/{container_type_id}/documents",
+    { params: { path: { container_type_id: containerTypeId } } },
+  );
+  if (error !== undefined) {
+    fail("could not load this type's attached documents", error, response);
+  }
+  return data;
+}
+
+/** Attach an already-stored document to a container type, or promote its
+ * existing link — "every instance of this type looks like this" for `role:
+ * "photo"`. */
+/**
+ * Attach an already-stored document to a container type.
+ *
+ * A seed type is read-only, so this clones it first — `cloned` and
+ * `container_type_id` on the response say whether the id just written is the one
+ * that was asked for, exactly as `putSlotTemplate` does.
+ */
+export async function attachContainerTypeDocument(
+  containerTypeId: number,
+  request: DocumentAttachRequest,
+): Promise<ContainerTypeDocumentAttached> {
+  const { data, error, response } = await api.POST(
+    "/api/container-types/{container_type_id}/documents",
+    { params: { path: { container_type_id: containerTypeId } }, body: request },
+  );
+  if (error !== undefined) {
+    fail("could not attach that document", error, response);
+  }
+  return data;
+}
+
+export async function detachContainerTypeDocument(
+  containerTypeId: number,
+  sha256: string,
+): Promise<DocumentDetachResult> {
+  const { data, error, response } = await api.DELETE(
+    "/api/container-types/{container_type_id}/documents/{sha256}",
+    { params: { path: { container_type_id: containerTypeId, sha256 } } },
+  );
+  if (error !== undefined) {
+    fail("could not remove that document", error, response);
+  }
+  return data;
+}
+
 /** The type's current effective layout — generated or materialised, indistinguishably. */
 export async function getSlotTemplate(containerTypeId: number): Promise<SlotTemplateRead> {
   const { data, error, response } = await api.GET(
@@ -611,6 +800,36 @@ export async function putSlotTemplate(
   );
   if (error !== undefined) {
     fail("could not save that layout", error, response);
+  }
+  return data;
+}
+
+/**
+ * "Give me N of these, in here" — the step that turns a type into containers you
+ * can put parts in.
+ *
+ * Each instance materialises the type's layout into its **own** child locations
+ * and keeps no live link back to the type, so editing the type afterwards touches
+ * none of what this created. Idempotency-guarded because it writes a whole
+ * subtree per instance: a retry without a key stamps the cabinet twice.
+ *
+ * Two refusals are worth distinguishing at the call site: a 422
+ * `bad_naming_pattern` (the pattern is client text handed to `str.format`, and
+ * only `{n}` may be substituted) and a 409 naming a hard geometric
+ * incompatibility — `pitch_mismatch`, `footprint_too_wide`, `footprint_too_deep`
+ * — which, unlike capacity, is never advisory: a 42 mm bin does not seat on a
+ * 50 mm plate.
+ */
+export async function instantiateContainers(
+  locationId: number,
+  request: InstantiateRequest,
+): Promise<InstantiateResponse> {
+  const { data, error, response } = await api.POST("/api/locations/{location_id}/instantiate", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not create those containers", error, response);
   }
   return data;
 }

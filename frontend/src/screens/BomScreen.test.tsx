@@ -499,7 +499,7 @@ describe("adding a line by hand", () => {
     expect(await screen.findByText("C9")).toBeTruthy();
   });
 
-  it("requires a quantity greater than zero before the button is enabled", async () => {
+  it("requires a quantity greater than zero before the button is enabled, and says so", async () => {
     stubMutableApi([UNMATCHED]);
     renderScreen();
 
@@ -508,6 +508,28 @@ describe("adding a line by hand", () => {
       target: { value: "0" },
     });
     expect(screen.getByRole("button", { name: "Add line" })).toHaveProperty("disabled", true);
+    // Clearing the quantity must not leave "Add line" merely inert — the
+    // silent failure this test is here to prevent a regression of.
+    expect(screen.getByText(/Quantity must be greater than zero/)).toBeTruthy();
+    expect(callsTo("/api/projects/1/bom").filter((c) => c.method === "PUT")).toHaveLength(0);
+  });
+
+  it("does not silently drop a submit attempt while the quantity is invalid", async () => {
+    // A defensive check for the case a disabled button does not cover: some
+    // browsers still fire the form's submit event on Enter even with the
+    // submit button disabled. Whatever the trigger, the guard inside
+    // `submit()` itself must speak up rather than return quietly.
+    stubMutableApi([UNMATCHED]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add a line" }));
+    fireEvent.change(screen.getByLabelText("Quantity per assembly"), {
+      target: { value: "0" },
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Add line" }).closest("form")!);
+
+    expect(await screen.findByText(/records nothing/)).toBeTruthy();
+    expect(callsTo("/api/projects/1/bom").filter((c) => c.method === "PUT")).toHaveLength(0);
   });
 });
 
@@ -531,6 +553,20 @@ describe("editing a line by hand", () => {
     expect(put?.body["edits"]).toEqual([
       { id: UNMATCHED.id, designators: "R1,R9", ref_value: "10k", qty_per_assembly_milli: 1000 },
     ]);
+  });
+
+  it("disables Save and says why when an existing quantity is cleared to zero", async () => {
+    stubMutableApi([UNMATCHED]);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Quantity per assembly"), {
+      target: { value: "0" },
+    });
+
+    expect(screen.getByRole("button", { name: "Save" })).toHaveProperty("disabled", true);
+    expect(screen.getByText(/Quantity must be greater than zero/)).toBeTruthy();
+    expect(callsTo("/api/projects/1/bom").filter((c) => c.method === "PUT")).toHaveLength(0);
   });
 });
 

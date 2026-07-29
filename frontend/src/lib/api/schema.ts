@@ -321,6 +321,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/container-types/{container_type_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Container Type Documents */
+        get: operations["read_container_type_documents"];
+        put?: never;
+        /**
+         * Attach Container Type Document
+         * @description Attach an already-stored document to a container type, or promote its
+         *     existing link — "every instance of this type looks like this" for
+         *     `role=photo`.
+         *
+         *     **A seed clones first**, as every other write to a container type does
+         *     (`layout_authoring.ensure_editable`), and the response says so: the id a
+         *     client should be looking at afterwards is `container_type_id`, not the one it
+         *     put in the path.
+         */
+        post: operations["attach_container_type_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/container-types/{container_type_id}/documents/{sha256}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Detach Container Type Document
+         * @description **No `ensure_editable` here, deliberately.** This route only ever deletes
+         *     `document_links` rows whose `entity_pk` is this type's id, and with both attach
+         *     doors above cloning, a seed can never hold one — so the only answer it can
+         *     give for a seed is the 404 below. Cloning a seed in order to delete something
+         *     from the copy that the copy never had would mint a type per click.
+         *
+         *     `tests/integration/test_container_authoring_findings.py::
+         *     test_a_seed_can_therefore_never_reach_the_detach_route_with_a_photo` pins that
+         *     reasoning, so adding a third writer of `CONTAINER_TYPE` links without the
+         *     guard turns it red — which is the point at which this route would need one too.
+         */
+        delete: operations["detach_container_type_document"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/container-types/{container_type_id}/slot-template": {
         parameters: {
             query?: never;
@@ -366,6 +423,11 @@ export interface paths {
          *     `created`, and encoding it in the status code instead would mean one of the two
          *     outcomes going undeclared in the OpenAPI document that every client is
          *     generated from.
+         *
+         *     **At most one of `part_id`, `container_type_id`, `location_id`.** Each names a
+         *     different `entity_type` in the same polymorphic `document_links` table, and a
+         *     single upload is one file attached in one role to one thing — sending two
+         *     would silently pick one, which is worse than refusing the ambiguous request.
          */
         post: operations["upload_document"];
         delete?: never;
@@ -939,6 +1001,91 @@ export interface paths {
          */
         get: operations["read_location"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/child-view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Location Child View
+         * @description Override how this container draws its children, or clear the override.
+         *
+         *     Nothing about the tree's *shape* changes here and nothing is validated
+         *     against the geometry on purpose: a drawing is a preference, and refusing to
+         *     draw a cabinet as a floor plan because its type declares a grid would be the
+         *     editor overruling the person holding the cabinet. The grid machinery still
+         *     knows where each slot is either way — only the picture changes.
+         */
+        put: operations["set_location_child_view"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Location Documents */
+        get: operations["read_location_documents"];
+        put?: never;
+        /** Attach Location Document */
+        post: operations["attach_location_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/documents/{sha256}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Detach Location Document */
+        delete: operations["detach_location_document"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/glyph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Location Glyph
+         * @description Override this container's pictogram, or clear the override.
+         *
+         *     Its own narrow route rather than a field on `.../child-view`, for the same
+         *     reason that one is its own route rather than a general `PATCH /api/locations`
+         *     — see `LocationChildViewUpdate`'s docstring.
+         */
+        put: operations["set_location_glyph"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2576,9 +2723,56 @@ export interface components {
         };
         /**
          * ChildLayout
+         * @description **What geometry this container offers its children.**
+         *
+         *     One of ADR 0002's two questions (the other being `footprint_*`, what this
+         *     type occupies in *its* parent). It is a statement about slots, not about
+         *     pixels: `GRID` means there are addressable `(row, col)` positions, which is
+         *     what `app.services.assignment` needs in order to materialise a free cell for
+         *     a scan that would otherwise have nowhere to land.
+         *
+         *     **Deliberately still exactly three members.** How a level is *drawn* is a
+         *     third, independent question and lives in `ChildView` — see that docstring for
+         *     why growing this enum instead would have been a bug rather than a shortcut.
+         *     `tests/integration/test_child_view.py` pins the membership.
          * @enum {string}
          */
         ChildLayout: "grid" | "list" | "none";
+        /**
+         * ChildView
+         * @description **How this container's children are drawn** — ADR 0006.
+         *
+         *     The third question a container type answers, and the one ADR 0002 did not
+         *     ask. Its two were about geometry: what grid do I present (`ChildLayout` plus
+         *     `grid_rows/cols/pitch`), and what footprint do I occupy in my parent
+         *     (`footprint_*`). Neither says how to *render* a level, and the answer is not
+         *     a function of either — a Raaco cabinet and a Gridfinity baseplate both
+         *     present a grid and want completely different pictures, drawer fronts in a
+         *     vertical face versus square cells seen from above.
+         *
+         *     Kept out of `ChildLayout` rather than added to it, for a reason that is
+         *     mechanical rather than aesthetic: `app.services.assignment` selects
+         *     containers with `ContainerType.child_layout == ChildLayout.GRID` in order to
+         *     materialise a free cell. Every drawing kind added to that enum would
+         *     silently fall out of that predicate, so a cabinet declared
+         *     `child_layout='cabinet_face'` would stop being a place auto-assignment can
+         *     put anything — a scan quietly escalating to the INBOX because somebody chose
+         *     a skin. Two axes cannot go wrong that way: a cabinet still presents a grid
+         *     whatever it looks like.
+         *
+         *     **Adding a member here is one line and nothing else**, because neither
+         *     `container_types.child_view` nor `locations.child_view` carries a `CHECK`.
+         *     That is the no-`CHECK` rule paying for itself for the fourth time — after
+         *     `CapacityModel.GRID_UNITS` (ADR 0002), the scanning enums grown after
+         *     `scan_events` was populated, and `AllocationState.STAGED` (ADR 0004). A new
+         *     way to draw a level is a member here plus a branch in the renderer, on two
+         *     tables that are already holding every container in the building.
+         *
+         *     Nothing here is ever encoded in a printed or tag payload: a view kind is a
+         *     property of a level, and levels move.
+         * @enum {string}
+         */
+        ChildView: "floor_plan" | "shelf_run" | "cabinet_face" | "grid_cells" | "list";
         /** ChoiceFacet */
         ChoiceFacet: {
             /** Count */
@@ -2648,6 +2842,37 @@ export interface components {
             /** Seq */
             seq: number;
         };
+        /**
+         * ContainerGlyph
+         * @description **A small pictogram for this container** — chosen from a fixed set, not a
+         *     photograph.
+         *
+         *     This is the *other* answer to "what does this container look like",
+         *     deliberately kept apart from the photo a phone takes standing in front of a
+         *     drawer (`DocumentRole.PHOTO` on a `document_links` row). The two serve
+         *     different scales: a photograph is one real image, expensive to fetch and
+         *     decode, and worth showing exactly once — on the screen for *this specific*
+         *     container. A glyph is a single character, cheap enough to render at every
+         *     node of a tree where loading ninety-six photographs to draw a 12x8 grid
+         *     would be absurd. `frontend/src/components/ContainerLayout.tsx`'s dense
+         *     recursive view therefore draws `effective_glyph` at every cell it lays out,
+         *     and never a photo; a photo is drawn once, on that one container's own detail
+         *     screen.
+         *
+         *     **Not derived, unlike `ChildView`.** There is no geometric fact that implies
+         *     "this looks like a bag" the way a 42 mm pitch implies "this is a tray", so
+         *     the fallback when neither an instance nor its type has chosen one is simply
+         *     "no glyph" — the caller renders a neutral placeholder, not a guess.
+         *
+         *     **Adding a member is one line here and one line in the client's rendering
+         *     map** (`frontend/src/lib/locations/glyphs.ts`), because — as with every other
+         *     enum in this file — neither `container_types.glyph` nor `locations.glyph`
+         *     carries a `CHECK`. A row naming a glyph this build has never heard of is
+         *     drawn as the same neutral placeholder rather than raising, which is the other
+         *     half of that promise.
+         * @enum {string}
+         */
+        ContainerGlyph: "box" | "bin" | "drawer" | "cabinet" | "shelf" | "tray" | "bag" | "reel" | "room" | "rack";
         /** ContainerTypeCreate */
         ContainerTypeCreate: {
             /** Allowed Part Kinds */
@@ -2656,6 +2881,8 @@ export interface components {
             /** Capacity Slots */
             capacity_slots?: number | null;
             child_layout?: components["schemas"]["ChildLayout"] | null;
+            /** @description How every instance of this type draws its children (ADR 0006). Send it explicitly as null to go back to being derived from this type's declared geometry, which is what an unset value means — not 'unknown'. Independent of `child_layout`: that says whether there are addressable slots, this says what the picture looks like, and a cabinet and a Gridfinity baseplate answer the first identically and the second differently. */
+            child_view?: components["schemas"]["ChildView"] | null;
             /** Client Op Id */
             client_op_id?: string | null;
             /** Default Fill Factor */
@@ -2680,6 +2907,8 @@ export interface components {
             front_width_mm?: number | null;
             /** Full Threshold */
             full_threshold?: number | null;
+            /** @description The pictogram every instance of this type draws in the dense tree view (see `ContainerGlyph`). Send it explicitly as null to clear a pin, which is what an unset value means here too — there is no derivation to fall back to, unlike `child_view`, so both this and an instance's own override being unset is 'no glyph', a real state a renderer draws as a neutral placeholder. */
+            glyph?: components["schemas"]["ContainerGlyph"] | null;
             /** Grid Cols */
             grid_cols?: number | null;
             /** Grid Height Unit Mm */
@@ -2718,6 +2947,39 @@ export interface components {
              */
             replayed?: boolean;
         };
+        /**
+         * ContainerTypeDocumentAttached
+         * @description `DocumentAttachResult` plus *which type it landed on*.
+         *
+         *     Its own model rather than the shared one because a container type is the only
+         *     attachment target that can be read-only: a seed is cloned on write
+         *     (`layout_authoring.ensure_editable`), so the answer to "where is this photo
+         *     now" is not the id in the path. Parts and locations cannot do that, and
+         *     widening `DocumentAttachResult` with a field that is always null for two of
+         *     its three callers would document a possibility that does not exist for them.
+         */
+        ContainerTypeDocumentAttached: {
+            /** Cloned */
+            cloned: boolean;
+            /** Container Type Id */
+            container_type_id: number;
+            /** Created */
+            created: boolean;
+            link: components["schemas"]["DocumentLinkRead"];
+        };
+        /**
+         * ContainerTypeDocumentLinkList
+         * @description Same shape as `DocumentLinkList`, one field renamed. Kept as its own model
+         *     rather than a shared one with a generic `entity_pk` — the field name is part
+         *     of what a hand-written client reads, and `part_id`/`container_type_id`/
+         *     `location_id` say what is actually being listed without a lookup table.
+         */
+        ContainerTypeDocumentLinkList: {
+            /** Container Type Id */
+            container_type_id: number;
+            /** Links */
+            links: components["schemas"]["DocumentLinkRead"][];
+        };
         /** ContainerTypeEdited */
         ContainerTypeEdited: {
             /** Cloned */
@@ -2740,12 +3002,16 @@ export interface components {
             capacity_slots: number | null;
             /** Child Layout */
             child_layout: string;
+            /** Child View */
+            child_view: string | null;
             /** Default Fill Factor */
             default_fill_factor: number;
             /** Description */
             description: string | null;
             /** Display Name */
             display_name: string;
+            /** Effective Child View */
+            effective_child_view: string;
             /** Esd Safe */
             esd_safe: boolean | null;
             /** Footprint Cols */
@@ -2760,6 +3026,8 @@ export interface components {
             front_width_mm: number | null;
             /** Full Threshold */
             full_threshold: number;
+            /** Glyph */
+            glyph: string | null;
             /** Grid Cols */
             grid_cols: number | null;
             /** Grid Height Unit Mm */
@@ -2786,6 +3054,7 @@ export interface components {
             max_item_dimension_mm: number | null;
             /** Max Parts Per Slot */
             max_parts_per_slot: number | null;
+            photo: components["schemas"]["DocumentRead"] | null;
             /** Slot Label Params */
             slot_label_params: {
                 [key: string]: unknown;
@@ -2803,6 +3072,8 @@ export interface components {
             /** Capacity Slots */
             capacity_slots?: number | null;
             child_layout?: components["schemas"]["ChildLayout"] | null;
+            /** @description How every instance of this type draws its children (ADR 0006). Send it explicitly as null to go back to being derived from this type's declared geometry, which is what an unset value means — not 'unknown'. Independent of `child_layout`: that says whether there are addressable slots, this says what the picture looks like, and a cabinet and a Gridfinity baseplate answer the first identically and the second differently. */
+            child_view?: components["schemas"]["ChildView"] | null;
             /** Client Op Id */
             client_op_id?: string | null;
             /** Default Fill Factor */
@@ -2827,6 +3098,8 @@ export interface components {
             front_width_mm?: number | null;
             /** Full Threshold */
             full_threshold?: number | null;
+            /** @description The pictogram every instance of this type draws in the dense tree view (see `ContainerGlyph`). Send it explicitly as null to clear a pin, which is what an unset value means here too — there is no derivation to fall back to, unlike `child_view`, so both this and an instance's own override being unset is 'no glyph', a real state a renderer draws as a neutral placeholder. */
+            glyph?: components["schemas"]["ContainerGlyph"] | null;
             /** Grid Cols */
             grid_cols?: number | null;
             /** Grid Height Unit Mm */
@@ -3033,6 +3306,13 @@ export interface components {
         };
         /** DocumentUploadResult */
         DocumentUploadResult: {
+            /**
+             * Cloned Container Type
+             * @default false
+             */
+            cloned_container_type?: boolean;
+            /** Container Type Id */
+            container_type_id?: number | null;
             /** Created */
             created: boolean;
             /** Deduplicated */
@@ -3613,10 +3893,44 @@ export interface components {
             /** Undeliverable Milli */
             undeliverable_milli: number;
         };
+        /** LocationChildViewResponse */
+        LocationChildViewResponse: {
+            /** Child View */
+            child_view: string | null;
+            /** Effective Child View */
+            effective_child_view: string;
+            /** Location Id */
+            location_id: number;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /**
+         * LocationChildViewUpdate
+         * @description Pin, or stop pinning, how this one container draws its children.
+         *
+         *     The instance half of ADR 0006's override. There is no `PATCH /api/locations`
+         *     to fold this into, and inventing one to carry a single field would put every
+         *     other column of `locations` on the wire as writable — so this is its own
+         *     narrow route, the same shape as `.../short-id` beside it.
+         */
+        LocationChildViewUpdate: {
+            /** @description Null clears the override, handing the drawing back to the container type (and through it to the derivation). Sending null is therefore a real edit, not an omission. */
+            child_view?: components["schemas"]["ChildView"] | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+        };
         /** LocationCreate */
         LocationCreate: {
             /** Access Score */
             access_score?: number | null;
+            /** @description How this one container draws its children, overriding the container type's answer (ADR 0006). Null takes the type's, which in turn falls back to deriving it from the type's declared geometry. */
+            child_view?: components["schemas"]["ChildView"] | null;
             /** Client Op Id */
             client_op_id?: string | null;
             /** Col Idx */
@@ -3634,6 +3948,8 @@ export interface components {
             esd_safe?: boolean | null;
             /** Fill Factor */
             fill_factor?: number | null;
+            /** @description This one container's own pictogram, overriding the container type's (see `ContainerGlyph`). Null takes the type's; if the type has none either, that is 'no glyph', drawn as a neutral placeholder rather than guessed at. */
+            glyph?: components["schemas"]["ContainerGlyph"] | null;
             /**
              * Is Placeable
              * @description Null takes the container type's answer.
@@ -3670,16 +3986,60 @@ export interface components {
              */
             replayed?: boolean;
         };
+        /** LocationDocumentLinkList */
+        LocationDocumentLinkList: {
+            /** Links */
+            links: components["schemas"]["DocumentLinkRead"][];
+            /** Location Id */
+            location_id: number;
+        };
+        /** LocationGlyphResponse */
+        LocationGlyphResponse: {
+            /** Effective Glyph */
+            effective_glyph: string | null;
+            /** Glyph */
+            glyph: string | null;
+            /** Location Id */
+            location_id: number;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /**
+         * LocationGlyphUpdate
+         * @description Pin, or stop pinning, this one container's own pictogram. The instance
+         *     half of the type/instance override — same shape and same reasoning as
+         *     `LocationChildViewUpdate` beside it, one field over.
+         */
+        LocationGlyphUpdate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** @description Null clears the override, handing the glyph back to the container type. Unlike `child_view` there is no derivation underneath it, so clearing both this and the type's own glyph is 'no glyph', drawn as a neutral placeholder rather than guessed at. */
+            glyph?: components["schemas"]["ContainerGlyph"] | null;
+        };
         /**
          * LocationNode
          * @description One row of the flat tree. Cheaper than `LocationRead` by design: a tree
          *     render needs structure and fill state, not every lot in the warehouse.
          */
         LocationNode: {
+            /** Child Grid Cols */
+            child_grid_cols: number | null;
+            /** Child Grid Rows */
+            child_grid_rows: number | null;
             /** Container Type Id */
             container_type_id: number | null;
             /** Depth */
             depth: number;
+            /** Effective Child View */
+            effective_child_view: string;
+            /** Effective Glyph */
+            effective_glyph: string | null;
             /** Fill Ratio */
             fill_ratio: number | null;
             /** Id */
@@ -3712,6 +4072,8 @@ export interface components {
             capacity: components["schemas"]["CapacityRead"];
             /** Child Count */
             child_count: number;
+            /** Child View */
+            child_view: string | null;
             /** Container Type Id */
             container_type_id: number | null;
             /** Depth */
@@ -3720,10 +4082,17 @@ export interface components {
             description: string | null;
             /** Display */
             display: string | null;
+            /** Effective Child View */
+            effective_child_view: string;
             /** Effective Esd Safe */
             effective_esd_safe: boolean | null;
+            /** Effective Glyph */
+            effective_glyph: string | null;
+            effective_photo: components["schemas"]["DocumentRead"] | null;
             /** Esd Safe */
             esd_safe: boolean | null;
+            /** Glyph */
+            glyph: string | null;
             /** Id */
             id: number;
             /** Id Path */
@@ -3744,6 +4113,7 @@ export interface components {
             name: string;
             /** Parent Id */
             parent_id: number | null;
+            photo: components["schemas"]["DocumentRead"] | null;
             /** Short Id */
             short_id: string | null;
             /** Slot Label */
@@ -6370,6 +6740,104 @@ export interface operations {
             };
         };
     };
+    read_container_type_documents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                container_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerTypeDocumentLinkList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attach_container_type_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                container_type_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerTypeDocumentAttached"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detach_container_type_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                container_type_id: number;
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_slot_template: {
         parameters: {
             query?: never;
@@ -6448,6 +6916,10 @@ export interface operations {
                 filename?: string | null;
                 /** @description Attach to this part in the same request. */
                 part_id?: number | null;
+                /** @description Attach to this container type in the same request — the phone-in-hand path for setting a type's default photo (`role=photo`). */
+                container_type_id?: number | null;
+                /** @description Attach to this one location in the same request, overriding its container type's photo (`role=photo`). */
+                location_id?: number | null;
                 role?: components["schemas"]["DocumentRole"];
                 is_primary?: boolean;
             };
@@ -7243,6 +7715,174 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_location_child_view: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationChildViewUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationChildViewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_location_documents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationDocumentLinkList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attach_location_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentAttachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detach_location_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_location_glyph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationGlyphUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationGlyphResponse"];
                 };
             };
             /** @description Validation Error */

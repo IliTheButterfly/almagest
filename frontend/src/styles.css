@@ -639,6 +639,69 @@ label.check {
   color: var(--text-dim);
 }
 
+/*
+ * A row of fields that wraps, for the pairs and triples that are one thought —
+ * "rows and columns", "length, width, height". Aligned on the bottom edge so the
+ * inputs line up even when one label wraps to two lines and its neighbour does
+ * not.
+ */
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+/*
+ * A titled group of fields.
+ *
+ * The container-type form leans on these: ADR 0002's two questions ("what grid
+ * do I offer" and "what space do I take up") are two boxes with two legends, and
+ * never adjacent columns of one row, because the mistake the form exists to
+ * prevent is reading "rows / columns" twice and filling one in with the other's
+ * answer. A visible boundary is what makes them two questions rather than six
+ * fields.
+ */
+.fieldgroup {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  margin: 0;
+  background: var(--bg);
+}
+
+.fieldgroup > legend {
+  padding: 0 0.4rem;
+  font-weight: 650;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.fieldgroup > * + * {
+  margin-top: 0.6rem;
+}
+
+/*
+ * A link that acts as the primary action of a card — "New type" — and therefore
+ * has to look like one. Still an `<a>`, so it opens in a new tab, gets a real
+ * href in the status bar, and is announced as a link rather than as a button
+ * that lies about where it goes.
+ */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch);
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 button {
   min-height: var(--touch);
   min-width: var(--touch);
@@ -991,6 +1054,98 @@ button.tall {
   grid-template-columns: repeat(auto-fill, minmax(var(--cell-min), 1fr));
 }
 
+/*
+ * The five view kinds — ADR 0006.
+ *
+ * Each is a different *shape*, never a different hue: the palette's two identity
+ * colours are a luminance match on purpose, and a level's kind is also stated in
+ * words underneath it, so nothing here is the only cue for anything.
+ */
+
+/* `grid_cells` — a tray seen from above. Square cells, tighter than the default,
+   because a Gridfinity unit is 42 mm square and drawing it 3:1 wide is a lie
+   about the furniture. */
+.layout-grid.view-grid_cells {
+  grid-auto-columns: minmax(5.5rem, 1fr);
+}
+
+.cell-grid_cells {
+  min-width: 5.5rem;
+  aspect-ratio: 1;
+}
+
+/* `cabinet_face` — drawer fronts: wide, short, and no taller than they need to
+   be, so a 30-drawer tower is a tower rather than thirty cards. */
+.cell-cabinet_face {
+  min-height: var(--touch);
+  gap: 0.1rem;
+}
+
+/* `floor_plan` — furniture standing in a space. Roomier cards, since at this
+   level the name is the information and there is no slot label competing. */
+.layout-plan {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+}
+
+.cell-floor_plan {
+  min-height: 6rem;
+  padding: 0.6rem;
+}
+
+/* `shelf_run` — one horizontal run per level, with the level number in the
+   margin and a rule under the run standing in for the shelf itself. Rows are
+   authored and columns are not, so the run scrolls rather than wrapping: wrapping
+   would draw a second shelf that does not exist. */
+.layout-shelf {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.layout-shelf .shelf-index {
+  align-self: center;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.layout-run {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid var(--line-strong);
+}
+
+.layout-run > .cell {
+  flex: 0 0 auto;
+}
+
+/* `list` — rows. One column, and the cells go horizontal inside so a long list
+   stays scannable instead of being a column of tall tiles. */
+.layout-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.cell-list {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: var(--touch);
+  flex-wrap: wrap;
+}
+
+.cell-list .cell-name {
+  flex: 1;
+  -webkit-line-clamp: 1;
+}
+
 /* The fallback is *marked* as a fallback rather than left looking like a grid
  * that failed to align. */
 .layout-fallback {
@@ -1081,12 +1236,61 @@ button.tall {
   border-color: var(--accent);
 }
 
+/* A container's picture: a glyph in the dense tree, a real photo on its own
+ * detail screen. Both fall back to the same dashed placeholder box rather than
+ * a broken-image icon or a blank hole — see `components/ContainerPhoto.tsx`. */
+.cell-glyph {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.container-glyph-placeholder {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 3px;
+  border: 1px dashed var(--line);
+  background: var(--bg-inset);
+}
+
+.container-photo {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-inset);
+}
+
+.container-photo-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 120px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--line-strong);
+  background: var(--bg-inset);
+  font-size: 2rem;
+  color: var(--text-dim);
+}
+
 /* The recursive preview: the same layout component one level down, drawn as
- * inert dots so a baseplate of bins looks like a baseplate of bins. */
+ * inert dots so a baseplate of bins looks like a baseplate of bins — and,
+ * because the view kind reaches the preview too, so that a room of cabinets
+ * does not look like a baseplate. */
 .mini-grid {
   display: grid;
   gap: 2px;
   margin-top: 0.15rem;
+}
+
+/* A floor plan's dots are things, not cells, so they get a little more air.
+ * The column count itself is decided in `miniColumns`, not overridden here —
+ * one place for the arrangement of each kind. */
+.mini-floor_plan {
+  gap: 3px;
 }
 
 .mini-cell {
@@ -1094,6 +1298,13 @@ button.tall {
   border-radius: 2px;
   background: var(--bg-inset);
   border: 1px solid var(--line);
+}
+
+/* One more level down: a dot with a picture inside it is not 6px tall. */
+.mini-cell.nested {
+  height: auto;
+  min-height: 6px;
+  padding: 1px;
 }
 
 .mini-cell.has-stock {

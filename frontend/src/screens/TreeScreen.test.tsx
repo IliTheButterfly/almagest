@@ -20,6 +20,8 @@ interface NodeSpec {
   name: string;
   parent_id: number | null;
   slot_label: string | null;
+  /** How *this* node draws its own children — ADR 0006. */
+  view?: string;
   is_overfull?: boolean;
   is_staging?: boolean;
   fill_ratio?: number | null;
@@ -36,6 +38,10 @@ function node(spec: NodeSpec) {
     label_path: spec.name,
     container_type_id: null,
     slot_label: spec.slot_label,
+    is_placeable: null,
+    // The API always resolves this: instance override, else the container type's,
+    // else derived from the type's geometry. A cabinet is a face of drawer fronts.
+    effective_child_view: spec.view ?? "cabinet_face",
     is_overfull: spec.is_overfull ?? false,
     is_staging: spec.is_staging ?? false,
     fill_ratio: spec.fill_ratio === undefined ? 0.25 : spec.fill_ratio,
@@ -48,10 +54,14 @@ function node(spec: NodeSpec) {
  * Cabinet A holds A1 and B2 — so a 2x2 grid with two positions empty, which is
  * the case a text tree cannot express. A1 has a bin inside it (so it drills), B2
  * is a leaf and over capacity, and INBOX is a second root that is staging.
+ *
+ * The roots are drawn as a floor plan, which is what the top level of the tree
+ * resolves to on the server as well — furniture standing in a space, with no
+ * position to be empty.
  */
 const NODES = [
-  node({ id: 1, name: "Cabinet A", parent_id: null, slot_label: null }),
-  node({ id: 2, name: "Drawer A1", parent_id: 1, slot_label: "A1" }),
+  node({ id: 1, name: "Cabinet A", parent_id: null, slot_label: null, view: "cabinet_face" }),
+  node({ id: 2, name: "Drawer A1", parent_id: 1, slot_label: "A1", view: "grid_cells" }),
   node({ id: 3, name: "Drawer B2", parent_id: 1, slot_label: "B2", is_overfull: true }),
   node({ id: 4, name: "Bin 1", parent_id: 2, slot_label: "1", fill_ratio: null }),
   node({ id: 5, name: "INBOX", parent_id: null, slot_label: null, is_staging: true }),
@@ -107,13 +117,14 @@ afterEach(() => {
 });
 
 describe("the top level", () => {
-  it("lists the roots as cells and says the layout is not a grid", async () => {
+  it("draws the roots as a floor plan rather than as a failed grid", async () => {
     renderTree();
     expect(await screen.findByRole("link", { name: /Cabinet A/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /INBOX/ })).toBeTruthy();
-    // Unlabelled is not the same as unreadable, so it is stated plainly rather
-        // than framed as a broken grid.
-    expect(screen.getByText(/No slot labels here/)).toBeTruthy();
+    // A room of cabinets is not a grid that could not align — it is a different
+    // kind of picture, so it is stated as one rather than framed as a fallback.
+    expect(screen.getByText(/placed rather than slotted/)).toBeTruthy();
+    expect(screen.queryByText("no bin")).toBeNull();
   });
 
   it("marks the staging inbox as something other than an ordinary bin", async () => {
@@ -208,6 +219,34 @@ describe("fill state", () => {
 
     expect(screen.getByLabelText(/no capacity model/)).toBeTruthy();
     expect(screen.getByText("n/m")).toBeTruthy();
+  });
+});
+
+/**
+ * Adding a container has to be *here*, because this is where somebody is standing
+ * when they discover they need one. Reported twice as "I still can't create my own
+ * containers" while every route to do it already existed.
+ */
+describe("adding a container", () => {
+  it("offers it at the top level, with nothing preselected", async () => {
+    renderTree();
+    const add = await screen.findByRole("link", { name: "Add a container" });
+    expect(add.getAttribute("href")).toBe("/containers/new");
+  });
+
+  it("carries the position you are already looking at, so it lands here", async () => {
+    // Otherwise the parent has to be picked out of a list of every location in
+    // the system, having just navigated to the one that was meant.
+    renderTree("/tree?at=1");
+    const add = await screen.findByRole("link", { name: "Add containers in Cabinet A" });
+    expect(add.getAttribute("href")).toBe("/containers/new?parent=1");
+  });
+
+  it("links on to the type library, which is what a container is stamped from", async () => {
+    renderTree();
+    expect((await screen.findByRole("link", { name: /Container types/ })).getAttribute("href")).toBe(
+      "/container-types",
+    );
   });
 });
 

@@ -77,7 +77,14 @@ def create_app() -> FastAPI:
     app.include_router(extraction.router)
     app.include_router(extraction.documents_router)
     app.include_router(container_types.router)
+    # `/api/container-types/{id}/documents` — a type's own photo — rides a second
+    # router with the same prefix, in `documents` for the same reason
+    # `documents.parts_router` is: what it returns belongs to the store.
+    app.include_router(documents.container_types_router)
     app.include_router(locations.router)
+    # `/api/locations/{id}/documents` — one container's own photo, overriding
+    # its type's — same split.
+    app.include_router(documents.locations_router)
     # The provisioning walk's own `/api/locations/{id}/...` routes ride a second
     # router with the same prefix, kept in the provisioning module because
     # everything they return belongs to the walk rather than to the tree.
