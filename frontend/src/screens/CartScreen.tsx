@@ -36,11 +36,13 @@ import { CodeEntry } from "../components/CodeEntry";
 import { ErrorBanner, Empty, Notice } from "../components/Feedback";
 import { Viewfinder } from "../components/Viewfinder";
 import {
+  getPart,
   getProject,
   listProjects,
   resolveScan,
   undoMovement,
   type BuildRead,
+  type PartRead,
   type ProjectRead,
 } from "../lib/api/client";
 import { cameraNotice, detectCapabilities } from "../lib/capabilities";
@@ -48,7 +50,7 @@ import { NO_TARGET, shoppingCart, type CartDirection, type CartLine } from "../l
 import { checkoutCart, type CheckoutOutcome } from "../lib/cart/checkout";
 import { describeTarget } from "../lib/cart/describe";
 import { useCartLines, useCartTarget } from "../lib/cart/useCart";
-import { fromMilli, parseQtyToMilli } from "../lib/format";
+import { formatQty, fromMilli, parseQtyToMilli } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { useScanner } from "../lib/scan/useScanner";
 import { uuid4 } from "../lib/scan/session";
@@ -260,6 +262,7 @@ function CartRow({ line }: { line: CartLine }) {
           Remove
         </button>
       </div>
+      <LotChoice line={line} />
       {line.failure !== null && (
         <Notice kind="warn" title="This line was not applied">
           <p style={{ margin: 0 }}>{line.failure.message}</p>
@@ -269,6 +272,77 @@ function CartRow({ line }: { line: CartLine }) {
         </Notice>
       )}
     </li>
+  );
+}
+
+/**
+ * Which physical package this row's parts come out of.
+ *
+ * Search knows what part was picked, not which reel it comes off, so every row
+ * added while browsing starts with no package — and a reservation *is* a hold on
+ * a lot, so without a way to name one here the build destination refused every
+ * row the app could produce and said "choose which package it comes from" with
+ * nothing to choose it in. This is that control.
+ *
+ * The lots are fetched only when it is opened, and per row: a cart of twenty rows
+ * must not fire twenty requests to render, and which package a part came out of is
+ * a question about one row at a time.
+ */
+function LotChoice({ line }: { line: CartLine }) {
+  const [open, setOpen] = useState(false);
+  const part = useAsync<PartRead | null>(
+    () => (open ? getPart(line.partId) : Promise.resolve(null)),
+    [open, line.partId],
+  );
+  const lots = part.data?.lots ?? [];
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}>
+        {line.lotId === null ? "Choose the package" : "Change the package"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="stack" style={{ marginTop: "0.3rem" }}>
+      <ErrorBanner error={part.error} fallback="That part's packages could not be listed." />
+      <label className="field">
+        <span>Package</span>
+        <select
+          value={line.lotId ?? ""}
+          aria-label={`Package for ${line.partName}`}
+          onChange={(event) => {
+            const id = Number(event.target.value);
+            const lot = lots.find((candidate) => candidate.id === id);
+            shoppingCart.setLot(
+              line.id,
+              lot === undefined
+                ? null
+                : {
+                    lotId: lot.id,
+                    locationId: lot.location_id,
+                    label: lot.location_label_path ?? null,
+                  },
+            );
+            setOpen(false);
+          }}
+        >
+          <option value="">No particular package</option>
+          {lots.map((lot) => (
+            <option key={lot.id} value={lot.id}>
+              {`${lot.location_label_path ?? `lot ${lot.id}`} — ${formatQty(lot.qty_milli)}`}
+              {lot.date_code === null ? "" : ` · ${lot.date_code}`}
+            </option>
+          ))}
+        </select>
+      </label>
+      {!part.loading && lots.length === 0 && (
+        <p className="muted-note">
+          No stock of this part is recorded anywhere, so there is no package to hold.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -325,15 +399,30 @@ function Result({ outcome }: { outcome: CheckoutOutcome }) {
             ` ${outcome.replayed} of them had already been recorded under the same key and were not applied twice.`}
         </p>
       </Notice>
+      {/* **Only when this attempt wrote every applied row.** The group is minted
+          per request, so a line the server *replayed* contributed no row to it —
+          it belongs to the group the earlier attempt wrote. Offering one undo
+          then either 404s (nothing in this group at all) or, worse, quietly
+          reverses the newly-applied rows and leaves the replayed ones standing
+          while reporting success. The rows are still undoable one at a time from
+          the lot's history, which is what this says instead of pretending. */}
       {outcome.groupUuid !== null && outcome.applied > 0 && !undone && (
-        <div className="row">
-          <span className="muted-note" style={{ flex: 1 }}>
-            Wrong drawer? The whole movement can be undone in one go.
-          </span>
-          <button type="button" disabled={undoing} onClick={() => void undo()}>
-            {undoing ? "Undoing…" : "Undo the movement"}
-          </button>
-        </div>
+        outcome.replayed === 0 ? (
+          <div className="row">
+            <span className="muted-note" style={{ flex: 1 }}>
+              Wrong drawer? The whole movement can be undone in one go.
+            </span>
+            <button type="button" disabled={undoing} onClick={() => void undo()}>
+              {undoing ? "Undoing…" : "Undo the movement"}
+            </button>
+          </div>
+        ) : (
+          <p className="muted-note">
+            Part of this checkout had already been recorded by an earlier attempt, so
+            there is no single movement to undo. Reverse the rows you did not mean from
+            each lot&apos;s history.
+          </p>
+        )
       )}
       {undone && <Notice kind="ok" title="Undone" />}
       <ErrorBanner error={error} fallback="That movement could not be undone." />
@@ -349,6 +438,24 @@ function DestinationPicker() {
     target.kind === "unset" ? null : (target.kind as Kind),
   );
 
+  /**
+   * Switching which kind of destination is on show **forgets the old one.**
+   *
+   * The chosen kind is local state and the target is in the cart, so without this
+   * the two could disagree: pick a project, then press "Take or put back", and the
+   * container panel would render with nothing chosen while the cart still pointed
+   * at the project — and Check out, whose only guard is "some target", would write
+   * BOM lines. "Nothing is guessed between them" is ADR 0007's rule, and a
+   * destination the user has navigated away from is not a choice they are still
+   * making. Losing it costs one tap.
+   */
+  function choose(value: Kind): void {
+    setKind(value);
+    if (target.kind !== "unset" && target.kind !== value) {
+      shoppingCart.setTarget(NO_TARGET);
+    }
+  }
+
   return (
     <div className="card">
       <h3>Where is this going?</h3>
@@ -358,7 +465,7 @@ function DestinationPicker() {
             key={value}
             type="button"
             aria-pressed={kind === value}
-            onClick={() => setKind(value)}
+            onClick={() => choose(value)}
           >
             {KIND_LABELS[value]}
           </button>
@@ -439,9 +546,9 @@ function BuildDestination() {
     <div className="stack">
       <p className="muted-note">
         Each row becomes a hold on the package it names, which is what a reservation is —
-        so a row with no particular package chosen will be refused, and told so, rather
-        than guessed at. Sending them out to the project box is the next step, on the
-        build's own screen.
+        so a row with no particular package chosen will be refused rather than guessed
+        at. Name one with &ldquo;Choose the package&rdquo; on the row. Sending them out to
+        the project box is the next step, on the build&apos;s own screen.
       </p>
       <ErrorBanner error={error ?? project.error} fallback="Those builds could not be listed." />
       <label className="field">

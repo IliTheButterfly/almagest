@@ -48,6 +48,52 @@ const PROJECT = {
   ],
 };
 
+/** One part with one package, for the row's "which reel is this?" picker. */
+const PART = {
+  id: 42,
+  name: "10k 0603 resistor",
+  mpn: "RC0603FR-0710KL",
+  mpn_norm: "RC0603FR0710KL",
+  description: null,
+  notes: null,
+  keywords: null,
+  part_kind: "component",
+  category_id: null,
+  manufacturer_id: null,
+  package_type_id: null,
+  uom_id: 1,
+  is_active: true,
+  is_stub: false,
+  short_id: "4K7T92M8",
+  display: null,
+  hot_score: 0,
+  total_qty_milli: 5_000,
+  unit_mass_mg: null,
+  unit_volume_mm3: null,
+  volume_source: null,
+  length_mm: null,
+  width_mm: null,
+  height_mm: null,
+  shape_factor: null,
+  lots: [
+    {
+      id: 900,
+      part_id: 42,
+      location_id: 31,
+      location_label_path: "Bench / Cabinet A / A1-04",
+      packaging_id: null,
+      batch_code: null,
+      serial: null,
+      date_code: "2413",
+      status: "active",
+      qty_milli: 5_000,
+      qty_reserved_milli: 0,
+      unit_cost_micro: null,
+      currency: null,
+    },
+  ],
+};
+
 const CONTAINER = {
   status: "resolved",
   decoded_kind: "short_id",
@@ -102,6 +148,9 @@ function stubApi(stubs: Stubs = {}): void {
           headers: { "content-type": "application/json" },
         });
 
+      if (url.pathname === "/api/parts/42" && request.method === "GET") {
+        return json(PART);
+      }
       if (url.pathname === "/api/projects" && request.method === "GET") {
         return json({ total: 1, projects: [PROJECT] });
       }
@@ -278,6 +327,30 @@ describe("checking out to a build", () => {
     await waitFor(() => expect(shoppingCart.size).toBe(0));
   });
 
+  it("lets a row name the package it comes out of, which is what makes this door usable", async () => {
+    // Nothing that adds to the cart can set a lot — search knows the part, not
+    // which reel it comes off — so without this control every row this door could
+    // ever see was refused locally with "choose which package it comes from" and
+    // no way to choose one.
+    shoppingCart.add(draft());
+    renderCart();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Choose the package" }));
+    const packages = await screen.findByLabelText("Package for 10k 0603 resistor");
+    await waitFor(() => expect(packages.querySelectorAll("option").length).toBe(2));
+    fireEvent.change(packages, { target: { value: "900" } });
+
+    await chooseBuild();
+    await checkout();
+
+    await waitFor(() => expect(sent("/api/builds/12/allocate-batch")).toHaveLength(1));
+    const body = sent("/api/builds/12/allocate-batch")[0]?.body as {
+      lines: { lot_id: number }[];
+    };
+    expect(body.lines[0]?.lot_id).toBe(900);
+    await waitFor(() => expect(shoppingCart.size).toBe(0));
+  });
+
   it("refuses a row with no package, locally, and keeps it with a reason", async () => {
     // A hold is a hold on a lot. Told in terms of what is missing rather than
     // relayed as a validation error about a field the user never saw.
@@ -362,6 +435,83 @@ describe("checking out against a scanned container", () => {
 
     await waitFor(() => expect(sent("/api/stock/undo")).toHaveLength(1));
     expect(sent("/api/stock/undo")[0]?.body["group_uuid_to_undo"]).toBe("group-1");
+  });
+});
+
+describe("switching which destination is on show", () => {
+  it("forgets the one already chosen, rather than checking out to it", async () => {
+    // The chosen kind is local to the picker and the target is in the cart, so
+    // they could disagree: choose a project, press "Take or put back", and the
+    // container panel rendered with nothing chosen while the cart still pointed at
+    // the project — and Check out, whose only guard is "some target", wrote BOM
+    // lines to it. "Nothing is guessed between them" is the rule.
+    shoppingCart.add(draft());
+    renderCart();
+
+    await chooseProject();
+    fireEvent.click(await screen.findByRole("button", { name: "Take or put back" }));
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /^Check out/ }) as HTMLButtonElement).disabled,
+      ).toBe(true),
+    );
+    await checkout();
+    expect(sent("/api/projects/7/bom")).toHaveLength(0);
+    expect(sent("/api/stock/movements")).toHaveLength(0);
+  });
+
+  it("forgets a scanned container when the project door is opened instead", async () => {
+    shoppingCart.add(draft());
+    renderCart();
+
+    await scanContainer();
+    expect(await screen.findByText("Bench / Cabinet A / A1-04")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "A project's BOM" }));
+
+    // Nowhere to go, rather than quietly moving stock in the drawer the user has
+    // navigated away from.
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /^Check out/ }) as HTMLButtonElement).disabled,
+      ).toBe(true),
+    );
+    await checkout();
+    expect(sent("/api/stock/movements")).toHaveLength(0);
+    expect(sent("/api/projects/7/bom")).toHaveLength(0);
+  });
+});
+
+describe("undoing a movement", () => {
+  it("is not offered when part of the checkout was a replay of an earlier one", async () => {
+    // The group is minted per request, so a replayed line contributed no row to
+    // it: undoing "the whole movement" would 404, or — worse — reverse only the
+    // rows this attempt wrote while reporting success and leaving the replayed
+    // take standing.
+    shoppingCart.add(draft({ lotId: 900 }));
+    shoppingCart.add(draft({ lotId: 901, partId: 43, partName: "100n cap" }));
+    stubApi({
+      move: {
+        group_uuid: "group-1",
+        results: [
+          { index: 0, client_line_id: shoppingCart.lines()[0]?.id ?? "", applied: true },
+          {
+            index: 1,
+            client_line_id: shoppingCart.lines()[1]?.id ?? "",
+            applied: true,
+            replayed: true,
+          },
+        ],
+        replayed: false,
+      },
+    });
+    renderCart();
+
+    await scanContainer();
+    await checkout();
+
+    expect(await screen.findByText(/no single movement to undo/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Undo the movement" })).toBeNull();
   });
 });
 
