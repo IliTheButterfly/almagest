@@ -20,16 +20,20 @@ summarised in **[CLAUDE.md](CLAUDE.md)**.
 |---|---|
 | `backend/` | FastAPI + SQLAlchemy 2.0 + Alembic over SQLite (WAL, FTS5) |
 | `frontend/` | React + Vite PWA, mobile-first *(not started)* |
-| `deviceagent/` | Runs on the Pi: PN532 NFC, camera, ESP32 serial *(not started)* |
+| `deviceagent/` | Runs on the Pi: PN532 NFC, camera, ESP32 serial |
+| `idcodec/` | `almagest-idcodec` — the short-ID codec and tag payload rules, **stdlib only**. Shared by the backend and the agent |
 | `mensa/` | Submodule — bench station firmware (ESP-IDF) |
 | `circinus/` | Submodule — CAD (OpenSCAD) |
 | `ecia-barcode/` | Submodule — MH10.8.2 / EIGP-114 barcode parser |
 | `elec-value-parser/` | Submodule — `4k7` / `0R22` electronics shorthand grammar |
 
-`backend`, `frontend` and `deviceagent` deliberately share one repo: all three
-are bound by the API contract, so a route signature change is one atomic commit
-rather than a three-repo dance. API clients are **generated** from the OpenAPI
-schema (`make openapi`), never hand-written.
+`backend`, `frontend`, `deviceagent` and `idcodec` deliberately share one repo:
+the first three are bound by the API contract, so a route signature change is one
+atomic commit rather than a three-repo dance, and `idcodec` is the identity rule
+the backend and the agent must fold *identically* — a split would let the two
+versions drift by a release. API clients are **generated** from the OpenAPI schema
+(`make openapi`), never hand-written. `idcodec` keeps its own venv and declares no
+dependencies, so depending on it does not put the API's runtime on the Pi.
 
 ## Getting started
 

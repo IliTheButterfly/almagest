@@ -267,11 +267,20 @@ unreadable — the degraded case that matters, because the UID lives in
 factory-locked pages 0-2 while NDEF lives in user memory at page 4, so an
 interrupted write leaves a UID-only tag rather than a dead one.
 
-Both rules are imported from `app.services.provisioning`
-(`parse_ndef_url`, `normalize_tag_uid`) and **never reimplemented**: a UID folded
-by a different rule is invisible to the `location_tags` binding it should match
-while looking perfectly correct in the event payload. That is why this package
-depends on the backend; `pyproject.toml` records the cost and the escape hatch.
+Both rules are imported from `idcodec.tagpayload` (`parse_ndef_url`,
+`normalize_tag_uid`) and **never reimplemented**: a UID folded by a different rule
+is invisible to the `location_tags` binding it should match while looking
+perfectly correct in the event payload.
+
+`idcodec` is the same code the API runs — `app.services.provisioning` re-exports
+`parse_ndef_url` verbatim and wraps `normalize_tag_uid` only to translate its
+`InvalidTagUid` into the `ProvisioningError` four routes turn into a 422, so the
+folding rule is the same one this process runs — and it declares no dependencies
+at all, so sharing
+them costs this process nothing. It used to: the agent depended on
+`almagest-backend` for exactly these functions and got fastapi, sqlalchemy,
+alembic and pint onto the Pi along with them. `almagest-backend` is now a
+**test-only** dependency, for `tests/test_session_ledger.py` alone.
 
 `tag.identified` therefore carries **both carriers, verbatim**. The authoritative
 answer comes from `POST /api/location-tags/resolve`, which is given both and

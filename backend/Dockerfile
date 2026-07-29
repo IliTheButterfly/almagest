@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 #
 # Build context is the REPO ROOT, not backend/ — the two PyPI-publishable
-# submodules (ecia-barcode, elec-value-parser) become path dependencies of the
-# backend, so the build needs to see them as siblings.
+# submodules (ecia-barcode, elec-value-parser) and the in-repo idcodec package
+# are path dependencies of the backend, so the build needs to see them as
+# siblings.
 #
 #   docker build -f backend/Dockerfile -t almagest-api .
 
@@ -28,6 +29,9 @@ WORKDIR /app/backend
 # one should invalidate this layer.
 COPY elec-value-parser/ /app/elec-value-parser/
 COPY ecia-barcode/ /app/ecia-barcode/
+# In-repo rather than a submodule, but the same reasoning: `../idcodec` is a path
+# dependency of backend/pyproject.toml and has to actually be a sibling.
+COPY idcodec/ /app/idcodec/
 COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev

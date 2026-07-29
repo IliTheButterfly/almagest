@@ -3,11 +3,13 @@ UV    ?= uv
 BE    := backend
 FE    := frontend
 AG    := deviceagent
+IC    := idcodec
 
 .DEFAULT_GOAL := help
 .PHONY: help bootstrap sync test test-live lint fmt typecheck check migrate revision \
         check-migrations run openapi clean fe-install fe-dev fe-check fe-api \
-        agent-sync agent-lint agent-typecheck agent-test agent-test-live agent-check agent-run
+        agent-sync agent-lint agent-typecheck agent-test agent-test-live agent-check agent-run \
+        idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -17,6 +19,7 @@ bootstrap: ## Clone submodules, create the venv, install deps, seed .env
 	git submodule update --init --recursive
 	git config submodule.recurse true
 	@test -f .env || { cp .env.example .env; echo "created .env from .env.example"; }
+	$(MAKE) idcodec-sync
 	$(MAKE) sync
 	$(MAKE) agent-sync
 	$(MAKE) fe-install
@@ -47,7 +50,9 @@ lint: ## ruff check + format check
 	cd $(BE) && $(UV) run ruff check .
 	cd $(BE) && $(UV) run ruff format --check .
 
-fmt: ## Autoformat and autofix (backend + deviceagent)
+fmt: ## Autoformat and autofix (idcodec + backend + deviceagent)
+	cd $(IC) && $(UV) run ruff check --fix .
+	cd $(IC) && $(UV) run ruff format .
 	cd $(BE) && $(UV) run ruff check --fix .
 	cd $(BE) && $(UV) run ruff format .
 	cd $(AG) && $(UV) run ruff check --fix .
@@ -56,12 +61,16 @@ fmt: ## Autoformat and autofix (backend + deviceagent)
 typecheck: ## mypy
 	cd $(BE) && $(UV) run mypy app
 
-# `agent-check` is folded in rather than left a sibling like `fe-check`: the
-# deviceagent is Python on the same toolchain (uv, ruff, mypy, pytest), and it
-# imports `app.services.provisioning`, so a change to the tag payload rules must
-# fail here rather than in a target somebody remembers to run. The frontend stays
-# separate because it is a different runtime entirely.
-check: lint typecheck test agent-check ## Everything CI runs (backend + deviceagent)
+# `idcodec-check` and `agent-check` are folded in rather than left siblings like
+# `fe-check`: all three are Python on the same toolchain (uv, ruff, mypy, pytest),
+# and both the API and the agent import `idcodec`, so a change to the short-ID or
+# tag payload rules must fail here rather than in a target somebody remembers to
+# run. The frontend stays separate because it is a different runtime entirely.
+#
+# `idcodec-check` goes **first**: it is the fastest of the three by an order of
+# magnitude and both others depend on it, so a broken codec should be named as
+# such rather than as fifty failing backend tests.
+check: idcodec-check lint typecheck test agent-check ## Everything CI runs
 
 migrate: ## Apply migrations up to head
 	cd $(BE) && $(UV) run alembic upgrade head
@@ -72,6 +81,27 @@ revision: ## Autogenerate a migration: make revision m="add widgets"
 
 check-migrations: ## Fail if the models have drifted from the migrations
 	cd $(BE) && $(UV) run alembic upgrade head && $(UV) run alembic check
+
+# ---------------------------------------------------------------------------
+# idcodec — short IDs and tag payloads, standard library only. A path dependency
+# of both the backend and the deviceagent, with its own venv so its "no
+# dependencies" claim is checked in an environment that has none.
+# ---------------------------------------------------------------------------
+
+idcodec-sync: ## Install/refresh idcodec dependencies
+	cd $(IC) && $(UV) sync --all-extras --dev
+
+idcodec-lint: ## ruff check + format check for idcodec
+	cd $(IC) && $(UV) run ruff check .
+	cd $(IC) && $(UV) run ruff format --check .
+
+idcodec-typecheck: ## mypy for idcodec
+	cd $(IC) && $(UV) run mypy idcodec
+
+idcodec-test: ## idcodec tests
+	cd $(IC) && $(UV) run pytest -q
+
+idcodec-check: idcodec-lint idcodec-typecheck idcodec-test ## Everything CI runs for idcodec
 
 # ---------------------------------------------------------------------------
 # deviceagent — runs on the station Pi, not in the cluster
@@ -108,6 +138,7 @@ clean: ## Remove caches and build artefacts
 	find . -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 	rm -rf $(BE)/.pytest_cache $(BE)/.ruff_cache $(BE)/.mypy_cache
 	rm -rf $(AG)/.pytest_cache $(AG)/.ruff_cache $(AG)/.mypy_cache
+	rm -rf $(IC)/.pytest_cache $(IC)/.ruff_cache $(IC)/.mypy_cache
 
 certs: ## Generate a local private CA + dev certificate (ADR 0001; certs/ is gitignored)
 	@./scripts/make-certs.sh

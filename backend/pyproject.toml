@@ -14,6 +14,12 @@ dependencies = [
     "pint>=0.24",
     "elec-value-parser>=0.1",
     "ecia-barcode>=0.1",
+    # The short-ID codec and the tag payload rules, standard library only.
+    # `app.services.shortid` and `app.services.provisioning` re-export it, so
+    # nothing in `app` imports it twice. It is a separate distribution because
+    # `deviceagent` needs the identical rules on a Raspberry Pi and used to get
+    # them by depending on *this* package — see `idcodec/README.md`.
+    "almagest-idcodec",
 ]
 
 # The publishable libraries are submodules, consumed from the checkout rather
@@ -27,6 +33,9 @@ dependencies = [
 [tool.uv.sources]
 elec-value-parser = { path = "../elec-value-parser", editable = true }
 ecia-barcode = { path = "../ecia-barcode", editable = true }
+# In-repo, not a submodule and not aimed at strangers, so there is no "publish
+# it later" story to keep the constraint loose for.
+almagest-idcodec = { path = "../idcodec", editable = true }
 
 [project.optional-dependencies]
 # Kept out of the default install so the API image stays small. Phase 4+.

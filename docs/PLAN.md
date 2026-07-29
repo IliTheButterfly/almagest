@@ -63,7 +63,8 @@ almagest/                  master: docker-compose, docs, ADRs, Makefile, submodu
                           datasheets, labels, scale, system
       models/             storage.py stock.py parameter.py catalog.py scanning.py
       services/
-        shortid.py        Crockford base32 + mod-37 check
+        shortid.py        binds a code to a row (allocate/adopt/resolve) and
+                          re-exports the codec below
         tree.py           TreeRepository (shared by locations + categories)
         capacity.py       capacity strategies, dimension cascade, occupancy
         assignment.py     hard filters, scoring, escalation, defrag
@@ -75,6 +76,11 @@ almagest/                  master: docker-compose, docs, ADRs, Makefile, submodu
       db/                 session, pragmas, migrations glue
     alembic/versions/
     tests/{unit,integration,fixtures,fakes}
+  idcodec/                the Crockford base32 + mod-37 codec and the tag payload
+                          rules (parse_ndef_url, normalize_tag_uid). Its own
+                          distribution, **standard library only**, because the
+                          deviceagent needs the identical rules on a Pi and must
+                          not install the API to get them
   frontend/src/{routes,components,lib/{scan,nfc,api}}
   deviceagent/            nfc_pn532.py, esp32_serial.py (scale+LEDs),
                           camera.py, station.py (state machine), outbox.py

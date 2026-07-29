@@ -10,7 +10,7 @@ provisioned, with every intermediate value looking correct.
 from __future__ import annotations
 
 import pytest
-from app.services import provisioning, shortid
+from idcodec import shortid, tagpayload
 
 from agent.identity import NO_TAG, VIA_NDEF, VIA_UID, identify
 from agent.tags import TagRead
@@ -37,11 +37,11 @@ def test_a_uid_only_tag_is_identified_by_its_uid() -> None:
     assert identity.tag_uid == "04AABBCCDDEE10"
 
 
-def test_the_uid_is_folded_by_the_backends_rule_not_a_local_one() -> None:
-    """The property that matters is agreement, so assert against the rule itself
-    rather than against a string typed out here."""
+def test_the_uid_is_folded_by_the_shared_rule_not_a_local_one() -> None:
+    """The property that matters is agreement with what the API wrote, so assert
+    against the shared rule itself rather than against a string typed out here."""
     raw = "04:1A:2B:3C:4D:5E:6F"
-    assert identify(TagRead(uid=raw, ndef_url=None)).tag_uid == provisioning.normalize_tag_uid(raw)
+    assert identify(TagRead(uid=raw, ndef_url=None)).tag_uid == tagpayload.normalize_tag_uid(raw)
 
 
 def test_a_foreign_ndef_record_falls_back_to_the_uid() -> None:
@@ -55,7 +55,7 @@ def test_a_foreign_ndef_record_falls_back_to_the_uid() -> None:
 
 def test_a_bad_check_symbol_is_not_trusted_and_falls_back() -> None:
     """`parse_ndef_url` verifies the mod-37 check symbol, which is the whole
-    reason it is imported rather than re-written as a regex here."""
+    reason it is imported from `idcodec` rather than re-written as a regex here."""
     code = shortid.generate()
     corrupted = code[:-1] + ("0" if code[-1] != "0" else "1")
     identity = identify(TagRead(uid="04AABBCCDDEE10", ndef_url=f"https://x/s/{corrupted}"))

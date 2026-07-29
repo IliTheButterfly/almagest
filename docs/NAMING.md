@@ -13,7 +13,7 @@ name each repo after the instrument it actually is.
 
 | Name | Repo | What it is |
 |---|---|---|
-| **Almagest** | `almagest` (master) | The web platform: `backend/`, `frontend/`, `deviceagent/`, the SQLite database, deployment manifests, docs |
+| **Almagest** | `almagest` (master) | The web platform: `backend/`, `frontend/`, `deviceagent/`, `idcodec/`, the SQLite database, deployment manifests, docs |
 | **Mensa** | `mensa` (submodule) | ESP-IDF firmware for the bench station — NAU7802 scale, WS2812B, USB-serial line protocol |
 | **Circinus** | `circinus` (submodule) | OpenSCAD/CAD — Gridfinity trays, label cards, station plinth/gantry/platform |
 | — | `ecia-barcode` (submodule) | MH10.8.2 / EIGP-114 barcode parser. **Descriptive on purpose** |
@@ -37,8 +37,10 @@ audience that is not us. Do not rename them.
 ## What is *not* named
 
 Only repos get constellation names. Everything inside one keeps its plain
-descriptive name: `backend/`, `frontend/`, `deviceagent/`, `services/search/`,
-`counting/`, and so on. Subsystems — the scale, the vision counter, the colour-
+descriptive name: `backend/`, `frontend/`, `deviceagent/`, `idcodec/`,
+`services/search/`, `counting/`, and so on. `idcodec/` is a *distribution* —
+`almagest-idcodec` — and still not a repo, so it stays descriptive too: it is the
+identity codec, and that is what it is called. Subsystems — the scale, the vision counter, the colour-
 band checker, the enrichment pipeline — are called what they are.
 
 This boundary is the whole point. A codename is worth learning once per repo,
