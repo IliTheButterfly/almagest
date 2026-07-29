@@ -289,6 +289,16 @@ export function frameCentre(frame: PlanFrame, gridMm: number): PlanPointDraft {
 // ------------------------------------------------------- grid and scale -----
 
 /**
+ * How many ruled lines is still a grid rather than a grey rectangle.
+ *
+ * 64 rather than 40 so that an ordinary room rules at the step it snaps to: a
+ * 5 m workshop on the default 100 mm grid is 56 lines, which is legible, and
+ * ruling it at 200 mm while snapping at 100 mm was a difference the reader had to
+ * be told about for no benefit. A yard still coarsens.
+ */
+export const MAX_RULED_LINES = 64;
+
+/**
  * The grid step to actually rule, and how many lines that is.
  *
  * The chosen step is coarsened by whole multiples until the ruling is legible —
@@ -296,7 +306,7 @@ export function frameCentre(frame: PlanFrame, gridMm: number): PlanPointDraft {
  * rather than hiding the grid, because the snap step and the drawn step being
  * different is a smaller lie than a plan with no scale at all.
  */
-export function ruledStepMm(frame: PlanFrame, gridMm: number, maxLines = 40): number {
+export function ruledStepMm(frame: PlanFrame, gridMm: number, maxLines = MAX_RULED_LINES): number {
   const step = gridMm > 0 ? gridMm : 1;
   const span = Math.max(frame.widthMm, frame.depthMm);
   let ruled = step;

@@ -25,6 +25,7 @@ import {
   frameCentre,
   frameOf,
   MAX_COORD_MM,
+  MAX_RULED_LINES,
   NOMINAL_FOOTPRINT_MM,
   normalizeRotation,
   placementDiff,
@@ -154,9 +155,10 @@ describe("scale and ruling", () => {
     const yard = { minXMm: 0, minYMm: 0, widthMm: 40_000, depthMm: 40_000 };
     const ruled = ruledStepMm(yard, 10);
     expect(ruled).toBeGreaterThan(10);
-    expect(yard.widthMm / ruled).toBeLessThanOrEqual(40);
-    // A step that already rules legibly is left exactly as chosen.
-    expect(ruledStepMm({ minXMm: 0, minYMm: 0, widthMm: 4000, depthMm: 4000 }, 100)).toBe(100);
+    expect(yard.widthMm / ruled).toBeLessThanOrEqual(MAX_RULED_LINES);
+    // An ordinary room is ruled at the step it snaps to, so the picture and the
+    // snapping do not have to be explained as two different numbers.
+    expect(ruledStepMm({ minXMm: 0, minYMm: 0, widthMm: 5600, depthMm: 4400 }, 100)).toBe(100);
   });
 
   it("rules from the first multiple inside the frame, including through the origin", () => {

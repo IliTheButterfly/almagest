@@ -79,6 +79,14 @@ export interface PlanSurfaceProps {
   readonly onPointerDown?: ((event: ReactPointerEvent<HTMLDivElement>) => void) | undefined;
   /** Set while a line is being drawn: stops a touch from scrolling the page. */
   readonly capturesTouch?: boolean | undefined;
+  /**
+   * Dot every drawn corner.
+   *
+   * On by default only for the editor, which is where a corner is a thing you
+   * placed and might want to undo. On a plan you are merely reading they are
+   * artefacts on the walls — the wall is the information, not its vertices.
+   */
+  readonly showVertices?: boolean | undefined;
 }
 
 export function PlanSurface({
@@ -90,6 +98,7 @@ export function PlanSurface({
   surfaceRef,
   onPointerDown,
   capturesTouch = false,
+  showVertices = false,
 }: PlanSurfaceProps) {
   const ruled = ruledStepMm(frame, gridMm);
   const verticals = ruleLines(frame.minXMm, frame.widthMm, ruled);
@@ -163,7 +172,7 @@ export function PlanSurface({
               />
             ),
           )}
-          {shapes.map((shape) =>
+          {(showVertices ? shapes : []).map((shape) =>
             shape.points.map((point, at) => (
               <circle
                 key={`${shape.id}:${at}`}

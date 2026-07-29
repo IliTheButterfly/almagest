@@ -125,6 +125,22 @@ export function RoomPlanPanel({
   );
 }
 
+/**
+ * What one drawn thing is called mid-sentence.
+ *
+ * Separate from `SHAPE_LABELS`, which is a menu entry with an explanation in it —
+ * "Start drawing a Fixture — a sink, a pillar, a bench that holds nothing" is not
+ * a button, and "a outline" is not English.
+ */
+const SHAPE_NOUN: Readonly<Record<PlanShapeKind, string>> = {
+  outline: "the outline",
+  wall: "a wall",
+  door: "a door",
+  window: "a window",
+  fixture: "a fixture",
+  zone: "a zone",
+};
+
 /** Client-local shape ids, which are never sent — see `PlanShapeDraft`. */
 function idFactory(): () => string {
   let next = 0;
@@ -460,6 +476,7 @@ function PlanEditor({
         surfaceRef={surface}
         onPointerDown={onSurfacePointerDown}
         capturesTouch={drawing !== null}
+        showVertices
       >
         {boxes.map(({ placement, node }) => (
           <button
@@ -496,7 +513,7 @@ function PlanEditor({
           <>
             <div className="row">
               <button type="button" onClick={startLine}>
-                Start drawing a {kind}
+                Start drawing {SHAPE_NOUN[kind]}
               </button>
               <span className="spacer" />
             </div>
@@ -524,7 +541,7 @@ function PlanEditor({
           </>
         ) : (
           <div className="stack">
-            <Notice kind="info" title={`Drawing a ${kind}`}>
+            <Notice kind="info" title={`Drawing ${SHAPE_NOUN[drawing.kind]}`}>
               <p style={{ margin: 0 }}>
                 Tap the plan to drop a corner, or type one in — {drawing.points.length} so far.
                 {drawing.isClosed
