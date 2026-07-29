@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
@@ -42,7 +43,7 @@ from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
-from app.api.limits import AssemblyCount, QtyMilli, RowId
+from app.api.limits import AssemblyCount, QtyMilli, ResultOffset, RowId
 from app.api.schemas import LotRead, ReplayableResponse, lot_read
 from app.db.session import get_db
 from app.models.catalog import Part
@@ -1017,7 +1018,7 @@ def create_project(request: ProjectCreate, db: Session = Depends(get_db)) -> Pro
 def list_projects(
     status_filter: list[ProjectStatus] | None = Query(default=None, alias="status"),
     limit: int = Query(default=100, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
+    offset: Annotated[ResultOffset, Query()] = 0,
     db: Session = Depends(get_db),
 ) -> ProjectList:
     """Projects, newest first. `status` is repeatable and unset means "all" —
@@ -1111,7 +1112,7 @@ def list_bom_lines(
         description="Only lines with no part_id — the worklist `ix_bom_lines_unmatched` serves.",
     ),
     limit: int = Query(default=200, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
+    offset: Annotated[ResultOffset, Query()] = 0,
     db: Session = Depends(get_db),
 ) -> BomLineList:
     _require_project(db, project_id)

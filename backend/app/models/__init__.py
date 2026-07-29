@@ -19,6 +19,7 @@ from app.models.catalog import (
     Tag,
     Unit,
 )
+from app.models.documents import Document, DocumentLink
 from app.models.enrichment import ParameterValueCandidate
 from app.models.identity import ObjectId
 from app.models.layout import LayoutSuggestion
@@ -58,6 +59,8 @@ __all__ = [
     "ContainerType",
     "ContainerTypePhysical",
     "ContainerTypeSlotTemplate",
+    "Document",
+    "DocumentLink",
     "LabelPrint",
     "LabelSheetJob",
     "LayoutSuggestion",

@@ -29,13 +29,14 @@ Three decisions worth stating:
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
-from app.api.limits import QTY_MILLI_MAX, RowId
+from app.api.limits import QTY_MILLI_MAX, ResultOffset, RowId
 from app.db.session import get_db
 from app.models.catalog import Part
 from app.models.enums import PendingIntakeStatus, ScanDecodedKind
@@ -220,7 +221,7 @@ def list_pending(
     ),
     device_id: str | None = Query(default=None, max_length=64),
     limit: int = Query(default=100, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
+    offset: Annotated[ResultOffset, Query()] = 0,
 ) -> PendingIntakeList:
     """The worklist, **oldest first** — a box of reels is walked in scan order.
 

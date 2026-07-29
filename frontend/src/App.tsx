@@ -19,6 +19,7 @@ import { BomScreen } from "./screens/BomScreen";
 import { BuildScreen } from "./screens/BuildScreen";
 import { ContainerTypeScreen } from "./screens/ContainerTypeScreen";
 import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
+import { DatasheetSearchScreen } from "./screens/DatasheetSearchScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
 import { LocationLayoutScreen } from "./screens/LocationLayoutScreen";
 import { LocationScreen } from "./screens/LocationScreen";
@@ -59,6 +60,7 @@ export function App() {
 
       <nav className="app-nav" aria-label="Main">
         <NavLink to="/search">Search</NavLink>
+        <NavLink to="/datasheets">Datasheets</NavLink>
         <NavLink to="/tree">Storage</NavLink>
         <NavLink to="/container-types">Types</NavLink>
         <NavLink to="/projects">Projects</NavLink>
@@ -71,6 +73,10 @@ export function App() {
         <Routes>
           <Route index element={<SearchScreen />} />
           <Route path="/search" element={<SearchScreen />} />
+          {/* Phase 4's standalone value: full-text search over every stored
+              PDF's extracted text, not part fields — a different question
+              from `/search`, not a mode of it. Not a scan target. */}
+          <Route path="/datasheets" element={<DatasheetSearchScreen />} />
           <Route path="/tree" element={<TreeScreen />} />
           <Route path="/scan" element={<ScanScreen />} />
           <Route path="/intake" element={<IntakeQueueScreen />} />

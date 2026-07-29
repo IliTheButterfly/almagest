@@ -15,7 +15,9 @@ from fastapi.routing import APIRoute
 from app import __version__
 from app.api.routes import (
     container_types,
+    documents,
     enrichment,
+    extraction,
     facets,
     intake,
     labels,
@@ -62,6 +64,17 @@ def create_app() -> FastAPI:
     # returned is parked here, and the desk pass reads it back.
     app.include_router(intake.router)
     app.include_router(parts.router)
+    # The document store, plus its own `/api/parts/{id}/documents` routes — kept
+    # in the documents module because what they return belongs to the store rather
+    # than to the part, the same split provisioning makes for locations.
+    app.include_router(documents.router)
+    app.include_router(documents.parts_router)
+    # The extraction work queue and submit door (ADR 0005), plus the per-document
+    # text read. The API owns the queue and `datasheet_fts`; the worker that parses
+    # PDFs is a separate process and a separate image, and nothing included here
+    # imports a PDF library.
+    app.include_router(extraction.router)
+    app.include_router(extraction.documents_router)
     app.include_router(container_types.router)
     app.include_router(locations.router)
     # The provisioning walk's own `/api/locations/{id}/...` routes ride a second

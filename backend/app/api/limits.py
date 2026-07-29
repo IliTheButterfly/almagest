@@ -102,11 +102,26 @@ LabelDpi = Annotated[int, Field(ge=72, le=1200)]
 #: is multiplied through every BOM line's demand.
 AssemblyCount = Annotated[int, Field(ge=1, le=100_000)]
 
+#: How far into a result set a page may start. Unbounded it is the same bug this
+#: module was written for, one layer further out: `offset=10**30` never reaches a
+#: domain check, it reaches SQLite's `LIMIT ... OFFSET` bind and raises
+#: `OverflowError`, so a query string produced a bare 500. A million rows deep is
+#: past any paging a human does — the honest answer to "page 20 million" is that
+#: the query was wrong, and a 422 says so.
+ResultOffset = Annotated[int, Field(ge=0, le=1_000_000)]
+
+#: How many documents one extraction worker takes in a single claim. Small on
+#: purpose: every claimed document holds a lease, so a worker that grabs a hundred
+#: and then dies parks all hundred until the lease expires. Batching exists to
+#: amortise the round trip, not to reserve the queue.
+ClaimLimit = Annotated[int, Field(ge=1, le=50)]
+
 __all__ = [
     "MASS_MG_MAX",
     "MONEY_MICRO_MAX",
     "QTY_MILLI_MAX",
     "AssemblyCount",
+    "ClaimLimit",
     "CountMilli",
     "DeltaMilli",
     "GridIndex",
@@ -116,4 +131,5 @@ __all__ = [
     "MassMg",
     "MoneyMicro",
     "QtyMilli",
+    "ResultOffset",
 ]
