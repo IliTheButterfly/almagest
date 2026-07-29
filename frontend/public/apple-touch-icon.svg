@@ -22,10 +22,11 @@
   <rect width="180" height="180" fill="#ffffff"/>
   <g transform="translate(27.5,27.5) scale(1.953125)">
     <path fill="#9a4666" fill-rule="evenodd"
-          d="M23 23H41V41H23Z
-             M32 24.8 33.77 30.23 39.2 32 33.77 33.77 32 39.2 30.23 33.77 24.8 32 30.23 30.23Z"/>
+          d="M28,13.5 H36 A3.5,3.5 0 0 1 39.5,17 V31 A3.5,3.5 0 0 1 36,34.5
+             H28 A3.5,3.5 0 0 1 24.5,31 V17 A3.5,3.5 0 0 1 28,13.5 Z
+             M32 18.1 33.48 22.52 37.9 24 33.48 25.48 32 29.9 30.52 25.48 26.1 24 30.52 22.52Z"/>
     <g fill="none" stroke="#00739a">
-      <path stroke-width="2.5" d="M23 5V59M41 5V59M5 23H59M5 41H59"/>
+      <path stroke-width="4" d="M5 24H24.5M39.5 24H59"/>
       <rect x="5" y="5" width="54" height="54" rx="13" stroke-width="5"/>
     </g>
   </g>
