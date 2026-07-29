@@ -291,15 +291,44 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """Un-seed — but only the types nothing is standing in.
+
+    `container_type_slot_templates` and `container_type_physical` both carry
+    `ON DELETE CASCADE` back to `container_types`, so their rows go with the
+    parent. **`locations.container_type_id` does not**: it is `ON DELETE
+    RESTRICT`, deliberately, because a container type is the physical fact that
+    a drawer *is* a Raaco C8-30 drawer and deleting it out from under 96 live
+    drawers would leave them describing nothing. That is the right constraint
+    and this migration must not fight it.
+
+    So an unconditional delete of every seed slug raises `FOREIGN KEY
+    constraint failed` on any database where somebody actually used one — which
+    is every database that got past the first afternoon, and was true of the
+    dev database here. Downgrading a *data* seed is best-effort by nature: the
+    unused rows go, the in-use ones stay and are named on stdout. Nothing is
+    orphaned and nothing is destroyed, which is the only outcome worth having
+    for a migration whose whole purpose is to be reversible.
+    """
     bind = op.get_bind()
-    container_types = sa.table("container_types", sa.column("id", sa.Integer), sa.column("slug", sa.String))
     seed_slugs = (
         [f"gridfinity-baseplate-{cols}x{rows}" for cols, rows in _BASEPLATE_SIZES]
         + [f"gridfinity-bin-{cols}x{rows}x{height_u}" for cols, rows, height_u in _BIN_FOOTPRINTS]
         + ["akro-mils-10144", "raaco-c8-30", "raaco-c10-40"]
     )
-    # `container_type_slot_templates` and `container_type_physical` both carry
-    # `ON DELETE CASCADE` back to `container_types`, so deleting the type rows
-    # is sufficient.
-    bind.execute(container_types.delete().where(container_types.c.slug.in_(seed_slugs)))
+    in_use = {
+        slug: count
+        for slug, count in bind.execute(
+            sa.text(
+                "SELECT ct.slug, COUNT(l.id) FROM container_types AS ct "
+                "JOIN locations AS l ON l.container_type_id = ct.id "
+                "WHERE ct.slug IN :slugs GROUP BY ct.slug"
+            ).bindparams(sa.bindparam("slugs", value=seed_slugs, expanding=True))
+        ).all()
+    }
+    removable = [slug for slug in seed_slugs if slug not in in_use]
+    if removable:
+        container_types = sa.table("container_types", sa.column("slug", sa.String))
+        bind.execute(container_types.delete().where(container_types.c.slug.in_(removable)))
+    if in_use:
+        kept = ", ".join(f"{slug} ({count} in use)" for slug, count in sorted(in_use.items()))
+        print(f"4cada779f255: kept seed container types still referenced by locations: {kept}")
