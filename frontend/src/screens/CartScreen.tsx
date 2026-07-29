@@ -128,6 +128,12 @@ export function CartScreen() {
         </div>
       </div>
 
+      {/* Outside the list, deliberately: a successful checkout empties the cart,
+          and reporting the result inside the "you have lines" branch meant the
+          confirmation — and the one-call undo for a movement — vanished at the
+          exact moment they were wanted. */}
+      {outcome !== null && <Result outcome={outcome} />}
+
       {lines.length === 0 ? (
         <div className="card">
           <Empty>
@@ -191,7 +197,6 @@ export function CartScreen() {
                   ? `Retry the ${failing} remaining line(s)`
                   : `Check out ${lines.length} line(s)`}
             </button>
-            {outcome !== null && <Result outcome={outcome} />}
           </div>
         </>
       )}
