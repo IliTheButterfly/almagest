@@ -204,6 +204,29 @@ function readTarget(value: unknown): CartTarget {
  * happen to share a part, and silently fusing them would destroy one of the two
  * designators the user typed.
  */
+/**
+ * Do these two targets name the same destination?
+ *
+ * The *label* is deliberately not compared: it is a capture, so a project
+ * renamed between two reads is still the same project, and treating it as a new
+ * one would re-key rows for a cosmetic difference.
+ */
+function sameTarget(a: CartTarget, b: CartTarget): boolean {
+  if (a.kind !== b.kind) {
+    return false;
+  }
+  switch (a.kind) {
+    case "unset":
+      return true;
+    case "project":
+      return b.kind === "project" && a.projectId === b.projectId;
+    case "build":
+      return b.kind === "build" && a.buildId === b.buildId;
+    case "container":
+      return b.kind === "container" && a.locationId === b.locationId;
+  }
+}
+
 function sameChoice(line: CartLine, draft: CartLineDraft): boolean {
   return (
     line.partId === draft.partId &&
@@ -254,6 +277,13 @@ export class ShoppingCart {
    * row: the line has changed, so a reason describing the quantity it *used* to
    * ask for no longer describes it, and leaving the stale text there would read
    * as a fresh refusal of an attempt that never happened.
+   *
+   * It also mints a fresh `clientOpId`, for the reason `setQuantity` does: this
+   * changes the quantity, the server keys a line replay on a digest of the line,
+   * and the old key may already have been accepted for the old quantity after a
+   * checkout whose response was lost. Keeping it would make every later checkout
+   * of this row a `request_mismatch` refusal — a row that can never be checked
+   * out again, and whose only escapes are Remove or nudging the quantity field.
    */
   add(draft: CartLineDraft): CartLine {
     const existing = this.#lines.find((line) => sameChoice(line, draft));
@@ -261,6 +291,7 @@ export class ShoppingCart {
       const merged: CartLine = {
         ...existing,
         qtyMilli: existing.qtyMilli + draft.qtyMilli,
+        clientOpId: uuid4(),
         // The freshest capture wins for display: the user just saw this name.
         partName: draft.partName,
         mpn: draft.mpn ?? existing.mpn,
@@ -312,6 +343,36 @@ export class ShoppingCart {
     );
   }
 
+  /**
+   * Name the physical package a row comes out of — or clear it.
+   *
+   * A reservation is a hold *on a lot*, so the build destination cannot use a row
+   * that does not say which one; search knows what part was picked, not which
+   * reel it comes off, so this is where that gap is closed. A fresh `clientOpId`
+   * for the same reason as `setQuantity`: `lot_id` is in the line the server
+   * digests, so an edited row is a different operation.
+   */
+  setLot(
+    id: string,
+    lot: { readonly lotId: number; readonly locationId: number | null; readonly label: string | null } | null,
+  ): void {
+    this.#write(
+      this.#lines.map((line) =>
+        line.id === id
+          ? {
+              ...line,
+              lotId: lot?.lotId ?? null,
+              locationId: lot === null ? null : lot.locationId,
+              locationLabel: lot === null ? null : lot.label,
+              clientOpId: uuid4(),
+              failure: null,
+            }
+          : line,
+      ),
+      this.#target,
+    );
+  }
+
   /** Attach why a line was refused, so the row can say so itself. */
   markFailed(id: string, failure: CartLineFailure): void {
     this.#write(
@@ -348,8 +409,24 @@ export class ShoppingCart {
     this.#write([], NO_TARGET);
   }
 
+  /**
+   * Aim the cart at one of the three destinations.
+   *
+   * Changing where the cart is going **re-keys every row**. A per-line key means
+   * "this operation", and the operation includes what it was applied *to*: a row
+   * whose movement landed against bin A but whose response was lost is still in
+   * the cart, and once the user retargets it at bin B it is a new statement about
+   * a different container, not a retry of the old one. The server agrees — its
+   * per-line records are filed per destination — so without re-keying here the
+   * retargeted row comes back refused as a mismatch. Re-aiming at the *same*
+   * destination changes nothing, so the ordinary retry stays idempotent.
+   */
   setTarget(target: CartTarget): void {
-    this.#write(this.#lines, target);
+    this.#write(sameTarget(this.#target, target) ? this.#lines : this.#rekeyed(), target);
+  }
+
+  #rekeyed(): CartLine[] {
+    return this.#lines.map((line) => ({ ...line, clientOpId: uuid4() }));
   }
 
   subscribe(listener: () => void): () => void {

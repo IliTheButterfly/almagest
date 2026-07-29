@@ -344,11 +344,14 @@ async function attempt(
 /**
  * Apply the per-line verdicts.
  *
- * Matched on `client_line_id` first and the index only as a fallback: the id is
- * what the cart row is keyed by locally, whereas an index is a promise that the
- * cart was not reordered between building the request and reading the answer —
- * which, with a persisted cart open on two tabs, is not a promise this code can
- * make.
+ * Matched on `client_line_id` when the verdict carries one, and on the index only
+ * when it does not: the id is what the cart row is keyed by locally, whereas an
+ * index is a promise that the cart was not reordered between building the request
+ * and reading the answer — which, with a persisted cart open on two tabs, is not
+ * a promise this code can make. A verdict naming an id this batch did not send is
+ * therefore dropped rather than falling back to its position, because the
+ * position is precisely the thing the id was preferred over: attributing it that
+ * way would put a stranger's refusal on whichever row happens to sit there.
  *
  * A 2xx with no `results` at all is the non-partial contract: the batch either
  * applied whole or 4xx'd, so every line applied.
@@ -378,7 +381,10 @@ function settle(
   const at = Date.now();
 
   for (const result of results) {
-    const line = lines.find((candidate) => candidate.id === result.client_line_id) ?? lines[result.index];
+    const line =
+      result.client_line_id === null || result.client_line_id === undefined
+        ? lines[result.index]
+        : lines.find((candidate) => candidate.id === result.client_line_id);
     if (line === undefined) {
       // A verdict about a row we did not send. Nothing to do with it but ignore
       // it — acting on it would mean guessing which row it meant.

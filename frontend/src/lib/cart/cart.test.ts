@@ -130,6 +130,19 @@ describe("the cart", () => {
     expect(cart.lines()[0]?.failure).toBeNull();
   });
 
+  it("re-keys a row that is merged into, because its quantity changed", () => {
+    // Same reason `setQuantity` re-keys, and the merge path mutates the same
+    // field. The server keys a line replay on a digest of the line, so a key
+    // already accepted for the old quantity — after a checkout whose response was
+    // lost — makes every later checkout of this row a `request_mismatch` refusal
+    // that no amount of retrying clears.
+    const cart = new ShoppingCart(storage);
+    const first = cart.add(draft({ qtyMilli: 1_000 }));
+    const again = cart.add(draft({ qtyMilli: 1_000 }));
+    expect(again.qtyMilli).toBe(2_000);
+    expect(again.clientOpId).not.toBe(first.clientOpId);
+  });
+
   it("re-keys a row whose quantity is edited", () => {
     // The old key may already have been accepted for the old quantity, so
     // reusing it would replay that movement instead of applying this one.
@@ -139,6 +152,46 @@ describe("the cart", () => {
     const updated = cart.lines()[0];
     expect(updated?.qtyMilli).toBe(99_000);
     expect(updated?.clientOpId).not.toBe(line.clientOpId);
+  });
+
+  it("names the package a row comes out of, and re-keys it", () => {
+    const cart = new ShoppingCart(storage);
+    const line = cart.add(draft({ lotId: null, locationId: null, locationLabel: null }));
+    cart.setLot(line.id, { lotId: 91, locationId: 4, label: "B2-11" });
+    const updated = cart.lines()[0];
+    expect(updated?.lotId).toBe(91);
+    expect(updated?.locationLabel).toBe("B2-11");
+    expect(updated?.clientOpId).not.toBe(line.clientOpId);
+  });
+
+  // ----------------------------------------------------------- the target ----
+
+  it("re-keys every row when the destination changes", () => {
+    // A per-line key means "this operation", and the operation includes what it
+    // was applied to — the server files its per-line records per destination. A
+    // row whose movement landed against one bin and whose response was lost is a
+    // *new* statement once it is aimed at another bin, so reusing the key would
+    // come back refused as a mismatch rather than being applied.
+    const cart = new ShoppingCart(storage);
+    const line = cart.add(draft());
+    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
+    const first = cart.lines()[0]?.clientOpId;
+    expect(first).not.toBe(line.clientOpId);
+
+    cart.setTarget({ kind: "container", locationId: 9, label: "B2-11" });
+    expect(cart.lines()[0]?.clientOpId).not.toBe(first);
+  });
+
+  it("leaves the keys alone when the same destination is chosen again", () => {
+    // The ordinary retry: the container is re-scanned, or the same project picked
+    // out of the list a second time. Re-keying there would turn a resubmission
+    // into a second movement.
+    const cart = new ShoppingCart(storage);
+    cart.add(draft());
+    cart.setTarget({ kind: "project", projectId: 12, label: "Bench PSU" });
+    const key = cart.lines()[0]?.clientOpId;
+    cart.setTarget({ kind: "project", projectId: 12, label: "Bench PSU (renamed)" });
+    expect(cart.lines()[0]?.clientOpId).toBe(key);
   });
 
   // -------------------------------------------------------- persistence ----

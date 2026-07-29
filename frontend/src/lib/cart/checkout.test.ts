@@ -240,6 +240,12 @@ describe("checking a cart out to a container", () => {
   });
 
   it("ignores a verdict about a line it never sent", async () => {
+    // The bogus verdict carries `index: 0` deliberately. With an out-of-range
+    // index it would be discarded by the position lookup finding nothing, and the
+    // id-first matching this is really about — the protection against a cart
+    // reordered between building the request and reading the answer — would go
+    // unasserted. As written, only an unrecognised `client_line_id` keeps the
+    // refusal off the row that actually applied.
     stubApi((request) => {
       const lines = request.body["lines"] as { client_line_id: string }[];
       return json({
@@ -248,7 +254,7 @@ describe("checking a cart out to a container", () => {
         group_uuid: "group-1",
         results: [
           { index: 0, client_line_id: lines[0]?.client_line_id, applied: true },
-          { index: 9, client_line_id: "someone-elses-row", applied: false, reason: "nope" },
+          { index: 0, client_line_id: "someone-elses-row", applied: false, reason: "nope" },
         ],
       });
     });
@@ -361,8 +367,12 @@ describe("checking a cart out twice", () => {
       });
     });
     const cart = new ShoppingCart(memory());
-    const line = cart.add(draft());
+    cart.add(draft());
     cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
+    // Read after the destination is set, which re-keys the rows: aiming the cart
+    // somewhere new is a new operation. Two checkouts at the *same* destination
+    // must still carry the same key, which is what this is about.
+    const key = cart.lines()[0]?.clientOpId;
 
     await checkoutCart(cart);
     await checkoutCart(cart);
@@ -371,8 +381,8 @@ describe("checking a cart out twice", () => {
     const keys = sent.map(
       (request) => (request.body["lines"] as { client_op_id: string }[])[0]?.client_op_id,
     );
-    expect(keys[0]).toBe(line.clientOpId);
-    expect(keys[1]).toBe(line.clientOpId);
+    expect(keys[0]).toBe(key);
+    expect(keys[1]).toBe(key);
     // The batch's own key is fresh — the body is a different statement now.
     expect(sent[0]?.body["client_op_id"]).not.toBe(sent[1]?.body["client_op_id"]);
   });
