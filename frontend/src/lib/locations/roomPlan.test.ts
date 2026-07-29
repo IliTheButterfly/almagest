@@ -28,6 +28,7 @@ import {
   MAX_RULED_LINES,
   NOMINAL_FOOTPRINT_MM,
   normalizeRotation,
+  parseExtent,
   placementDiff,
   placementDraftsFrom,
   placementPct,
@@ -253,13 +254,106 @@ describe("what reaches the wire", () => {
           x_mm: 100,
           y_mm: 200,
           rotation_deg: 90,
-          width_mm: null,
+          width_mm: 306,
           depth_mm: 300,
+          own_width_mm: null,
+          own_depth_mm: 300,
         },
       ]),
     ).toEqual([
-      { locationId: 12, xMm: 100, yMm: 200, rotationDeg: 90, widthMm: null, depthMm: 300 },
+      {
+        locationId: 12,
+        xMm: 100,
+        yMm: 200,
+        rotationDeg: 90,
+        // The **authored** pair, which is what a save sends back. The width came
+        // from the container type, so the draft holds null for it and carries the
+        // type's 306 separately — anything else and the next nudge would send 306
+        // as an override and freeze the type out for good.
+        widthMm: null,
+        depthMm: 300,
+        typeWidthMm: 306,
+        typeDepthMm: 300,
+      },
     ]);
+  });
+
+  it("draws an inherited footprint at the type's size, and says a nominal one is nominal", () => {
+    const [inherited] = placementDraftsFrom([
+      {
+        location_id: 12,
+        parent_id: 11,
+        x_mm: 0,
+        y_mm: 0,
+        rotation_deg: 0,
+        width_mm: 306,
+        depth_mm: 150,
+        own_width_mm: null,
+        own_depth_mm: null,
+      },
+    ]);
+    // Drawn at the type's real size and *not* dashed: the number is measured, it
+    // simply was not measured here.
+    expect(footprintOf(inherited as PlacementDraft)).toEqual({
+      widthMm: 306,
+      depthMm: 150,
+      nominal: false,
+    });
+
+    const [unknownSize] = placementDraftsFrom([
+      {
+        location_id: 13,
+        parent_id: 11,
+        x_mm: 0,
+        y_mm: 0,
+        rotation_deg: 0,
+        width_mm: null,
+        depth_mm: null,
+        own_width_mm: null,
+        own_depth_mm: null,
+      },
+    ]);
+    expect(footprintOf(unknownSize as PlacementDraft).nominal).toBe(true);
+  });
+
+  it("sends back nothing for a footprint nobody authored, so the type stays in charge", () => {
+    const [sent] = placementsToRequest(
+      placementDraftsFrom([
+        {
+          location_id: 12,
+          parent_id: 11,
+          x_mm: 100,
+          y_mm: 0,
+          rotation_deg: 0,
+          width_mm: 306,
+          depth_mm: 150,
+          own_width_mm: null,
+          own_depth_mm: null,
+        },
+      ]),
+    );
+    expect(sent?.width_mm).toBeNull();
+    expect(sent?.depth_mm).toBeNull();
+  });
+});
+
+describe("a typed size", () => {
+  /**
+   * `PlanExtentMm` is `ge=1` on the server, unlike a coordinate — so the numeric
+   * field for width and depth cannot be clamped the way X and Y are. Typing `0` used
+   * to produce `0`, which drew a plausible dashed box and then came back 422 with
+   * "The plan was not saved." and no clue which field did it.
+   */
+  it("treats anything that is not a measurement as unmeasured, never as a zero", () => {
+    expect(parseExtent("")).toBeNull();
+    expect(parseExtent("   ")).toBeNull();
+    expect(parseExtent("0")).toBeNull();
+    expect(parseExtent("-500")).toBeNull();
+    expect(parseExtent("3o6")).toBeNull();
+    expect(parseExtent("306")).toBe(306);
+    expect(parseExtent(" 306.4 ")).toBe(306);
+    // Still bounded, for the same reason a coordinate is.
+    expect(parseExtent("99999999")).toBe(MAX_COORD_MM);
   });
 });
 

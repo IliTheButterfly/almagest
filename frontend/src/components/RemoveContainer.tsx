@@ -28,6 +28,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { Dialog } from "./Dialog";
 import { ErrorBanner, Notice } from "./Feedback";
 import {
   previewLocationRemoval,
@@ -225,8 +226,24 @@ function ConfirmPanel({
   const blockedByChildren = preview.blockers.some((b) => b.reason === "has_children");
 
   return (
-    <div role="dialog" aria-label={`Remove ${location.name}`} className="stack">
-      {!preview.removable && (
+    /*
+     * The one dialog primitive, not a second hand-rolled one — `Dialog`'s own
+     * docstring forbids that, and this was exactly the failure it warns about: a
+     * plain in-flow `<div role="dialog">` announced itself as a dialog while
+     * having no focus move, no trap, no Escape and no focus restore. Worse, it
+     * *replaced* its own trigger, so pressing "Remove this container" dropped the
+     * caret to `<body>` and the confirmation — the one thing in this component
+     * that must be read before it is answered — was announced to nobody.
+     *
+     * Nothing to guard on close: this panel holds no draft, only a question.
+     */
+    <Dialog
+      title={`Remove ${location.name}`}
+      onClose={onCancel}
+      note="Nothing has happened yet. What this will do is spelled out below, per container."
+    >
+      <div className="stack">
+        {!preview.removable && (
         <Notice
           kind="error"
           title={blockedByChildren ? "There are containers inside this one" : "This still holds stock"}
@@ -302,7 +319,8 @@ function ConfirmPanel({
             {deletes > 0 && retires === 0 ? "Delete it" : "Remove it"}
           </button>
         )}
+        </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

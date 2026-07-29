@@ -54,7 +54,22 @@ export interface PlanShapeDraft {
   readonly points: readonly PlanPointDraft[];
 }
 
-/** Where one child stands, as the editor holds it before a save. */
+/**
+ * Where one child stands, as the editor holds it before a save.
+ *
+ * `widthMm`/`depthMm` are what this placement itself **authors**, and null is a
+ * real value: "use the container type's size". The type's own footprint is
+ * carried separately in `typeWidthMm`/`typeDepthMm` so that the two are never
+ * confused — the editor draws with the resolved pair and saves the authored one.
+ *
+ * Keeping only the resolved number is how the inherit is destroyed: the server
+ * reports 306 mm for a Raaco whose size comes from its type, and an editor that
+ * held that as its draft sends 306 back on the next nudge, freezing it as an
+ * override. Correcting the container type afterwards then no longer moves the
+ * box, and the panel's own "leave a size empty to use the container type's own"
+ * becomes unreachable. Same distinction ADR 0006 draws between `child_view` and
+ * `effective_child_view`, for the same reason.
+ */
 export interface PlacementDraft {
   readonly locationId: number;
   readonly xMm: number;
@@ -62,6 +77,9 @@ export interface PlacementDraft {
   readonly rotationDeg: number;
   readonly widthMm: number | null;
   readonly depthMm: number | null;
+  /** The container type's footprint, when this placement authors none. Never sent. */
+  readonly typeWidthMm?: number | null;
+  readonly typeDepthMm?: number | null;
 }
 
 // ----------------------------------------------------------------- kinds ----
@@ -171,14 +189,40 @@ export interface Footprint {
 export function footprintOf(placement: {
   readonly widthMm: number | null;
   readonly depthMm: number | null;
+  readonly typeWidthMm?: number | null;
+  readonly typeDepthMm?: number | null;
 }): Footprint {
-  const width = placement.widthMm;
-  const depth = placement.depthMm;
+  const width = measured(placement.widthMm) ?? measured(placement.typeWidthMm);
+  const depth = measured(placement.depthMm) ?? measured(placement.typeDepthMm);
   return {
-    widthMm: width !== null && width > 0 ? width : NOMINAL_FOOTPRINT_MM,
-    depthMm: depth !== null && depth > 0 ? depth : NOMINAL_FOOTPRINT_MM,
-    nominal: !(width !== null && width > 0) || !(depth !== null && depth > 0),
+    widthMm: width ?? NOMINAL_FOOTPRINT_MM,
+    depthMm: depth ?? NOMINAL_FOOTPRINT_MM,
+    nominal: width === null || depth === null,
   };
+}
+
+/** A dimension somebody actually has: a positive number, not null and not zero. */
+function measured(valueMm: number | null | undefined): number | null {
+  return valueMm !== null && valueMm !== undefined && valueMm > 0 ? valueMm : null;
+}
+
+/**
+ * The server's bound on an *extent* — `PlanExtentMm` is `ge=1`, unlike a
+ * coordinate, which may be zero or negative.
+ *
+ * Null for anything that is not a measurement: an empty box, a typo, a negative,
+ * a zero. All of those mean "nobody has measured this", which the placement
+ * already has a way of saying, and none of them may become a number on the wire —
+ * `clampCoord` let a typed `0` through and the save came back 422 with the field
+ * still showing a plausible box.
+ */
+export function parseExtent(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const value = Math.round(Number(trimmed));
+  return Number.isFinite(value) && value >= 1 ? Math.min(value, MAX_COORD_MM) : null;
 }
 
 export interface PlanFrame {
@@ -387,8 +431,14 @@ export function placementDraftsFrom(placements: readonly PlacementRead[]): Place
     xMm: placement.x_mm,
     yMm: placement.y_mm,
     rotationDeg: placement.rotation_deg,
-    widthMm: placement.width_mm,
-    depthMm: placement.depth_mm,
+    // The authored pair, which is the pair that goes back. `width_mm` is the
+    // *resolved* one and is only ever drawn — when nothing is authored it is the
+    // container type's own, so it lands in `typeWidthMm` and stays out of the
+    // request.
+    widthMm: placement.own_width_mm,
+    depthMm: placement.own_depth_mm,
+    typeWidthMm: placement.width_mm,
+    typeDepthMm: placement.depth_mm,
   }));
 }
 

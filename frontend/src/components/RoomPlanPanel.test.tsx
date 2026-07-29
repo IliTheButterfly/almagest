@@ -110,6 +110,11 @@ function placementRead(
     rotation_deg: 0,
     width_mm: 800,
     depth_mm: 600,
+    // Authored here, so a save sends it back. `own_*` is what the editor
+    // round-trips; a placement whose size comes from its container type reports
+    // the type's number in `width_mm` and null in `own_width_mm`.
+    own_width_mm: 800,
+    own_depth_mm: 600,
     ...overrides,
   };
 }
@@ -409,4 +414,79 @@ it("says whether there is unsent work, and does not offer to save when there is 
   expect(screen.getByRole("button", { name: "Save the plan" })).toHaveProperty("disabled", false);
   // Nothing has been written by the move itself.
   expect(placementPuts()).toHaveLength(0);
+});
+
+it("keeps a footprint that came from the container type out of the request", async () => {
+  // The Raaco of `test_room_plan.py`: `plan_width_mm IS NULL`, so the plan read
+  // reports the *type's* 306 × 150 and says so with `own_*: null`.
+  stubApi({
+    shapes: [],
+    placements: [
+      placementRead(12, { width_mm: 306, depth_mm: 150, own_width_mm: null, own_depth_mm: null }),
+    ],
+  });
+  renderPanel();
+
+  // Drawn at the type's real size, and the field offers it as the inherited value
+  // rather than pre-filling it as an override.
+  const bench = await screen.findByRole("button", { name: /^Bench, at / });
+  expect(bench.getAttribute("aria-label")).toContain("306 mm by 150 mm");
+  fireEvent.click(bench);
+  expect((screen.getByLabelText("Width (mm)") as HTMLInputElement).value).toBe("");
+  expect(screen.getByLabelText("Width (mm)").getAttribute("placeholder")).toBe(
+    "306 — from its type",
+  );
+
+  // One nudge and a save. The size must not travel: sending 306 back would author
+  // it, and correcting the container type afterwards would then stop moving the box.
+  fireEvent.keyDown(box("Bench"), { key: "ArrowRight" });
+  fireEvent.click(screen.getByRole("button", { name: "Save the plan" }));
+  await waitFor(() => expect(placementPuts()).toHaveLength(1));
+  const sent = placementPuts()[0]?.body["placements"] as Record<string, unknown>[];
+  expect(sent[0]?.["width_mm"]).toBeNull();
+  expect(sent[0]?.["depth_mm"]).toBeNull();
+});
+
+it("refuses to turn a typed 0 into a size the server will reject", async () => {
+  // `PlanExtentMm` is `ge=1`, unlike a coordinate — so a width of 0 is a 422 with
+  // "The plan was not saved." and no clue which field did it. An unmeasurable
+  // number means unmeasured, which the field already has a way of showing.
+  stubApi({ shapes: [], placements: [placementRead(12)] });
+  renderPanel();
+
+  fireEvent.click(await screen.findByRole("button", { name: /^Bench, at / }));
+  const width = screen.getByLabelText("Width (mm)") as HTMLInputElement;
+  fireEvent.change(width, { target: { value: "0" } });
+  expect(width.value).toBe("");
+  fireEvent.change(width, { target: { value: "-500" } });
+  expect(width.value).toBe("");
+  fireEvent.change(width, { target: { value: "1200" } });
+  expect(width.value).toBe("1200");
+
+  fireEvent.click(screen.getByRole("button", { name: "Save the plan" }));
+  await waitFor(() => expect(placementPuts()).toHaveLength(1));
+  expect(
+    (placementPuts()[0]?.body["placements"] as Record<string, unknown>[])[0]?.["width_mm"],
+  ).toBe(1200);
+});
+
+it("does not grab a box with the tap that drops a corner", async () => {
+  // The surface's pointer handler and the box's both see the same bubbled event.
+  // Tapping a wall where it passes behind a cabinet used to add the corner *and*
+  // attach a live drag to the cabinet, so a finger's few pixels of travel moved it
+  // a whole grid step and "Save the plan" wrote that as an authored move.
+  stubApi({ shapes: [], placements: [placementRead(12)] });
+  renderPanel();
+
+  const bench = await screen.findByRole("button", { name: /^Bench, at / });
+  const before = bench.getAttribute("aria-label");
+  fireEvent.click(screen.getByRole("button", { name: /^Start drawing/ }));
+  fireEvent.pointerDown(box("Bench"), { clientX: 10, clientY: 10 });
+
+  // Nothing is selected — the inspector for that box never opens — and the drag
+  // listeners were never attached, so the pointer moving does not move it.
+  fireEvent.pointerMove(window, { clientX: 60, clientY: 60 });
+  fireEvent.pointerUp(window);
+  expect(box("Bench").getAttribute("aria-label")).toBe(before);
+  expect(screen.queryByLabelText("Width (mm)")).toBeNull();
 });

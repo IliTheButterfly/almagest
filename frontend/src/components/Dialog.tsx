@@ -217,6 +217,37 @@ export function Dialog({ title, onClose, unsaved = false, note, children }: Dial
     };
   }, [entryPoint]);
 
+  /**
+   * Back is a dismissal gesture, so it goes through `onClose` like the other three.
+   *
+   * On a phone, Back *is* how you close a sheet — and because a panel lives in a
+   * query parameter, it used to leave the container page entirely and take an
+   * unsent draft with it, which is the one dismissal path the discard guard could
+   * not see. While there is unsaved work this owns one extra history entry: the
+   * first Back pops that entry instead of the panel's URL, so nothing has navigated
+   * yet, and the handler puts the entry back and asks the caller to close. With
+   * nothing unsaved no entry is pushed and Back closes the panel by ordinary
+   * navigation, which is what a user expects.
+   *
+   * `window.history` directly rather than the router: the entry is a placeholder at
+   * the URL the page is already on, not a location the router should know about.
+   */
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!unsaved) {
+      return;
+    }
+    const marker = { almagestDialogGuard: true };
+    window.history.pushState(marker, "", window.location.href);
+    function onPop(): void {
+      window.history.pushState(marker, "", window.location.href);
+      closeRef.current();
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [unsaved]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === "Escape") {

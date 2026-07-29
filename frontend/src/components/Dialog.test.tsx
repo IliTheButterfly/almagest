@@ -180,3 +180,25 @@ it("asks before discarding an unsent edit, and closes when it is not dirty", () 
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.getByText("closed")).toBeTruthy();
 });
+
+it("routes the browser Back gesture through onClose while there is unsaved work", () => {
+  // On a phone Back *is* how a sheet is closed, and a panel lives in a query
+  // parameter — so Back used to leave the container page entirely and take the
+  // draft with it, which is the one dismissal path the discard guard could not
+  // see. With unsaved work the panel owns an extra history entry, so the first
+  // Back pops that instead: nothing has navigated, and this asks.
+  const onClose = vi.fn();
+  const before = window.history.length;
+  render(<TwoFields onClose={onClose} unsaved />);
+  expect(window.history.length).toBeGreaterThan(before);
+
+  window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+it("pushes nothing when there is nothing to lose, so Back simply closes the panel", () => {
+  const before = window.history.length;
+  const { unmount } = render(<TwoFields onClose={() => undefined} />);
+  expect(window.history.length).toBe(before);
+  unmount();
+});

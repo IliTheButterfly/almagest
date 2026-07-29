@@ -228,10 +228,12 @@ function stubApi(
   );
 }
 
-function renderPanel(location: LocationRead = LOCATION) {
+function renderPanel(
+  options: { location?: LocationRead; onSaved?: () => void } = {},
+) {
   return render(
     <MemoryRouter>
-      <SlotLayoutPanel location={location} />
+      <SlotLayoutPanel location={options.location ?? LOCATION} onSaved={options.onSaved} />
     </MemoryRouter>,
   );
 }
@@ -390,7 +392,7 @@ describe("loading a type's current layout into the draft", () => {
         throw new Error(`unstubbed request: ${request.method} ${url.pathname}`);
       }),
     );
-    renderPanel({ ...LOCATION, container_type_id: null } as LocationRead);
+    renderPanel({ location: { ...LOCATION, container_type_id: null } as LocationRead });
     await screen.findByText("A1", { selector: ".cell-slot" });
     expect(screen.queryByRole("button", { name: /Load the type's current layout/ })).toBeNull();
   });
@@ -457,4 +459,28 @@ describe("how this one container is drawn", () => {
     expect(last?.body).toHaveProperty("child_view", null);
     expect(await screen.findByText(/Not overridden here/)).toBeTruthy();
   });
+});
+
+/**
+ * The picture control saves immediately, and the page *behind* the panel is what
+ * decides which picture to draw — from `effective_child_view` on its own
+ * `LocationRead`, and, for a floor plan, whether to fetch a room plan at all. So a
+ * save nobody upstream hears about is a save that does not change the picture.
+ */
+it("tells the page behind, so the picture it draws actually changes", async () => {
+  stubApi();
+  const saved = vi.fn();
+  renderPanel({ onSaved: saved });
+
+  fireEvent.change(await screen.findByLabelText("Picture"), {
+    target: { value: "floor_plan" },
+  });
+
+  await waitFor(() =>
+    expect(calls.some((call) => call.url === "/api/locations/11/child-view")).toBe(true),
+  );
+  // Without this the write succeeded, the container page kept drawing drawer
+  // fronts, `GET …/plan` was never issued, and reopening this panel re-read the
+  // select from the stale row and showed the *old* choice.
+  await waitFor(() => expect(saved).toHaveBeenCalled());
 });

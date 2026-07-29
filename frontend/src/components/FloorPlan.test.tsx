@@ -54,20 +54,33 @@ function node(overrides: Partial<LocationNode> & { id: number; name: string }): 
   } as LocationNode;
 }
 
-/** A room at whatever depth the caller wants, drawn as a floor plan. */
+/**
+ * A room at whatever depth the caller wants, drawn as a floor plan.
+ *
+ * **`parent_id` and `id_path` vary with the depth, not just `depth` itself.** A
+ * fixture that only moved the `depth` number left node 11 a root — `parent_id:
+ * null`, `id_path: "/11/"` — in both runs, so the depth-invariance test could only
+ * catch a literal `depth === 0` branch and would have passed a renderer that asked
+ * "am I at the top?" the natural way. That is the more likely shortcut, and
+ * `views.ts` claims neither is there.
+ */
 function tree(depth: number): LocationNode[] {
+  const deep = depth > 0;
+  // Ancestors the fixture does not otherwise need, purely so the room is genuinely
+  // *not* a root when it claims not to be.
+  const path = deep ? `/${Array.from({ length: depth }, (_, at) => at + 90).join("/")}/11/` : "/11/";
   return [
     node({
       id: 11,
       name: "Workshop",
-      parent_id: null,
+      parent_id: deep ? 90 : null,
       depth,
-      id_path: `/11/`,
+      id_path: path,
       effective_child_view: "floor_plan",
     }),
-    node({ id: 12, name: "Bench", depth: depth + 1 }),
-    node({ id: 13, name: "Steel shelf", depth: depth + 1 }),
-    node({ id: 14, name: "Loose box", depth: depth + 1 }),
+    node({ id: 12, name: "Bench", depth: depth + 1, id_path: `${path}12/` }),
+    node({ id: 13, name: "Steel shelf", depth: depth + 1, id_path: `${path}13/` }),
+    node({ id: 14, name: "Loose box", depth: depth + 1, id_path: `${path}14/` }),
   ];
 }
 
@@ -99,6 +112,8 @@ function plan(overrides: Partial<RoomPlanRead> = {}): RoomPlanRead {
         rotation_deg: 0,
         width_mm: 1800,
         depth_mm: 600,
+        own_width_mm: 1800,
+        own_depth_mm: 600,
       },
       {
         location_id: 13,
@@ -109,6 +124,8 @@ function plan(overrides: Partial<RoomPlanRead> = {}): RoomPlanRead {
         // Unmeasured: drawn at a nominal size, dashed, and said out loud.
         width_mm: null,
         depth_mm: null,
+        own_width_mm: null,
+        own_depth_mm: null,
       },
     ],
     unplaced_location_ids: [14],

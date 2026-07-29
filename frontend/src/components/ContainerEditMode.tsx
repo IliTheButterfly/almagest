@@ -24,9 +24,12 @@
  *   save on a button. Each shows "unsaved" in the panel's titlebar and refuses to
  *   close silently on an unsent edit. The plan's Save is one write for a whole
  *   rearrangement, not one per box moved.
- * - **Picture** (photo, pictogram) and **how this one is drawn** save the moment
- *   you choose, and say so. They have nothing a guard could protect: a pictogram
- *   cannot swallow a neighbour's stock.
+ * - **Picture** (photo, pictogram) saves the moment you choose, and says so. It
+ *   has nothing a guard could protect: a pictogram cannot swallow a neighbour's
+ *   stock. **How this one is drawn** behaves the same way but is not a panel of
+ *   its own — it is a card *inside* the slots panel, next to the canvas whose
+ *   picture it decides, and the slots panel's own note names it as the exception
+ *   to "nothing is saved until you press Save".
  *
  * Which panel is open lives in `?panel=`, so a deep link — including the redirect
  * that keeps the old `/locations/:id/layout` URL working — opens the right one.
@@ -98,7 +101,14 @@ export function useEditMode(): {
         next.set("panel", changes.panel);
       }
     }
-    setParams(next, { replace: true });
+    // Opening or closing a **panel** pushes, so Back is "close this sheet" and not
+    // "leave this container" — on a phone that gesture is how a sheet is dismissed,
+    // and replacing the entry meant it walked out of the page instead. A panel
+    // holding unsent work additionally guards the pop; see `Dialog`.
+    //
+    // The mode toggle still replaces: edit mode is a state of the page, and pushing
+    // it would make Back re-enter edit mode instead of leaving the container.
+    setParams(next, { replace: changes.panel === undefined });
   }
 
   return {
@@ -471,7 +481,7 @@ function LayoutDialog({
       title="Slots inside this container"
       onClose={guard.requestClose}
       unsaved={dirty}
-      note="Add, relabel, merge or remove the positions inside this one container. Nothing is saved until you press Save, and a slot that still holds stock or a bound tag blocks the change rather than losing it."
+      note="Add, relabel, merge or remove the positions inside this one container. The canvas is not saved until you press Save, and a slot that still holds stock or a bound tag blocks the change rather than losing it. The one exception is in here and says so: \u201cHow this one is drawn\u201d applies the moment you pick it, because a picture cannot swallow a neighbour\u2019s stock."
     >
       <div className="stack">
         {guard.asking && (

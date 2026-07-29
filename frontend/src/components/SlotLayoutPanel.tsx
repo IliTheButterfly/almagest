@@ -69,9 +69,18 @@ import { uuid4 } from "../lib/scan/session";
 function ChildViewPicker({
   location,
   typeName,
+  onSaved,
 }: {
   location: LocationRead;
   typeName: string | null;
+  /** Re-read the container. **Not optional in practice**: the page behind this
+   * panel decides which picture to draw — and whether to fetch a room plan at all
+   * — from `effective_child_view` on its own `LocationRead`. Without this the
+   * write succeeded and nothing behind the panel ever heard, so the cabinet you
+   * had just asked to be drawn as a floor plan kept drawing drawer fronts until a
+   * manual reload, and reopening this panel re-initialised the select from the
+   * stale row and showed the *old* choice. */
+  onSaved?: (() => void) | undefined;
 }) {
   // "" is "use the container type", which is a real choice — sending null is what
   // clears the override — rather than an absence.
@@ -90,6 +99,7 @@ function ChildViewPicker({
         client_op_id: uuid4(),
       });
       setEffective(response.effective_child_view);
+      onSaved?.();
     } catch (cause) {
       setError(cause);
     } finally {
@@ -353,7 +363,11 @@ function Editor({
         </div>
       )}
 
-      <ChildViewPicker location={location} typeName={containerType.data?.display_name ?? null} />
+      <ChildViewPicker
+        location={location}
+        typeName={containerType.data?.display_name ?? null}
+        onSaved={onSaved}
+      />
 
       <div className="card">
         <h3>Canvas</h3>

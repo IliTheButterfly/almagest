@@ -142,6 +142,77 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
       ) : (
         <TreeGrid nodes={nodes} rootId={at} />
       )}
+
+      <RemovedContainers />
+    </div>
+  );
+}
+
+/**
+ * The containers that were removed but kept — and the only screen that lists them.
+ *
+ * A retirement is the reversible half of removing a container, and it is reversible
+ * from the container's *own* page. But retirement takes the row out of every other
+ * read: no parent's children, no slot canvas, no room plan, no assignment proposal.
+ * So without this list the "Bring it back" button was reachable only by typing the
+ * numeric id into the URL or by scanning the tag still stuck to the drawer, which
+ * makes "it can be restored" a promise the UI did not keep.
+ *
+ * Fetched only when asked for, and rendered as plain rows rather than through
+ * `ContainerLayout`: a retired container has no slot cell and no coordinate — that
+ * is what retiring cleared — so it belongs in no picture of the furniture. The path
+ * is what identifies it, because the name alone ("B3") does not.
+ */
+function RemovedContainers() {
+  const [open, setOpen] = useState(false);
+  const removed = useAsync<LocationTree | null>(
+    () => (open ? getLocationTree(undefined, { includeRetired: true }) : Promise.resolve(null)),
+    [open],
+  );
+  const rows = (removed.data?.nodes ?? []).filter((node) => node.retired_at !== null);
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>Removed containers</h3>
+        <span className="spacer" />
+        <button type="button" aria-pressed={open} onClick={() => setOpen(!open)}>
+          {open ? "Hide them" : "Show them"}
+        </button>
+      </div>
+      {!open ? (
+        <p className="muted-note" style={{ margin: 0 }}>
+          A container the stock ledger, a printed label or a tag names keeps its row and its
+          history when it is removed — it just leaves the tree. Those can be brought back.
+        </p>
+      ) : (
+        <>
+          <ErrorBanner error={removed.error} fallback="The removed containers could not be loaded." />
+          {removed.data === null && removed.error === null ? (
+            <Loading what="the removed containers" />
+          ) : rows.length === 0 ? (
+            <p className="dim" style={{ margin: 0 }}>
+              Nothing has been removed and kept.
+            </p>
+          ) : (
+            <ul className="list">
+              {rows.map((node) => (
+                <li key={node.id}>
+                  <Link className="list-item" to={`/locations/${node.id}`}>
+                    <div className="row">
+                      <span className="title">{node.name}</span>
+                      <span className="spacer" />
+                      <span className="badge badge-warn">removed</span>
+                    </div>
+                    <div className="sub mono">{node.label_path}</div>
+                    <div className="sub">Open it to bring it back →</div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }

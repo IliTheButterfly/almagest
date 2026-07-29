@@ -254,8 +254,8 @@ function TypeEditor({
       <Notice kind="info" title="This never reaches into an already-built container">
         A cabinet already stamped from this type keeps whatever layout it had at the moment
         it was created — nothing saved here touches it. To push a change into one specific
-        cabinet, open that cabinet's own "Edit layout" screen and choose to load this type's
-        current layout there, which goes through its own change guard.
+        cabinet, open that cabinet, press "Edit this container", then "Slots inside…" and load
+        this type's current layout there — which goes through its own change guard.
       </Notice>
 
       <div className="card">

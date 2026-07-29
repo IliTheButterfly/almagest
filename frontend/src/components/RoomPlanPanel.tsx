@@ -70,7 +70,9 @@ import {
   MIN_SHAPE_POINTS,
   placementDiff,
   placementDraftsFrom,
+  parseExtent,
   placementsToRequest,
+  pointFromSurface,
   shapeDraftsFrom,
   SHAPE_KINDS,
   SHAPE_LABELS,
@@ -140,6 +142,21 @@ const SHAPE_NOUN: Readonly<Record<PlanShapeKind, string>> = {
   fixture: "a fixture",
   zone: "a zone",
 };
+
+/**
+ * What an empty size field is standing in for.
+ *
+ * Two different answers, and conflating them was a small lie: a container type
+ * that states a width really is where the drawn box comes from, but a type that
+ * states none leaves the renderer drawing a nominal box that nobody measured.
+ * The field says which, because "400 — from its type" about a type with no
+ * dimensions is wrong.
+ */
+function extentHint(typeMm: number | null | undefined, drawnMm: number): string {
+  return typeMm !== null && typeMm !== undefined && typeMm > 0
+    ? `${typeMm} — from its type`
+    : `${drawnMm} — nominal, nobody has measured it`;
+}
 
 /** Client-local shape ids, which are never sent — see `PlanShapeDraft`. */
 function idFactory(): () => string {
@@ -276,6 +293,16 @@ function PlanEditor({
    * implement — a drag that cannot be tested is a drag that breaks quietly.
    */
   function startDrag(event: ReactPointerEvent<HTMLElement>, placement: PlacementDraft): void {
+    // While a line is in progress every tap belongs to the drawing, and this
+    // event is on its way to the surface underneath. Grabbing the box as well
+    // meant one tap on a wall passing behind a cabinet dropped the corner *and*
+    // attached a live drag to the cabinet — on a phone the finger's few pixels of
+    // travel then moved it a whole grid step, silently, and "Save the plan" wrote
+    // it. The event is deliberately *not* stopped: the corner is what the user
+    // meant.
+    if (drawing !== null) {
+      return;
+    }
     const rect = surface.current?.getBoundingClientRect();
     setSelected(placement.locationId);
     if (rect === undefined || rect.width === 0 || rect.height === 0) {
@@ -342,12 +369,11 @@ function PlanEditor({
     if (rect === undefined || rect.width === 0 || rect.height === 0) {
       return;
     }
-    const fx = (event.clientX - rect.left) / rect.width;
-    const fy = (event.clientY - rect.top) / rect.height;
-    addPoint(
-      snapMm(frame.minXMm + fx * frame.widthMm, gridMm),
-      snapMm(frame.minYMm + fy * frame.depthMm, gridMm),
-    );
+    // `roomPlan.pointFromSurface` rather than the same arithmetic inline: it is
+    // the mapping the unit tests pin, and a second copy of it is a second place
+    // for the frame's origin to be forgotten.
+    const point = pointFromSurface(frame, rect, event.clientX, event.clientY, gridMm);
+    addPoint(point.xMm, point.yMm);
   }
 
   function startLine(): void {
@@ -492,7 +518,11 @@ function PlanEditor({
             aria-label={boxLabel(placement, node)}
             onPointerDown={(event) => startDrag(event, placement)}
             onFocus={() => setSelected(placement.locationId)}
-            onClick={() => setSelected(placement.locationId)}
+            onClick={() => {
+              if (drawing === null) {
+                setSelected(placement.locationId);
+              }
+            }}
             onKeyDown={(event) => onBoxKey(event, placement)}
           >
             <span className="plan-box-name">{node.name}</span>
@@ -719,11 +749,18 @@ function PlanEditor({
               <span>Width (mm)</span>
               <input
                 inputMode="numeric"
-                placeholder={`${footprintOf(selectedBox.placement).widthMm} — from its type`}
-                value={selectedBox.placement.widthMm === null ? "" : String(selectedBox.placement.widthMm)}
+                placeholder={extentHint(
+                  selectedBox.placement.typeWidthMm,
+                  footprintOf(selectedBox.placement).widthMm,
+                )}
+                value={
+                  selectedBox.placement.widthMm === null
+                    ? ""
+                    : String(selectedBox.placement.widthMm)
+                }
                 onChange={(event) =>
                   patch(selectedBox.placement.locationId, {
-                    widthMm: event.target.value.trim() === "" ? null : clampCoord(Number(event.target.value) || 0),
+                    widthMm: parseExtent(event.target.value),
                   })
                 }
               />
@@ -732,11 +769,18 @@ function PlanEditor({
               <span>Depth (mm)</span>
               <input
                 inputMode="numeric"
-                placeholder={`${footprintOf(selectedBox.placement).depthMm} — from its type`}
-                value={selectedBox.placement.depthMm === null ? "" : String(selectedBox.placement.depthMm)}
+                placeholder={extentHint(
+                  selectedBox.placement.typeDepthMm,
+                  footprintOf(selectedBox.placement).depthMm,
+                )}
+                value={
+                  selectedBox.placement.depthMm === null
+                    ? ""
+                    : String(selectedBox.placement.depthMm)
+                }
                 onChange={(event) =>
                   patch(selectedBox.placement.locationId, {
-                    depthMm: event.target.value.trim() === "" ? null : clampCoord(Number(event.target.value) || 0),
+                    depthMm: parseExtent(event.target.value),
                   })
                 }
               />

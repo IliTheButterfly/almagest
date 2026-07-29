@@ -94,6 +94,27 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
     [location.id, location.effective_child_view],
   );
 
+  /**
+   * What "something in a panel was saved" has to mean on this page.
+   *
+   * Three fetches back this screen, and re-reading only the `LocationRead` leaves
+   * two of them stale: `children` is keyed on `child_count`, so relabelling a
+   * drawer or moving one does not change the key and "Inside" keeps drawing the old
+   * name; `plan` is keyed on `effective_child_view`, so a whole rearrangement saved
+   * in the plan panel left the floor plan behind it drawing every cabinet where it
+   * used to stand. Adding and removing containers happened to work only because
+   * those move `child_count` — which is exactly the kind of accidental correctness
+   * that breaks silently.
+   *
+   * So every panel's save reloads all three. They are cheap, they are on the same
+   * host as the page, and a wrong picture of where the furniture is is worse.
+   */
+  function refresh(): void {
+    onChanged();
+    children.reload();
+    plan.reload();
+  }
+
   return (
     <div className="stack">
       <div className={editing ? "card editing" : "card"}>
@@ -133,7 +154,7 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
         </div>
       </div>
 
-      {editing && <ContainerEditMode location={location} onChanged={onChanged} />}
+      {editing && <ContainerEditMode location={location} onChanged={refresh} />}
 
       <Picture location={location} />
 

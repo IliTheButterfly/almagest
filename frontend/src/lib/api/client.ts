@@ -526,9 +526,27 @@ export function partDatasheetUrl(partId: number): string {
 
 // ------------------------------------------------------------- locations ----
 
-export async function getLocationTree(rootId?: number): Promise<LocationTree> {
+/**
+ * The storage tree, flat — one row per node with `parent_id` and the cached paths.
+ *
+ * `includeRetired` is how a removed container stays reachable at all. A retirement
+ * takes the row out of every other read: it is in no parent's children, no slot
+ * canvas, no room plan and no assignment proposal, so without this the "Bring it
+ * back" button on its own page could only be reached by typing its numeric id into
+ * the URL. The tree screen offers it as "removed containers", which is the one
+ * screen the route's docstring says exists for them.
+ */
+export async function getLocationTree(
+  rootId?: number,
+  options: { readonly includeRetired?: boolean } = {},
+): Promise<LocationTree> {
   const { data, error, response } = await api.GET("/api/locations/tree", {
-    params: { query: rootId === undefined ? {} : { root_id: rootId } },
+    params: {
+      query: {
+        ...(rootId === undefined ? {} : { root_id: rootId }),
+        ...(options.includeRetired === true ? { include_retired: true } : {}),
+      },
+    },
   });
   if (error !== undefined) {
     fail("could not load the storage tree", error, response);
@@ -627,16 +645,6 @@ export async function suggestLocation(request: SuggestRequest): Promise<SuggestR
 }
 
 /**
- * Give a container a printed identity: minted, or one it already carries.
- *
- * Omit `short_id` to promote a generated grid cell that has none — safe to call
- * unconditionally, since it returns the existing id when there is one. Pass a
- * `short_id` to adopt a code that is already printed on a card or written to a
- * tag; the server verifies the check symbol and refuses a code held elsewhere
- * rather than substituting a free one, because a substitute would leave the
- * label and the database permanently disagreeing.
- */
-/**
  * Rename and re-describe a container in place — the edit mode's details panel.
  *
  * Every field is sent every time, because that is what the route is: a blank
@@ -702,6 +710,16 @@ export async function setLocationGlyph(
   return data;
 }
 
+/**
+ * Give a container a printed identity: minted, or one it already carries.
+ *
+ * Omit `short_id` to promote a generated grid cell that has none — safe to call
+ * unconditionally, since it returns the existing id when there is one. Pass a
+ * `short_id` to adopt a code that is already printed on a card or written to a
+ * tag; the server verifies the check symbol and refuses a code held elsewhere
+ * rather than substituting a free one, because a substitute would leave the
+ * label and the database permanently disagreeing.
+ */
 export async function assignLocationShortId(
   locationId: number,
   request: ShortIdRequest = {},

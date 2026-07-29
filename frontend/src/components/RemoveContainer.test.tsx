@@ -327,3 +327,33 @@ it("offers to bring back a container that was already removed", async () => {
   });
   expect(calls.some((call) => call.method === "POST" && call.url.includes("/restore"))).toBe(true);
 });
+
+it("asks through the one dialog primitive, with the caret inside it", async () => {
+  // The confirmation used to be a plain in-flow `<div role="dialog">`: announced as
+  // a dialog, but with no focus move, no trap, no Escape and no focus restore. And
+  // it *replaced* its own trigger, so pressing "Remove this container" dropped the
+  // caret to `<body>` — leaving a keyboard or screen-reader user with the most
+  // consequential question in the app announced to nobody and reachable only by
+  // Tab-ing from the top of the page.
+  stubApi({
+    preview: {
+      location_id: 11,
+      removable: true,
+      message: "Drawer B3 will be deleted.",
+      blockers: [],
+      nodes: [{ location_id: 11, label: "B3", label_path: "Cabinet A / B3", action: "delete", pins: [] }],
+    },
+  });
+  mount();
+
+  fireEvent.click(await screen.findByRole("button", { name: "Remove this container" }));
+
+  const dialog = await screen.findByRole("dialog", { name: /Remove Drawer 07/ });
+  expect(dialog.getAttribute("aria-modal")).toBe("true");
+  expect(dialog.contains(document.activeElement)).toBe(true);
+
+  // And Escape is a cancel, which a hand-rolled panel had no way of hearing.
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.getByRole("button", { name: "Remove this container" })).toBeTruthy();
+});
