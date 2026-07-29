@@ -2,50 +2,60 @@
      aria-label="Almagest">
   <title>Almagest</title>
   <!--
-    A drawer of identical compartments, and the one the system found for you.
+    A chest: a lid seam across the upper third, and a latch straddling it that
+    holds the star.
 
-    Two things about this drawing are load-bearing rather than decorative:
+    What makes a chest legible at icon sizes is not the wood grain — that is gone
+    by 24px — but those two features alone. The latch is also the natural home for
+    the star, being the one element already on the centre line.
 
-    1. The star is a HOLE, not a filled shape. The lit cell and the star are one
-       path with fill-rule="evenodd", so whatever sits behind the mark shows
-       through. That is what lets it sit on the header's blue-to-pink wash
-       (styles.css, .app-header) without a flat backing colour that would
-       visibly mismatch a gradient.
-    2. The grid lines are thinner than the frame ON PURPOSE. The palette's rule
-       is that hue is never the only signal, so the frame and the divisions
-       separate by weight, which is also why this survives a one-ink label
-       print with nothing lost.
+    Four things here are load-bearing rather than decorative:
+
+    1. The star is a HOLE, not a filled shape. The latch and the star are one path
+       with fill-rule="evenodd", so whatever sits behind the mark shows through.
+       That is what lets it sit on the header's blue-to-pink wash (styles.css,
+       .app-header) without a flat backing colour that would visibly mismatch a
+       gradient.
+    2. The lid seam is TWO SEGMENTS stopping either side of the latch, not one
+       line running under it. Run through, the line would be visible inside the
+       star's hole, which reads as a rendering bug rather than a design.
+    3. Seam and frame differ in weight, and that is the accessibility signal. The
+       palette's rule is that hue is never the only signal, so the parts separate
+       by stroke width — which is why the mark survives a one-ink label print with
+       nothing lost.
+    4. The seam needs no clip path. rx=13 leaves the left and right walls straight
+       between y=18 and y=46, and the seam at y=24 falls inside that, so both
+       segments land on straight wall rather than on a corner curve.
 
     The colours are literal hexes, which everywhere else in the frontend is
     forbidden ("nothing outside this block should ever name a colour literal",
     styles.css). A favicon is loaded by the browser as a standalone document and
     cannot see the app's custom properties, so it has no choice. The values are
-    the accent and accent-2 tokens at both ends of the ramp; if styles.css
-    moves, this file has to be edited by hand. Logo.tsx is the in-app copy and
-    does use the tokens.
+    the accent and accent-2 tokens at both ends of the ramp; if styles.css moves,
+    this file has to be edited by hand. Logo.tsx is the in-app copy and does use
+    the tokens.
 
     Presentation attributes carry the light values and the media query overrides
     them, rather than the other way round: attributes are the weakest source in
-    the cascade, so a renderer that ignores the style block still draws a
-    correct light mode mark instead of nothing.
+    the cascade, so a renderer that ignores the style block still draws a correct
+    light mode mark instead of nothing.
   -->
   <style>
     @media (prefers-color-scheme: dark) {
       .frame { stroke: #85d9fc; }
-      .cell { fill: #ffb2cc; }
+      .latch { fill: #ffb2cc; }
     }
   </style>
 
-  <!-- The lit cell, with the star cut out of it. -->
-  <path class="cell" fill="#9a4666" fill-rule="evenodd"
-        d="M23 23H41V41H23Z
-           M32 24.8 33.77 30.23 39.2 32 33.77 33.77 32 39.2 30.23 33.77 24.8 32 30.23 30.23Z"/>
+  <!-- The latch, with the star cut out of it. -->
+  <path class="latch" fill="#9a4666" fill-rule="evenodd"
+        d="M28,13.5 H36 A3.5,3.5 0 0 1 39.5,17 V31 A3.5,3.5 0 0 1 36,34.5
+           H28 A3.5,3.5 0 0 1 24.5,31 V17 A3.5,3.5 0 0 1 28,13.5 Z
+           M32 18.1 33.48 22.52 37.9 24 33.48 25.48 32 29.9 30.52 25.48 26.1 24 30.52 22.52Z"/>
 
   <g class="frame" fill="none" stroke="#00739a" stroke-linecap="butt">
-    <!-- Divisions. They stop on the frame's straight runs, so no clip is
-         needed: rx=13 leaves the top and bottom straight from x=18 to x=46,
-         and both lines fall inside that. -->
-    <path stroke-width="2.5" d="M23 5V59M41 5V59M5 23H59M5 41H59"/>
+    <!-- The lid seam, gapped where the latch crosses it. -->
+    <path stroke-width="4" d="M5 24H24.5M39.5 24H59"/>
     <rect x="5" y="5" width="54" height="54" rx="13" stroke-width="5"/>
   </g>
 </svg>

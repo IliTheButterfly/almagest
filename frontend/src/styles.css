@@ -375,10 +375,15 @@ h3 {
 
 /*
  * The mark takes `currentColor` for its frame, so it inherits --text from the
- * link above and needs no colour of its own in either theme. 1.5rem is close to
- * this drawing's floor — the divisions are 2.5/64 of its height, so much smaller
- * and they stop resolving — which is why the small end of the range is the
- * favicon's job, not the header's.
+ * link above and needs no colour of its own in either theme.
+ *
+ * At 1.5rem the chest reads as a chest — frame, lid seam, latch — but the star
+ * inside the latch does not: it is 5.9/64 of the height, so it only resolves from
+ * about 40px up. That is deliberate and not worth chasing with a bigger header
+ * mark. The star is a large-size detail (the app icon, a printed label, the
+ * 180px touch icon); at this size the latch reading as a solid block is the
+ * correct silhouette. Enlarging it here would mean widening the latch in all
+ * three copies of the geometry to buy one glyph nobody reads at 24px.
  */
 .app-header .brand svg {
   width: 1.5rem;
