@@ -16,6 +16,8 @@ from app.api.limits import GridIndex, GridSpan
 from app.models.enums import SizeClass
 from app.models.stock import StockLot
 from app.models.storage import Location
+from app.services.requirements.matching import Candidate, SubstitutionReason, Suggestion
+from app.services.requirements.parser import Requirement
 from app.services.search.query_builder import Filter, Mode, SearchQuery
 
 
@@ -173,3 +175,246 @@ class PartQueryRequest(BaseModel):
             limit=limit,
             offset=offset,
         )
+
+
+# ---------------------------------------------------------------------------
+# Requirements and their candidates
+# ---------------------------------------------------------------------------
+#
+# Shared rather than defined per route for the reason this module exists: two
+# route modules answer with these — `POST /api/requirements/suggest` for a batch
+# of prose lines and `GET /api/projects/{id}/bom/suggestions` for a project's
+# unmatched lines — and they are the *same* answer to the same question. Two
+# spellings of it would mean a client rendering a suggestion twice, and the
+# `is_substitute`/`reasons` pairing drifting apart in one of them.
+
+
+class RequirementFilterRead(BaseModel):
+    """One predicate the description was read as."""
+
+    template: str
+    #: A `parameter_choice.key` for an enum, the value text for a numeric — the
+    #: same string `POST /api/search/parts` takes in `filters[].value`, so a client
+    #: can hand the whole set straight back to search unchanged.
+    value: str
+    #: The words this came from, verbatim. A predicate nobody can trace back to
+    #: something the user wrote cannot be reviewed.
+    source_text: str
+    #: `deterministic` (an exact lookup in the value grammar or a curated
+    #: spelling) or `interpreted` (a model's reading, never overriding the first).
+    origin: str
+    confidence: float
+
+
+class RequirementRejectionRead(BaseModel):
+    """Text that *was* read and refused, with a reason a UI can route on.
+
+    Distinct from `residue` on purpose: residue is words nothing accounted for, a
+    rejection is a reading that was refused. A megafarad and an unknown word are
+    different problems with different next actions.
+    """
+
+    source_text: str
+    reason: str
+    message: str
+    template: str | None = None
+    candidates: list[str] = Field(default_factory=list)
+
+
+class RequirementRead(BaseModel):
+    """What a description was understood to mean. **Not a part, and not an answer.**"""
+
+    #: Verbatim input, always preserved.
+    text: str
+    #: Units wanted, or null for **unspecified** — not defaulted to 1, because
+    #: `3x 10k` says three and `10k 0603` says nothing.
+    quantity: int | None
+    category: str | None
+    filters: list[RequirementFilterRead]
+    #: A part-number-shaped token, verbatim. A **lookup key**, never an identity:
+    #: that a description contains `LM358N` is not evidence the catalogue's
+    #: `LM358N` is the part meant.
+    mpn: str | None
+    mpn_norm: str | None
+    #: Words nothing accounted for. The whole signal for "would a model help here".
+    residue: list[str]
+    rejections: list[RequirementRejectionRead]
+    notes: list[str]
+    #: The weakest field's confidence, so one guessed field drags the line down.
+    confidence: float
+    #: `none` / `deterministic` / `mixed` / `interpreted`.
+    provenance: str
+    is_actionable: bool
+    #: Whether *everything* in the text was accounted for. The honest companion to
+    #: `confidence`: a line can be 1.0 confident and not complete, and a UI showing
+    #: only the first is lying by omission.
+    is_complete: bool
+
+
+class SubstitutionReasonRead(BaseModel):
+    """Why one predicate is satisfied — a rendering of the predicate SQL applied.
+
+    Not an independent judgement and not a model's opinion: `direction` is the
+    template's own `substitution_direction`, `offered` is read off the candidate's
+    `parameter_value`, and the executor had already proved the predicate before
+    this sentence was written. That is what makes a suggestion trustworthy instead
+    of magical.
+    """
+
+    template: str
+    display_name: str
+    #: `higher_ok` / `lower_ok` / `range_overlap` / `exact`.
+    direction: str
+    required: str
+    offered: str
+    explanation: str
+
+
+class PartCandidateRead(BaseModel):
+    """One part the filter returned, with the numbers the ranking used."""
+
+    #: 1-based within its own list. Every candidate in `in_stock` outranks every
+    #: candidate in `not_stocked` — the split *is* the first ranking term.
+    rank: int
+    part_id: int
+    name: str
+    mpn: str | None
+    description: str | None
+    is_stub: bool
+    category_id: int | None
+    #: From `stock_lots.qty_milli_cached`, never a ledger sum.
+    qty_milli: int
+    qty_reserved_milli: int
+    lot_count: int
+    location_count: int
+    is_in_stock: bool
+    #: True when this part was reached through `mode="substitute"` — it *satisfies*
+    #: the requirement rather than matching it as written. `reasons` says how.
+    is_substitute: bool
+    #: Whether free stock (quantity less reservations) covers what the line needs,
+    #: or null when nothing said how much is wanted.
+    covers_required: bool | None
+    #: Log-ratio distance from the requested value, summed over numeric filters.
+    #: 0.0 means the part's own interval overlaps everything asked for.
+    distance: float
+    #: Populated for a substitute, empty for an exact match — which needs no
+    #: explanation, being what was asked for.
+    reasons: list[SubstitutionReasonRead]
+
+
+class SuggestionLineRead(BaseModel):
+    """One line's answer. **Nothing here is accepted; every candidate is a proposal.**
+
+    Accepting one is an ordinary BOM edit through the existing route: `PUT
+    /api/projects/{project_id}/bom` with `{"edits": [{"id": bom_line_id,
+    "part_id": <the chosen part_id>}]}`, which sets `is_match_confirmed` because a
+    human choosing a part through that route *is* the confirmation. Rejecting is
+    calling nothing at all — the line keeps its `description` and stays unmatched,
+    which is a normal state and not an error.
+    """
+
+    #: Position in the request, so twenty answers map back to twenty inputs.
+    index: int
+    #: Set when the line came from `bom_lines`; the id to accept a candidate onto.
+    bom_line_id: int | None
+    text: str
+    #: `stocked` / `order` / `no_match` / `not_actionable`.
+    outcome: str
+    #: The sentence to show. `order` is the one that matters most: you own nothing
+    #: that satisfies this, and here is what does.
+    message: str
+    required_milli: int | None
+    requirement: RequirementRead
+    in_stock: list[PartCandidateRead]
+    #: Parts that satisfy the requirement and that you **do not have**. Returned
+    #: separately rather than folded in, because ordering them is a different
+    #: action from picking them.
+    not_stocked: list[PartCandidateRead]
+    #: True when the matching set was larger than the fetch cap, so these lists are
+    #: a shortlist. `POST /api/search/parts` gives a true total.
+    truncated: bool
+
+
+def requirement_read(requirement: Requirement) -> RequirementRead:
+    """Render a parsed requirement. Also the whole of `/api/requirements/parse`."""
+    return RequirementRead(
+        text=requirement.text,
+        quantity=requirement.quantity,
+        category=requirement.category_slug,
+        filters=[
+            RequirementFilterRead(
+                template=item.template,
+                value=item.value,
+                source_text=item.source_text,
+                origin=item.origin.value,
+                confidence=item.confidence,
+            )
+            for item in requirement.filters
+        ],
+        mpn=requirement.mpn,
+        mpn_norm=requirement.mpn_norm,
+        residue=list(requirement.residue),
+        rejections=[
+            RequirementRejectionRead(
+                source_text=item.source_text,
+                reason=item.reason,
+                message=item.message,
+                template=item.template,
+                candidates=list(item.candidates),
+            )
+            for item in requirement.rejections
+        ],
+        notes=list(requirement.notes),
+        confidence=requirement.confidence,
+        provenance=requirement.provenance.value,
+        is_actionable=requirement.is_actionable,
+        is_complete=requirement.is_complete,
+    )
+
+
+def _reason_read(reason: SubstitutionReason) -> SubstitutionReasonRead:
+    return SubstitutionReasonRead(
+        template=reason.template,
+        display_name=reason.display_name,
+        direction=reason.direction.value,
+        required=reason.required,
+        offered=reason.offered,
+        explanation=reason.explanation,
+    )
+
+
+def _candidate_read(candidate: Candidate) -> PartCandidateRead:
+    return PartCandidateRead(
+        rank=candidate.rank,
+        part_id=candidate.part.id,
+        name=candidate.part.name,
+        mpn=candidate.part.mpn,
+        description=candidate.part.description,
+        is_stub=candidate.part.is_stub,
+        category_id=candidate.part.category_id,
+        qty_milli=candidate.qty_milli,
+        qty_reserved_milli=candidate.qty_reserved_milli,
+        lot_count=candidate.lot_count,
+        location_count=candidate.location_count,
+        is_in_stock=candidate.is_in_stock,
+        is_substitute=candidate.is_substitute,
+        covers_required=candidate.covers_required,
+        distance=candidate.distance,
+        reasons=[_reason_read(reason) for reason in candidate.reasons],
+    )
+
+
+def suggestion_read(index: int, suggestion: Suggestion) -> SuggestionLineRead:
+    """Render one `Suggestion` for the wire. One renderer, two routes."""
+    return SuggestionLineRead(
+        index=index,
+        bom_line_id=suggestion.bom_line_id,
+        text=suggestion.requirement.text,
+        outcome=suggestion.outcome.value,
+        message=suggestion.message,
+        required_milli=suggestion.required_milli,
+        requirement=requirement_read(suggestion.requirement),
+        in_stock=[_candidate_read(candidate) for candidate in suggestion.in_stock],
+        not_stocked=[_candidate_read(candidate) for candidate in suggestion.not_stocked],
+        truncated=suggestion.truncated,
+    )

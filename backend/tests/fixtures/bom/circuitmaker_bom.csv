@@ -1,0 +1,5 @@
+Designator,Comment,Description,Footprint,LibRef,Quantity,Manufacturer,Manufacturer Part Number,Supplier,Supplier Part Number
+"C1, C2",1uF,Ceramic capacitor,C0805,CAP,2,Samsung,CL21A105KAFNNNE,Mouser,187-CL21A105KAFNNN
+R1,10k,Chip resistor,R0603,RES,1,,,,
+"D1, D2",Green,Green LED 0805,LED0805,LED,2,,,LCSC,C72043
+U1,ATmega328P-AU,8-bit AVR MCU,TQFP32,MCU,1,Microchip,ATMEGA328P-AU,LCSC,C14877

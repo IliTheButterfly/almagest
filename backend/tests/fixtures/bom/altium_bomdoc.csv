@@ -1,0 +1,14 @@
+Bill of Materials for PCB Document [Nightlight.PcbDoc]
+,
+Approved:,
+,
+Date:,29-Jul-26
+Time:,10:14:22
+Revision:,B
+Variant:,None
+,
+Designator,Comment,Description,Footprint,LibRef,Quantity,Manufacturer 1,Manufacturer Part Number 1,Manufacturer 2,Manufacturer Part Number 2,Supplier 1,Supplier Part Number 1
+"C1, C2, C3, C4",100nF,"Capacitor, ceramic, 100nF, 50V, X7R",CAPC1608X90N,Cap,4,Samsung,CL10B104KB8NNNC,Murata,GRM188R71H104KA93D,Digi-Key,1276-1000-1-ND
+"R1, R2",4k7,"Resistor, thick film, 4k7, 1%, 0.1W",RESC1608X55N,Res2,2,Yageo,RC0603FR-074K7L,,,Digi-Key,311-4.70KHRCT-ND
+U1,LM358,"Op-amp, dual, low-power, SOIC-8",SOIC127P600X175-8N,LM358,1,,,onsemi,LM358DR2G,Digi-Key,LM358DR2G-ND
+D1,RED,"LED, red, 20mA",LEDC1608X80N,LED1,1,Wurth,150060RS75000,,,,

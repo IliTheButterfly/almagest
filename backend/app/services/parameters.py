@@ -173,11 +173,31 @@ def resolve_choice(
     raise ChoiceNotFound(f"{key_or_alias!r} is not a choice of {template.name}; known: {known}")
 
 
-def _aliases(choice: ParameterChoice) -> set[str]:
+def choice_aliases(choice: ParameterChoice) -> tuple[str, ...]:
+    """A choice's alternative spellings, verbatim and in the stored order.
+
+    **The one decoder of `aliases_json`.** Three callers need it — this module's
+    `resolve_choice`, `enrichment.extract.target_fields` (which puts every
+    spelling in the model's schema so a datasheet saying `1608` is not forced to
+    say `0603`), and `requirements.vocabulary` (which matches them against words
+    in a prose description). All three must agree about what an alias *is*, since
+    a spelling one of them accepts and another does not is a token that resolves
+    when typed into search and fails when read out of a description.
+
+    Order-preserving and un-normalised: the callers that want a lookup key
+    casefold it themselves, and the one that shows spellings to a model wants
+    them as the curator wrote them.
+    """
     if not choice.aliases_json:
-        return set()
+        return ()
     loaded = json.loads(choice.aliases_json)
-    return {str(alias).casefold() for alias in loaded}
+    if not isinstance(loaded, list):
+        return ()
+    return tuple(str(alias) for alias in loaded)
+
+
+def _aliases(choice: ParameterChoice) -> set[str]:
+    return {alias.casefold() for alias in choice_aliases(choice)}
 
 
 def _existing_or_new(

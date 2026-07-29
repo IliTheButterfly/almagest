@@ -1,4 +1,5 @@
-"""KiCad BOM import. **The contract is that an import never fails.**
+"""BOM import — KiCad, Altium, CircuitMaker, and by hand. **The contract is that
+an import never fails.**
 
 `bom_lines.part_id` is nullable for exactly this reason: a BOM has to land
 intact, in one action, even when half its lines name parts the catalogue has
@@ -15,22 +16,58 @@ represent at all, and there is none: worst case every cell ends up in
 `raw_fields_json` with `qty_per_assembly_milli` defaulted to one, which is a
 worklist item rather than a lost file.
 
-**There is no one KiCad BOM format**, so nothing here is keyed to a literal
-header row:
+**There is no one BOM format**, so nothing here is keyed to a literal header
+row:
 
-* the modern grouped CSV (`Reference`, `Value`, `Footprint`, `Qty`, `DNP`, plus
-  whatever symbol fields the user invented) and the old `bom2grouped_csv.xsl`
-  output (`Ref`, `Qnty`, `Cmp name`, `Vendor`, behind five rows of preamble) are
-  both ordinary input;
+* the modern grouped KiCad CSV (`Reference`, `Value`, `Footprint`, `Qty`, `DNP`,
+  plus whatever symbol fields the user invented) and the old
+  `bom2grouped_csv.xsl` output (`Ref`, `Qnty`, `Cmp name`, `Vendor`, behind five
+  rows of preamble) are both ordinary input;
 * headers are matched through a normalised alias table (case, spacing,
   punctuation and pluralisation all removed), and the alias list per field is
   **ordered**, so a file with both `Footprint` and `Package` uses the former;
 * the header row is *found*, not assumed to be row 1, because the old XSL
-  templates emit `Source:` / `Date:` / `Component Count:` above it;
+  templates emit `Source:` / `Date:` / `Component Count:` above it — and so does
+  Altium's Report Manager, at greater length;
 * the delimiter is chosen by parsing the whole file with each candidate and
   keeping the one that yields the most recognised columns. Counting separator
   characters — the obvious approach — picks `,` for a semicolon-delimited file
   whose designator cell is `"R1,R2,R3"`, which is most of them.
+
+**Altium and CircuitMaker are handled by that same table, not by a second
+parser.** The formats differ in what their columns are *called* and in what
+surrounds the table, not in nature: all of them are one row per part, carrying
+designators, a value, a footprint, a quantity and sometimes a part number. A
+parallel reader would double the surface where a silently-dropped column can
+hide, and every fix would have to be made twice. What the other two exports
+actually contribute:
+
+* **`Comment` is Altium's value column**, and it is the trap in this whole
+  feature, because the name reads like a note. It is the *last* `VALUE` alias, so
+  a file carrying both `Value` and `Comment` reads the value from `Value` and
+  warns about the other — and a file carrying only a free-text `Comment` puts a
+  sentence in `ref_value`, which is a display wart rather than a hazard, since
+  `_mpn_candidates` refuses anything that is not a single token.
+* `Designator`, `Footprint`, `Description` and `Quantity` were already aliases.
+* **Numbered supplier sets** — `Manufacturer 1`, `Manufacturer Part Number 1`,
+  `Manufacturer 2`, ... — are matched by stripping the index and looking the stem
+  up in the ordinary table (`_SET_SUFFIX`). **Only the lowest-numbered set is
+  imported**; see `_map_headers` for why, and for what the user is told instead.
+* CircuitMaker is Altium-derived and drifts mainly by dropping the numbers, which
+  needs nothing extra: an unnumbered `Manufacturer Part Number` is a plain alias
+  hit.
+
+**A binary workbook is refused by name, never parsed.** Altium will happily emit
+XLSX, and an `.xlsx` run through `_decode` becomes a page of mojibake in which no
+header maps — so the file would land as one line saying "no recognisable header
+row", which is true, useless, and indistinguishable from a real header problem on
+a file the user knows has headers. `_BINARY_SIGNATURES` catches the container by
+its magic bytes and says which format it is and what to do instead. XLSX is
+**not** supported and is not planned: the transport is a JSON string field
+(`BomImportRequest.content`), so binary cannot arrive intact without a second,
+multipart door, and Report Manager offers CSV and tab-delimited from the same
+dialog the user is already in. One dropdown against one dependency, one file
+format sniffer and one more envelope to keep working.
 
 **Matching is exact-normalised-MPN only.** CLAUDE.md forbids auto-accepting a
 part number a machine read, and the same reasoning applies to one a machine
@@ -57,25 +94,59 @@ blank designator cell, an `RN1` resistor network or a `VR1` potentiometer all
 imply no quantity, and every one of them used to walk straight past the parser
 and match `10k` to a chip resistor named `10K`. So a cell may only be used as a
 part number when **no** quantity the parser knows reads it as a value
-(`_reads_as_a_quantity`) and it is a single token (`_NOT_ONE_TOKEN`) — which is
+(`reads_as_a_quantity`) and it is a single token (`_NOT_ONE_TOKEN`) — which is
 also what stops `10k 1%` from being flattened into the key `10k1` and matching
 `10K1`, a real 10.1 kΩ part.
+
+**Some headers are deliberately left unmapped, and that is the correct answer
+rather than a gap.** `bom_lines.part_id` is nullable so a BOM can land intact and
+be curated; a *wrongly* mapped column has no such recovery, because it looks
+right. So:
+
+* `LibRef` / `Library Reference` — Altium's symbol name (`Res2`, `Cap`), the
+  exact counterpart of KiCad's already-unmapped `Cmp name`. It is neither a value
+  nor a part number, and mapping it to `MPN` would give every resistor on the
+  board the same part number.
+* `Supplier 1` / `Supplier Part Number 1` — a distributor SKU
+  (`1276-1000-1-ND`), not a manufacturer part number. `mpn_norm` is matched
+  against `parts.mpn_norm` by exact equality, so a SKU there matches nothing at
+  best and the wrong part at worst. A distributor-number column is a real thing
+  to support one day; it needs its own column, not this one.
+* `Fitted` — Altium's variant flag, whose polarity is the **opposite** of `DNP`.
+  Reading it as `dnp` would invert the entire assembly, and reading it as `not
+  dnp` needs an inverted-flag concept this schema does not have. Left unmapped
+  until it does.
+
+Every one of them is still in `raw_fields_json`, and every one is named in
+`ParsedBom.unmapped_headers` — so a caller *can* show "this column was seen and
+not used", which is the display that makes "leave it unmatched" honest rather
+than merely safe.
+
+**Known gap, stated rather than papered over: `BomImportResponse` does not carry
+`columns` or `unmapped_headers` today**, so through the HTTP route the only
+signal about an ignored column is a rival or alternate warning — and an ignored
+column with no rival raises none. A user whose part numbers live in a column this
+table does not know therefore sees "20 lines landed, 0 matched" with nothing
+pointing at the cause. Surfacing the column map is a route and UI change, not a
+parser one; it belongs with whichever change next touches that response, and
+adding the two fields here would break replay of every `client_operations` row
+written before it (`idempotency._revive` validates the stored JSON against the
+current model).
 """
 
 from __future__ import annotations
 
 import csv
-import functools
 import io
 import json
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
-from elec_value_parser import ParsedValue, ValueParseError, known_quantities
+from elec_value_parser import ParsedValue, ValueParseError
 from elec_value_parser import parse as parse_electronics_value
 from sqlalchemy import String, func, select
 from sqlalchemy.orm import Session
@@ -83,6 +154,7 @@ from sqlalchemy.orm import Session
 from app.models.catalog import Part
 from app.models.projects import BomLine, Project
 from app.services.scanning.codes import normalize_mpn
+from app.services.search.value_parser import reads_as_a_quantity
 
 
 class BomField(StrEnum):
@@ -137,10 +209,27 @@ _ALIASES: tuple[tuple[BomField, tuple[str, ...]], ...] = (
             "refdes",
             "referencedesignator",
             "designator",
-            "designation",
+            # `designation` is **not** here, and that is a deliberate move rather
+            # than an omission. In French and other European BOM templates
+            # *Designation* is the description column (`Condensateur ceramique
+            # 100nF 50V X7R`), and with no rival designator alias present it won
+            # this slot outright — so the real designator column (`Repere`) went
+            # unmapped, prose landed in `bom_lines.designators`, and `_resolve_qty`
+            # counted five French words against an explicit `Qty` of 1 and demanded
+            # five. English "designation" does sometimes mean the designator, so
+            # both readings are real; the DESCRIPTION slot is simply the safe one to
+            # be wrong in. Nothing is derived from `description`, while the
+            # DESIGNATORS slot feeds the quantity and `_designator_prefix`, which
+            # decides how the `Value` column is parsed. See `BomField.DESCRIPTION`.
         ),
     ),
-    (BomField.VALUE, ("value", "val", "componentvalue")),
+    # `comment` last, and it is the one alias here whose name argues against
+    # itself: in Altium and CircuitMaker `Comment` *is* the value column — it is
+    # what the schematic prints next to the designator — while in a hand-rolled
+    # sheet it is a note. Ordering settles the collision the right way round: a
+    # file with a real `Value` column uses that and warns about the other, and a
+    # file with only `Comment` gets its values read instead of losing them all.
+    (BomField.VALUE, ("value", "val", "componentvalue", "comment")),
     # `Package` last: it is a real spelling for this column in hand-rolled
     # templates, and also a real name for a *different* column (the 0603 the
     # part comes in) in exports that carry both.
@@ -166,7 +255,10 @@ _ALIASES: tuple[tuple[BomField, tuple[str, ...]], ...] = (
         ),
     ),
     (BomField.MANUFACTURER, ("manufacturer", "manufacturername", "mfr", "mfg", "mfrname", "brand")),
-    (BomField.DESCRIPTION, ("description", "desc", "descr")),
+    # `designation` last: see the note in the DESIGNATORS block above for why it
+    # moved here, and why last is where it belongs — a file carrying both
+    # `Description` and `Designation` describes with the former.
+    (BomField.DESCRIPTION, ("description", "desc", "descr", "designation")),
     (BomField.DATASHEET, ("datasheet", "datasheeturl", "datasheetlink")),
     (BomField.DNP, ("dnp", "donotpopulate", "donotplace", "donotinstall", "dni", "nopopulate")),
 )
@@ -182,13 +274,38 @@ _ALIAS_LOOKUP: dict[str, tuple[BomField, int]] = {
 #: the same key as their neighbours in the next KiCad release.
 _NOT_HEADER = re.compile(r"[^0-9a-z]+")
 
+#: Altium's **numbered supplier and manufacturer column sets**: `Manufacturer 1`,
+#: `Manufacturer Part Number 1`, `Manufacturer 2`, and so on. Report Manager emits
+#: one set per approved manufacturer, in approval order, and a BomDoc that has
+#: been through a supply-chain sync routinely carries three or four.
+#:
+#: Matched by stripping the trailing index off the *normalised* header and looking
+#: the stem up in `_ALIAS_LOOKUP`, so a numbered set contributes nothing of its own
+#: to `_ALIASES` and a spelling added there becomes set-aware for free. It also
+#: means the sets need no list of their own: `Supplier Part Number 1` is refused
+#: because `supplierpartnumber` is not an alias, which is the same reason the
+#: unnumbered spelling is refused.
+#:
+#: **Two digits at most.** A longer run of digits is part of the header's own name
+#: rather than an index — `Package 0603` must not read as the 603rd package column
+#: — and no exporter writes a hundred alternates.
+_SET_SUFFIX = re.compile(r"^([a-z]+)([0-9]{1,2})$")
+
+#: The set index of a header carrying no number. Zero rather than one, so a plain
+#: `Manufacturer` beats `Manufacturer 1` in a file that somehow has both: the
+#: unnumbered column is the one a human added, and the numbered ones are the
+#: synced set it was added alongside.
+_NO_SET = 0
+
 #: Delimiters in circulation. `,` first so it wins a tie — it is what KiCad's
 #: own exporters emit, and a tie means the evidence did not distinguish them.
 _DELIMITERS = (",", ";", "\t", "|")
 
 #: How far down to look for the header row. `bom2csv.xsl` emits six preamble
-#: rows; twenty is slack for a template nobody has seen yet, and small enough
-#: that a headerless file is not searched to its end.
+#: rows and Altium's Report Manager emits a title line plus an approval and
+#: revision block — call it nine, and more if the template was edited. Twenty is
+#: slack for a template nobody has seen yet, and small enough that a headerless
+#: file is not searched to its end.
 _HEADER_SEARCH_ROWS = 20
 
 #: A header row has to map at least this many columns to be believed. One is
@@ -209,6 +326,19 @@ _DESIGNATOR_SPLIT = re.compile(r"[,;\s]+")
 _DESIGNATOR_RANGE = re.compile(
     r"^([A-Za-z_]+)(\d+)\s*(?:\.\.|[-\u2010-\u2015\u2212~])\s*([A-Za-z_]*)(\d+)$"
 )
+
+#: What a reference designator looks like: letters (or an underscore) then a
+#: digit. `R1`, `C12`, `TP3`, `U1A`, `_1`.
+#:
+#: **The shape test exists because the designator count feeds a quantity.**
+#: `_expand_designators` used to accept whatever the cell held, so a wrongly
+#: mapped column (a description, an item number, a note) became a designator list
+#: and `_resolve_qty`'s take-the-larger rule then over-stated demand *past an
+#: explicit quantity column* — a line the file said was 1-off asked for 5, and the
+#: warning claimed "5 designators listed" about five French words. The
+#: asymmetric-max argument in `_resolve_qty` assumes both inputs are real
+#: statements about the board, and this is what makes that true.
+_DESIGNATOR_SHAPE = re.compile(r"^[A-Za-z_]+\d")
 
 #: A range wider than this is a typo (`R1-R99999`), not a board. Expanding it
 #: would turn one bad cell into a hundred thousand designators and a demand of
@@ -235,6 +365,53 @@ _FALSY = frozenset({"0", "false", "no", "n", "f", "off"})
 #: One per assembly, in milli-units, when neither a quantity column nor a
 #: designator list produced a number.
 _FALLBACK_QTY_MILLI = 1_000
+
+#: Magic bytes of the files a user reaches for instead of a text export, and what
+#: to call each one when refusing it.
+#:
+#: **Refused by name rather than parsed into nonsense.** `_decode` turns a zip
+#: into mojibake, no header maps in it, and the file lands as one warning saying
+#: "no recognisable header row" — true, useless, and identical to what a genuine
+#: header problem looks like. A user who exported the wrong format then has no way
+#: to tell which mistake they made, and this is a project whose stated risk is
+#: exactly that kind of friction. Naming the container and the fix costs four
+#: bytes of comparison.
+#:
+#: Not an exhaustive sniffer and not meant to be: it recognises the containers
+#: that a BOM actually arrives wrapped in, and anything unrecognised still takes
+#: the ordinary text path, which never raises either way.
+_BINARY_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"PK\x03\x04", "a zip-based spreadsheet (.xlsx, .ods and .numbers all look like this)"),
+    (
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",
+        "an OLE2 compound document (an Excel 97-2003 .xls, or an Altium binary document)",
+    ),
+    (b"%PDF-", "a PDF"),
+)
+
+#: Byte-order marks of the UTF-16/UTF-32 exports Excel calls **Unicode Text
+#: (\*.txt)** and Altium offers beside its ASCII one.
+#:
+#: These are *text*, which is exactly why they were more dangerous than the
+#: containers above. `_decode` succeeds on them via `cp1252` — NUL is a valid
+#: cp1252 byte — so no "undecodable bytes" warning fired either, and
+#: `_normalize_header` strips everything outside `[0-9a-z]`, which **deletes the
+#: interleaved NULs**, so `D\\x00e\\x00s\\x00i\\x00g\\x00n\\x00...` normalised to
+#: `designator` and mapped perfectly. The import then reported 200, zero warnings,
+#: and wrote NUL-laced values into `designators`, `ref_value`, `footprint` and the
+#: `raw_fields_json` keys. That is worse than the XLSX case, because that one at
+#: least says nothing was imported.
+_UTF16_SIGNATURES: tuple[bytes, ...] = (b"\xff\xfe", b"\xfe\xff")
+
+#: What to tell a user holding one. Named, because "no recognisable header row"
+#: would be a lie here — the header *was* recognised, out of mangled text.
+_UTF16_WARNING = (
+    'this looks like a UTF-16 export — Excel\'s "Unicode Text (*.txt)" and'
+    " Altium's Unicode export both write one — and nothing was imported. Every"
+    " character in it is interleaved with NUL bytes, so the column names and every"
+    " cell would land mangled. Re-save it as CSV or plain UTF-8 text and import"
+    " that."
+)
 
 #: **`csv`'s per-field cap, raised once at import.** The stdlib default is 131072
 #: characters, which is well *inside* the 5,000,000-character body the API route
@@ -370,7 +547,12 @@ class ParsedBom:
 
 
 def parse_bom(source: str | bytes) -> ParsedBom:
-    """Interpret a KiCad-style BOM export. **Never raises.**
+    """Interpret a BOM export — KiCad, Altium, CircuitMaker or hand-rolled.
+    **Never raises.**
+
+    A binary workbook is recognised by its container and refused by name (see
+    `_BINARY_SIGNATURES`); everything else is text, whatever its delimiter, header
+    spelling or preamble.
 
     Byte input is decoded `utf-8-sig` first — the BOM marker Excel prepends is
     what actually arrives from Windows, and a stray `\\ufeff` on the first header
@@ -379,20 +561,34 @@ def parse_bom(source: str | bytes) -> ParsedBom:
     a lossy `utf-8` decode is the last resort, since a mangled `µ` is a review
     item while a raised `UnicodeDecodeError` is a file the user cannot import.
     """
+    if (binary := _binary_format(source)) is not None:
+        # Before `_decode`, so the report says "this is a spreadsheet" and not
+        # "there were undecodable bytes" — one of those tells the user what to do.
+        return _nothing_imported(
+            f"this file is {binary}, not text; nothing was imported."
+            " Re-export the BOM as CSV or tab-delimited text — KiCad,"
+            " Altium's Report Manager and CircuitMaker all offer it — and"
+            " import that."
+        )
+    if _starts_with_utf16_bom(source):
+        return _nothing_imported(_UTF16_WARNING)
+
     warnings: list[str] = []
     text = _decode(source, warnings) if isinstance(source, bytes) else source.lstrip("\ufeff")
+
+    if "\x00" in text:
+        # **The check that actually catches this**, because the route only ever
+        # hands `parse_bom` a `str`: the browser reads the file with
+        # `FileReader.readAsText` and no encoding argument, so a UTF-16 export
+        # arrives as ASCII characters interleaved with real U+0000s and its BOM
+        # already replaced by U+FFFD. No delimiter, header spelling or cell
+        # survives that, and a NUL never appears in a BOM anybody meant to export.
+        return _nothing_imported(_UTF16_WARNING, warnings)
 
     if not text.strip():
         # Not an error: a user who exported the wrong thing gets told so, and an
         # empty import is indistinguishable from a BOM with no components.
-        return ParsedBom(
-            lines=(),
-            columns={},
-            unmapped_headers=(),
-            delimiter=_DELIMITERS[0],
-            preamble=(),
-            warnings=(*warnings, "file is empty"),
-        )
+        return _nothing_imported("file is empty", warnings)
 
     probe = _best_probe(text)
     warnings.extend(probe.warnings)
@@ -410,6 +606,7 @@ def parse_bom(source: str | bytes) -> ParsedBom:
                 row,
                 mapping=probe.mapping,
                 headers=probe.headers,
+                alternates=probe.alternates,
                 line_no=len(lines) + 1,
                 source_row=probe.first_data_row + 1 + offset,
             )
@@ -430,6 +627,51 @@ def parse_bom(source: str | bytes) -> ParsedBom:
         ),
         warnings=tuple(warnings),
     )
+
+
+def _nothing_imported(warning: str, before: Sequence[str] = ()) -> ParsedBom:
+    """A file that was read and refused: no lines, one warning saying which fix.
+
+    One helper for all three refusals so they cannot drift into looking like
+    different kinds of failure to a client rendering the report.
+    """
+    return ParsedBom(
+        lines=(),
+        columns={},
+        unmapped_headers=(),
+        delimiter=_DELIMITERS[0],
+        preamble=(),
+        warnings=(*before, warning),
+    )
+
+
+def _starts_with_utf16_bom(source: str | bytes) -> bool:
+    """Whether `source` opens with a UTF-16/UTF-32 byte-order mark.
+
+    The `str` arm matters for the same reason it does in `_binary_format`: a client
+    that decoded the bytes as cp1252 before putting them in JSON hands this module
+    `ÿþ`, which round-trips through latin-1 back to the mark it was.
+    """
+    prefix = source[:4] if isinstance(source, bytes) else source[:4].encode("latin-1", "ignore")
+    return any(prefix.startswith(signature) for signature in _UTF16_SIGNATURES)
+
+
+def _binary_format(source: str | bytes) -> str | None:
+    """What binary container `source` starts with, or `None` for text.
+
+    The `str` arm is the one that earns its keep. `BomImportRequest.content` is a
+    JSON string, so a client that read an `.xlsx` and decoded it — however lossily
+    — hands this module *text*, and `PK\\x03\\x04` survives that intact because it
+    is ASCII. That is precisely the case worth catching, since XLSX is the format
+    Altium offers first. A mangled OLE2 header does not survive a UTF-8 decode and
+    falls through to the ordinary no-header path, which is the honest limit of a
+    four-byte test rather than a hole in it.
+    """
+    prefix = source[:8] if isinstance(source, bytes) else source[:8].encode("latin-1", "ignore")
+    for signature, description in _BINARY_SIGNATURES:
+        if prefix.startswith(signature):
+            return description
+    return None
 
 
 def _decode(source: bytes, warnings: list[str]) -> str:
@@ -460,6 +702,9 @@ class _Probe:
     #: Data rows whose width equals the header's. A tie-break only: a file read
     #: with the wrong delimiter is one column wide, so every row "agrees".
     consistent_rows: int
+    #: Per field, the columns of the higher-numbered supplier sets that lost to
+    #: the one in `mapping`. See `_HeaderMap.alternates`.
+    alternates: Mapping[BomField, tuple[int, ...]] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
 
     @property
@@ -506,9 +751,50 @@ def _best_probe(text: str) -> _Probe:
                 *fallback.warnings,
                 "no recognisable header row; every row was imported as data with "
                 "positional column names, and every cell is in the raw fields",
+                *_absorbed_lines_warnings(text, fallback),
             ),
         )
-    return best
+    return replace(best, warnings=(*best.warnings, *_absorbed_lines_warnings(text, best)))
+
+
+def _absorbed_lines_warnings(text: str, probe: _Probe) -> tuple[str, ...]:
+    """Say so when the reader produced far fewer rows than the file has lines.
+
+    **The loss this catches was total and silent.** One unbalanced `"` in a
+    description turned a 4 001-line comma CSV into 7 rows: 3 993 components
+    vanished and the only warning named a *footprint truncation*, which reads like
+    a cosmetic column-width note. Raising `_MAX_FIELD_CHARS` stopped the
+    `_csv.Error` this used to raise, but a quote that swallows the rest of the file
+    is still a quote that swallows the rest of the file.
+
+    The evidence is right here and was being thrown away: the physical line count,
+    and the cell the newlines ended up inside. A quoted cell spanning lines is
+    legal, so this is a warning naming the row rather than a refusal — but one
+    stray quote is now impossible to mistake for column-width noise.
+    """
+    if not probe.rows:
+        return ()
+    physical = text.count("\n") + (0 if text.endswith("\n") else 1)
+    absorbed = physical - len(probe.rows)
+    # One is a legitimate two-line quoted description; a handful is a stray quote.
+    if absorbed < 2:
+        return ()
+    worst = max(
+        (
+            (cell.count("\n"), row_index, cell_index)
+            for row_index, row in enumerate(probe.rows)
+            for cell_index, cell in enumerate(row)
+        ),
+        default=(0, 0, 0),
+    )
+    _count, row_index, cell_index = worst
+    return (
+        f"the file has {physical} lines but read as {len(probe.rows)} rows of "
+        f"{probe.delimiter!r}-delimited text, so {absorbed} line(s) were absorbed "
+        f"into one cell — column {cell_index + 1} of row {row_index + 1}. That is "
+        "almost always a single unbalanced '\"' near that row. Check it and "
+        "re-export, because the absorbed lines are not components any more.",
+    )
 
 
 def _probe(text: str, delimiter: str) -> _Probe:
@@ -534,20 +820,40 @@ def _probe(text: str, delimiter: str) -> _Probe:
             consistent_rows=0,
             warnings=(f"file could not be read as {delimiter!r}-delimited text: {error}",),
         )
-    for index, row in enumerate(rows[:_HEADER_SEARCH_ROWS]):
-        mapping, unmapped, rivals = _map_headers(row)
-        if len(mapping) < _MIN_HEADER_FIELDS:
-            continue
+    # **Every candidate row is scored; the best one wins, earliest on a tie.**
+    # Taking the *first* row that cleared `_MIN_HEADER_FIELDS` meant a two-column
+    # Excel title block (`Part Number:,ASM-0012,Description:,Nightlight main
+    # board`) outranked the genuine six-column Altium header eight lines below it.
+    # Every typed column then mapped to the wrong field: the designator cell became
+    # `mpn_raw` and was fed to the exact-`mpn_norm` lookup, every real MPN went to
+    # `column_6` in the raw fields, and every quantity became the `FALLBACK` 1 000
+    # while the file plainly said 2, 3, 1 — with **no warning naming the header
+    # choice at all**. This is the "a wrongly mapped column looks right" failure
+    # the module docstring says has no recovery, so scoring rows is the same
+    # mechanism `_best_probe` already applies across delimiters.
+    candidates = [
+        (index, row, header_map)
+        for index, row in enumerate(rows[:_HEADER_SEARCH_ROWS])
+        if len((header_map := _map_headers(row)).mapping) >= _MIN_HEADER_FIELDS
+    ]
+    if candidates:
+        # `-index` so an equal-scoring earlier row wins: a real header row is above
+        # its data, and two rows mapping the same count is the evidence failing to
+        # distinguish them rather than a reason to prefer the later one.
+        index, row, header_map = max(
+            candidates, key=lambda entry: (len(entry[2].mapping), -entry[0])
+        )
         width = len(row)
         return _Probe(
             delimiter=delimiter,
             rows=rows,
             header_index=index,
             headers=row,
-            mapping=mapping,
-            unmapped=unmapped,
+            mapping=header_map.mapping,
+            unmapped=header_map.unmapped,
             consistent_rows=sum(1 for later in rows[index + 1 :] if len(later) == width),
-            warnings=rivals,
+            alternates=header_map.alternates,
+            warnings=(*header_map.warnings, *_rejected_header_warnings(index, candidates)),
         )
     return _Probe(
         delimiter=delimiter,
@@ -560,19 +866,87 @@ def _probe(text: str, delimiter: str) -> _Probe:
     )
 
 
+def _rejected_header_warnings(
+    chosen: int, candidates: Sequence[tuple[int, tuple[str, ...], _HeaderMap]]
+) -> tuple[str, ...]:
+    """Name every *other* row that also looked like a header row.
+
+    The header choice is the one decision in this module that silently rewrites
+    every column of every line, so when there was a rival it has to be said out
+    loud — a user who sees "row 2 also looked like a header row" can tell a title
+    block from a genuine header problem, which is exactly what the previous
+    behaviour made impossible.
+    """
+    rejected = [
+        f"row {index + 1} ({len(header_map.mapping)} column(s): "
+        f"{', '.join(sorted(field.value for field in header_map.mapping))})"
+        for index, _row, header_map in candidates
+        if index != chosen
+    ]
+    if not rejected:
+        return ()
+    return (
+        f"row {chosen + 1} was used as the header row; "
+        f"{', '.join(rejected)} also looked like one. If the wrong row was chosen "
+        "every column is mapped wrongly — delete the preamble rows and re-import.",
+    )
+
+
 def _normalize_header(header: str) -> str:
     return _NOT_HEADER.sub("", header.strip().lstrip("\ufeff").casefold())
 
 
-def _map_headers(
-    headers: Sequence[str],
-) -> tuple[dict[BomField, int], tuple[str, ...], tuple[str, ...]]:
-    """Header row to `{field: column index}`, the headers nothing claimed, and a
-    warning for each **rival**: a second column naming a field another column
-    already won.
+@dataclass(frozen=True)
+class _HeaderMap:
+    """A header row, resolved."""
+
+    #: Field to the column index that supplies it.
+    mapping: Mapping[BomField, int]
+    #: Headers nothing claimed. A display concern only — every value is in
+    #: `raw_fields` regardless — but the one that lets a user see that `LibRef`
+    #: and `Supplier Part Number 1` were *seen* and not used.
+    unmapped: tuple[str, ...]
+    #: Field to the columns of the higher-numbered supplier sets that lost to the
+    #: winner. Kept rather than folded into `unmapped` and forgotten, because a
+    #: *row* whose winning cell is empty while an alternate's is populated is a
+    #: line the curator has to look at, and only the row can tell.
+    alternates: Mapping[BomField, tuple[int, ...]]
+    warnings: tuple[str, ...]
+
+
+def _match_header(header: str) -> tuple[BomField, int, int] | None:
+    """`(field, alias priority, supplier-set index)` for one header, or `None`.
+
+    Four chances in decreasing strength: the normalised header, its singular, and
+    only if neither hit, the same two with an Altium set index stripped off the
+    end. That order is load-bearing — a literal alias must never be re-read as a
+    numbered one, or a column genuinely called `Val2` would outrank `Value`.
+    """
+    key = _normalize_header(header)
+    for candidate in (key, _singular(key)):
+        hit = _ALIAS_LOOKUP.get(candidate)
+        if hit is not None:
+            return (*hit, _NO_SET)
+
+    numbered = _SET_SUFFIX.match(key)
+    if numbered is None:
+        return None
+    stem, set_index = numbered.group(1), int(numbered.group(2))
+    for candidate in (stem, _singular(stem)):
+        hit = _ALIAS_LOOKUP.get(candidate)
+        if hit is not None:
+            return (*hit, set_index)
+    return None
+
+
+def _map_headers(headers: Sequence[str]) -> _HeaderMap:
+    """Header row to `{field: column index}`, the headers nothing claimed, the
+    numbered alternates, and a warning for each **rival**: a second column naming
+    a field another column already won.
 
     Two headers claiming one field is resolved by alias priority (`Footprint`
-    beats `Package`) and then by column order, never by "last wins" — a file
+    beats `Package`), then by supplier-set index (`Manufacturer 1` beats
+    `Manufacturer 2`), then by column order — never by "last wins", because a file
     with a trailing duplicate column must not have its good column shadowed.
 
     The rival warnings exist because that rule is invisible otherwise, and for
@@ -581,41 +955,101 @@ def _map_headers(
     put the real part number in the second column gets a confidently matched
     wrong line and a clean import report. The losing column's value is still in
     `raw_fields_json`; what was missing was anyone being told to look.
+
+    **What happens to Altium's supplier sets 2..n, and why.** They are not
+    imported. `bom_lines` holds one `mpn_raw`/`manufacturer_raw` pair because a
+    line is a requirement for *one* part, and Altium's numbered sets are not more
+    detail about that part — they are *alternates*, approved substitutes, each a
+    different manufacturer's different component. Set 1 is the primary by
+    construction, since Report Manager numbers them in approval order.
+
+    So the three alternatives were all worse. Concatenating them writes an
+    `mpn_norm` that matches nothing and reads as a part number that exists. Taking
+    the highest-numbered set, or the first non-empty one per row, means `mpn_raw`
+    comes from a different manufacturer on different rows with nothing on the row
+    saying so — and then a build allocates the alternate rather than the part the
+    designer approved, silently, which is the field failure this codebase's rules
+    about substitution exist to prevent. Choosing between alternates is a
+    substitution decision, and a substitution decision belongs to the filter
+    executor and a human, not to a column index.
+
+    They are not *lost*, which is what makes the refusal cheap: every alternate is
+    in `raw_fields_json` verbatim, the ignored columns are named in a file-level
+    warning here, and a row whose set 1 is empty while an alternate is populated
+    says so on the row (see `_parse_row`). A future `bom_line_alternates` table
+    can be populated from the raw fields of every BOM ever imported.
     """
-    best: dict[BomField, tuple[int, int]] = {}
-    rivals: dict[BomField, list[str]] = {}
+    best: dict[BomField, tuple[int, int, int]] = {}
+    rivals: dict[BomField, list[tuple[int, int, int]]] = {}
     for index, header in enumerate(headers):
-        key = _normalize_header(header)
-        hit = _ALIAS_LOOKUP.get(key) or _ALIAS_LOOKUP.get(_singular(key))
+        hit = _match_header(header)
         if hit is None:
             continue
-        bom_field, priority = hit
+        bom_field, priority, set_index = hit
+        contender = (priority, set_index, index)
         current = best.get(bom_field)
         if current is None:
-            best[bom_field] = (priority, index)
+            best[bom_field] = contender
             continue
         # The *loser* is what the user has to be told about, and which one that is
-        # depends on alias priority rather than column order: `Package, Footprint`
-        # keeps the second column, `Footprint, Package` the first.
-        if priority < current[0]:
-            rivals.setdefault(bom_field, []).append(_header_name(headers, current[1]))
-            best[bom_field] = (priority, index)
+        # depends on alias priority and set index rather than column order:
+        # `Package, Footprint` keeps the second column, `Footprint, Package` the
+        # first, and `Manufacturer 2, Manufacturer 1` keeps the second.
+        if contender[:2] < current[:2]:
+            rivals.setdefault(bom_field, []).append(current)
+            best[bom_field] = contender
         else:
-            rivals.setdefault(bom_field, []).append(_header_name(headers, index))
+            rivals.setdefault(bom_field, []).append(contender)
 
-    mapping = {bom_field: index for bom_field, (_, index) in best.items()}
+    mapping = {bom_field: index for bom_field, (_, _, index) in best.items()}
     claimed = set(mapping.values())
     unmapped = tuple(
         header for index, header in enumerate(headers) if index not in claimed and header.strip()
     )
-    warnings = tuple(
-        f"more than one column names the {bom_field.value} field:"
-        f" used {_header_name(headers, mapping[bom_field])!r},"
-        f" ignored {', '.join(repr(name) for name in also)};"
-        f" the ignored values are in the raw fields"
-        for bom_field, also in rivals.items()
+
+    alternates: dict[BomField, tuple[int, ...]] = {}
+    warnings: list[str] = []
+    for bom_field, also in rivals.items():
+        winner_priority, winner_set, winner_index = best[bom_field]
+        losers = sorted(also)
+        # Equal alias priority means the *same alias string*, so a loser matching
+        # it with a higher set index differs from the winner only in its number:
+        # that is an alternate, not a user who put the part number in two columns.
+        numbered = tuple(
+            index
+            for priority, set_index, index in losers
+            if priority == winner_priority and set_index > winner_set
+        )
+        if numbered:
+            alternates[bom_field] = numbered
+        names = ", ".join(repr(_header_name(headers, index)) for _, _, index in losers)
+        if len(numbered) == len(losers):
+            # Worded about the *numbering* rather than about manufacturers,
+            # because the index-stripping rule is generic: `Manufacturer Part
+            # Number 2` is an approved alternate, but a variant template can
+            # number any column, and "an alternate is a different component"
+            # would be a lie about a second quantity column. The substitution
+            # reasoning that makes this the right call for the supplier columns
+            # is in this function's docstring, where it has room to be correct.
+            one = len(losers) == 1
+            warnings.append(
+                f"the {bom_field.value} field came from"
+                f" {_header_name(headers, winner_index)!r}, the lowest-numbered of the"
+                f" columns naming it; {names} {'was' if one else 'were'} not imported,"
+                f" because a BOM line has one {bom_field.value} and choosing between"
+                f" numbered alternates is a curation decision rather than an import"
+                f" one; the ignored values are in the raw fields"
+            )
+        else:
+            warnings.append(
+                f"more than one column names the {bom_field.value} field:"
+                f" used {_header_name(headers, winner_index)!r},"
+                f" ignored {names};"
+                f" the ignored values are in the raw fields"
+            )
+    return _HeaderMap(
+        mapping=mapping, unmapped=unmapped, alternates=alternates, warnings=tuple(warnings)
     )
-    return mapping, unmapped, warnings
 
 
 def _header_name(headers: Sequence[str], index: int) -> str:
@@ -635,6 +1069,7 @@ def _parse_row(
     *,
     mapping: Mapping[BomField, int],
     headers: Sequence[str],
+    alternates: Mapping[BomField, tuple[int, ...]],
     line_no: int,
     source_row: int,
 ) -> ParsedBomLine:
@@ -660,6 +1095,29 @@ def _parse_row(
         # Kept anyway: something is in this row, and an import that silently
         # dropped rows would be worse than one that lands a row saying so.
         warnings.append("row names no designator, value or part number")
+
+    # **The row-level half of the numbered-set decision.** `_map_headers` imports
+    # only the lowest-numbered supplier set, which loses nothing on a line whose
+    # set 1 is filled in — but Altium leaves set 1 blank on the lines where the
+    # first approved manufacturer was never chosen, and there the file *does* name
+    # a part number this import will not have used. Falling back per row is
+    # refused (see `_map_headers`); saying which lines it happened on turns the
+    # only real cost of that refusal into a worklist the curator can work through.
+    for bom_field, columns in alternates.items():
+        if cell(bom_field) is not None:
+            continue
+        populated = [
+            _header_name(headers, column)
+            for column in columns
+            if column < len(row) and _clean(row[column]) is not None
+        ]
+        if populated:
+            names = ", ".join(repr(name) for name in populated)
+            warnings.append(
+                f"this line has no {bom_field.value}; the alternate"
+                f" column{'' if len(populated) == 1 else 's'} {names} would supply"
+                f" one, and alternates are not imported — the value is in the raw fields"
+            )
 
     dnp_cell = cell(BomField.DNP)
     return ParsedBomLine(
@@ -782,11 +1240,31 @@ def _expand_designators(cell: str | None, warnings: list[str]) -> tuple[str, ...
     if cell is None:
         return ()
     refs: list[str] = []
+    rejected: list[str] = []
     for token in _DESIGNATOR_SPLIT.split(cell):
         if not token:
             continue
-        expanded = _expand_range(token, warnings)
-        refs.extend(expanded)
+        if _DESIGNATOR_SHAPE.match(token) is None:
+            # Not a designator, so it must not be counted as one — see
+            # `_DESIGNATOR_SHAPE`. Kept out of `refs` rather than out of the row:
+            # the cell is still written to `bom_lines.designators` verbatim and to
+            # `raw_fields_json`, so nothing is lost and a curator sees the text.
+            rejected.append(token)
+            continue
+        refs.extend(_expand_range(token, warnings))
+
+    if rejected and not refs:
+        # Every token failed, which is the signature of a wrongly mapped column
+        # rather than a messy cell — and the loudest thing that can be said about
+        # it, because the real designator column is then sitting in `unmapped`.
+        warnings.append(
+            f"the designator column holds {cell!r}, in which nothing is shaped like "
+            "a reference designator (`R1`, `C12`); it was not counted as designators, "
+            "so the quantity came from the quantity column. Check which column was "
+            "mapped to designators"
+        )
+    elif rejected:
+        warnings.append(f"not designators, so not counted: {', '.join(rejected)}")
 
     duplicates = sorted(ref for ref, count in Counter(refs).items() if count > 1)
     if duplicates:
@@ -863,6 +1341,14 @@ def _resolve_qty(
     with one action, while under-stating it is discovered at the bench with half
     a board populated. Both numbers survive in `declared_qty_milli` and the
     designator list, so nothing is lost either way.
+
+    **The asymmetry is only sound because `refs` is validated.** Taking the larger
+    assumes both numbers are real statements about the board; a designator count
+    read off a wrongly mapped column is not one, and it used to win — five French
+    words in a *Designation* column out-voted an explicit `Qty` of 1. So
+    `_expand_designators` now drops anything not shaped like a designator, which
+    leaves `counted` as `None` for such a cell and hands this function a single
+    statement to believe. See `_DESIGNATOR_SHAPE`.
     """
     counted = len(refs) * 1000 if refs else None
     if declared is not None and counted is not None and declared != counted:
@@ -919,12 +1405,6 @@ def _parse_ref_value(
         return None, error.reason
 
 
-#: Every quantity the parser knows, for the sweep in `_reads_as_a_quantity`.
-#: Read off the library rather than listed here, so a quantity added there
-#: strengthens this gate instead of leaving a hole in it. Sorted for a
-#: deterministic answer to "which quantity read it".
-_ALL_QUANTITIES: tuple[str, ...] = tuple(sorted(known_quantities()))
-
 #: Cells that are a description rather than a token. A part number is one token;
 #: `10k 1%`, `10k, 1%` and `RES 10K 1% 0603` are sentences about a part. This
 #: matters because `normalize_mpn` deletes exactly these characters, so the
@@ -932,41 +1412,6 @@ _ALL_QUANTITIES: tuple[str, ...] = tuple(sorted(known_quantities()))
 #: `10k 1%` becomes the key `10k1`, which is a real E96 MPN (`10K1`, 10.1 kΩ).
 #: Reproduced matching a 10.0 kΩ line to 10.1 kΩ stock that way.
 _NOT_ONE_TOKEN = re.compile(r"[\s,;/%]")
-
-
-@functools.lru_cache(maxsize=4096)
-def _reads_as_a_quantity(ref_value: str) -> str | None:
-    """The first known quantity that reads this whole cell as a value, or `None`.
-
-    The generalisation of `_parse_ref_value` to the case where the designators do
-    **not** say what quantity the cell expresses — no designator column, an empty
-    designator cell, or a prefix outside `R`/`C`/`L`. `_mpn_candidates` used to
-    treat all of those as "no parse was attempted, so the cell may be a part
-    number", which meant the value parser was only a gate when the designator
-    happened to start with one of three letters: `RN1` (a resistor network) and
-    `VR1` (a potentiometer) with a `Value` of `10k` were both matched to a chip
-    resistor named `10K`, and a file with no `Reference` column at all matched
-    every passive line that way.
-
-    A successful parse under *any* quantity is the right test, and it separates
-    the two populations cleanly: `10k`, `4k7`, `100nF`, `0R22`, `1M`, `22p`,
-    `16MHz` and even a bare `0603` all read as a value under something, while
-    `LM358N`, `74HC595`, `1N4148`, `STM32F103C8T6` and `RC0603FR-0710KL` read as
-    a value under nothing. A *refusal* is not used here — `implausible` and
-    `unit_mismatch` mean the text was read as a quantity and rejected, which the
-    sweep catches through whichever quantity accepts it instead.
-
-    Cached because a BOM repeats its values (a hundred `100nF` lines is one
-    decoupling net) and `_mpn_candidates` runs twice per line — once to collect
-    keys, once to apply them.
-    """
-    for quantity in _ALL_QUANTITIES:
-        try:
-            parse_electronics_value(ref_value, quantity)
-        except ValueParseError:
-            continue
-        return quantity
-    return None
 
 
 #: Parse failures that mean "this cell is not a quantity at all", and therefore
@@ -1011,7 +1456,8 @@ def _mpn_candidates(line: ParsedBomLine) -> tuple[tuple[BomField, str], ...]:
 
     1. the implied-quantity parse, when the designators implied one, refused in
        an MPN-shaped way (`_MPN_SHAPED_FAILURES`);
-    2. **no** quantity reads the cell as a value (`_reads_as_a_quantity`) — the
+    2. **no** quantity reads the cell as a value (`reads_as_a_quantity`, shared
+       with `app.services.requirements`) — the
        original rule asked only about the implied quantity, so a line with no
        designator column, a blank designator cell or an `RN1`/`VR1` prefix
        skipped the gate entirely and matched `10k` against a part named `10K`;
@@ -1029,7 +1475,7 @@ def _mpn_candidates(line: ParsedBomLine) -> tuple[tuple[BomField, str], ...]:
     refused_as_an_mpn = (
         line.value is None
         and (line.value_parse_error is None or line.value_parse_error in _MPN_SHAPED_FAILURES)
-        and _reads_as_a_quantity(line.ref_value) is None
+        and reads_as_a_quantity(line.ref_value) is None
         and _NOT_ONE_TOKEN.search(line.ref_value) is None
     )
     if refused_as_an_mpn:

@@ -1573,13 +1573,65 @@ export interface paths {
         put?: never;
         /**
          * Import Bom
-         * @description Land a KiCad-style CSV/TSV export as `bom_lines`. **Appends; never
-         *     replaces** — see `app.services.bom_import`'s module docstring for why a
-         *     "this is a new revision" merge is not attempted. A retried upload without
-         *     `client_op_id` therefore double-imports, the same at-least-once contract
-         *     every unguarded write in this API already has.
+         * @description Land a CSV/TSV BOM export as `bom_lines` — KiCad, Altium, CircuitMaker or
+         *     hand-rolled. The header row, the delimiter and the column meanings are all
+         *     worked out from the file, so no format has to be declared.
+         *
+         *     **Text only.** A binary workbook (`.xlsx`, `.xls`, or an Altium `.BomDoc`) is
+         *     refused with a warning naming the format, and imports nothing; re-export as
+         *     CSV or tab-delimited text. Altium's numbered supplier sets beyond the first
+         *     are not imported either, for the reason `app.services.bom_import._map_headers`
+         *     gives — they are alternates, and choosing one is a substitution decision.
+         *     Both cases are reported in `warnings` rather than as an error status, because
+         *     the file still lands whatever else is wrong with it.
+         *
+         *     **Appends; never replaces** — see `app.services.bom_import`'s module docstring
+         *     for why a "this is a new revision" merge is not attempted. A retried upload
+         *     without `client_op_id` therefore double-imports, the same at-least-once
+         *     contract every unguarded write in this API already has.
          */
         post: operations["import_bom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/bom/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Bom Suggestions
+         * @description What this project's unmatched lines could be filled with. **A pure read.**
+         *
+         *     The project-scoped half of `POST /api/requirements/suggest`, and the same
+         *     answer: every candidate came out of `app.services.search.query_builder`, in
+         *     `mode="search"` for an exact match and `mode="substitute"` for a part that
+         *     satisfies the line per each template's `substitution_direction`. Ranking
+         *     reorders that result and can never extend it.
+         *
+         *     Lives here rather than on `/api/requirements` because it is about *this
+         *     project's* rows — it reads `bom_lines`, it returns `bom_line_id` on every
+         *     answer, and it needs the project-membership check — while the prose batch door
+         *     is about the catalogue and needs no project at all. Both render through
+         *     `app.api.schemas.suggestion_read`, so a suggestion looks the same either way.
+         *
+         *     **Writes nothing, and accepts nothing.** Accepting a candidate is an ordinary
+         *     edit through `PUT /api/projects/{project_id}/bom`: `{"edits": [{"id":
+         *     <bom_line_id>, "part_id": <the chosen part_id>}]}`, which sets
+         *     `is_match_confirmed` because a human choosing a part through that route *is*
+         *     the confirmation (see `_apply_bom_line_edit`) — unlike `bom_import`'s automatic
+         *     exact-MPN hits, which never set it. Rejecting every candidate means calling
+         *     nothing at all: the line stays unmatched with its `description` intact, which
+         *     is a normal state an import leaves behind by the dozen and not an error.
+         */
+        get: operations["read_bom_suggestions"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1675,6 +1727,72 @@ export interface paths {
          *     the cabinet is the one most likely to need taking back.
          */
         post: operations["undo_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/requirements/parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse Requirements
+         * @description Translate descriptions into structured requirements. **No search runs.**
+         *
+         *     The half of the feature worth having on its own: it shows what a line was
+         *     understood to mean before anything is matched against it, which is what a UI
+         *     needs to render the parse as somebody types, and what makes the refusals
+         *     (`rejections`) and the admissions (`residue`) reviewable.
+         *
+         *     Never errors on unreadable input. `parse("that thing Dave used on the mixer
+         *     board")` returns a requirement with the text preserved, the residue listed and
+         *     `is_actionable: false` — a normal outcome, because `bom_lines.part_id` is
+         *     nullable and losing the line is worse than not understanding it.
+         */
+        post: operations["parse_requirements"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/requirements/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suggest Parts
+         * @description What you own that satisfies each line, then what you would have to order.
+         *
+         *     Every candidate came out of `app.services.search.query_builder` — the same
+         *     executor `/api/search/parts` uses, in `mode="search"` for an exact match and
+         *     `mode="substitute"` for a part that *satisfies* the requirement per each
+         *     template's `substitution_direction`. The ranking reorders that result and can
+         *     never extend it.
+         *
+         *     **A line with nothing in stock is the answer worth having.** `outcome:
+         *     "order"` with a populated `not_stocked` says "you own nothing that satisfies
+         *     this, and here is what does" — which is the list that becomes a purchase.
+         *     `outcome: "no_match"` is a different and worse thing: nothing in the catalogue
+         *     is this part at all, so no amount of buying the parts you know about will fix
+         *     the line.
+         *
+         *     Nothing is accepted here. Accepting a candidate is a BOM edit through the
+         *     existing route — see `SuggestionLineRead`.
+         */
+        post: operations["suggest_parts"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2385,6 +2503,27 @@ export interface components {
              * @default false
              */
             replayed?: boolean;
+        };
+        /**
+         * BomSuggestionsResponse
+         * @description Suggestions for one page of a project's BOM lines.
+         *
+         *     Named for the project rather than sharing a name with
+         *     `requirements.SuggestionBatchResponse`: FastAPI disambiguates a repeated model
+         *     name by fully qualifying **both**, which silently renames the other module's
+         *     schema and breaks any client aliasing the short name (see
+         *     `tests/integration/test_health.py`). The line shape itself *is* shared —
+         *     `SuggestionLineRead` — which is the part that must not drift.
+         */
+        BomSuggestionsResponse: {
+            /** Assembly Count */
+            assembly_count: number;
+            /** Lines */
+            lines: components["schemas"]["SuggestionLineRead"][];
+            /** Project Id */
+            project_id: number;
+            /** Total */
+            total: number;
         };
         /** BuildCreate */
         BuildCreate: {
@@ -4135,6 +4274,44 @@ export interface components {
             /** Unit Symbol */
             unit_symbol?: string | null;
         };
+        /**
+         * PartCandidateRead
+         * @description One part the filter returned, with the numbers the ranking used.
+         */
+        PartCandidateRead: {
+            /** Category Id */
+            category_id: number | null;
+            /** Covers Required */
+            covers_required: boolean | null;
+            /** Description */
+            description: string | null;
+            /** Distance */
+            distance: number;
+            /** Is In Stock */
+            is_in_stock: boolean;
+            /** Is Stub */
+            is_stub: boolean;
+            /** Is Substitute */
+            is_substitute: boolean;
+            /** Location Count */
+            location_count: number;
+            /** Lot Count */
+            lot_count: number;
+            /** Mpn */
+            mpn: string | null;
+            /** Name */
+            name: string;
+            /** Part Id */
+            part_id: number;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Qty Reserved Milli */
+            qty_reserved_milli: number;
+            /** Rank */
+            rank: number;
+            /** Reasons */
+            reasons: components["schemas"]["SubstitutionReasonRead"][];
+        };
         /** PartCreate */
         PartCreate: {
             /** Category Id */
@@ -4855,6 +5032,100 @@ export interface components {
             replayed?: boolean;
         };
         /**
+         * RequirementFilterRead
+         * @description One predicate the description was read as.
+         */
+        RequirementFilterRead: {
+            /** Confidence */
+            confidence: number;
+            /** Origin */
+            origin: string;
+            /** Source Text */
+            source_text: string;
+            /** Template */
+            template: string;
+            /** Value */
+            value: string;
+        };
+        /**
+         * RequirementLineIn
+         * @description One line to answer.
+         */
+        RequirementLineIn: {
+            /** Required Milli */
+            required_milli?: number | null;
+            /**
+             * Text
+             * @description A description, not a part number: '3x 10k 1% 0603 resistor', '100nF 50V X7R 0603', 'a dual op-amp, rail-to-rail, SOIC-8'.
+             */
+            text: string;
+        };
+        /**
+         * RequirementParseRequest
+         * @description Descriptions to translate, with no matching at all.
+         */
+        RequirementParseRequest: {
+            /** Lines */
+            lines: string[];
+        };
+        /** RequirementParseResponse */
+        RequirementParseResponse: {
+            /** Requirements */
+            requirements: components["schemas"]["RequirementRead"][];
+        };
+        /**
+         * RequirementRead
+         * @description What a description was understood to mean. **Not a part, and not an answer.**
+         */
+        RequirementRead: {
+            /** Category */
+            category: string | null;
+            /** Confidence */
+            confidence: number;
+            /** Filters */
+            filters: components["schemas"]["RequirementFilterRead"][];
+            /** Is Actionable */
+            is_actionable: boolean;
+            /** Is Complete */
+            is_complete: boolean;
+            /** Mpn */
+            mpn: string | null;
+            /** Mpn Norm */
+            mpn_norm: string | null;
+            /** Notes */
+            notes: string[];
+            /** Provenance */
+            provenance: string;
+            /** Quantity */
+            quantity: number | null;
+            /** Rejections */
+            rejections: components["schemas"]["RequirementRejectionRead"][];
+            /** Residue */
+            residue: string[];
+            /** Text */
+            text: string;
+        };
+        /**
+         * RequirementRejectionRead
+         * @description Text that *was* read and refused, with a reason a UI can route on.
+         *
+         *     Distinct from `residue` on purpose: residue is words nothing accounted for, a
+         *     rejection is a reading that was refused. A megafarad and an unknown word are
+         *     different problems with different next actions.
+         */
+        RequirementRejectionRead: {
+            /** Candidates */
+            candidates?: string[];
+            /** Message */
+            message: string;
+            /** Reason */
+            reason: string;
+            /** Source Text */
+            source_text: string;
+            /** Template */
+            template?: string | null;
+        };
+        /**
          * ResolveRequest
          * @description Mark an entry dealt with, optionally naming what it became.
          */
@@ -5552,6 +5823,30 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /**
+         * SubstitutionReasonRead
+         * @description Why one predicate is satisfied — a rendering of the predicate SQL applied.
+         *
+         *     Not an independent judgement and not a model's opinion: `direction` is the
+         *     template's own `substitution_direction`, `offered` is read off the candidate's
+         *     `parameter_value`, and the executor had already proved the predicate before
+         *     this sentence was written. That is what makes a suggestion trustworthy instead
+         *     of magical.
+         */
+        SubstitutionReasonRead: {
+            /** Direction */
+            direction: string;
+            /** Display Name */
+            display_name: string;
+            /** Explanation */
+            explanation: string;
+            /** Offered */
+            offered: string;
+            /** Required */
+            required: string;
+            /** Template */
+            template: string;
+        };
         /** SuggestRequest */
         SuggestRequest: {
             /** Client Op Id */
@@ -5596,6 +5891,67 @@ export interface components {
              * @default false
              */
             replayed?: boolean;
+        };
+        /** SuggestionBatchResponse */
+        SuggestionBatchResponse: {
+            /** Lines */
+            lines: components["schemas"]["SuggestionLineRead"][];
+        };
+        /**
+         * SuggestionLineRead
+         * @description One line's answer. **Nothing here is accepted; every candidate is a proposal.**
+         *
+         *     Accepting one is an ordinary BOM edit through the existing route: `PUT
+         *     /api/projects/{project_id}/bom` with `{"edits": [{"id": bom_line_id,
+         *     "part_id": <the chosen part_id>}]}`, which sets `is_match_confirmed` because a
+         *     human choosing a part through that route *is* the confirmation. Rejecting is
+         *     calling nothing at all — the line keeps its `description` and stays unmatched,
+         *     which is a normal state and not an error.
+         */
+        SuggestionLineRead: {
+            /** Bom Line Id */
+            bom_line_id: number | null;
+            /** In Stock */
+            in_stock: components["schemas"]["PartCandidateRead"][];
+            /** Index */
+            index: number;
+            /** Message */
+            message: string;
+            /** Not Stocked */
+            not_stocked: components["schemas"]["PartCandidateRead"][];
+            /** Outcome */
+            outcome: string;
+            /** Required Milli */
+            required_milli: number | null;
+            requirement: components["schemas"]["RequirementRead"];
+            /** Text */
+            text: string;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
+         * SuggestionRequest
+         * @description A batch. Twenty lines is the case this exists for.
+         *
+         *     Batched because an agent emits a whole BOM at once and twenty round trips is
+         *     the wrong shape — but also because the work genuinely shares state: one
+         *     vocabulary snapshot, one `parameter_template` map and one stock cache serve
+         *     every line, so twenty lines that all want the same 0603 resistor read its
+         *     stock once. See `app.services.requirements.matching.suggest_batch`.
+         */
+        SuggestionRequest: {
+            /**
+             * Include Stubs
+             * @default true
+             */
+            include_stubs?: boolean;
+            /**
+             * Limit
+             * @default 5
+             */
+            limit?: number;
+            /** Lines */
+            lines: components["schemas"]["RequirementLineIn"][];
         };
         /**
          * TagGranularity
@@ -8325,6 +8681,46 @@ export interface operations {
             };
         };
     };
+    read_bom_suggestions: {
+        parameters: {
+            query?: {
+                /** @description Only lines with no part_id. Default **true**, unlike `GET .../bom`: a line already matched to a part has nothing to suggest, and including it would spend two executor queries confirming a decision somebody already made. */
+                unmatched_only?: boolean;
+                /** @description How many boards the demand is for. Demand is derived, never stored (ADR 0004), and this route has no build in scope — so `required_milli` is `qty_per_assembly_milli * assembly_count` computed here, exactly as `reservations.shortage_for_build` computes it from a build's own count. */
+                assembly_count?: number;
+                limit?: number;
+                offset?: number;
+                /** @description Candidates per availability list, per line. */
+                candidates?: number;
+            };
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BomSuggestionsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_build: {
         parameters: {
             query?: never;
@@ -8452,6 +8848,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProvisioningUndoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    parse_requirements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequirementParseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequirementParseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_parts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuggestionBatchResponse"];
                 };
             };
             /** @description Validation Error */

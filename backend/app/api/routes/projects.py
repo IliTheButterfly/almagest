@@ -43,8 +43,14 @@ from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
-from app.api.limits import AssemblyCount, QtyMilli, ResultOffset, RowId
-from app.api.schemas import LotRead, ReplayableResponse, lot_read
+from app.api.limits import AssemblyCount, CandidateLimit, QtyMilli, ResultOffset, RowId
+from app.api.schemas import (
+    LotRead,
+    ReplayableResponse,
+    SuggestionLineRead,
+    lot_read,
+    suggestion_read,
+)
 from app.db.session import get_db
 from app.models.catalog import Part
 from app.models.enums import BuildStatus, ProjectStatus
@@ -57,6 +63,8 @@ from app.services.bom_import import import_bom as run_bom_import
 from app.services.bom_import import normalized_mpn, parse_bom
 from app.services.ledger import Attribution, LedgerError
 from app.services.picking import PickGap, PickStop, PickTake, pick_list_for_build
+from app.services.requirements import matching
+from app.services.requirements.matching import RequirementInput
 from app.services.reservations import (
     LineShortage,
     ReservationError,
@@ -213,6 +221,26 @@ class BomImportResponse(ReplayableResponse):
     #: unmatched — the curation worklist an import leaves behind.
     ambiguous_keys: list[str]
     warnings: list[str]
+
+
+class BomSuggestionsResponse(BaseModel):
+    """Suggestions for one page of a project's BOM lines.
+
+    Named for the project rather than sharing a name with
+    `requirements.SuggestionBatchResponse`: FastAPI disambiguates a repeated model
+    name by fully qualifying **both**, which silently renames the other module's
+    schema and breaks any client aliasing the short name (see
+    `tests/integration/test_health.py`). The line shape itself *is* shared —
+    `SuggestionLineRead` — which is the part that must not drift.
+    """
+
+    project_id: int
+    #: Echoed because `required_milli` on every line was multiplied by it, and a
+    #: response whose numbers depend on a defaulted query parameter has to say so.
+    assembly_count: int
+    #: Lines matching the filter, ignoring pagination.
+    total: int
+    lines: list[SuggestionLineRead]
 
 
 class BomLineEdit(BaseModel):
@@ -1070,11 +1098,22 @@ def update_project(
 def import_bom(
     project_id: RowId, request: BomImportRequest, db: Session = Depends(get_db)
 ) -> BomImportResponse:
-    """Land a KiCad-style CSV/TSV export as `bom_lines`. **Appends; never
-    replaces** — see `app.services.bom_import`'s module docstring for why a
-    "this is a new revision" merge is not attempted. A retried upload without
-    `client_op_id` therefore double-imports, the same at-least-once contract
-    every unguarded write in this API already has.
+    """Land a CSV/TSV BOM export as `bom_lines` — KiCad, Altium, CircuitMaker or
+    hand-rolled. The header row, the delimiter and the column meanings are all
+    worked out from the file, so no format has to be declared.
+
+    **Text only.** A binary workbook (`.xlsx`, `.xls`, or an Altium `.BomDoc`) is
+    refused with a warning naming the format, and imports nothing; re-export as
+    CSV or tab-delimited text. Altium's numbered supplier sets beyond the first
+    are not imported either, for the reason `app.services.bom_import._map_headers`
+    gives — they are alternates, and choosing one is a substitution decision.
+    Both cases are reported in `warnings` rather than as an error status, because
+    the file still lands whatever else is wrong with it.
+
+    **Appends; never replaces** — see `app.services.bom_import`'s module docstring
+    for why a "this is a new revision" merge is not attempted. A retried upload
+    without `client_op_id` therefore double-imports, the same at-least-once
+    contract every unguarded write in this API already has.
     """
     project = _require_project(db, project_id)
 
@@ -1131,6 +1170,131 @@ def list_bom_lines(
         ).scalars()
     )
     return BomLineList(total=total, lines=[_bom_line_read(line) for line in rows])
+
+
+def _requirement_text(line: BomLine) -> str:
+    """The description a BOM line is read as prose from: `ref_value`, then
+    `description`.
+
+    **Deliberately not `footprint`.** A KiCad or Altium footprint is a library
+    path, not a description — `Capacitor_SMD:C_0603_1608Metric`,
+    `R_0805_2012Metric` — and it tokenises as one long letters-and-digits word,
+    which `requirements.parser.looks_like_a_part_number` correctly reads as a part
+    number. Feeding it in would give most lines an invented MPN and lose the real
+    one, so the package facet has to come from `ref_value` or `description` or not
+    at all.
+
+    **Deliberately not `mpn_raw` either.** An unmatched line with an `mpn_raw` is
+    one the importer's exact-MPN pass already failed to resolve, so re-reading it
+    here adds no matching power — and a second part-number-shaped token in the text
+    would collide with a real one in `ref_value` and produce an `ambiguous_mpn`
+    refusal for both. It is carried on the response as the line's own field
+    instead, where a reviewer can see it.
+
+    `ref_value` first because it is the money column (`10k`, `100nF`) and the
+    parser reads curated spellings and values left to right; a `description` that
+    repeats the same value contributes nothing new, and one that contradicts it
+    surfaces as a contradiction rather than as a silent choice.
+    """
+    return " ".join(part for part in (line.ref_value, line.description) if part)
+
+
+@router.get("/{project_id}/bom/suggestions", response_model=BomSuggestionsResponse)
+def read_bom_suggestions(
+    project_id: RowId,
+    unmatched_only: bool = Query(
+        default=True,
+        description=(
+            "Only lines with no part_id. Default **true**, unlike `GET .../bom`: a "
+            "line already matched to a part has nothing to suggest, and including "
+            "it would spend two executor queries confirming a decision somebody "
+            "already made."
+        ),
+    ),
+    # `Annotated[...]` rather than `alias = Query(default=...)`, and that is not a
+    # style choice: a bare type-alias annotation with a `Query()` *default* does
+    # not carry the alias's `Field` constraints into FastAPI's validation, so
+    # `assembly_count=200000` and `candidates=51` both sailed past their own
+    # ceilings — and `assembly_count=10**30` multiplied straight into
+    # `required_milli`. Inside `Annotated` the constraints apply, which is why
+    # `offset` below was correct all along. Every bounded query parameter in this
+    # file uses this form.
+    assembly_count: Annotated[
+        AssemblyCount,
+        Query(
+            description=(
+                "How many boards the demand is for. Demand is derived, never stored "
+                "(ADR 0004), and this route has no build in scope — so `required_milli` "
+                "is `qty_per_assembly_milli * assembly_count` computed here, exactly as "
+                "`reservations.shortage_for_build` computes it from a build's own count."
+            )
+        ),
+    ] = 1,
+    limit: int = Query(default=50, ge=1, le=matching.MAX_BATCH),
+    offset: Annotated[ResultOffset, Query()] = 0,
+    candidates: Annotated[
+        CandidateLimit,
+        Query(description="Candidates per availability list, per line."),
+    ] = matching.DEFAULT_LIMIT,
+    db: Session = Depends(get_db),
+) -> BomSuggestionsResponse:
+    """What this project's unmatched lines could be filled with. **A pure read.**
+
+    The project-scoped half of `POST /api/requirements/suggest`, and the same
+    answer: every candidate came out of `app.services.search.query_builder`, in
+    `mode="search"` for an exact match and `mode="substitute"` for a part that
+    satisfies the line per each template's `substitution_direction`. Ranking
+    reorders that result and can never extend it.
+
+    Lives here rather than on `/api/requirements` because it is about *this
+    project's* rows — it reads `bom_lines`, it returns `bom_line_id` on every
+    answer, and it needs the project-membership check — while the prose batch door
+    is about the catalogue and needs no project at all. Both render through
+    `app.api.schemas.suggestion_read`, so a suggestion looks the same either way.
+
+    **Writes nothing, and accepts nothing.** Accepting a candidate is an ordinary
+    edit through `PUT /api/projects/{project_id}/bom`: `{"edits": [{"id":
+    <bom_line_id>, "part_id": <the chosen part_id>}]}`, which sets
+    `is_match_confirmed` because a human choosing a part through that route *is*
+    the confirmation (see `_apply_bom_line_edit`) — unlike `bom_import`'s automatic
+    exact-MPN hits, which never set it. Rejecting every candidate means calling
+    nothing at all: the line stays unmatched with its `description` intact, which
+    is a normal state an import leaves behind by the dozen and not an error.
+    """
+    _require_project(db, project_id)
+    where: list[ColumnElement[bool]] = [BomLine.project_id == project_id]
+    if unmatched_only:
+        where.append(BomLine.part_id.is_(None))
+
+    total = int(db.execute(select(func.count()).select_from(BomLine).where(*where)).scalar_one())
+    lines = list(
+        db.execute(
+            select(BomLine)
+            .where(*where)
+            .order_by(BomLine.line_no, BomLine.id)
+            .limit(limit)
+            .offset(offset)
+        ).scalars()
+    )
+
+    suggestions = matching.suggest_batch(
+        db,
+        [
+            RequirementInput(
+                text=_requirement_text(line),
+                required_milli=line.qty_per_assembly_milli * assembly_count,
+                bom_line_id=line.id,
+            )
+            for line in lines
+        ],
+        limit=candidates,
+    )
+    return BomSuggestionsResponse(
+        project_id=project_id,
+        assembly_count=assembly_count,
+        total=total,
+        lines=[suggestion_read(index, suggestion) for index, suggestion in enumerate(suggestions)],
+    )
 
 
 def _apply_bom_line_edit(db: Session, line: BomLine, edit: BomLineEdit) -> None:

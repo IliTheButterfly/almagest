@@ -1,20 +1,32 @@
 """The BOM reader, against files shaped like the ones that actually arrive.
 
-`tests/fixtures/bom/*.csv` **are** the ground truth here, hand-verified, for the
-same reason the ECIA fixtures are: there is no reference implementation to diff
-against, because "a KiCad BOM" is not one format. Every expectation below was
-checked against the file by eye rather than against another parser.
+`tests/fixtures/bom/*` **are** the ground truth here, hand-verified, for the same
+reason the ECIA fixtures are: there is no reference implementation to diff
+against, because "a BOM" is not one format — and neither is "a KiCad BOM", or an
+Altium one. Every expectation below was checked against the file by eye rather
+than against another parser.
 
-The most valuable test here is the one that looks least interesting:
-`test_a_semicolon_file_is_not_read_as_one_column` guards the delimiter choice,
-which the obvious implementation (count the separators) gets wrong on an ordinary
-board, because one grouped decoupling line puts forty commas in a cell.
+The most valuable tests here are the two that look least interesting:
+`test_a_semicolon_file_is_not_read_as_one_column` and
+`test_a_tab_delimited_altium_report_is_not_read_as_commas` guard the delimiter
+choice, which the obvious implementation (count the separators) gets wrong on an
+ordinary board — one grouped decoupling line puts forty commas in a cell, and an
+Altium `Description` puts five in every row.
+
+Next after those are the *refusals*: `LibRef`, `Supplier Part Number 1` and
+`Fitted` all have to stay unmapped, because `bom_lines.part_id` is nullable so an
+unmatched line can be curated while a **wrongly** mapped column has no such
+recovery — it looks right.
 
 Nothing here touches a database. Matching lives in
 `tests/integration/test_bom_import.py` — including
 `test_a_passive_value_is_never_mistaken_for_a_part_number`, which guards the one
 place in this feature where a machine could silently allocate the wrong
-component — because it is a query.
+component — because it is a query. The one exception is
+`test_a_descriptive_comment_is_never_a_part_number_candidate`, which reaches into
+`_mpn_candidates` directly: mapping Altium's `Comment` to the value column is the
+change in this module most able to feed prose to the matcher, and the guard that
+stops it is a pure function that deserves a test without a catalogue.
 """
 
 from __future__ import annotations
@@ -33,13 +45,23 @@ from app.services.bom_import import (
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "bom"
 
 
+def load_file(filename: str) -> ParsedBom:
+    """Read a fixture as **bytes**, which is what an upload is."""
+    return parse_bom((FIXTURES / filename).read_bytes())
+
+
 def load(name: str) -> ParsedBom:
-    return parse_bom((FIXTURES / f"{name}.csv").read_bytes())
+    return load_file(f"{name}.csv")
 
 
 @pytest.fixture
 def kicad8() -> ParsedBom:
     return load("kicad8_grouped")
+
+
+@pytest.fixture
+def altium() -> ParsedBom:
+    return load("altium_bomdoc")
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +166,349 @@ def test_columns_the_schema_has_no_home_for_are_reported_not_dropped() -> None:
     parsed = load("kicad5_bom2grouped")
     assert parsed.unmapped_headers == ("Cmp name", "Vendor")
     assert parsed.lines[0].raw_fields["Cmp name"] == "C"
+
+
+# ---------------------------------------------------------------------------
+# Altium — the same table, a different vocabulary
+# ---------------------------------------------------------------------------
+
+
+def test_the_altium_bomdoc_export_maps_every_column_it_should(altium: ParsedBom) -> None:
+    """The default BomDoc column set plus a synced supply-chain block. Nothing
+    here shares a spelling with KiCad except `Footprint` and `Description`, and
+    it is still the same alias table doing the work — which is the point of not
+    writing a second parser."""
+    assert altium.columns == {
+        BomField.DESIGNATORS: "Designator",
+        BomField.VALUE: "Comment",
+        BomField.DESCRIPTION: "Description",
+        BomField.FOOTPRINT: "Footprint",
+        BomField.QUANTITY: "Quantity",
+        BomField.MANUFACTURER: "Manufacturer 1",
+        BomField.MPN: "Manufacturer Part Number 1",
+    }
+    assert len(altium.lines) == 4
+
+
+def test_altiums_comment_column_is_the_value_column(altium: ParsedBom) -> None:
+    """**The trap in this whole feature.** `Comment` reads like a note and is in
+    fact what Altium prints on the schematic next to the designator, so it is the
+    value. Leaving it unmapped imports every Altium BOM with no values at all."""
+    capacitors = altium.lines[0]
+    assert capacitors.ref_value == "100nF"
+    assert capacitors.value is not None
+    assert capacitors.value.value_nominal == pytest.approx(1e-7)
+    # And `Description` is not confused for it, which is the other half.
+    assert capacitors.description == "Capacitor, ceramic, 100nF, 50V, X7R"
+
+
+def test_the_altium_preamble_is_found_and_kept(altium: ParsedBom) -> None:
+    """Report Manager writes a title line and an approval/revision block above
+    the table — nine rows in this export, blank spacer rows included. The header
+    is searched for, so none of that becomes a component."""
+    assert len(altium.preamble) == 9
+    assert altium.preamble[0] == ("Bill of Materials for PCB Document [Nightlight.PcbDoc]",)
+    assert altium.preamble[6] == ("Revision:", "B")
+    # Line 1 of the BOM is row 11 of the file. A warning that quoted the line
+    # number would send the user ten rows up from the cell it is about.
+    first = altium.lines[0]
+    assert (first.line_no, first.source_row) == (1, 11)
+
+
+def test_a_grouped_altium_line_counts_its_designators(altium: ParsedBom) -> None:
+    """`"C1, C2, C3, C4"` with `Quantity 4` agrees, exactly as the KiCad case
+    does — the quantity cross-check is not per-format either."""
+    capacitors = altium.lines[0]
+    assert capacitors.designator_refs == ("C1", "C2", "C3", "C4")
+    assert capacitors.qty_per_assembly_milli == 4_000
+    assert capacitors.qty_source is QtySource.DESIGNATOR_COUNT
+    assert capacitors.warnings == ()
+
+
+def test_libref_is_never_mapped_to_anything(altium: ParsedBom) -> None:
+    """`LibRef` is Altium's *symbol* name — `Cap`, `Res2`, `LED1` — the exact
+    counterpart of KiCad's already-unmapped `Cmp name`. Mapping it to `MPN` would
+    give every capacitor on the board the part number `Cap`; mapping it to
+    `Value` would overwrite a real value with `Res2`. Unmapped is the answer, and
+    the cell is still in the archive copy."""
+    assert "LibRef" in altium.unmapped_headers
+    assert altium.lines[0].raw_fields["LibRef"] == "Cap"
+    assert altium.lines[0].mpn_raw == "CL10B104KB8NNNC"
+
+
+def test_a_distributor_sku_column_is_never_the_mpn_column(altium: ParsedBom) -> None:
+    """`Supplier Part Number 1` is a Digi-Key SKU, not a manufacturer part
+    number, and `mpn_norm` is matched against `parts.mpn_norm` by exact equality
+    — so a SKU written there matches nothing at best and the wrong part at worst.
+    A distributor-number column is a real thing to support one day; it needs its
+    own column, not this one."""
+    assert altium.unmapped_headers == (
+        "LibRef",
+        "Manufacturer 2",
+        "Manufacturer Part Number 2",
+        "Supplier 1",
+        "Supplier Part Number 1",
+    )
+    assert altium.lines[0].raw_fields["Supplier Part Number 1"] == "1276-1000-1-ND"
+
+
+def test_only_the_lowest_numbered_supplier_set_is_imported(altium: ParsedBom) -> None:
+    """Altium numbers its manufacturer sets in **approval order**, and sets 2..n
+    are *alternates* — a different manufacturer's different component, not more
+    detail about this one. `bom_lines` has one `mpn_raw`, so importing an
+    alternate would let a build allocate a substitute the designer did not
+    choose, silently. Set 1 wins; the rest are named in a warning and kept
+    verbatim in the raw fields, which is what makes the refusal cheap."""
+    capacitors = altium.lines[0]
+    assert (capacitors.manufacturer_raw, capacitors.mpn_raw) == ("Samsung", "CL10B104KB8NNNC")
+    assert capacitors.raw_fields["Manufacturer 2"] == "Murata"
+    assert capacitors.raw_fields["Manufacturer Part Number 2"] == "GRM188R71H104KA93D"
+
+    said = " | ".join(altium.warnings)
+    assert "the mpn field came from 'Manufacturer Part Number 1'" in said
+    assert "'Manufacturer Part Number 2' was not imported" in said
+    assert "the manufacturer field came from 'Manufacturer 1'" in said
+    assert "'Manufacturer 2' was not imported" in said
+    assert "choosing between numbered alternates is a curation decision" in said
+    # Not the ordinary duplicate-column warning: a synced Altium BOM carries
+    # numbered sets as a matter of course, and telling the user their file has a
+    # duplicate-column problem would be alarming and wrong.
+    assert "more than one column names" not in said
+
+
+def test_a_line_whose_first_supplier_set_is_empty_says_so(altium: ParsedBom) -> None:
+    """The one real cost of importing set 1 only, made into a worklist item
+    instead of a silence. Altium leaves set 1 blank on the lines where the first
+    approved manufacturer was never chosen, so `U1` here has a part number in the
+    file and none in the typed column. Falling back per row is refused — that is
+    a substitution decision — but *not saying so* would leave the user believing
+    the export had no part number for the op-amp."""
+    op_amp = altium.lines[2]
+    assert (op_amp.designators, op_amp.ref_value) == ("U1", "LM358")
+    assert (op_amp.mpn_raw, op_amp.mpn_norm, op_amp.manufacturer_raw) == (None, None, None)
+    assert op_amp.raw_fields["Manufacturer Part Number 2"] == "LM358DR2G"
+
+    said = " | ".join(op_amp.warnings)
+    assert "this line has no mpn; the alternate column 'Manufacturer Part Number 2'" in said
+    assert "this line has no manufacturer; the alternate column 'Manufacturer 2'" in said
+    # ...and the lines whose set 1 *is* populated stay quiet, or the warning is
+    # noise on every row of every Altium BOM and gets ignored.
+    assert altium.lines[0].warnings == ()
+    assert altium.lines[3].warnings == ()
+
+
+def test_a_higher_numbered_set_never_wins_on_column_order() -> None:
+    """Set index beats column order. Altium writes the sets in order, but a
+    hand-edited template or a spreadsheet round-trip can reverse them, and "last
+    column wins" would then import the alternate as the part."""
+    parsed = parse_bom(
+        "Designator,Manufacturer Part Number 2,Manufacturer Part Number 1\nU1,LM358DR2G,LM358DR\n"
+    )
+    assert parsed.columns[BomField.MPN] == "Manufacturer Part Number 1"
+    assert parsed.lines[0].mpn_raw == "LM358DR"
+
+
+def test_a_header_ending_in_a_long_number_is_not_a_numbered_set() -> None:
+    """The bound on `_SET_SUFFIX`. Two digits is an Altium set index; four is
+    part of the column's own name, and reading `Package 0603` as the 603rd
+    package column would map a footprint out of a header that is not one."""
+    parsed = parse_bom("Designator,Value,Package 0603\nR1,10k,0603\n")
+    assert BomField.FOOTPRINT not in parsed.columns
+    assert parsed.unmapped_headers == ("Package 0603",)
+
+
+def test_a_one_or_two_digit_suffix_is_a_set_index() -> None:
+    """The other side of the same bound, on an alias that is not a supplier
+    column at all: the index is stripped generically rather than from a second
+    list of numbered spellings that would drift out of step with `_ALIASES`."""
+    parsed = parse_bom("Designator,Val 2\nR1,10k\n")
+    assert parsed.columns[BomField.VALUE] == "Val 2"
+    assert parsed.lines[0].ref_value == "10k"
+
+
+def test_a_tab_delimited_altium_report_is_not_read_as_commas() -> None:
+    """**The Altium half of the load-bearing delimiter test.** Report Manager's
+    tab-delimited output leaves `Description` unquoted, and an Altium description
+    is a comma-separated list of attributes — so this file has *more commas than
+    tabs* without being contrived at all. Scoring on recognised columns is what
+    survives it: the comma reading recognises none, because every header ends up
+    inside one enormous cell."""
+    text = (FIXTURES / "altium_tab_delimited.txt").read_text()
+    assert text.count(",") > text.count("\t")
+
+    parsed = load_file("altium_tab_delimited.txt")
+    assert parsed.delimiter == "\t"
+    assert parsed.columns[BomField.VALUE] == "Comment"
+    assert parsed.unmapped_headers == ()
+    assert [line.designator_refs for line in parsed.lines] == [
+        ("C1", "C2", "C3"),
+        ("R1", "R2", "R3", "R4"),
+        ("U1",),
+    ]
+    assert parsed.lines[1].qty_per_assembly_milli == 4_000
+    assert parsed.lines[1].description == "Resistor, thick film, 10k, 1%, 0.1W, 0603"
+
+
+# ---------------------------------------------------------------------------
+# CircuitMaker — Altium-derived, and drifting
+# ---------------------------------------------------------------------------
+
+
+def test_the_circuitmaker_export_maps_its_unnumbered_supplier_columns() -> None:
+    """CircuitMaker shares Altium's vocabulary and drops the set numbers, which
+    needs nothing new: an unnumbered `Manufacturer Part Number` is a plain alias
+    hit, so there is no second envelope and no second parser. With no numbered
+    sets there is also nothing to warn about."""
+    parsed = load("circuitmaker_bom")
+    assert parsed.columns == {
+        BomField.DESIGNATORS: "Designator",
+        BomField.VALUE: "Comment",
+        BomField.DESCRIPTION: "Description",
+        BomField.FOOTPRINT: "Footprint",
+        BomField.QUANTITY: "Quantity",
+        BomField.MANUFACTURER: "Manufacturer",
+        BomField.MPN: "Manufacturer Part Number",
+    }
+    assert parsed.unmapped_headers == ("LibRef", "Supplier", "Supplier Part Number")
+    assert parsed.warnings == ()
+
+
+def test_circuitmaker_values_and_part_numbers_land_in_the_right_columns() -> None:
+    parsed = load("circuitmaker_bom")
+    capacitors, resistor, leds, mcu = parsed.lines
+
+    assert capacitors.value is not None
+    assert capacitors.value.value_nominal == pytest.approx(1e-6)
+    assert (capacitors.mpn_raw, capacitors.mpn_norm) == (
+        "CL21A105KAFNNNE",
+        "cl21a105kafnnne",
+    )
+    assert (resistor.ref_value, resistor.mpn_raw) == ("10k", None)
+    # `Green` under a `D` designator: no parse is attempted, because an LED's
+    # value is a name. The LCSC code is a distributor SKU and stays unmapped.
+    assert (leds.value, leds.value_parse_error) == (None, None)
+    assert leds.raw_fields["Supplier Part Number"] == "C72043"
+    assert (mcu.ref_value, mcu.mpn_norm) == ("ATmega328P-AU", "atmega328pau")
+
+
+# ---------------------------------------------------------------------------
+# `Comment`: mapped, and kept away from the matcher
+# ---------------------------------------------------------------------------
+
+
+def test_a_real_value_column_wins_over_comment() -> None:
+    """Alias order is the collision rule, and this is the collision that matters
+    most: a file exported with both must read its value from `Value`, and the
+    user has to be told the other column was seen — the losing cell is in the
+    raw fields, but nobody would think to look."""
+    parsed = parse_bom("Designator,Comment,Value\nR1,decoupling,10k\n")
+    assert parsed.columns[BomField.VALUE] == "Value"
+    assert parsed.lines[0].ref_value == "10k"
+    assert parsed.lines[0].raw_fields["Comment"] == "decoupling"
+    assert "more than one column names the value field" in " ".join(parsed.warnings)
+    assert "used 'Value', ignored 'Comment'" in " ".join(parsed.warnings)
+
+
+def test_a_descriptive_comment_is_never_a_part_number_candidate() -> None:
+    """**The hazard mapping `Comment` introduces, and the guard that closes it.**
+
+    A hand-rolled sheet's `Comment` is a note, so mapping it to the value column
+    puts prose in `ref_value` — and `normalize_mpn` deletes exactly the spaces,
+    commas and percent signs that make it prose, so `"Resistor, 10k, 1%"` would
+    collapse to the key `resistor10k1` and `"10k 1%"` to `10k1`, which is a real
+    E96 part number for a *different* resistance. `_NOT_ONE_TOKEN` is what stands
+    between those, and it is asserted here rather than through a catalogue
+    because it is a pure function and this is the reason it exists.
+    """
+    from app.services.bom_import import _mpn_candidates
+
+    prose = parse_bom('Designator,Comment\nR1,"Resistor, 10k, 1%"\n').lines[0]
+    assert prose.ref_value == "Resistor, 10k, 1%"
+    assert _mpn_candidates(prose) == ()
+
+    # ...while the case that makes mapping `Comment` worth doing still works: an
+    # Altium BOM with no part-number column at all, whose `Comment` on an IC line
+    # is the part name. That is the single most common shape of a hobby BOM.
+    part_name = parse_bom("Designator,Comment\nU3,LM358N\n").lines[0]
+    assert _mpn_candidates(part_name) == ((BomField.VALUE, "lm358n"),)
+
+
+def test_a_fitted_column_is_not_read_as_a_dnp_flag() -> None:
+    """`Fitted` is Altium's variant flag and its polarity is the **opposite** of
+    `DNP`. Reading it as `dnp` inverts the entire assembly — every populated part
+    marked do-not-populate and every excluded one fitted — and reading it as
+    `not dnp` needs an inverted-flag concept this schema does not have. So it
+    stays unmapped until it does, which leaves `is_dnp` false and the cell in the
+    raw fields, exactly as if the column were absent."""
+    parsed = parse_bom("Designator,Comment,Fitted\nR1,10k,Not Fitted\n")
+    assert BomField.DNP not in parsed.columns
+    assert parsed.unmapped_headers == ("Fitted",)
+    assert parsed.lines[0].is_dnp is False
+    assert parsed.lines[0].raw_fields["Fitted"] == "Not Fitted"
+
+
+# ---------------------------------------------------------------------------
+# Workbooks: refused by name, never parsed into nonsense
+# ---------------------------------------------------------------------------
+
+
+def test_an_xlsx_export_is_refused_by_name_rather_than_mojibake() -> None:
+    """**XLSX is not supported, and the whole value of that decision is in the
+    message.** Decoded and parsed, a zip becomes a page of mojibake in which no
+    header maps, so the file would land as "no recognisable header row" — true,
+    useless, and identical to what a genuine header problem looks like on a file
+    the user knows has headers. Naming the container and the fix is the
+    difference between a friction point and a dead end, and this project's stated
+    risk is friction.
+
+    The fixture is a real zip carrying the OOXML skeleton. Its identity as a
+    *workbook* is not what is under test — the refusal keys on the container.
+    """
+    parsed = load_file("altium_export.xlsx")
+
+    assert parsed.lines == ()
+    assert parsed.columns == {}
+    assert len(parsed.warnings) == 1
+    assert "zip-based spreadsheet" in parsed.warnings[0]
+    assert "Re-export the BOM as CSV or tab-delimited text" in parsed.warnings[0]
+    # Not the encoding warning: that one tells the user nothing they can act on.
+    assert "undecodable" not in parsed.warnings[0]
+
+
+def test_an_xlsx_that_arrived_as_text_is_refused_too() -> None:
+    """The transport is a JSON string field (`BomImportRequest.content`), so a
+    client that read an `.xlsx` and decoded it hands this module *text*. The zip
+    signature is ASCII and survives even a lossy decode, which is what makes the
+    `str` arm of the sniffer worth having — otherwise the one format Altium
+    offers first is exactly the one that slips through."""
+    smuggled = (FIXTURES / "altium_export.xlsx").read_bytes().decode("utf-8", errors="replace")
+    parsed = parse_bom(smuggled)
+    assert parsed.lines == ()
+    assert "zip-based spreadsheet" in " ".join(parsed.warnings)
+
+
+def test_an_old_excel_workbook_is_refused_by_name() -> None:
+    """The OLE2 signature, which is an `.xls` and also every Altium binary
+    document — including the `.BomDoc` that is the report *template* rather than
+    the report, and is therefore a file a user will genuinely try to import."""
+    parsed = parse_bom(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 64)
+    assert parsed.lines == ()
+    assert "OLE2 compound document" in " ".join(parsed.warnings)
+
+
+def test_a_pdf_is_refused_by_name() -> None:
+    """A printed BOM is a plausible mistake, and `%PDF-` costs five bytes."""
+    parsed = parse_bom(b"%PDF-1.7\n%\xc7\xec\x8f\xa2\n")
+    assert parsed.lines == ()
+    assert "a PDF" in " ".join(parsed.warnings)
+
+
+def test_a_text_file_starting_with_p_is_not_mistaken_for_a_zip() -> None:
+    """The sniffer compares the whole four-byte signature, not the letters. A
+    `Part Number` column in a headerless file starts with `P` and must still
+    import."""
+    parsed = parse_bom("Part Number,Designator,Qty\nLM358DR,U1,1\n")
+    assert parsed.lines[0].mpn_raw == "LM358DR"
 
 
 # ---------------------------------------------------------------------------

@@ -919,6 +919,38 @@
         "title": "BomLinesUpdateResponse",
         "type": "object"
       },
+      "BomSuggestionsResponse": {
+        "description": "Suggestions for one page of a project's BOM lines.\n\nNamed for the project rather than sharing a name with\n`requirements.SuggestionBatchResponse`: FastAPI disambiguates a repeated model\nname by fully qualifying **both**, which silently renames the other module's\nschema and breaks any client aliasing the short name (see\n`tests/integration/test_health.py`). The line shape itself *is* shared \u2014\n`SuggestionLineRead` \u2014 which is the part that must not drift.",
+        "properties": {
+          "assembly_count": {
+            "title": "Assembly Count",
+            "type": "integer"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionLineRead"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "assembly_count",
+          "total",
+          "lines"
+        ],
+        "title": "BomSuggestionsResponse",
+        "type": "object"
+      },
       "BuildCreate": {
         "properties": {
           "assembly_count": {
@@ -6125,6 +6157,126 @@
         "title": "NumericRange",
         "type": "object"
       },
+      "PartCandidateRead": {
+        "description": "One part the filter returned, with the numbers the ranking used.",
+        "properties": {
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category Id"
+          },
+          "covers_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covers Required"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "distance": {
+            "title": "Distance",
+            "type": "number"
+          },
+          "is_in_stock": {
+            "title": "Is In Stock",
+            "type": "boolean"
+          },
+          "is_stub": {
+            "title": "Is Stub",
+            "type": "boolean"
+          },
+          "is_substitute": {
+            "title": "Is Substitute",
+            "type": "boolean"
+          },
+          "location_count": {
+            "title": "Location Count",
+            "type": "integer"
+          },
+          "lot_count": {
+            "title": "Lot Count",
+            "type": "integer"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
+          },
+          "qty_reserved_milli": {
+            "title": "Qty Reserved Milli",
+            "type": "integer"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/SubstitutionReasonRead"
+            },
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rank",
+          "part_id",
+          "name",
+          "mpn",
+          "description",
+          "is_stub",
+          "category_id",
+          "qty_milli",
+          "qty_reserved_milli",
+          "lot_count",
+          "location_count",
+          "is_in_stock",
+          "is_substitute",
+          "covers_required",
+          "distance",
+          "reasons"
+        ],
+        "title": "PartCandidateRead",
+        "type": "object"
+      },
       "PartCreate": {
         "properties": {
           "category_id": {
@@ -8687,6 +8839,261 @@
         "title": "ReleaseResponse",
         "type": "object"
       },
+      "RequirementFilterRead": {
+        "description": "One predicate the description was read as.",
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "source_text": {
+            "title": "Source Text",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "value",
+          "source_text",
+          "origin",
+          "confidence"
+        ],
+        "title": "RequirementFilterRead",
+        "type": "object"
+      },
+      "RequirementLineIn": {
+        "description": "One line to answer.",
+        "properties": {
+          "required_milli": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000000000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Milli"
+          },
+          "text": {
+            "description": "A description, not a part number: '3x 10k 1% 0603 resistor', '100nF 50V X7R 0603', 'a dual op-amp, rail-to-rail, SOIC-8'.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "RequirementLineIn",
+        "type": "object"
+      },
+      "RequirementParseRequest": {
+        "description": "Descriptions to translate, with no matching at all.",
+        "properties": {
+          "lines": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "title": "RequirementParseRequest",
+        "type": "object"
+      },
+      "RequirementParseResponse": {
+        "properties": {
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementRead"
+            },
+            "title": "Requirements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requirements"
+        ],
+        "title": "RequirementParseResponse",
+        "type": "object"
+      },
+      "RequirementRead": {
+        "description": "What a description was understood to mean. **Not a part, and not an answer.**",
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementFilterRead"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "is_actionable": {
+            "title": "Is Actionable",
+            "type": "boolean"
+          },
+          "is_complete": {
+            "title": "Is Complete",
+            "type": "boolean"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "mpn_norm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn Norm"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "provenance": {
+            "title": "Provenance",
+            "type": "string"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "rejections": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementRejectionRead"
+            },
+            "title": "Rejections",
+            "type": "array"
+          },
+          "residue": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Residue",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "quantity",
+          "category",
+          "filters",
+          "mpn",
+          "mpn_norm",
+          "residue",
+          "rejections",
+          "notes",
+          "confidence",
+          "provenance",
+          "is_actionable",
+          "is_complete"
+        ],
+        "title": "RequirementRead",
+        "type": "object"
+      },
+      "RequirementRejectionRead": {
+        "description": "Text that *was* read and refused, with a reason a UI can route on.\n\nDistinct from `residue` on purpose: residue is words nothing accounted for, a\nrejection is a reading that was refused. A megafarad and an unknown word are\ndifferent problems with different next actions.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "source_text": {
+            "title": "Source Text",
+            "type": "string"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "required": [
+          "source_text",
+          "reason",
+          "message"
+        ],
+        "title": "RequirementRejectionRead",
+        "type": "object"
+      },
       "ResolveRequest": {
         "description": "Mark an entry dealt with, optionally naming what it became.",
         "properties": {
@@ -10824,6 +11231,45 @@
         "title": "StartSessionRequest",
         "type": "object"
       },
+      "SubstitutionReasonRead": {
+        "description": "Why one predicate is satisfied \u2014 a rendering of the predicate SQL applied.\n\nNot an independent judgement and not a model's opinion: `direction` is the\ntemplate's own `substitution_direction`, `offered` is read off the candidate's\n`parameter_value`, and the executor had already proved the predicate before\nthis sentence was written. That is what makes a suggestion trustworthy instead\nof magical.",
+        "properties": {
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template",
+          "display_name",
+          "direction",
+          "required",
+          "offered",
+          "explanation"
+        ],
+        "title": "SubstitutionReasonRead",
+        "type": "object"
+      },
       "SuggestRequest": {
         "properties": {
           "client_op_id": {
@@ -10938,6 +11384,131 @@
           "candidates"
         ],
         "title": "SuggestResponse",
+        "type": "object"
+      },
+      "SuggestionBatchResponse": {
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionLineRead"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "title": "SuggestionBatchResponse",
+        "type": "object"
+      },
+      "SuggestionLineRead": {
+        "description": "One line's answer. **Nothing here is accepted; every candidate is a proposal.**\n\nAccepting one is an ordinary BOM edit through the existing route: `PUT\n/api/projects/{project_id}/bom` with `{\"edits\": [{\"id\": bom_line_id,\n\"part_id\": <the chosen part_id>}]}`, which sets `is_match_confirmed` because a\nhuman choosing a part through that route *is* the confirmation. Rejecting is\ncalling nothing at all \u2014 the line keeps its `description` and stays unmatched,\nwhich is a normal state and not an error.",
+        "properties": {
+          "bom_line_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bom Line Id"
+          },
+          "in_stock": {
+            "items": {
+              "$ref": "#/components/schemas/PartCandidateRead"
+            },
+            "title": "In Stock",
+            "type": "array"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "not_stocked": {
+            "items": {
+              "$ref": "#/components/schemas/PartCandidateRead"
+            },
+            "title": "Not Stocked",
+            "type": "array"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "required_milli": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Milli"
+          },
+          "requirement": {
+            "$ref": "#/components/schemas/RequirementRead"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "index",
+          "bom_line_id",
+          "text",
+          "outcome",
+          "message",
+          "required_milli",
+          "requirement",
+          "in_stock",
+          "not_stocked",
+          "truncated"
+        ],
+        "title": "SuggestionLineRead",
+        "type": "object"
+      },
+      "SuggestionRequest": {
+        "description": "A batch. Twenty lines is the case this exists for.\n\nBatched because an agent emits a whole BOM at once and twenty round trips is\nthe wrong shape \u2014 but also because the work genuinely shares state: one\nvocabulary snapshot, one `parameter_template` map and one stock cache serve\nevery line, so twenty lines that all want the same 0603 resistor read its\nstock once. See `app.services.requirements.matching.suggest_batch`.",
+        "properties": {
+          "include_stubs": {
+            "default": true,
+            "title": "Include Stubs",
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 5,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementLineIn"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "title": "SuggestionRequest",
         "type": "object"
       },
       "TagGranularity": {
@@ -15433,7 +16004,7 @@
     },
     "/api/projects/{project_id}/bom/import": {
       "post": {
-        "description": "Land a KiCad-style CSV/TSV export as `bom_lines`. **Appends; never\nreplaces** \u2014 see `app.services.bom_import`'s module docstring for why a\n\"this is a new revision\" merge is not attempted. A retried upload without\n`client_op_id` therefore double-imports, the same at-least-once contract\nevery unguarded write in this API already has.",
+        "description": "Land a CSV/TSV BOM export as `bom_lines` \u2014 KiCad, Altium, CircuitMaker or\nhand-rolled. The header row, the delimiter and the column meanings are all\nworked out from the file, so no format has to be declared.\n\n**Text only.** A binary workbook (`.xlsx`, `.xls`, or an Altium `.BomDoc`) is\nrefused with a warning naming the format, and imports nothing; re-export as\nCSV or tab-delimited text. Altium's numbered supplier sets beyond the first\nare not imported either, for the reason `app.services.bom_import._map_headers`\ngives \u2014 they are alternates, and choosing one is a substitution decision.\nBoth cases are reported in `warnings` rather than as an error status, because\nthe file still lands whatever else is wrong with it.\n\n**Appends; never replaces** \u2014 see `app.services.bom_import`'s module docstring\nfor why a \"this is a new revision\" merge is not attempted. A retried upload\nwithout `client_op_id` therefore double-imports, the same at-least-once\ncontract every unguarded write in this API already has.",
         "operationId": "import_bom",
         "parameters": [
           {
@@ -15481,6 +16052,115 @@
           }
         },
         "summary": "Import Bom",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/bom/suggestions": {
+      "get": {
+        "description": "What this project's unmatched lines could be filled with. **A pure read.**\n\nThe project-scoped half of `POST /api/requirements/suggest`, and the same\nanswer: every candidate came out of `app.services.search.query_builder`, in\n`mode=\"search\"` for an exact match and `mode=\"substitute\"` for a part that\nsatisfies the line per each template's `substitution_direction`. Ranking\nreorders that result and can never extend it.\n\nLives here rather than on `/api/requirements` because it is about *this\nproject's* rows \u2014 it reads `bom_lines`, it returns `bom_line_id` on every\nanswer, and it needs the project-membership check \u2014 while the prose batch door\nis about the catalogue and needs no project at all. Both render through\n`app.api.schemas.suggestion_read`, so a suggestion looks the same either way.\n\n**Writes nothing, and accepts nothing.** Accepting a candidate is an ordinary\nedit through `PUT /api/projects/{project_id}/bom`: `{\"edits\": [{\"id\":\n<bom_line_id>, \"part_id\": <the chosen part_id>}]}`, which sets\n`is_match_confirmed` because a human choosing a part through that route *is*\nthe confirmation (see `_apply_bom_line_edit`) \u2014 unlike `bom_import`'s automatic\nexact-MPN hits, which never set it. Rejecting every candidate means calling\nnothing at all: the line stays unmatched with its `description` intact, which\nis a normal state an import leaves behind by the dozen and not an error.",
+        "operationId": "read_bom_suggestions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Project Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only lines with no part_id. Default **true**, unlike `GET .../bom`: a line already matched to a part has nothing to suggest, and including it would spend two executor queries confirming a decision somebody already made.",
+            "in": "query",
+            "name": "unmatched_only",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Only lines with no part_id. Default **true**, unlike `GET .../bom`: a line already matched to a part has nothing to suggest, and including it would spend two executor queries confirming a decision somebody already made.",
+              "title": "Unmatched Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "How many boards the demand is for. Demand is derived, never stored (ADR 0004), and this route has no build in scope \u2014 so `required_milli` is `qty_per_assembly_milli * assembly_count` computed here, exactly as `reservations.shortage_for_build` computes it from a build's own count.",
+            "in": "query",
+            "name": "assembly_count",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "How many boards the demand is for. Demand is derived, never stored (ADR 0004), and this route has no build in scope \u2014 so `required_milli` is `qty_per_assembly_milli * assembly_count` computed here, exactly as `reservations.shortage_for_build` computes it from a build's own count.",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Assembly Count",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Candidates per availability list, per line.",
+            "in": "query",
+            "name": "candidates",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "description": "Candidates per availability list, per line.",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Candidates",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BomSuggestionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Bom Suggestions",
         "tags": [
           "projects"
         ]
@@ -15703,6 +16383,90 @@
         "summary": "Undo Action",
         "tags": [
           "provisioning"
+        ]
+      }
+    },
+    "/api/requirements/parse": {
+      "post": {
+        "description": "Translate descriptions into structured requirements. **No search runs.**\n\nThe half of the feature worth having on its own: it shows what a line was\nunderstood to mean before anything is matched against it, which is what a UI\nneeds to render the parse as somebody types, and what makes the refusals\n(`rejections`) and the admissions (`residue`) reviewable.\n\nNever errors on unreadable input. `parse(\"that thing Dave used on the mixer\nboard\")` returns a requirement with the text preserved, the residue listed and\n`is_actionable: false` \u2014 a normal outcome, because `bom_lines.part_id` is\nnullable and losing the line is worse than not understanding it.",
+        "operationId": "parse_requirements",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequirementParseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequirementParseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parse Requirements",
+        "tags": [
+          "requirements"
+        ]
+      }
+    },
+    "/api/requirements/suggest": {
+      "post": {
+        "description": "What you own that satisfies each line, then what you would have to order.\n\nEvery candidate came out of `app.services.search.query_builder` \u2014 the same\nexecutor `/api/search/parts` uses, in `mode=\"search\"` for an exact match and\n`mode=\"substitute\"` for a part that *satisfies* the requirement per each\ntemplate's `substitution_direction`. The ranking reorders that result and can\nnever extend it.\n\n**A line with nothing in stock is the answer worth having.** `outcome:\n\"order\"` with a populated `not_stocked` says \"you own nothing that satisfies\nthis, and here is what does\" \u2014 which is the list that becomes a purchase.\n`outcome: \"no_match\"` is a different and worse thing: nothing in the catalogue\nis this part at all, so no amount of buying the parts you know about will fix\nthe line.\n\nNothing is accepted here. Accepting a candidate is a BOM edit through the\nexisting route \u2014 see `SuggestionLineRead`.",
+        "operationId": "suggest_parts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Parts",
+        "tags": [
+          "requirements"
         ]
       }
     },
