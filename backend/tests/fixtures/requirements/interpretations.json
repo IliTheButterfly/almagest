@@ -1,0 +1,26 @@
+{
+  "_provenance": "HAND-AUTHORED, NOT YET RECORDED. Every answer here has the exact shape of a structured-output response against requirements.interpret.schema_for(), and every field was written by hand: there is no model in CI, and per docs/adr/0005 and the deployment notes the real interpreter runs as a Job on the local Qwen models that releases the GPU, never in the API. Replace this with a genuine recording the first time the live contract test runs (tests/unit/test_requirements.py::test_live_interpretation_matches_the_recorded_contract), and do not add an answer here to make a new test pass without checking that a real model would plausibly emit it — a fixture that drifts from reality makes every test above it a test of this file. Note the mounting_type answer is given in an alias spelling ('surface mount') on purpose: a real model answers in the words the schema offered it, and parse_interpretation is what canonicalises that to the SMD key.",
+  "provider": "fake",
+  "model": "hand-authored-fixture",
+  "answers": {
+    "a dual op-amp, rail-to-rail, SOIC-8": {
+      "category": "ic",
+      "category_confidence": 0.72,
+      "category_source_text": "op-amp",
+      "filters": [
+        {
+          "template": "mounting_type",
+          "value": "surface mount",
+          "confidence": 0.81,
+          "source_text": "SOIC-8"
+        }
+      ]
+    },
+    "something to level-shift 3.3V to 5V": {
+      "category": "ic",
+      "category_confidence": 0.55,
+      "category_source_text": "level-shift",
+      "filters": []
+    }
+  }
+}

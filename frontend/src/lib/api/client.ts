@@ -155,6 +155,17 @@ export type BomLinesUpdateResponse = Schemas["BomLinesUpdateResponse"];
 export type BomImportRequest = Schemas["BomImportRequest"];
 export type BomImportResponse = Schemas["BomImportResponse"];
 
+// --- the prose front door: requirement lines in, ranked candidates out -----
+export type RequirementLineIn = Schemas["RequirementLineIn"];
+export type RequirementRead = Schemas["RequirementRead"];
+export type RequirementFilterRead = Schemas["RequirementFilterRead"];
+export type RequirementRejectionRead = Schemas["RequirementRejectionRead"];
+export type SuggestionRequest = Schemas["SuggestionRequest"];
+export type SuggestionBatchResponse = Schemas["SuggestionBatchResponse"];
+export type SuggestionLineRead = Schemas["SuggestionLineRead"];
+export type PartCandidateRead = Schemas["PartCandidateRead"];
+export type SubstitutionReasonRead = Schemas["SubstitutionReasonRead"];
+
 export type AllocationRead = Schemas["AllocationRead"];
 export type AllocateRequest = Schemas["AllocateRequest"];
 export type AllocateResponse = Schemas["AllocateResponse"];
@@ -950,6 +961,26 @@ export async function updateBomLines(
   });
   if (error !== undefined) {
     fail("could not save those BOM edits", error, response);
+  }
+  return data;
+}
+
+// ------------------------------------------------------------ requirements --
+
+/**
+ * Prose in, ranked candidates out — the fuzzy front door, not a match.
+ *
+ * Writes nothing: `app.api.routes.requirements` is a pure read, so there is no
+ * `client_op_id` here to guard. Accepting a candidate is an ordinary BOM edit
+ * through `updateBomLines`, same as a hand-typed line — see
+ * `SuggestionLineRead`'s server-side docstring.
+ */
+export async function suggestRequirements(
+  request: SuggestionRequest,
+): Promise<SuggestionBatchResponse> {
+  const { data, error, response } = await api.POST("/api/requirements/suggest", { body: request });
+  if (error !== undefined) {
+    fail("could not read those requirements", error, response);
   }
   return data;
 }

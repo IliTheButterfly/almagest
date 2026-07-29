@@ -15,7 +15,14 @@ from app.models.enums import AllocationState, LedgerKind, LedgerSource
 from app.models.projects import BomLine, Project, ProjectBuild, StockAllocation
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import ContainerType, Location
+from app.scripts import seed_demo
 from app.services.capacity import get_inbox_location
+from app.services.requirements.vocabulary import (
+    CategoryVocab,
+    ChoiceVocab,
+    TemplateVocab,
+    Vocabulary,
+)
 from app.services.scanning.codes import normalize_mpn
 
 
@@ -181,3 +188,39 @@ def make_allocation(
     db.add(allocation)
     db.flush()
     return allocation
+
+
+def seed_vocabulary() -> Vocabulary:
+    """The requirement-parsing vocabulary of a freshly seeded install, with no database.
+
+    Built from `app.scripts.seed_demo`'s own `TEMPLATES` and `CATEGORIES` tuples —
+    the *same* constants the seed script writes rows from. That is what lets
+    `tests/unit/test_requirements.py` be a real unit test (no session, no
+    migrations, one object) without its vocabulary drifting away from the one a
+    real install has: `tests/integration/test_requirements.py` seeds a database,
+    calls `load_vocabulary`, and asserts the two agree.
+
+    Nothing here invents a template or a spelling. A test that needs a facet the
+    seed does not have builds its own `Vocabulary` inline, so the addition is
+    visible in the test rather than hidden in this helper.
+    """
+    templates = tuple(
+        TemplateVocab(
+            name=spec.name,
+            display_name=spec.display_name,
+            value_type=spec.value_type,
+            base_unit=spec.base_unit,
+            applies_to_category=spec.applies_to_category,
+            plausible_min=spec.plausible_min,
+            plausible_max=spec.plausible_max,
+            choices=tuple(
+                ChoiceVocab(key=choice.key, label=choice.label, aliases=choice.aliases)
+                for choice in spec.choices
+            ),
+        )
+        for spec in seed_demo.TEMPLATES
+    )
+    categories = tuple(
+        CategoryVocab(slug=slug, name=name) for slug, name, _parent in seed_demo.CATEGORIES
+    )
+    return Vocabulary(templates=templates, categories=categories)

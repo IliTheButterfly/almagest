@@ -15,7 +15,9 @@ larger capacitors do not exist).
 
 from __future__ import annotations
 
-from elec_value_parser import ParsedValue, ValueParseError, get_quantity
+import functools
+
+from elec_value_parser import ParsedValue, ValueParseError, get_quantity, known_quantities
 from elec_value_parser import parse as parse_value
 
 from app.models.enums import ValueType
@@ -45,38 +47,74 @@ def parse_for_template(raw_input: str, template: ParameterTemplate) -> ParsedVal
         raise TemplateNotNumeric(
             f"template {template.name!r} is {template.value_type}, not numeric"
         )
-    if not template.base_unit:
-        raise TemplateHasNoUnit(f"numeric template {template.name!r} has no base_unit")
+    return parse_in_window(
+        raw_input,
+        base_unit=template.base_unit,
+        plausible_min=template.plausible_min,
+        plausible_max=template.plausible_max,
+        label=template.name,
+    )
 
-    parsed = parse_value(raw_input, template.base_unit)
-    _enforce_template_window(parsed, template)
+
+def parse_in_window(
+    raw_input: str,
+    *,
+    base_unit: str | None,
+    plausible_min: float | None = None,
+    plausible_max: float | None = None,
+    label: str,
+) -> ParsedValue:
+    """`parse_for_template` without the ORM row — the same two guards, by value.
+
+    Exists because `app.services.requirements` reads prose against a **snapshot**
+    of the template table rather than against live rows: the deterministic
+    requirement parser trial-parses one token against every numeric template
+    looking for the one quantity that reads it, and doing that through detached
+    ORM instances would be a session-lifetime hazard for no gain.
+
+    It is a parameter split, deliberately **not** a second implementation. The
+    per-field plausibility window is the second of the two independent guards
+    against a unit misread, and a copy of it that drifted from this one would
+    disarm exactly the guard whose whole value is being redundant.
+    """
+    if not base_unit:
+        raise TemplateHasNoUnit(f"numeric template {label!r} has no base_unit")
+
+    parsed = parse_value(raw_input, base_unit)
+    _enforce_window(parsed, label=label, base_unit=base_unit, low=plausible_min, high=plausible_max)
     return parsed
 
 
-def _enforce_template_window(parsed: ParsedValue, template: ParameterTemplate) -> None:
-    if template.plausible_min is None and template.plausible_max is None:
+def _enforce_window(
+    parsed: ParsedValue, *, label: str, base_unit: str, low: float | None, high: float | None
+) -> None:
+    if low is None and high is None:
         return
 
     # Check both ends of whatever was parsed, so a range that only partly
     # overlaps the window is still caught.
-    low, high = parsed.to_interval()
-    for value in (low, high, parsed.value_nominal):
+    interval_low, interval_high = parsed.to_interval()
+    for value in (interval_low, interval_high, parsed.value_nominal):
         if value is None:
             continue
-        if template.plausible_min is not None and value < template.plausible_min:
-            raise _out_of_range(parsed, template, value)
-        if template.plausible_max is not None and value > template.plausible_max:
-            raise _out_of_range(parsed, template, value)
+        if low is not None and value < low:
+            raise _out_of_range(parsed, label, base_unit, value, low, high)
+        if high is not None and value > high:
+            raise _out_of_range(parsed, label, base_unit, value, low, high)
 
 
 def _out_of_range(
-    parsed: ParsedValue, template: ParameterTemplate, value: float
+    parsed: ParsedValue,
+    label: str,
+    base_unit: str,
+    value: float,
+    low: float | None,
+    high: float | None,
 ) -> ValueParseError:
     error = ValueParseError(
-        f"{value:g} is outside the configured range for {template.name} "
-        f"[{template.plausible_min}, {template.plausible_max}]",
+        f"{value:g} is outside the configured range for {label} [{low}, {high}]",
         text=parsed.raw_input,
-        unit=template.base_unit or "",
+        unit=base_unit,
     )
     error.reason = "implausible"
     return error
@@ -89,3 +127,51 @@ def supported_quantity(base_unit: str | None) -> bool:
     problem on the first value someone tries to enter.
     """
     return bool(base_unit) and get_quantity(base_unit or "") is not None
+
+
+#: Every quantity the library knows, for the sweep in `reads_as_a_quantity`.
+#: Read off the library rather than listed here, so a quantity added there
+#: strengthens the sweep instead of leaving a hole in it. Sorted for a
+#: deterministic answer to "which quantity read it".
+_ALL_QUANTITIES: tuple[str, ...] = tuple(sorted(known_quantities()))
+
+
+@functools.lru_cache(maxsize=4096)
+def reads_as_a_quantity(text: str) -> str | None:
+    """The first known quantity that reads this whole string as a value, or `None`.
+
+    **The one definition of "this text is not an electrical value at all"**, and
+    therefore of "this text might be a part number". Lives here, with the rest of
+    the value-grammar adapter, because it is a question about the grammar alone —
+    no template, no schema, no session — and because two callers now depend on
+    exactly the same answer:
+
+    * `app.services.bom_import._mpn_candidates`, deciding whether a BOM's `Value`
+      cell may be used as an MPN lookup key;
+    * `app.services.requirements`, deciding whether a token in a prose
+      description is a part number rather than a value.
+
+    Both are the same gate against the same mistake, and a second, subtly
+    different copy of it would let one of them match `10k` against a catalogue
+    part genuinely named `10K` while the other refused.
+
+    Note it deliberately asks about **success under any quantity**, not about a
+    refusal. `implausible` (`1M` under farads) and `unit_mismatch` (`100nH` under
+    farads) mean the text *was* read as a quantity and rejected — a bad value,
+    not a part number — and the sweep catches those through whichever quantity
+    accepts them instead. It separates the two populations cleanly: `10k`, `4k7`,
+    `100nF`, `0R22`, `1M`, `22p`, `16MHz` and a bare `0603` all read as a value
+    under something, while `LM358N`, `74HC595`, `1N4148`, `STM32F103C8T6` and
+    `RC0603FR-0710KL` read as a value under nothing.
+
+    Cached because both callers ask repeatedly about the same handful of strings —
+    a BOM repeats its values (a hundred `100nF` lines is one decoupling net) and
+    `_mpn_candidates` runs twice per line.
+    """
+    for quantity in _ALL_QUANTITIES:
+        try:
+            parse_value(text, quantity)
+        except ValueParseError:
+            continue
+        return quantity
+    return None

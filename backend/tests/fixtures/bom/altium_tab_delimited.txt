@@ -1,0 +1,4 @@
+Designator	Comment	Description	Footprint	Quantity
+C1, C2, C3	100nF	Capacitor, ceramic, 100nF, 50V, X7R, 0603, MLCC	CAPC1608X90N	3
+R1, R2, R3, R4	10k	Resistor, thick film, 10k, 1%, 0.1W, 0603	RESC1608X55N	4
+U1	LM358	Op-amp, dual, low-power, rail-to-rail, SOIC-8	SOIC127P600X175-8N	1

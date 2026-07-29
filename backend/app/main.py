@@ -26,6 +26,7 @@ from app.api.routes import (
     parts,
     projects,
     provisioning,
+    requirements,
     resolve,
     scan,
     search,
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(facets.categories_router)
     app.include_router(projects.router)
     app.include_router(projects.builds_router)
+    app.include_router(requirements.router)
     # The review queue for everything `parameter_value_candidate` refused to
     # auto-promote — the safety valve for every "never auto-accept" rule above.
     app.include_router(enrichment.router)

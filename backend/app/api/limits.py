@@ -116,11 +116,18 @@ ResultOffset = Annotated[int, Field(ge=0, le=1_000_000)]
 #: amortise the round trip, not to reserve the queue.
 ClaimLimit = Annotated[int, Field(ge=1, le=50)]
 
+#: How many candidate parts one requirement is answered with, per availability
+#: list. Bounded low on purpose rather than for safety: a suggestion is read by a
+#: human, and fifty options is not a shortlist, it is the search results — which
+#: `/api/search/parts` already serves, with paging and a true total.
+CandidateLimit = Annotated[int, Field(ge=1, le=50)]
+
 __all__ = [
     "MASS_MG_MAX",
     "MONEY_MICRO_MAX",
     "QTY_MILLI_MAX",
     "AssemblyCount",
+    "CandidateLimit",
     "ClaimLimit",
     "CountMilli",
     "DeltaMilli",

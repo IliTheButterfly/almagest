@@ -179,10 +179,7 @@ def target_fields(
 
 
 def _alias_keys(choice: ParameterChoice) -> set[str]:
-    if not choice.aliases_json:
-        return set()
-    loaded = json.loads(choice.aliases_json)
-    return {str(alias) for alias in loaded} if isinstance(loaded, list) else set()
+    return set(parameters.choice_aliases(choice))
 
 
 @dataclass(frozen=True)
