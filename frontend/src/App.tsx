@@ -15,11 +15,15 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import { Logo } from "./components/Logo";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { intakeQueue } from "./lib/intake/queue";
+import { BomScreen } from "./screens/BomScreen";
+import { BuildScreen } from "./screens/BuildScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
 import { LocationScreen } from "./screens/LocationScreen";
 import { LotScreen } from "./screens/LotScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
 import { PartScreen } from "./screens/PartScreen";
+import { ProjectScreen } from "./screens/ProjectScreen";
+import { ProjectsScreen } from "./screens/ProjectsScreen";
 import { ProvisionScreen } from "./screens/ProvisionScreen";
 import { ScanScreen } from "./screens/ScanScreen";
 import { SearchScreen } from "./screens/SearchScreen";
@@ -52,6 +56,7 @@ export function App() {
       <nav className="app-nav" aria-label="Main">
         <NavLink to="/search">Search</NavLink>
         <NavLink to="/tree">Storage</NavLink>
+        <NavLink to="/projects">Projects</NavLink>
         <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
       </nav>
@@ -68,6 +73,11 @@ export function App() {
           <Route path="/locations/:locationId" element={<LocationScreen />} />
           <Route path="/lots/:lotId" element={<LotScreen />} />
           <Route path="/provision" element={<ProvisionScreen />} />
+          {/* Projects, BOMs and builds — not a scan target; reached from the tab. */}
+          <Route path="/projects" element={<ProjectsScreen />} />
+          <Route path="/projects/:projectId" element={<ProjectScreen />} />
+          <Route path="/projects/:projectId/bom" element={<BomScreen />} />
+          <Route path="/builds/:buildId" element={<BuildScreen />} />
           <Route path="*" element={<NotFoundScreen />} />
         </Routes>
       </main>

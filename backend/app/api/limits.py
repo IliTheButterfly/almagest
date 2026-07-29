@@ -93,10 +93,20 @@ InstanceCount = Annotated[int, Field(ge=1, le=1_000)]
 #: against a typo'd zero or a client confusing dots-per-inch with dots-per-mm.
 LabelDpi = Annotated[int, Field(ge=72, le=1200)]
 
+#: How many assemblies one `ProjectBuild` makes. Not a `*_milli` quantity —
+#: `project_builds.assembly_count` is a plain `Integer`, a count of boards, not
+#: a physical amount of a part — so it gets its own bound rather than borrowing
+#: `QtyMilli`'s headroom, which is calibrated for an accumulating cache instead
+#: of a single plan-time field. A production run of thousands of boards is
+#: nowhere near this; the bound exists to catch a fat-fingered count before it
+#: is multiplied through every BOM line's demand.
+AssemblyCount = Annotated[int, Field(ge=1, le=100_000)]
+
 __all__ = [
     "MASS_MG_MAX",
     "MONEY_MICRO_MAX",
     "QTY_MILLI_MAX",
+    "AssemblyCount",
     "CountMilli",
     "DeltaMilli",
     "GridIndex",

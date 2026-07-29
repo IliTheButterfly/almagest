@@ -568,6 +568,23 @@ h3 {
   content: "↧";
 }
 
+/*
+ * "A machine matched this, nobody has agreed yet" — the BOM import's
+ * exact-MPN hit before a human confirms it (`bom_lines.is_match_confirmed`).
+ * Deliberately not --good (a claim nobody has made) and not --warn (nothing
+ * is wrong, it just is not confirmed): a third hue, --accent, with its own
+ * glyph so the three real states of a BOM line stay three shapes and not
+ * two colours plus a maybe.
+ */
+.badge-info {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.badge-info::before {
+  content: "?";
+}
+
 /* --------------------------------------------------------------- inputs --- */
 
 button,

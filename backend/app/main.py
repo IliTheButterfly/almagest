@@ -21,6 +21,7 @@ from app.api.routes import (
     location_tags,
     locations,
     parts,
+    projects,
     provisioning,
     resolve,
     scan,
@@ -73,6 +74,8 @@ def create_app() -> FastAPI:
     app.include_router(stock.router)
     app.include_router(facets.router)
     app.include_router(facets.categories_router)
+    app.include_router(projects.router)
+    app.include_router(projects.builds_router)
     return app
 
 
