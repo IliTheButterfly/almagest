@@ -1097,6 +1097,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/locations/{location_id}/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Location Details
+         * @description Rename and re-describe a container where it stands.
+         *
+         *     A rename is the one edit here with a consequence beyond the row: `label_path`
+         *     is a cache of the names down the chain, so renaming a cabinet restates the
+         *     path of every drawer in it. That goes through `TreeRepository.rebuild_paths`
+         *     rather than any hand-written string surgery — the cache is reconstructible
+         *     from `parent_id` and `name` by exactly one recursive CTE, and a second way to
+         *     compute it is a second way to be wrong.
+         *
+         *     Nothing physical changes: no `short_id` is re-minted, no tag is touched and
+         *     nothing is re-printed. A printed label carries the opaque code and never the
+         *     name, which is precisely what makes renaming free.
+         */
+        put: operations["set_location_details"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/locations/{location_id}/documents": {
         parameters: {
             query?: never;
@@ -4406,6 +4437,55 @@ export interface components {
              * @default false
              */
             replayed?: boolean;
+        };
+        /** LocationDetailsResponse */
+        LocationDetailsResponse: {
+            location: components["schemas"]["LocationRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /**
+         * LocationDetailsUpdate
+         * @description What a person can rename or re-describe about a container, in place.
+         *
+         *     The write half of the storage screen's **edit mode**: name, description, and
+         *     the two tri-state flags that read as sentences on that panel. Its own narrow
+         *     route for the same reason `.../child-view` and `.../glyph` are — a general
+         *     `PATCH /api/locations/{id}` would put `parent_id`, `slot_label`, `row_idx`
+         *     and every other structural column on the wire as writable, and each of those
+         *     has a guarded path of its own (`.../reapply-layout`, `TreeRepository.move`)
+         *     that a free-for-all patch would let a client bypass.
+         *
+         *     **Every field is sent every time**, which is why this is a PUT: a panel with
+         *     a "Description" box in it that is now blank means "no description", and there
+         *     is no way to tell that from a PATCH that simply omitted the key.
+         */
+        LocationDetailsUpdate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /**
+             * Description
+             * @description Null and empty both mean 'no description'.
+             */
+            description?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Esd Safe
+             * @description Null stops this container answering for itself and inherits from the nearest ancestor that does — so sending null is a real edit.
+             */
+            esd_safe?: boolean | null;
+            /**
+             * Is Placeable
+             * @description Null hands the answer back to the container type.
+             */
+            is_placeable?: boolean | null;
+            /** Name */
+            name: string;
         };
         /** LocationDocumentLinkList */
         LocationDocumentLinkList: {
@@ -8632,6 +8712,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationChildViewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_location_details: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocationDetailsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationDetailsResponse"];
                 };
             };
             /** @description Validation Error */

@@ -668,6 +668,48 @@ class LayoutRead(BaseModel):
     slots: list[SlotStateRead]
 
 
+class LocationDetailsUpdate(BaseModel):
+    """What a person can rename or re-describe about a container, in place.
+
+    The write half of the storage screen's **edit mode**: name, description, and
+    the two tri-state flags that read as sentences on that panel. Its own narrow
+    route for the same reason `.../child-view` and `.../glyph` are — a general
+    `PATCH /api/locations/{id}` would put `parent_id`, `slot_label`, `row_idx`
+    and every other structural column on the wire as writable, and each of those
+    has a guarded path of its own (`.../reapply-layout`, `TreeRepository.move`)
+    that a free-for-all patch would let a client bypass.
+
+    **Every field is sent every time**, which is why this is a PUT: a panel with
+    a "Description" box in it that is now blank means "no description", and there
+    is no way to tell that from a PATCH that simply omitted the key.
+    """
+
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(
+        default=None, description="Null and empty both mean 'no description'."
+    )
+    esd_safe: bool | None = Field(
+        default=None,
+        description=(
+            "Null stops this container answering for itself and inherits from the "
+            "nearest ancestor that does — so sending null is a real edit."
+        ),
+    )
+    is_placeable: bool | None = Field(
+        default=None,
+        description="Null hands the answer back to the container type.",
+    )
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class LocationDetailsResponse(ReplayableResponse):
+    #: The whole container, re-read. A rename changes `label_path` here *and* on
+    #: every descendant, so returning the one row that was written would leave
+    #: the caller holding a stale path for everything under it.
+    location: LocationRead
+
+
 class LocationChildViewUpdate(BaseModel):
     """Pin, or stop pinning, how this one container draws its children.
 
@@ -1765,6 +1807,52 @@ def set_location_plan_placements(
         endpoint="PUT /api/locations/{id}/plan/placements",
         payload=request,
         response_model=RoomPlacementsResponse,
+        work=work,
+    )
+
+
+@router.put("/{location_id}/details", response_model=LocationDetailsResponse)
+def set_location_details(
+    location_id: RowId, request: LocationDetailsUpdate, db: Session = Depends(get_db)
+) -> LocationDetailsResponse:
+    """Rename and re-describe a container where it stands.
+
+    A rename is the one edit here with a consequence beyond the row: `label_path`
+    is a cache of the names down the chain, so renaming a cabinet restates the
+    path of every drawer in it. That goes through `TreeRepository.rebuild_paths`
+    rather than any hand-written string surgery — the cache is reconstructible
+    from `parent_id` and `name` by exactly one recursive CTE, and a second way to
+    compute it is a second way to be wrong.
+
+    Nothing physical changes: no `short_id` is re-minted, no tag is touched and
+    nothing is re-printed. A printed label carries the opaque code and never the
+    name, which is precisely what makes renaming free.
+    """
+    location = _require_location(db, location_id)
+
+    def work() -> LocationDetailsResponse:
+        renamed = location.name != request.name
+        location.name = request.name
+        description = request.description
+        # A box the user cleared is "no description", not the empty string —
+        # otherwise the read side has two falsy values meaning one thing.
+        location.description = (
+            None if description is None or not description.strip() else description
+        )
+        location.esd_safe = request.esd_safe
+        location.is_placeable = request.is_placeable
+        db.flush()
+        if renamed:
+            location_tree(db).rebuild_paths()
+        return LocationDetailsResponse(location=_read(db, location))
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="PUT /api/locations/{id}/details",
+        payload=request,
+        response_model=LocationDetailsResponse,
         work=work,
     )
 

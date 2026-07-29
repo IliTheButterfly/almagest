@@ -5618,6 +5618,100 @@
         "title": "LocationCreated",
         "type": "object"
       },
+      "LocationDetailsResponse": {
+        "properties": {
+          "location": {
+            "$ref": "#/components/schemas/LocationRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "location"
+        ],
+        "title": "LocationDetailsResponse",
+        "type": "object"
+      },
+      "LocationDetailsUpdate": {
+        "description": "What a person can rename or re-describe about a container, in place.\n\nThe write half of the storage screen's **edit mode**: name, description, and\nthe two tri-state flags that read as sentences on that panel. Its own narrow\nroute for the same reason `.../child-view` and `.../glyph` are \u2014 a general\n`PATCH /api/locations/{id}` would put `parent_id`, `slot_label`, `row_idx`\nand every other structural column on the wire as writable, and each of those\nhas a guarded path of its own (`.../reapply-layout`, `TreeRepository.move`)\nthat a free-for-all patch would let a client bypass.\n\n**Every field is sent every time**, which is why this is a PUT: a panel with\na \"Description\" box in it that is now blank means \"no description\", and there\nis no way to tell that from a PATCH that simply omitted the key.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null and empty both mean 'no description'.",
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "esd_safe": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null stops this container answering for itself and inherits from the nearest ancestor that does \u2014 so sending null is a real edit.",
+            "title": "Esd Safe"
+          },
+          "is_placeable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null hands the answer back to the container type.",
+            "title": "Is Placeable"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "LocationDetailsUpdate",
+        "type": "object"
+      },
       "LocationDocumentLinkList": {
         "properties": {
           "links": {
@@ -16217,6 +16311,61 @@
           }
         },
         "summary": "Set Location Child View",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/details": {
+      "put": {
+        "description": "Rename and re-describe a container where it stands.\n\nA rename is the one edit here with a consequence beyond the row: `label_path`\nis a cache of the names down the chain, so renaming a cabinet restates the\npath of every drawer in it. That goes through `TreeRepository.rebuild_paths`\nrather than any hand-written string surgery \u2014 the cache is reconstructible\nfrom `parent_id` and `name` by exactly one recursive CTE, and a second way to\ncompute it is a second way to be wrong.\n\nNothing physical changes: no `short_id` is re-minted, no tag is touched and\nnothing is re-printed. A printed label carries the opaque code and never the\nname, which is precisely what makes renaming free.",
+        "operationId": "set_location_details",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationDetailsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationDetailsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Location Details",
         "tags": [
           "locations"
         ]
