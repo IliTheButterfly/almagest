@@ -11,7 +11,16 @@ filtered.
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -55,6 +64,24 @@ class ParameterTemplate(Base):
     #: the single most expensive class of error: a unit misread.
     plausible_min: Mapped[float | None] = mapped_column(Float)
     plausible_max: Mapped[float | None] = mapped_column(Float)
+
+    #: Part of the shared definition library every install starts with, so
+    #: `name`, `value_type` and `base_unit` are frozen — the MPN decoders, the
+    #: datasheet extractors and the demo data all name `capacitance` and mean
+    #: farads.
+    #:
+    #: **Deliberately not the clone-on-edit treatment `container_types` has.**
+    #: `name` is globally UNIQUE, so a clone would have to be called something
+    #: else — `capacitance-copy` — which no decoder, no saved search URL and no
+    #: extractor refers to, while both rows would then appear side by side in
+    #: every facet panel as two fields meaning the same thing. For a *type* a
+    #: divergent copy is the point; for a *field definition* it is the failure.
+    #: So a seed refuses the three identity-bearing edits and permits the rest
+    #: (display name, ordering, plausibility window, substitution direction),
+    #: none of which can invalidate a stored value.
+    is_seed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
 
 
 class ParameterChoice(Base):

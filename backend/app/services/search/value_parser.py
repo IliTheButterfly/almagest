@@ -129,6 +129,40 @@ def supported_quantity(base_unit: str | None) -> bool:
     return bool(base_unit) and get_quantity(base_unit or "") is not None
 
 
+def canonical_quantity(base_unit: str) -> str | None:
+    """The registry's own spelling of a `base_unit`, or None if it knows none.
+
+    Authoring stores this rather than what the user typed, so `OHM`, `Ohm` and
+    the quantity alias `resistance` all end up as the one string `ohm` that
+    `parse_value` is given. Two rows spelling the same quantity differently would
+    parse identically and *look* different in every facet panel and every export.
+    """
+    quantity = get_quantity(base_unit)
+    return None if quantity is None else quantity.name
+
+
+def quantity_symbol(base_unit: str) -> str | None:
+    """The unit symbol a quantity prints with — 'Ω' for ohm, 'F' for farad.
+
+    So the authoring UI can label a unit picker the way the part detail screen
+    labels a value, rather than making the user match 'farad' to 'F' themselves.
+    """
+    quantity = get_quantity(base_unit)
+    return None if quantity is None else quantity.symbol
+
+
+def supported_quantities() -> tuple[str, ...]:
+    """Every quantity a numeric template's `base_unit` may name.
+
+    Read off the library rather than listed here, so a quantity added there
+    becomes pickable in the field authoring UI without a second edit — the whole
+    reason authoring offers a **select** instead of a free-text box. `µF` and
+    `ohms` are not in here, and that is the point: both are refused at authoring
+    time rather than on the first value somebody tries to enter.
+    """
+    return _ALL_QUANTITIES
+
+
 #: Every quantity the library knows, for the sweep in `reads_as_a_quantity`.
 #: Read off the library rather than listed here, so a quantity added there
 #: strengthens the sweep instead of leaving a hole in it. Sorted for a

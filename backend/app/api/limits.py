@@ -116,6 +116,14 @@ ResultOffset = Annotated[int, Field(ge=0, le=1_000_000)]
 #: amortise the round trip, not to reserve the queue.
 ClaimLimit = Annotated[int, Field(ge=1, le=50)]
 
+#: Where a row sorts in a hand-ordered list — a part kind in the kind picker, a
+#: filterable field in the filter panel, one option inside a list field. Signed,
+#: because "put this one first" is naturally expressed as a negative rather than
+#: by renumbering everything else. Bounded for the reason this whole module
+#: exists: `sort_order` is a plain `Integer`, and a pasted 10**30 reaches
+#: `session.flush()` and dies in sqlite3's parameter binding as a bare 500.
+SortOrder = Annotated[int, Field(ge=-1_000_000, le=1_000_000)]
+
 #: How many candidate parts one requirement is answered with, per availability
 #: list. Bounded low on purpose rather than for safety: a suggestion is read by a
 #: human, and fifty options is not a shortlist, it is the search results — which
@@ -139,4 +147,5 @@ __all__ = [
     "MoneyMicro",
     "QtyMilli",
     "ResultOffset",
+    "SortOrder",
 ]
