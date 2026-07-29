@@ -1,0 +1,126 @@
+[project]
+name = "almagest-deviceagent"
+version = "0.1.0"
+description = "Almagest — the Pi-side device agent: the NFC tag reader and the station event stream."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+# Deliberately tiny. This process runs on a Raspberry Pi 4 next to kiosk
+# Chromium, and every dependency here is one more thing to cross-compile or
+# apt-pin on a machine nobody wants to debug at a bench.
+dependencies = [
+    "websockets>=14",
+    "pydantic-settings>=2.6",
+    # For exactly two functions: `parse_ndef_url` and `normalize_tag_uid`.
+    #
+    # WHY a dependency rather than a copy: a UID normalised by a different rule
+    # is invisible to the `location_tags` binding it should match *while looking
+    # perfectly correct in both places*. Bind time and resolve time must agree
+    # or a provisioning walk silently reports a whole cabinet as swapped, and
+    # the only way to guarantee agreement is one implementation.
+    #
+    # HONEST COST: this pulls the API's runtime deps (fastapi, sqlalchemy,
+    # alembic, pint — ~25 wheels, all with aarch64 builds) into the agent's
+    # venv. The agent imports none of them; they are along for the ride. If that
+    # ever hurts, the fix is to promote those two pure functions into a
+    # dependency-free module that `app.services.provisioning` re-exports and the
+    # agent depends on alone. The fix is never to copy them.
+    #
+    # Note the *backend's* `[tool.uv.sources]` entries for the two submodule
+    # libraries are honoured through this path source, so they need no repeat
+    # here — verified, because neither library is published to PyPI and
+    # resolution would fail loudly if they were ignored.
+    "almagest-backend",
+]
+
+[project.optional-dependencies]
+# Installed only on the Pi. `Pn532TagSource` imports these inside its
+# constructor precisely so that a dev machine — which has no reader to talk to —
+# can run the whole agent against `FakeTagSource` without them present.
+pi = [
+    "adafruit-circuitpython-pn532>=2.4",
+    "pyserial>=3.5",
+]
+
+[project.scripts]
+almagest-deviceagent = "agent.main:main"
+
+[tool.uv.sources]
+almagest-backend = { path = "../backend", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# The whole directory, so `agent/fixtures/*.json` ships with the package — the
+# `--fake` script and the test fixture are the same file on purpose.
+packages = ["agent"]
+
+# ---------------------------------------------------------------------------
+# ruff — same settings as backend/pyproject.toml. Two Python components in one
+# repo formatted by two rulesets is a diff-noise generator.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "ARG",  # unused arguments
+    "PTH",  # use pathlib
+    "RUF",
+]
+ignore = [
+    # See backend/pyproject.toml: RUF002 only ever objects to deliberate
+    # typography (en dashes, µ, Ω) in prose. RUF001 and RUF003 stay on.
+    "RUF002",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG001", "ARG002"]  # pytest fixtures are injected, not called
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["agent"]
+strict = true
+
+# None of the CircuitPython stack ships stubs, and on a dev machine it is not
+# even installed — `ignore_missing_imports` covers both. It is scoped to these
+# modules rather than global so that a typo in a first-party import is still an
+# error.
+[[tool.mypy.overrides]]
+module = ["adafruit_pn532.*", "board", "busio", "serial.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "live: needs the real PN532 wired to this machine; skipped unless -m live is passed",
+]
+filterwarnings = ["error"]
