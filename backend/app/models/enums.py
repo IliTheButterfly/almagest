@@ -192,10 +192,25 @@ class SubstitutionDirection(StrEnum):
 
 
 class Provenance(StrEnum):
-    """Where a parameter value came from.
+    """Where a parameter value came from — and, for a candidate, its **source**.
 
     Ordered by trust: a manufacturer's own printed table beats an API's
     marketing copy. `PRIORITY` below resolves disagreements.
+
+    One enum serves both `parameter_value.provenance` and
+    `parameter_value_candidate.source`, deliberately: promotion copies the
+    candidate's source straight into the value's provenance, so a second enum
+    would only create a mapping table to get out of step with.
+
+    **Adding a source is a one-line change here and nothing else, because there
+    is no `CHECK` constraint on either column.** That rule has now paid three
+    times: `CapacityModel.GRID_UNITS` for ADR 0002's recursive container types,
+    the scanning enums (`AliasKind`, `ScanDecodedKind`) grown after
+    `scan_events` was already populated, and now this — a new provider is a
+    member here plus a row in `PROVENANCE_PRIORITY`, with no rebuild of
+    `parameter_value`, `parameter_value_candidate`, or anything referencing
+    them. Under `sa.Enum` each of the three would have been a full table
+    rebuild of a table already holding data.
     """
 
     MANUAL = "manual"
@@ -214,6 +229,145 @@ PROVENANCE_PRIORITY: dict[str, int] = {
     Provenance.DISTRIBUTOR_FREETEXT: 20,
     Provenance.LLM_INFERRED: 10,
 }
+
+
+class CandidateStatus(StrEnum):
+    """Where one `parameter_value_candidate` row stands.
+
+    The review queue is exactly `status = 'pending'`, which is why the other
+    three members all describe a *closed* candidate rather than a stage of
+    processing: enrichment either produced something the rules could act on, or
+    it produced work for a human, and there is no third state in between.
+    """
+
+    #: In the review queue. The default, because a candidate that the promotion
+    #: rules decline to act on must remain visible rather than evaporate.
+    PENDING = "pending"
+    #: This candidate's value is what `parameter_value` now holds, written
+    #: through `app.services.parameters` like every other value.
+    PROMOTED = "promoted"
+    #: A human looked and said no. Sticky: re-running the same extraction must
+    #: not resurrect it as pending, which is the same reasoning as
+    #: `LayoutSuggestionStatus.DISMISSED`.
+    DISMISSED = "dismissed"
+    #: Closed without anyone looking, because looking would be pointless: the
+    #: field already holds a value this candidate agrees with, or a
+    #: more-trusted candidate for the same field was promoted instead. Kept
+    #: distinct from `DISMISSED` precisely because no human judgement is
+    #: recorded here — it is derived, and recomputable from the rows.
+    SUPERSEDED = "superseded"
+
+
+class CandidateReviewReason(StrEnum):
+    """Why a candidate is in the queue instead of in `parameter_value`.
+
+    Enumerated rather than free text because these are the ways enrichment is
+    allowed to decline, and a queue that cannot be filtered by them is a queue
+    nobody works through. Every one of them is a *refusal to guess*, so none of
+    them is an error.
+
+    **A pending candidate always carries one.** `parameter_value_candidate`
+    documents this column as "why it is still pending"; a pending row with a
+    NULL reason is unexplainable in the queue UI and invisible to every filter,
+    which is the same silent-omission failure the rest of this design is built
+    to avoid. Adding a member here is purely additive precisely because the
+    column is `StrEnumType`, never a `CHECK` — which is what makes covering a
+    newly-discovered refusal cheap enough that leaving it NULL is never the
+    convenient option.
+    """
+
+    #: Single-source, field empty, but `confidence < 0.8`. The plain threshold
+    #: from the design doc.
+    LOW_CONFIDENCE = "low_confidence"
+    #: The field already holds a value and this candidate disagrees with it.
+    #: Covers the late-higher-priority-source case: the priority order decides
+    #: which source to *believe*, not whether a background job may silently
+    #: rewrite a value a human may already have ordered stock against.
+    FIELD_OCCUPIED = "field_occupied"
+    #: Two or more sources offered values that do not agree within tolerance.
+    #: The single strongest signal that a human should look, and the reason the
+    #: MPN-decoder cross-check exists at all.
+    SOURCES_DISAGREE = "sources_disagree"
+    #: The raw value could not be parsed against the template, or names a
+    #: `parameter_choice` that does not exist. The text is kept verbatim
+    #: anyway — an unparseable value is a grammar gap to fix, but only if the
+    #: string survived.
+    UNPARSEABLE = "unparseable"
+    #: The raw value parsed, but as a **one-sided limit** (`>=50V`, `<100nF`):
+    #: it states a bound, not the part's value. Search is an interval-overlap
+    #: test (`value_min <= hi AND value_max >= lo`), so storing one would leave
+    #: the other bound NULL and make the part invisible to every range query,
+    #: silently. Distinct from `UNPARSEABLE` because the grammar is fine and
+    #: there is no gap to fix — what is needed is a two-sided correction, which
+    #: is a different instruction to give a reviewer.
+    ONE_SIDED_LIMIT = "one_sided_limit"
+    #: The observation is of a kind that must never auto-promote whatever its
+    #: confidence says: an OCR'd or model-read part number, or a printed
+    #: marking whose meaning depends on which component you are holding
+    #: (`104` is 100 kΩ on a resistor and 100 nF on a capacitor).
+    REQUIRES_HUMAN = "requires_human"
+
+
+class PromotionOutcome(StrEnum):
+    """What one evaluation of a field's candidates did.
+
+    **Never persisted** — like `EscalationLevel` and `ShortageKind` — because it
+    is derivable from the resulting `CandidateStatus` rows at any time, and a
+    stored copy would be a second version of the same fact to get out of step.
+    It lives here so every enumerated "kind of thing" in the system stays in one
+    file.
+    """
+
+    #: A candidate crossed into `parameter_value`, through
+    #: `app.services.parameters` like every other write.
+    PROMOTED = "promoted"
+    #: The field already held a value the candidates agree with. Nothing was
+    #: written and nothing needs a human.
+    ALREADY_SATISFIED = "already_satisfied"
+    #: At least one candidate needs a human. The rules refused to guess.
+    QUEUED = "queued"
+    #: Nothing was pending for this field.
+    NOTHING_PENDING = "nothing_pending"
+
+
+class CrossCheckVerdict(StrEnum):
+    """What the MPN decoder had to say about one model-extracted field.
+
+    **Never persisted**, like `PromotionOutcome`: it is recomputable from the two
+    candidate rows any time, and the durable record of a disagreement is already
+    `CandidateReviewReason.SOURCES_DISAGREE` plus both rows sitting in the queue.
+    A stored copy would be a second version of that fact.
+    """
+
+    #: The decoder read the same value out of the part number. Two sources that
+    #: fail for unrelated reasons landed on one answer.
+    CONFIRMED = "confirmed"
+    #: The decoder read a *different* value. Never resolved by averaging and
+    #: never by whichever confidence is higher — see `cross_check`.
+    CONFLICT = "conflict"
+    #: Nothing to check against: no family claimed the part number, the field is
+    #: not in that family's table, or one of the two values could not be parsed.
+    #: The model's own confidence then faces the plain 0.8 bar alone.
+    UNCHECKED = "unchecked"
+
+
+class IdentityRefusal(StrEnum):
+    """Why a model-read part number was not attached to any part.
+
+    **Never persisted, and deliberately not a status on a row** — nothing is
+    written at all. "Never auto-accept a model-read part number" is a refusal,
+    and a refusal needs no storage to be correct; the caller is handed the
+    number, the text it was read from, and the values that were discarded.
+    """
+
+    #: No catalogue part has this `mpn_norm`. The model may have found a real
+    #: sibling variant in the table, or invented one; both look identical from
+    #: here, which is the entire reason a human decides.
+    NO_MATCH = "no_match"
+    #: More than one part shares this `mpn_norm` — two manufacturers' parts
+    #: normalising alike. Picking either would attach a datasheet's values to a
+    #: coin flip.
+    AMBIGUOUS = "ambiguous"
 
 
 class LayoutSuggestionKind(StrEnum):

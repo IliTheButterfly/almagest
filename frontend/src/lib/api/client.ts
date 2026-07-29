@@ -165,6 +165,14 @@ export type PickListResponse = Schemas["PickListResponse"];
 export type PickStopRead = Schemas["PickStopRead"];
 export type PickTakeRead = Schemas["PickTakeRead"];
 export type PickGapRead = Schemas["PickGapRead"];
+export type EnrichmentQueueResponse = Schemas["EnrichmentQueueResponse"];
+export type EnrichmentPartGroup = Schemas["EnrichmentPartGroup"];
+export type EnrichmentFieldGroup = Schemas["EnrichmentFieldGroup"];
+export type EnrichmentCandidateRead = Schemas["EnrichmentCandidateRead"];
+export type EnrichmentCorrectRequest = Schemas["EnrichmentCorrectRequest"];
+export type EnrichmentBulkAcceptRequest = Schemas["EnrichmentBulkAcceptRequest"];
+export type EnrichmentBulkAcceptResponse = Schemas["EnrichmentBulkAcceptResponse"];
+export type EnrichmentBulkAcceptResult = Schemas["EnrichmentBulkAcceptResult"];
 
 export class ApiError extends Error {
   readonly detail: unknown;
@@ -1002,6 +1010,97 @@ export async function getPickList(buildId: number): Promise<PickListResponse> {
   });
   if (error !== undefined) {
     fail("could not load the pick list", error, response);
+  }
+  return data;
+}
+
+// ---------------------------------------------------------------- enrichment --
+
+/**
+ * The review queue: every pending candidate, grouped by part then by field.
+ *
+ * `partId` scopes to one part's fields (the "one pass" view from `PartScreen`);
+ * omitted, this is the whole worklist, capped at `limit` distinct parts —
+ * `total_parts` still reports the true count, so a badge does not undercount.
+ */
+export async function getEnrichmentQueue(
+  options: { partId?: number; limit?: number } = {},
+): Promise<EnrichmentQueueResponse> {
+  const { data, error, response } = await api.GET("/api/enrichment/candidates", {
+    params: {
+      query: {
+        ...(options.partId === undefined ? {} : { part_id: options.partId }),
+        ...(options.limit === undefined ? {} : { limit: options.limit }),
+      },
+    },
+  });
+  if (error !== undefined) {
+    fail("could not load the review queue", error, response);
+  }
+  return data;
+}
+
+/**
+ * Take a candidate's value exactly as its source wrote it.
+ *
+ * Returns the field's post-action state — normally with `candidates: []`,
+ * because accepting one candidate closes every other pending one for the same
+ * field too (see the server docstring): the caller's job is to drop the field
+ * from view when the list comes back empty, not to re-fetch the whole queue.
+ */
+export async function acceptEnrichmentCandidate(candidateId: number): Promise<EnrichmentFieldGroup> {
+  const { data, error, response } = await api.POST("/api/enrichment/candidates/{candidate_id}/accept", {
+    params: { path: { candidate_id: candidateId } },
+  });
+  if (error !== undefined) {
+    fail("could not accept that value", error, response);
+  }
+  return data;
+}
+
+/**
+ * A human's replacement value. Recorded as a fresh `manual` candidate — which
+ * outranks every automated source — and promoted in the same call.
+ */
+export async function correctEnrichmentCandidate(
+  candidateId: number,
+  request: EnrichmentCorrectRequest,
+): Promise<EnrichmentFieldGroup> {
+  const { data, error, response } = await api.POST("/api/enrichment/candidates/{candidate_id}/correct", {
+    params: { path: { candidate_id: candidateId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save that correction", error, response);
+  }
+  return data;
+}
+
+/** A human said no to this one reading. Does not touch its siblings. */
+export async function dismissEnrichmentCandidate(candidateId: number): Promise<EnrichmentCandidateRead> {
+  const { data, error, response } = await api.POST("/api/enrichment/candidates/{candidate_id}/dismiss", {
+    params: { path: { candidate_id: candidateId } },
+  });
+  if (error !== undefined) {
+    fail("could not dismiss that candidate", error, response);
+  }
+  return data;
+}
+
+/**
+ * Accept many candidates in one call — the common case of a whole decoded
+ * family being obviously right. One bad id is reported in `results`, not
+ * thrown, so the caller can show a partial success rather than losing the
+ * whole batch to it.
+ */
+export async function bulkAcceptEnrichmentCandidates(
+  candidateIds: number[],
+): Promise<EnrichmentBulkAcceptResponse> {
+  const { data, error, response } = await api.POST("/api/enrichment/candidates/bulk-accept", {
+    body: { candidate_ids: candidateIds },
+  });
+  if (error !== undefined) {
+    fail("could not accept that batch", error, response);
   }
   return data;
 }

@@ -19,6 +19,7 @@ from app.models.catalog import (
     Tag,
     Unit,
 )
+from app.models.enrichment import ParameterValueCandidate
 from app.models.identity import ObjectId
 from app.models.layout import LayoutSuggestion
 from app.models.layout_authoring import (
@@ -70,6 +71,7 @@ __all__ = [
     "ParameterChoice",
     "ParameterTemplate",
     "ParameterValue",
+    "ParameterValueCandidate",
     "Part",
     "PartCategory",
     "PartKind",

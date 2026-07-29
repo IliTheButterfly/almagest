@@ -2778,6 +2778,345 @@
         "title": "EmptyBinResponse",
         "type": "object"
       },
+      "EnrichmentBulkAcceptRequest": {
+        "properties": {
+          "candidate_ids": {
+            "items": {
+              "maximum": 9.223372036854776e+18,
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Candidate Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "candidate_ids"
+        ],
+        "title": "EnrichmentBulkAcceptRequest",
+        "type": "object"
+      },
+      "EnrichmentBulkAcceptResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/EnrichmentBulkAcceptResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "EnrichmentBulkAcceptResponse",
+        "type": "object"
+      },
+      "EnrichmentBulkAcceptResult": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "candidate_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Candidate Id",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "accepted"
+        ],
+        "title": "EnrichmentBulkAcceptResult",
+        "type": "object"
+      },
+      "EnrichmentCandidateRead": {
+        "description": "One source's proposal, exactly as `parameter_value_candidate` holds it.\n\nDeliberately carries `note` and `source_ref` verbatim rather than\nreshaping them: `note` is where a model or table extraction's quoted\nevidence already lives (see `cross_check.review_note`), and a value nobody\ncan trace to that text is not reviewable \u2014 it is a prompt to guess, which\nis the one thing this screen must not become.",
+        "properties": {
+          "choice_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choice Key"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Id",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "raw_value": {
+            "title": "Raw Value",
+            "type": "string"
+          },
+          "requires_human": {
+            "title": "Requires Human",
+            "type": "boolean"
+          },
+          "review_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Reason"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_ref": {
+            "title": "Source Ref",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "source_ref",
+          "confidence",
+          "raw_value",
+          "choice_key",
+          "status",
+          "review_reason",
+          "requires_human",
+          "note",
+          "created_at"
+        ],
+        "title": "EnrichmentCandidateRead",
+        "type": "object"
+      },
+      "EnrichmentCorrectRequest": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "raw_value": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Raw Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "raw_value"
+        ],
+        "title": "EnrichmentCorrectRequest",
+        "type": "object"
+      },
+      "EnrichmentFieldGroup": {
+        "description": "One `(part, template)`'s pending candidates, plus what is there already.\n\n`recommended_candidate_id` is `candidates[0].id` when there is more than\none row \u2014 a pure function of `PROVENANCE_PRIORITY`, the same ordering\n`candidate_rules.pending()` already sorts by, surfaced explicitly rather\nthan left for the reviewer to infer from list order.",
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/EnrichmentCandidateRead"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "existing_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Existing Confidence"
+          },
+          "existing_provenance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Existing Provenance"
+          },
+          "existing_raw_input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Existing Raw Input"
+          },
+          "recommended_candidate_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Candidate Id"
+          },
+          "template_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Template Id",
+            "type": "integer"
+          },
+          "template_name": {
+            "title": "Template Name",
+            "type": "string"
+          },
+          "template_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Unit"
+          }
+        },
+        "required": [
+          "template_id",
+          "template_name",
+          "template_unit",
+          "existing_raw_input",
+          "existing_provenance",
+          "existing_confidence",
+          "recommended_candidate_id",
+          "candidates"
+        ],
+        "title": "EnrichmentFieldGroup",
+        "type": "object"
+      },
+      "EnrichmentPartGroup": {
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/EnrichmentFieldGroup"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "part_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Part Id",
+            "type": "integer"
+          },
+          "part_mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Mpn"
+          },
+          "part_name": {
+            "title": "Part Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part_id",
+          "part_name",
+          "part_mpn",
+          "fields"
+        ],
+        "title": "EnrichmentPartGroup",
+        "type": "object"
+      },
+      "EnrichmentQueueResponse": {
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/EnrichmentPartGroup"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "total_candidates": {
+            "title": "Total Candidates",
+            "type": "integer"
+          },
+          "total_parts": {
+            "title": "Total Parts",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_candidates",
+          "total_parts",
+          "parts"
+        ],
+        "title": "EnrichmentQueueResponse",
+        "type": "object"
+      },
       "EntityType": {
         "description": "Discriminator for the shared short-ID space and other polymorphic links.\n\nOne ID space across all object types means a scan resolves without knowing\nwhat it scanned, and an object that gets reclassified keeps its printed\nlabel. The type is a *display prefix* only \u2014 never parsed from the code.",
         "enum": [
@@ -10990,6 +11329,259 @@
         "summary": "Write Slot Template",
         "tags": [
           "container-types"
+        ]
+      }
+    },
+    "/api/enrichment/candidates": {
+      "get": {
+        "description": "The review queue, grouped by part then by field.\n\nGrouping is free: `candidate_rules.pending()` already sorts\n`(part_id, template_id, -priority, -confidence, id)`, so bucketing the\nalready-ordered list preserves the \"obvious click is the top of the list\"\nproperty within each field without a second sort here.",
+        "operationId": "list_enrichment_queue",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "part_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Part Id"
+            }
+          },
+          {
+            "description": "Cap on distinct parts returned.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Cap on distinct parts returned.",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrichmentQueueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Enrichment Queue",
+        "tags": [
+          "enrichment"
+        ]
+      }
+    },
+    "/api/enrichment/candidates/bulk-accept": {
+      "post": {
+        "description": "Accept many candidates in one call \u2014 the common case of a whole decoded\nfamily being obviously right. Each id is independent: one stale or\nunparseable id is reported and skipped, never abandoning the rest of the\nbatch, and each accepted id closes its own field exactly as the single\naccept route does (siblings dismissed, provenance kept as the source's own).",
+        "operationId": "bulk_accept_enrichment_candidates",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrichmentBulkAcceptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrichmentBulkAcceptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Accept Enrichment Candidates",
+        "tags": [
+          "enrichment"
+        ]
+      }
+    },
+    "/api/enrichment/candidates/{candidate_id}/accept": {
+      "post": {
+        "description": "Take this candidate's value exactly as its source wrote it.\n\nProvenance on `parameter_value` stays the candidate's own source \u2014 accepting\nis agreeing with what was read, not asserting it yourself. Use **correct**\nwhen the value itself needs to change; that is what earns `manual`.",
+        "operationId": "accept_enrichment_candidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrichmentFieldGroup"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Enrichment Candidate",
+        "tags": [
+          "enrichment"
+        ]
+      }
+    },
+    "/api/enrichment/candidates/{candidate_id}/correct": {
+      "post": {
+        "description": "A human's replacement value. Recorded as a fresh `manual` candidate, then\npromoted \u2014 never as an edit to the row a source actually wrote, which would\nerase the evidence of what that source said.",
+        "operationId": "correct_enrichment_candidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrichmentCorrectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrichmentFieldGroup"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Correct Enrichment Candidate",
+        "tags": [
+          "enrichment"
+        ]
+      }
+    },
+    "/api/enrichment/candidates/{candidate_id}/dismiss": {
+      "post": {
+        "description": "A human said no to this one reading. Sticks across re-runs of the source\nthat produced it; does not touch any sibling candidate for the same field.",
+        "operationId": "dismiss_enrichment_candidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "candidate_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Candidate Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrichmentCandidateRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dismiss Enrichment Candidate",
+        "tags": [
+          "enrichment"
         ]
       }
     },

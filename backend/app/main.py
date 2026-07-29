@@ -15,6 +15,7 @@ from fastapi.routing import APIRoute
 from app import __version__
 from app.api.routes import (
     container_types,
+    enrichment,
     facets,
     intake,
     labels,
@@ -76,6 +77,9 @@ def create_app() -> FastAPI:
     app.include_router(facets.categories_router)
     app.include_router(projects.router)
     app.include_router(projects.builds_router)
+    # The review queue for everything `parameter_value_candidate` refused to
+    # auto-promote — the safety valve for every "never auto-accept" rule above.
+    app.include_router(enrichment.router)
     return app
 
 

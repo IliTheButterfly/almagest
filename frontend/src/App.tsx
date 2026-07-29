@@ -28,6 +28,7 @@ import { PartScreen } from "./screens/PartScreen";
 import { ProjectScreen } from "./screens/ProjectScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
 import { ProvisionScreen } from "./screens/ProvisionScreen";
+import { ReviewScreen } from "./screens/ReviewScreen";
 import { ScanScreen } from "./screens/ScanScreen";
 import { SearchScreen } from "./screens/SearchScreen";
 import { TreeScreen } from "./screens/TreeScreen";
@@ -63,6 +64,7 @@ export function App() {
         <NavLink to="/projects">Projects</NavLink>
         <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
+        <NavLink to="/review">Review</NavLink>
       </nav>
 
       <main className="app-main">
@@ -72,6 +74,7 @@ export function App() {
           <Route path="/tree" element={<TreeScreen />} />
           <Route path="/scan" element={<ScanScreen />} />
           <Route path="/intake" element={<IntakeQueueScreen />} />
+          <Route path="/review" element={<ReviewScreen />} />
           {/* The `/s/{short_id}` redirect targets — these paths are physical. */}
           <Route path="/parts/:partId" element={<PartScreen />} />
           <Route path="/locations/:locationId" element={<LocationScreen />} />

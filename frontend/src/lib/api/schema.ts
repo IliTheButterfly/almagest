@@ -348,6 +348,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/enrichment/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Enrichment Queue
+         * @description The review queue, grouped by part then by field.
+         *
+         *     Grouping is free: `candidate_rules.pending()` already sorts
+         *     `(part_id, template_id, -priority, -confidence, id)`, so bucketing the
+         *     already-ordered list preserves the "obvious click is the top of the list"
+         *     property within each field without a second sort here.
+         */
+        get: operations["list_enrichment_queue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/enrichment/candidates/bulk-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk Accept Enrichment Candidates
+         * @description Accept many candidates in one call — the common case of a whole decoded
+         *     family being obviously right. Each id is independent: one stale or
+         *     unparseable id is reported and skipped, never abandoning the rest of the
+         *     batch, and each accepted id closes its own field exactly as the single
+         *     accept route does (siblings dismissed, provenance kept as the source's own).
+         */
+        post: operations["bulk_accept_enrichment_candidates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/enrichment/candidates/{candidate_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept Enrichment Candidate
+         * @description Take this candidate's value exactly as its source wrote it.
+         *
+         *     Provenance on `parameter_value` stays the candidate's own source — accepting
+         *     is agreeing with what was read, not asserting it yourself. Use **correct**
+         *     when the value itself needs to change; that is what earns `manual`.
+         */
+        post: operations["accept_enrichment_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/enrichment/candidates/{candidate_id}/correct": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct Enrichment Candidate
+         * @description A human's replacement value. Recorded as a fresh `manual` candidate, then
+         *     promoted — never as an edit to the row a source actually wrote, which would
+         *     erase the evidence of what that source said.
+         */
+        post: operations["correct_enrichment_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/enrichment/candidates/{candidate_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Enrichment Candidate
+         * @description A human said no to this one reading. Sticks across re-runs of the source
+         *     that produced it; does not touch any sibling candidate for the same field.
+         */
+        post: operations["dismiss_enrichment_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/intake/pending": {
         parameters: {
             query?: never;
@@ -2341,6 +2457,116 @@ export interface components {
              * @default false
              */
             replayed?: boolean;
+        };
+        /** EnrichmentBulkAcceptRequest */
+        EnrichmentBulkAcceptRequest: {
+            /** Candidate Ids */
+            candidate_ids: number[];
+        };
+        /** EnrichmentBulkAcceptResponse */
+        EnrichmentBulkAcceptResponse: {
+            /** Results */
+            results: components["schemas"]["EnrichmentBulkAcceptResult"][];
+        };
+        /** EnrichmentBulkAcceptResult */
+        EnrichmentBulkAcceptResult: {
+            /** Accepted */
+            accepted: boolean;
+            /** Candidate Id */
+            candidate_id: number;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * EnrichmentCandidateRead
+         * @description One source's proposal, exactly as `parameter_value_candidate` holds it.
+         *
+         *     Deliberately carries `note` and `source_ref` verbatim rather than
+         *     reshaping them: `note` is where a model or table extraction's quoted
+         *     evidence already lives (see `cross_check.review_note`), and a value nobody
+         *     can trace to that text is not reviewable — it is a prompt to guess, which
+         *     is the one thing this screen must not become.
+         */
+        EnrichmentCandidateRead: {
+            /** Choice Key */
+            choice_key: string | null;
+            /** Confidence */
+            confidence: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Note */
+            note: string | null;
+            /** Raw Value */
+            raw_value: string;
+            /** Requires Human */
+            requires_human: boolean;
+            /** Review Reason */
+            review_reason: string | null;
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Status */
+            status: string;
+        };
+        /** EnrichmentCorrectRequest */
+        EnrichmentCorrectRequest: {
+            /** Note */
+            note?: string | null;
+            /** Raw Value */
+            raw_value: string;
+        };
+        /**
+         * EnrichmentFieldGroup
+         * @description One `(part, template)`'s pending candidates, plus what is there already.
+         *
+         *     `recommended_candidate_id` is `candidates[0].id` when there is more than
+         *     one row — a pure function of `PROVENANCE_PRIORITY`, the same ordering
+         *     `candidate_rules.pending()` already sorts by, surfaced explicitly rather
+         *     than left for the reviewer to infer from list order.
+         */
+        EnrichmentFieldGroup: {
+            /** Candidates */
+            candidates: components["schemas"]["EnrichmentCandidateRead"][];
+            /** Existing Confidence */
+            existing_confidence: number | null;
+            /** Existing Provenance */
+            existing_provenance: string | null;
+            /** Existing Raw Input */
+            existing_raw_input: string | null;
+            /** Recommended Candidate Id */
+            recommended_candidate_id: number | null;
+            /** Template Id */
+            template_id: number;
+            /** Template Name */
+            template_name: string;
+            /** Template Unit */
+            template_unit: string | null;
+        };
+        /** EnrichmentPartGroup */
+        EnrichmentPartGroup: {
+            /** Fields */
+            fields: components["schemas"]["EnrichmentFieldGroup"][];
+            /** Part Id */
+            part_id: number;
+            /** Part Mpn */
+            part_mpn: string | null;
+            /** Part Name */
+            part_name: string;
+        };
+        /** EnrichmentQueueResponse */
+        EnrichmentQueueResponse: {
+            /** Parts */
+            parts: components["schemas"]["EnrichmentPartGroup"][];
+            /** Total Candidates */
+            total_candidates: number;
+            /** Total Parts */
+            total_parts: number;
         };
         /**
          * EntityType
@@ -5243,6 +5469,169 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SlotTemplateWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_enrichment_queue: {
+        parameters: {
+            query?: {
+                part_id?: number | null;
+                /** @description Cap on distinct parts returned. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentQueueResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    bulk_accept_enrichment_candidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrichmentBulkAcceptRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentBulkAcceptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_enrichment_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentFieldGroup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    correct_enrichment_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrichmentCorrectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentFieldGroup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_enrichment_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrichmentCandidateRead"];
                 };
             };
             /** @description Validation Error */

@@ -35,7 +35,10 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "7a0024b06ca5"
-down_revision: Union[str, Sequence[str], None] = "760a2d6441d5"
+# Re-parented onto the candidates migration when phase 6 merged first. Both
+# originally revised 760a2d6441d5, which is two heads; they are independent
+# (different tables) so the order is arbitrary and linear is what matters.
+down_revision: Union[str, Sequence[str], None] = "904ad311d7f9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

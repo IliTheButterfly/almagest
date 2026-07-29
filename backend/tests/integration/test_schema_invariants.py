@@ -50,6 +50,12 @@ def test_enum_columns_are_plain_varchar(db: Session) -> None:
         ("parameter_template", "value_type"),
         ("parameter_template", "substitution_direction"),
         ("parameter_value", "provenance"),
+        # The candidate table's three: a new provider or a new review reason has
+        # to stay a one-line change in `app.models.enums`, on a table that will
+        # be holding every automated observation the system has ever made.
+        ("parameter_value_candidate", "source"),
+        ("parameter_value_candidate", "status"),
+        ("parameter_value_candidate", "review_reason"),
         ("barcode_aliases", "entity_type"),
         ("barcode_aliases", "alias_kind"),
         ("scan_sources", "kind"),
