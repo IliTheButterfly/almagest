@@ -347,6 +347,62 @@ def test_a_return_may_create_the_lot_but_a_take_may_not(client: TestClient, db: 
     assert _balance(created) == 500
 
 
+def test_a_return_naming_a_part_goes_back_into_the_lot_it_came_out_of(
+    client: TestClient, db: Session
+) -> None:
+    """Take five, put two back — into the *same* reel.
+
+    A cart row added from search names a part and no lot, so this is the default
+    container checkout rather than an edge case. Resolving the return through
+    `find_or_create_lot` matched on packaging, batch, serial and date code too, so
+    an ordinary distributor reel (which has a date code) matched nothing and the
+    return created a second active lot: the reel stayed short of the parts that
+    physically went back into it, and the bin then held two lots of the part, so
+    every later `part_id` take from it was refused `ambiguous_lot`.
+    """
+    bin_a = make_location(db, "Bin A")
+    resistor = make_part(db, "10k")
+    reel = make_lot(db, resistor, bin_a, qty_milli=100_000)
+    reel.date_code = "2413"
+    db.commit()
+
+    body = client.post(
+        "/api/stock/movements",
+        json={
+            "location_id": bin_a.id,
+            "lines": [
+                {"part_id": resistor.id, "direction": "take", "qty_milli": 5_000},
+                {"part_id": resistor.id, "direction": "return", "qty_milli": 2_000},
+            ],
+        },
+    ).json()
+
+    assert [result["applied"] for result in body["results"]] == [True, True]
+    # Both against the reel, not a lot invented for the return.
+    assert [result["lot_id"] for result in body["results"]] == [reel.id, reel.id]
+    assert _balance(reel.id) == 97_000
+
+    lots = _session()
+    try:
+        held = list(
+            lots.execute(select(StockLot).where(StockLot.part_id == resistor.id)).scalars()
+        )
+        assert [lot.id for lot in held] == [reel.id]
+    finally:
+        lots.close()
+
+    # And the bin is still usable by part alone afterwards, which the second lot
+    # is what used to break.
+    again = client.post(
+        "/api/stock/movements",
+        json={
+            "location_id": bin_a.id,
+            "lines": [{"part_id": resistor.id, "direction": "take", "qty_milli": 1_000}],
+        },
+    ).json()
+    assert again["results"][0]["applied"] is True
+
+
 def test_two_packages_of_one_part_in_a_bin_are_not_guessed_between(
     client: TestClient, db: Session
 ) -> None:

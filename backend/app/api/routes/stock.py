@@ -779,6 +779,17 @@ def _resolve_line_lot(db: Session, line: MovementLine, location: Location | None
     Every path out of here is a *readable* refusal rather than an exception: a
     cart line whose part or lot has been deleted since it was added is the case
     ADR 0007 requires to degrade to a removable row, not to a 500.
+
+    A line naming a part resolves against what the container holds **the same way
+    in both directions**, and only then does a return fall through to creating a
+    lot. Reaching for `find_or_create_lot` first looks equivalent and is not: it
+    matches on packaging, batch, serial and date code as well, so a return into a
+    bin holding one ordinary distributor reel (`date_code` set, as an intake
+    records it) matches nothing, creates a *second* active lot of that part, and
+    posts the return to it — leaving the reel's balance short of the parts that
+    physically went back into it, and making every later `part_id` take from that
+    bin `ambiguous_lot`. Take-five-then-put-two-back through the cart is enough
+    to do it.
     """
     if line.lot_id is not None:
         lot = db.get(StockLot, line.lot_id)
@@ -801,13 +812,6 @@ def _resolve_line_lot(db: Session, line: MovementLine, location: Location | None
     if db.get(Part, line.part_id) is None:
         raise LineRefused(f"no part with id {line.part_id}", reason="unknown_part")
 
-    if line.direction is MovementDirection.RETURN:
-        # Putting parts back into a bin that holds none of them yet is ordinary,
-        # so a return may create the lot. `find_or_create_lot` is packaging-aware
-        # and returns the existing plain lot when there is one.
-        lot, _ = ledger.find_or_create_lot(db, part_id=line.part_id, location=location)
-        return lot
-
     candidates = list(
         db.execute(
             select(StockLot)
@@ -820,14 +824,19 @@ def _resolve_line_lot(db: Session, line: MovementLine, location: Location | None
         ).scalars()
     )
     if not candidates:
+        if line.direction is MovementDirection.RETURN:
+            # Putting parts back into a bin that holds none of them yet is
+            # ordinary, so a return — and only a return — may create the lot.
+            lot, _ = ledger.find_or_create_lot(db, part_id=line.part_id, location=location)
+            return lot
         raise LineRefused(
             f"location {location.id} holds no active lot of part {line.part_id}",
             reason="no_lot_for_part",
         )
     if len(candidates) > 1:
         # Two packages of one MPN in one bin — a reel and a cut strip. Which one
-        # was taken from is a fact only the user has, and guessing would file the
-        # take against the wrong per-lot cost.
+        # was taken from, or put back into, is a fact only the user has, and
+        # guessing would file the movement against the wrong per-lot cost.
         raise LineRefused(
             f"location {location.id} holds {len(candidates)} lots of part {line.part_id};"
             " name one with lot_id",
