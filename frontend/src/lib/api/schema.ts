@@ -55,6 +55,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/builds/{build_id}/allocate-batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Allocate Stock Batch
+         * @description Hold stock for a build, several lots at once — a cart checkout to a build
+         *     (ADR 0007).
+         *
+         *     **One line failing places the rest and reports just that failure.** That is
+         *     not a convenience: the cart was gathered at the shelf over minutes, so by
+         *     checkout time one of its lots may have been emptied, quarantined or promised
+         *     to another build, and `reserve` is the one service in this system allowed to
+         *     say no. Refusing the whole cart over that would throw away the user's other
+         *     nineteen decisions, and a 4xx would leave them unable to see which row to fix.
+         *
+         *     Lines are applied **in order**, so two lines of one cart drawing on the same
+         *     lot compete for it exactly as two separate requests would — the second sees
+         *     what the first left. `reserve` stays the sole writer of `stock_allocations`
+         *     and `qty_reserved_milli_cached`, and it decides every refusal before it
+         *     mutates anything, which is what lets a refused line leave nothing behind
+         *     without a SAVEPOINT to roll back.
+         */
+        post: operations["allocate_stock_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/builds/{build_id}/consume-staged": {
         parameters: {
             query?: never;
@@ -1553,6 +1588,15 @@ export interface paths {
          *     POST that landed and a retried POST that never reached the server are only
          *     safely indistinguishable with a key — which also means a retried *add*
          *     adds one line, not two.
+         *
+         *     **This is also the cart's checkout door for a project BOM** (ADR 0007), and
+         *     no parallel batch route was added for it: adding a line is already what a
+         *     cart line becomes, and a second route would have to rebuild the
+         *     project-membership check, `_apply_bom_line_edit` and the idempotency guard
+         *     beside this one. What the cart needs and a curation pass does not is
+         *     `partial: true` — apply what can be applied, report the rest per line — plus
+         *     a `client_op_id` per edit, so resubmitting a cart after one line was refused
+         *     does not re-add the lines that landed.
          */
         put: operations["update_bom_lines"];
         post?: never;
@@ -2091,6 +2135,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stock/movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Batch Movements
+         * @description Take or put back several parts in one request — a cart checkout to plain
+         *     stock, with no project involved (ADR 0007).
+         *
+         *     **One line failing applies the rest and reports just that failure**, the
+         *     same rule `empty_bin` follows and for a sharper version of the same reason:
+         *     a cart is gathered over minutes at a shelf, so by checkout time a line's lot
+         *     may have been moved, emptied or deleted by somebody else. Rolling the batch
+         *     back would discard nineteen correct statements about what the user physically
+         *     did in order to protect the twentieth, and 4xx-ing it would leave the client
+         *     unable to say which row to fix.
+         *
+         *     Every row still goes through `app.services.ledger`, one `SAVEPOINT` per
+         *     line, all under the single `commit()` `idempotency.run` owns. Both keys
+         *     matter: the batch key makes a whole resubmission a no-op, and the per-line
+         *     keys make a *partial* resubmission one — see `idempotency.replay_line`.
+         */
+        post: operations["batch_movements"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/stock/receive": {
         parameters: {
             query?: never;
@@ -2238,6 +2316,89 @@ export interface components {
          * @enum {string}
          */
         AliasKind: "whole_payload" | "mpn" | "supplier_sku" | "package_code" | "tag_uid";
+        /**
+         * AllocateBatchRequest
+         * @description A cart's worth of holds against one build, in one request (ADR 0007).
+         *
+         *     Two levels of idempotency key, as `stock.batch_movements` has: this one makes
+         *     a whole resubmission a no-op, and each line's own makes a *partial*
+         *     resubmission one. The second is not redundant here even though a reservation
+         *     writes no ledger row — `stock_allocations` has no UNIQUE to fall back on, so
+         *     without a line key a cart resent after one refusal would double every hold
+         *     that had already been placed.
+         */
+        AllocateBatchRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Lines */
+            lines: components["schemas"]["AllocateLine"][];
+        };
+        /** AllocateBatchResponse */
+        AllocateBatchResponse: {
+            /** Applied Count */
+            applied_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Results */
+            results: components["schemas"]["AllocateLineResult"][];
+        };
+        /**
+         * AllocateLine
+         * @description One line of a batch allocation — one hold, on one lot.
+         */
+        AllocateLine: {
+            /**
+             * Allow Overcommit
+             * @default false
+             */
+            allow_overcommit?: boolean;
+            /** Bom Line Id */
+            bom_line_id?: number | null;
+            /** Client Line Id */
+            client_line_id?: string | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Lot Id */
+            lot_id: number;
+            /** Note */
+            note?: string | null;
+            /** Part Id */
+            part_id?: number | null;
+            /** Qty Milli */
+            qty_milli: number;
+        };
+        /** AllocateLineResult */
+        AllocateLineResult: {
+            allocation?: components["schemas"]["AllocationRead"] | null;
+            /** Applied */
+            applied: boolean;
+            /** Available Milli */
+            available_milli?: number | null;
+            /** Client Line Id */
+            client_line_id: string | null;
+            /** Index */
+            index: number;
+            /** Lot Id */
+            lot_id?: number | null;
+            /** Message */
+            message?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
         /** AllocateRequest */
         AllocateRequest: {
             /**
@@ -2297,6 +2458,47 @@ export interface components {
             staged_ledger_seq: number | null;
             /** State */
             state: string;
+        };
+        /**
+         * BatchMovementRequest
+         * @description A cart's worth of takes and returns, in one request (ADR 0007).
+         *
+         *     The bound is the cart's: five hundred lines is already past what anybody
+         *     gathers by hand, and it keeps the stored idempotency response a sane size.
+         */
+        BatchMovementRequest: {
+            /**
+             * Client Op Id
+             * @description Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.
+             */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Lines */
+            lines: components["schemas"]["MovementLine"][];
+            /** Location Id */
+            location_id?: number | null;
+            /** Note */
+            note?: string | null;
+            /** @default manual */
+            source?: components["schemas"]["LedgerSource"];
+        };
+        /** BatchMovementResponse */
+        BatchMovementResponse: {
+            /** Applied Count */
+            applied_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /** Group Uuid */
+            group_uuid: string;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Results */
+            results: components["schemas"]["MovementLineResult"][];
         };
         /** BindRequest */
         BindRequest: {
@@ -2402,6 +2604,10 @@ export interface components {
          *     just entered a different way.
          */
         BomLineEdit: {
+            /** Client Line Id */
+            client_line_id?: string | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
             /**
              * Delete
              * @default false
@@ -2438,6 +2644,40 @@ export interface components {
             lines: components["schemas"]["BomLineRead"][];
             /** Total */
             total: number;
+        };
+        /**
+         * BomLineOutcome
+         * @description What became of one edit.
+         *
+         *     The same shape `stock.MovementLineResult` and `AllocateLineResult` use, on
+         *     purpose: a cart drains to one of three destinations (ADR 0007) and a client
+         *     that had to read three different failure shapes would have three chances to
+         *     mishandle the one that matters.
+         */
+        BomLineOutcome: {
+            /** Applied */
+            applied: boolean;
+            /** Bom Line Id */
+            bom_line_id?: number | null;
+            /** Client Line Id */
+            client_line_id: string | null;
+            /**
+             * Deleted
+             * @default false
+             */
+            deleted?: boolean;
+            /** Index */
+            index: number;
+            /** Message */
+            message?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
         };
         /** BomLineRead */
         BomLineRead: {
@@ -2490,6 +2730,11 @@ export interface components {
             device_id?: string | null;
             /** Edits */
             edits: components["schemas"]["BomLineEdit"][];
+            /**
+             * Partial
+             * @default false
+             */
+            partial?: boolean;
         };
         /** BomLinesUpdateResponse */
         BomLinesUpdateResponse: {
@@ -2503,6 +2748,8 @@ export interface components {
              * @default false
              */
             replayed?: boolean;
+            /** Results */
+            results?: components["schemas"]["BomLineOutcome"][];
         };
         /**
          * BomSuggestionsResponse
@@ -4234,6 +4481,77 @@ export interface components {
             /** To Location Id */
             to_location_id: number;
         };
+        /**
+         * MovementDirection
+         * @description Which way one cart line moves stock.
+         *
+         *     Two values, not four: a cart checkout to plain stock is ADR 0007's "pick a
+         *     container, scan it and say how many parts you took or put back", and
+         *     `adjust`/`recount` are corrections rather than things you did with your
+         *     hands. Those stay one-at-a-time on their own routes, where the single lot in
+         *     front of you is the whole subject of the request.
+         * @enum {string}
+         */
+        MovementDirection: "take" | "return";
+        /**
+         * MovementLine
+         * @description One line of a batch movement.
+         *
+         *     Names its stock **either** by `lot_id` — what a cart captured when the part
+         *     was added — **or** by `part_id` inside `location_id`, which is what a client
+         *     has when the user picked a container and then chose parts from search. The
+         *     first is exact and can go stale; the second is resolved against the container
+         *     now, so it cannot.
+         */
+        MovementLine: {
+            /** Client Line Id */
+            client_line_id?: string | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            direction: components["schemas"]["MovementDirection"];
+            /** Lot Id */
+            lot_id?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Part Id */
+            part_id?: number | null;
+            /** Qty Milli */
+            qty_milli: number;
+        };
+        /**
+         * MovementLineResult
+         * @description What became of one line.
+         *
+         *     Carries `index` **and** `client_line_id` because they answer different
+         *     questions: the index is always present and unambiguous, and the client line
+         *     id is what a cart row is keyed by locally. A client that only had the index
+         *     would have to trust that it did not reorder the cart between building the
+         *     request and rendering the answer.
+         */
+        MovementLineResult: {
+            /** Applied */
+            applied: boolean;
+            /** Client Line Id */
+            client_line_id: string | null;
+            /** Index */
+            index: number;
+            /** Lot Id */
+            lot_id?: number | null;
+            /** Message */
+            message?: string | null;
+            /** Qty Milli After */
+            qty_milli_after?: number | null;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Seq */
+            seq?: number | null;
+        };
         /** MovementResponse */
         MovementResponse: {
             counterpart_lot?: components["schemas"]["LotRead"] | null;
@@ -5212,6 +5530,8 @@ export interface components {
          * @description One BOM line's account, or one off-BOM part this build used.
          */
         RosterLineRead: {
+            /** Accounted Milli */
+            accounted_milli: number;
             /** After The Fact Milli */
             after_the_fact_milli: number;
             /** Bom Line Id */
@@ -5228,6 +5548,8 @@ export interface components {
             is_off_bom: boolean;
             /** Line No */
             line_no: number | null;
+            /** Needed Milli */
+            needed_milli: number;
             /** Part Id */
             part_id: number | null;
             /** Part Mpn */
@@ -6294,6 +6616,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AllocateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    allocate_stock_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllocateBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllocateBatchResponse"];
                 };
             };
             /** @description Validation Error */
@@ -9392,6 +9749,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MovementResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_movements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchMovementRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchMovementResponse"];
                 };
             };
             /** @description Validation Error */
