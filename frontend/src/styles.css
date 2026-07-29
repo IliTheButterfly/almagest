@@ -710,6 +710,21 @@ button.tall {
   content: "✓ ";
 }
 
+/* A single on/off control with no sibling to pair with, so it cannot live in
+ * a .segmented group — the layout editor's "Extending selection" toggle.
+ * Same fill/weight/glyph language as .segmented's pressed state, so it reads
+ * as the same kind of control rather than inventing a second one. */
+.toggle[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+
+.toggle[aria-pressed="true"]::before {
+  content: "✓ ";
+}
+
 /* ------------------------------------------------------------- messages --- */
 
 .notice {
@@ -1060,6 +1075,12 @@ button.tall {
   outline-offset: 1px;
 }
 
+/* The layout editor's cells are real `<button>`s, not links — this is the
+ * only hover/press feedback they get beyond the shared focus ring. */
+.cell-editable:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
 /* The recursive preview: the same layout component one level down, drawn as
  * inert dots so a baseplate of bins looks like a baseplate of bins. */
 .mini-grid {
@@ -1391,6 +1412,45 @@ button.tall {
   background: rgb(0 0 0 / 60%);
   color: #fff;
   font-size: 0.8rem;
+}
+
+/* The decode-feedback pill: always in the DOM (never just a transient toast)
+ * so every path in — camera, NFC, typed, a tag's own redirect — has the same
+ * place to confirm "a code was scanned" instantly, before the network round
+ * trip that decides what it meant. Colour is never the only signal: the glyph
+ * and the word both flip too, which is what keeps this legible under
+ * `prefers-reduced-motion` even though the fade-out below is killed by it. */
+.decode-flash {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: flex-start;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition:
+    background-color var(--dur) ease-out,
+    color var(--dur) ease-out,
+    border-color var(--dur) ease-out;
+}
+
+.decode-flash::before {
+  content: "○";
+}
+
+.decode-flash.is-active {
+  border-color: var(--good);
+  background: var(--good-soft);
+  color: var(--good);
+  font-weight: 700;
+}
+
+.decode-flash.is-active::before {
+  content: "●";
 }
 
 /* ---------------------------------------------------------------- table --- */

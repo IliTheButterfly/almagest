@@ -27,6 +27,7 @@ import {
   type LocationTree,
 } from "../lib/api/client";
 import { formatFillRatio, formatQty } from "../lib/format";
+import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
 import { useAsync } from "../lib/hooks/useAsync";
 import { uuid4 } from "../lib/scan/session";
 import { formatShortId, looksLikeShortId, normalizeShortId } from "../lib/shortid";
@@ -76,7 +77,14 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
         </div>
         {location.description !== null && <p style={{ margin: 0 }}>{location.description}</p>}
         <div className="row">
-          {location.is_staging && <span className="badge badge-accent">inbox</span>}
+          {/* Two staging kinds, two words. A project box used to render the bare
+              "inbox" badge, which tells a reader the opposite of the truth: the
+              INBOX is a catch-all to empty, a project box is where a board's parts
+              are meant to sit until it is built. See `lib/locations/staging`. */}
+          {isInbox(location) && <span className="badge badge-accent">inbox</span>}
+          {isProjectStagingBox(location) && (
+            <span className="badge badge-accent">project parts</span>
+          )}
           {location.is_overfull && <span className="badge badge-warn">over</span>}
           {location.effective_esd_safe === true && <span className="badge badge-good">ESD safe</span>}
           {location.is_placeable === false && <span className="badge">not placeable</span>}
@@ -87,6 +95,19 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
       </div>
 
       <Capacity location={location} />
+
+      <div className="card">
+        <div className="row">
+          <p className="muted-note" style={{ flex: 1, margin: 0 }}>
+            {location.child_count === 0
+              ? "No slots laid out here yet."
+              : `${location.child_count} slot(s) laid out here.`}{" "}
+            Merging, splitting and relabelling go through the change guard: a slot that
+            still holds stock or a bound tag blocks the change rather than losing it.
+          </p>
+          <Link to={`/locations/${location.id}/layout`}>Edit layout →</Link>
+        </div>
+      </div>
 
       <PrintedId location={location} onDone={onChanged} />
 

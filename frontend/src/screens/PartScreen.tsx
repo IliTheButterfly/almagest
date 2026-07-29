@@ -15,19 +15,12 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { AssignStock } from "../components/AssignStock";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
-import {
-  getPart,
-  suggestLocation,
-  updatePart,
-  type PartRead,
-  type PartUpdate,
-  type SuggestResponse,
-} from "../lib/api/client";
+import { getPart, updatePart, type PartRead, type PartUpdate } from "../lib/api/client";
 import { formatMoneyMicro, formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { formatShortId } from "../lib/shortid";
-import { uuid4 } from "../lib/scan/session";
 
 export function PartScreen() {
   const { partId: raw } = useParams();
@@ -102,7 +95,15 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
       <div className="card">
         <h3>Stock lots</h3>
         {part.lots.length === 0 ? (
-          <p className="dim">None. Nothing of this part is anywhere yet.</p>
+          // This is the fix for "I set the part as done and then couldn't find
+          // it" — a part is a definition, not a count. An empty table here
+          // says nothing wrong happened, but it needs to say *why* it is empty
+          // in the same breath, or the natural reading is that the part is
+          // lost rather than merely unassigned.
+          <p className="dim">
+            None yet — a part is a definition, not a quantity. Stock lives in
+            lots at locations, and this part has not been put anywhere.
+          </p>
         ) : (
           <ul className="list">
             {part.lots.map((lot) => (
@@ -139,7 +140,18 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
         )}
       </div>
 
-      <WhereToPut part={part} />
+      {/* Zero lots: the very next thing on screen is somewhere to put it, not
+       * a dead end, so the suggestion fires immediately rather than waiting
+       * on a click. Once there is at least one lot, picking up a *second* one
+       * elsewhere is a lower-urgency action and gets the quieter click-first
+       * form — see AssignStock's `autoSuggest`. */}
+      <AssignStock
+        partId={part.id}
+        partName={part.name}
+        autoSuggest={part.lots.length === 0}
+        heading={part.lots.length === 0 ? "This part has no stock yet — put some somewhere" : undefined}
+        onAssigned={onSaved}
+      />
 
       <div className="card">
         <h3>Details</h3>
@@ -270,77 +282,3 @@ function EditPart({ part, onDone }: { part: PartRead; onDone: () => void }) {
   );
 }
 
-/**
- * Where a new lot of this part should go.
- *
- * `POST /api/locations/suggest` never errors — the escalation ladder always ends
- * somewhere concrete, down to the permanent `INBOX` staging row — so this reports
- * which rung answered rather than presenting every answer as equally confident. It
- * also does not touch the ledger: suggesting a destination and putting stock in it
- * are separate steps.
- */
-function WhereToPut({ part }: { part: PartRead }) {
-  const [suggestion, setSuggestion] = useState<SuggestResponse | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  async function ask(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    try {
-      // Keyed, because one rung of the ladder materialises an empty grid cell and a
-      // retried suggestion would otherwise leave a spare cell behind each time.
-      setSuggestion(await suggestLocation({ part_id: part.id, client_op_id: uuid4() }));
-    } catch (cause) {
-      setError(cause);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="card">
-      <div className="row">
-        <h3 style={{ margin: 0 }}>Where should this go?</h3>
-        <span className="spacer" />
-        <button type="button" onClick={() => void ask()} disabled={busy}>
-          {busy ? "Thinking…" : "Suggest"}
-        </button>
-      </div>
-      <ErrorBanner error={error} />
-      {suggestion !== null && (
-        <div className="stack">
-          <Link className="list-item" to={`/locations/${suggestion.location_id}`}>
-            <div className="title">{suggestion.label_path}</div>
-            <div className="sub">{suggestion.reason}</div>
-            <div className="sub">
-              <span className="badge">{suggestion.escalation_level}</span>
-            </div>
-          </Link>
-          {suggestion.candidates.length > 1 && (
-            <details>
-              <summary>Other candidates</summary>
-              <ul className="list">
-                {suggestion.candidates.slice(1).map((candidate) => (
-                  <li key={candidate.location_id}>
-                    <Link className="list-item" to={`/locations/${candidate.location_id}`}>
-                      <div className="title">{candidate.label_path}</div>
-                      <div className="sub">
-                        score {candidate.score.toFixed(3)} · {candidate.free_capacity} free
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-          {suggestion.defrag_plan !== null && suggestion.defrag_plan !== undefined && (
-            <Notice kind="info" title="A defrag would free something up">
-              {suggestion.defrag_plan.rationale}
-            </Notice>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}

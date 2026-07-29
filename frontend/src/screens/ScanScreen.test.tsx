@@ -67,7 +67,10 @@ describe("with neither a camera nor NFC", () => {
     plainHttpBrowser();
     renderScan();
 
-    expect(screen.getByText("Or type it")).toBeTruthy();
+    // "Type it", not "Or type it" — there is no camera alternative here, and
+    // this is the fix for the dead end: manual entry leads, it is not an
+    // afterthought below a viewfinder that will never come alive.
+    expect(screen.getByText("Type it")).toBeTruthy();
     expect(screen.getByRole("button", { name: /look up/i })).toBeTruthy();
   });
 });

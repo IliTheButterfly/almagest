@@ -20,9 +20,10 @@
  * tap instead of a form somebody abandons.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import { AssignStock } from "../components/AssignStock";
 import { CodeEntry } from "../components/CodeEntry";
 import { ErrorBanner, Notice } from "../components/Feedback";
 import { Viewfinder } from "../components/Viewfinder";
@@ -37,10 +38,49 @@ import {
 import { cameraNotice, detectCapabilities, nfcNotice } from "../lib/capabilities";
 import { formatQty } from "../lib/format";
 import { intakeQueue, type PendingScan } from "../lib/intake/queue";
+import { DecodeFeedback, FEEDBACK_FLASH_MS } from "../lib/scan/feedback";
 import { NfcUnavailableError, readOneTag } from "../lib/scan/nfc";
 import { scanSession } from "../lib/scan/session";
 import { useScanner } from "../lib/scan/useScanner";
 import { formatShortId } from "../lib/shortid";
+
+/**
+ * The flash/vibrate/tone hook. One `DecodeFeedback` instance lives for the
+ * screen's whole life (a ref, not state — it holds a real `AudioContext` once
+ * `init()` has run, and re-creating that on every render would drop it).
+ * `trigger` is what `handle()` calls on every decode; `init` is what a click
+ * handler calls, and only a click handler — see `feedback.ts`.
+ */
+function useDecodeFeedback(): { readonly flashing: boolean; readonly trigger: (code: string) => void; readonly init: () => void } {
+  const feedbackRef = useRef<DecodeFeedback | null>(null);
+  feedbackRef.current ??= new DecodeFeedback();
+  const [flashing, setFlashing] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current !== undefined) {
+        clearTimeout(timerRef.current);
+      }
+    },
+    [],
+  );
+
+  const trigger = useCallback((code: string) => {
+    if (!(feedbackRef.current?.fire(code) ?? false)) {
+      return;
+    }
+    setFlashing(true);
+    if (timerRef.current !== undefined) {
+      clearTimeout(timerRef.current);
+    }
+    timerRef.current = setTimeout(() => setFlashing(false), FEEDBACK_FLASH_MS);
+  }, []);
+
+  const init = useCallback(() => feedbackRef.current?.init(), []);
+
+  return { flashing, trigger, init };
+}
 
 /** Where a resolved target lives in the app. Mirrors the backend's `/s/` map. */
 function routeFor(target: ScanTarget): string | null {
@@ -73,9 +113,17 @@ export function ScanScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [queued, setQueued] = useState<string | null>(null);
+  const { flashing, trigger: triggerFeedback, init: initFeedback } = useDecodeFeedback();
 
   const handle = useCallback(
     async (code: string, symbology: string | null) => {
+      // Fires on *every* decode, before the outcome is known — including one
+      // that resolves to nothing, which is the case "I scanned it and nothing
+      // happened" is actually about. Its own 400 ms debounce is independent of
+      // the scan session's below, so this still confirms a deliberate re-scan
+      // that the session drops as a duplicate.
+      triggerFeedback(code);
+
       // The scan session is the debounce: the same payload inside ~2 s, or any
       // payload while a commit is in flight, returns null and is dropped silently.
       // A dropped duplicate is not an error and must not be reported as one.
@@ -120,7 +168,7 @@ export function ScanScreen() {
         setBusy(false);
       }
     },
-    [navigate],
+    [navigate, triggerFeedback],
   );
 
   const scanner = useScanner({ active: cameraOn, onDecode: (text, symbology) => void handle(text, symbology) });
@@ -171,6 +219,13 @@ export function ScanScreen() {
 
   return (
     <div className="stack">
+      {/* Always in the DOM, camera or none: the same confirmation for every
+       * way a code gets in, and it must be visible before the network round
+       * trip resolves — that immediacy is the whole point. */}
+      <div className={`decode-flash${flashing ? " is-active" : ""}`} role="status" aria-live="polite">
+        {flashing ? "Scanned" : "Ready to scan"}
+      </div>
+
       {capabilities.camera ? (
         <>
           <Viewfinder
@@ -180,22 +235,56 @@ export function ScanScreen() {
             unavailableNotice={cameraNotice(capabilities)}
             hint={busy ? "Resolving…" : undefined}
           />
-          <button type="button" className="wide" onClick={() => setCameraOn(!cameraOn)}>
+          <button
+            type="button"
+            className="wide"
+            onClick={() => {
+              // Starting the camera is a real click, so this is where the
+              // audio context has to be created — never from the decode
+              // path, which runs off a `setTimeout` tick and has no gesture
+              // to spend. See lib/scan/feedback.ts.
+              initFeedback();
+              setCameraOn(!cameraOn);
+            }}
+          >
             {cameraOn ? "Stop camera" : "Start camera"}
           </button>
         </>
       ) : (
-        <Notice kind="warn" title="No camera here">
-          <p style={{ margin: 0 }}>{cameraNotice(capabilities)}</p>
-        </Notice>
+        <>
+          <Notice kind="warn" title="No camera here">
+            <p style={{ margin: 0 }}>{cameraNotice(capabilities)}</p>
+          </Notice>
+          {/* Leads with the manual path rather than burying it below a dead
+           * viewfinder — this is the fix for "I saw the website the QR led
+           * to", not a courtesy. */}
+          <div className="card">
+            <h3>Type it</h3>
+            <CodeEntry
+              onSubmit={(code) => {
+                initFeedback();
+                void handle(code, "manual");
+              }}
+              busy={busy}
+            />
+          </div>
+        </>
       )}
 
-      <NfcPanel onRead={(payload) => void handle(payload, "nfc")} />
+      <NfcPanel onRead={(payload) => void handle(payload, "nfc")} onInit={initFeedback} />
 
-      <div className="card">
-        <h3>Or type it</h3>
-        <CodeEntry onSubmit={(code) => void handle(code, "manual")} busy={busy} />
-      </div>
+      {capabilities.camera && (
+        <div className="card">
+          <h3>Or type it</h3>
+          <CodeEntry
+            onSubmit={(code) => {
+              initFeedback();
+              void handle(code, "manual");
+            }}
+            busy={busy}
+          />
+        </div>
+      )}
 
       {queued !== null && (
         <Notice kind="ok" title="Parked for later">
@@ -220,7 +309,14 @@ export function ScanScreen() {
   );
 }
 
-function NfcPanel({ onRead }: { onRead: (payload: string) => void }) {
+function NfcPanel({
+  onRead,
+  onInit,
+}: {
+  onRead: (payload: string) => void;
+  /** Called from the tap, a real click — see lib/scan/feedback.ts. */
+  onInit: () => void;
+}) {
   const capabilities = detectCapabilities();
   const notice = nfcNotice(capabilities);
   const [waiting, setWaiting] = useState(false);
@@ -236,6 +332,7 @@ function NfcPanel({ onRead }: { onRead: (payload: string) => void }) {
   }
 
   async function tap(): Promise<void> {
+    onInit();
     setWaiting(true);
     setError(null);
     try {
@@ -468,7 +565,8 @@ function BindOrCreate({
   const [partKind, setPartKind] = useState("component");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [created, setCreated] = useState<number | null>(null);
+  const [created, setCreated] = useState<{ id: number; name: string } | null>(null);
+  const [assigned, setAssigned] = useState(false);
   const [bindTo, setBindTo] = useState("");
 
   async function create(): Promise<void> {
@@ -484,7 +582,7 @@ function BindOrCreate({
         // catalogue into two rows for the same label.
         client_op_id: resolution.clientOpId,
       });
-      setCreated(result.part.id);
+      setCreated({ id: result.part.id, name: result.part.name });
       // Bind the payload to the row it just created, so the next reel of this part
       // resolves on its first scan instead of coming back unknown again.
       await bindScanAlias({
@@ -497,7 +595,12 @@ function BindOrCreate({
           ? {}
           : { hint_qty_milli: parsed.quantity_milli }),
       });
-      onDone();
+      // Deliberately not `onDone()` here: that clears the resolution and would
+      // take the ASSIGN step below with it. A part that just became a row in
+      // the catalogue has no stock anywhere yet — see AssignStock's module
+      // comment — so the create is not finished until this screen offers
+      // somewhere to put it, not a dead end with only a link to "open" a part
+      // that is still, physically, nowhere.
     } catch (cause) {
       setError(cause);
     } finally {
@@ -531,12 +634,36 @@ function BindOrCreate({
 
   if (created !== null) {
     return (
-      <Notice kind="ok" title="Created as a stub">
-        <p style={{ margin: 0 }}>
-          <a href={`/parts/${created}`}>Open part {created}</a> — and this payload is now
-          bound to it, so the next one resolves on its first scan.
-        </p>
-      </Notice>
+      <div className="stack">
+        <Notice kind="ok" title="Created — it has no stock yet">
+          <p style={{ margin: 0 }}>
+            <a href={`/parts/${created.id}`}>Open part {created.id}</a> — this payload is now
+            bound to it, so the next one resolves on its first scan. A part is a
+            definition, though, not a count: it does not exist anywhere until some
+            quantity of it is put in a lot at a location. That is the next step.
+          </p>
+        </Notice>
+
+        {assigned ? (
+          <Notice kind="ok" title="On the shelf">
+            <p style={{ margin: 0 }}>
+              Stock recorded. <a href={`/parts/${created.id}`}>Open the part</a> to see it,
+              or keep scanning.
+            </p>
+          </Notice>
+        ) : (
+          <AssignStock
+            partId={created.id}
+            partName={created.name}
+            autoSuggest
+            onAssigned={() => setAssigned(true)}
+          />
+        )}
+
+        <button type="button" className="wide" onClick={onDone}>
+          Back to scanning
+        </button>
+      </div>
     );
   }
 

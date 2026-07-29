@@ -15,6 +15,7 @@ from app.models.enums import AllocationState, LedgerKind, LedgerSource
 from app.models.projects import BomLine, Project, ProjectBuild, StockAllocation
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import ContainerType, Location
+from app.services.capacity import get_inbox_location
 from app.services.scanning.codes import normalize_mpn
 
 
@@ -24,8 +25,14 @@ def component_kind(db: Session) -> PartKind:
 
 
 def inbox_location(db: Session) -> Location:
-    """The permanent staging row seeded by the capacity/assignment migration."""
-    return db.execute(select(Location).where(Location.is_staging.is_(True))).scalars().one()
+    """The permanent staging row seeded by the capacity/assignment migration.
+
+    Delegates to the service rather than re-deriving the lookup: `is_staging` is
+    no longer unique — ADR 0004 gives every project a staging box carrying the
+    same flag — and a test asserting on a *different* definition of "the INBOX"
+    than the assignment ladder uses would pass while the ladder was broken.
+    """
+    return get_inbox_location(db)
 
 
 def make_part(db: Session, name: str = "Test part", **kwargs: object) -> Part:

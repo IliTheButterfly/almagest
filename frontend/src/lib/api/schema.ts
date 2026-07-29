@@ -55,6 +55,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/builds/{build_id}/consume-staged": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consume Staged Stock
+         * @description Build staged parts into the assembly: `staged -> consumed`.
+         *
+         *     Consumes the *staging* lot, because that is where the parts physically
+         *     are. The bin's count dropped when they were staged; taking it down again
+         *     here would remove the same units twice.
+         */
+        post: operations["consume_staged_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/builds/{build_id}/pick-list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Pick List
+         * @description Where to go and what to take, **in walking order**. A pure read.
+         *
+         *     Stops are sorted by `locations.id_path`, so every drawer of one cabinet is
+         *     consecutive and the room is crossed once. That ordering is the feature;
+         *     BOM order would cross it once per line. See `app.services.picking`.
+         */
+        get: operations["read_pick_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/builds/{build_id}/record-used": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Used Stock
+         * @description Record a part that was really used but never tracked.
+         *
+         *     One ledger consume plus one `consumed` allocation, in one step, against a
+         *     BOM line or against no line at all. Guarded by `app.api.idempotency` like
+         *     every other movement, and for the sharper reason here: an append-only
+         *     ledger has no way to take back a doubled correction except by writing a
+         *     third row, and the user reaching for this endpoint is already
+         *     reconstructing history by hand.
+         *
+         *     **Deliberately permissive**, unlike `/allocate` and `/stage`: a closed
+         *     build, a quarantined lot and a bin with less stock than the correction
+         *     claims are all accepted. Refusing any of them would guarantee the roster
+         *     stays wrong, which ADR 0004 is explicit is the worse outcome. See
+         *     `reservations.record_used`.
+         */
+        post: operations["record_used_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/builds/{build_id}/release": {
         parameters: {
             query?: never;
@@ -78,6 +159,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/builds/{build_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Roster
+         * @description What this build actually used, corrections and all. A pure read.
+         *
+         *     Distinct from `/shortages`, which asks "can this be built": this asks
+         *     "what went into it", which is a question about the past and therefore has
+         *     to admit that the past was not always recorded. So it reports parts used
+         *     that no BOM line asked for, and it marks every row somebody wrote down
+         *     after the fact — see `RosterEntryRead.is_after_the_fact` and
+         *     `app.services.roster`.
+         */
+        get: operations["read_roster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/builds/{build_id}/shortages": {
         parameters: {
             query?: never;
@@ -93,6 +201,58 @@ export interface paths {
         get: operations["read_shortages"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/builds/{build_id}/stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stage Stock
+         * @description Withdraw parts to the project, or to one of its assemblies.
+         *
+         *     **This is an ordinary stock movement**, guarded by `app.api.idempotency`
+         *     like every other one: the parts leave the bin, so the bin's count drops in
+         *     the same transaction. A retried request that carries the same
+         *     `client_op_id` replays the stored response instead of emptying the drawer
+         *     twice — the ledger's `client_op_id` UNIQUE is the second backstop under
+         *     that.
+         */
+        post: operations["stage_stock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/builds/{build_id}/unstage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unstage Stock
+         * @description Put a staged withdrawal back on the shelf — the ledger's existing undo.
+         *
+         *     Not a fresh move in the opposite direction: `reservations.unstage` appends
+         *     compensating rows against the movement the allocation names, so the
+         *     history reads "this happened, then it was undone" and the double-tap
+         *     refusals (`already_reversed`) come from `ledger.reverse` for free.
+         */
+        post: operations["unstage_stock"];
         delete?: never;
         options?: never;
         head?: never;
@@ -822,7 +982,27 @@ export interface paths {
         get: operations["read_project"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Project
+         * @description Delete a project, its BOM and its builds. **Refused while parts are
+         *     still in its staging boxes.**
+         *
+         *     That refusal is the ADR 0004 consequence, and it is not tidiness: those
+         *     parts are real and on a shelf. Cascading the delete would remove the only
+         *     record of why a box of components is sitting there, which is strictly
+         *     worse than leaving the project in place until someone un-stages them or
+         *     records them as used. Same reasoning as an over-capacity put-away being
+         *     recorded rather than blocked — the physical world wins.
+         *
+         *     Empty staging boxes are then removed only *if nothing references them*. A
+         *     box that ever held stock is named by `stock_ledger.from_location_id` /
+         *     `to_location_id`, which are `RESTRICT` against a table nothing can delete
+         *     from, so in practice it stays — visible, empty and harmless. ADR 0004
+         *     implies a cleanup here; the ledger makes that impossible for any box that
+         *     was ever used, and pretending otherwise would mean either deleting history
+         *     or failing the whole request over furniture.
+         */
+        delete: operations["delete_project"];
         options?: never;
         head?: never;
         /**
@@ -845,12 +1025,14 @@ export interface paths {
         get: operations["list_bom_lines"];
         /**
          * Update Bom Lines
-         * @description Apply a batch of per-line edits — corrections, DNP toggles, and manual
-         *     part matching. Idempotency-guarded because, unlike `parts.update_part`,
+         * @description Apply a batch of per-line edits — corrections, DNP toggles, manual part
+         *     matching, hand-adding a line (`id` omitted), and removing one
+         *     (`delete: true`). Idempotency-guarded because, unlike `parts.update_part`,
          *     the edit that matters most here (confirming a match) has a
          *     request-shape-dependent default (see `_apply_bom_line_edit`): a retried
          *     POST that landed and a retried POST that never reached the server are only
-         *     safely indistinguishable with a key.
+         *     safely indistinguishable with a key — which also means a retried *add*
+         *     adds one line, not two.
          */
         put: operations["update_bom_lines"];
         post?: never;
@@ -1443,6 +1625,8 @@ export interface components {
             qty_milli: number;
             /** Reserved At */
             reserved_at: string | null;
+            /** Staged Ledger Seq */
+            staged_ledger_seq: number | null;
             /** State */
             state: string;
         };
@@ -1533,12 +1717,28 @@ export interface components {
         };
         /**
          * BomLineEdit
-         * @description One line's edit. Only the fields actually present in the request are
-         *     applied — `model_fields_set`, exactly as `parts.PartUpdate` does — so a
-         *     client can clear `note` with an explicit `null` without every other
-         *     field on the line needing to be restated.
+         * @description One line's edit — or, with `id` omitted, a **new** hand-added line — or,
+         *     with `delete: true`, a line to **remove**. Only the fields actually present
+         *     in the request are applied to an edit — `model_fields_set`, exactly as
+         *     `parts.PartUpdate` does — so a client can clear `note` with an explicit
+         *     `null` without every other field on the line needing to be restated.
+         *
+         *     Add and remove ride on this same batch rather than getting their own
+         *     routes: `PUT .../bom` already owns the one code path that writes
+         *     `bom_lines` — `_apply_bom_line_edit`, the project-membership check, the
+         *     idempotency guard — and a `POST .../bom/lines` plus a
+         *     `DELETE .../bom/lines/{id}` would each have to reconstruct that guard
+         *     beside it rather than reuse it, which is exactly the duplication CLAUDE.md
+         *     calls out. A hand-added line is a legal, ordinary row from here on — the
+         *     same "unmatched is normal, not an error" state an import leaves behind,
+         *     just entered a different way.
          */
         BomLineEdit: {
+            /**
+             * Delete
+             * @default false
+             */
+            delete?: boolean;
             /** Description */
             description?: string | null;
             /** Designators */
@@ -1546,7 +1746,7 @@ export interface components {
             /** Footprint */
             footprint?: string | null;
             /** Id */
-            id: number;
+            id?: number | null;
             /** Is Dnp */
             is_dnp?: boolean | null;
             /** Is Match Confirmed */
@@ -1625,6 +1825,8 @@ export interface components {
         };
         /** BomLinesUpdateResponse */
         BomLinesUpdateResponse: {
+            /** Deleted Ids */
+            deleted_ids?: number[];
             /** Lines */
             lines: components["schemas"]["BomLineRead"][];
             /**
@@ -1683,6 +1885,8 @@ export interface components {
             notes: string | null;
             /** Project Id */
             project_id: number;
+            /** Staging Location Id */
+            staging_location_id: number | null;
             /** Started At */
             started_at: string | null;
             /** Status */
@@ -1708,7 +1912,8 @@ export interface components {
         BuildStatus: "planned" | "in_progress" | "completed" | "abandoned";
         /**
          * BuildUpdate
-         * @description Label, notes, and the status transition that closes a build.
+         * @description Label, notes, `assembly_count`, and the status transition that closes a
+         *     build.
          *
          *     Not in the route list this module was scoped from — added because nothing
          *     else can ever set `project_builds.status`, and closing a build is what
@@ -1716,8 +1921,20 @@ export interface components {
          *     construction like `parts.update_part`: replaying "mark it completed" a
          *     second time finds nothing left to release and leaves `completed_at` alone,
          *     so no idempotency key is needed.
+         *
+         *     **`assembly_count` needs no idempotency key either, and no companion write
+         *     anywhere.** `reservations.shortage_for_build` computes
+         *     `required_milli = qty_per_assembly_milli * build.assembly_count` fresh on
+         *     every read (ADR 0004) — it is never stored per line — so raising this
+         *     column from 1 to 3 makes `needed_milli` triple the next time anyone asks,
+         *     with nothing written to `stock_allocations`. Lowering it is equally inert:
+         *     it only shrinks what is reported *needed*, and can never claw back a unit
+         *     already `RESERVED`, `STAGED`, or `CONSUMED`, so it can never strand real
+         *     stock or need a backfill pass.
          */
         BuildUpdate: {
+            /** Assembly Count */
+            assembly_count?: number | null;
             /** Label */
             label?: string | null;
             /** Notes */
@@ -1859,6 +2076,35 @@ export interface components {
             tag_id: number;
             /** Tag Uid */
             tag_uid: string | null;
+        };
+        /**
+         * ConsumeStagedRequest
+         * @description Build staged parts into the assembly: `staged -> consumed`.
+         */
+        ConsumeStagedRequest: {
+            /** Allocation Id */
+            allocation_id: number;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Qty Milli */
+            qty_milli?: number | null;
+        };
+        /** ConsumeStagedResponse */
+        ConsumeStagedResponse: {
+            allocation: components["schemas"]["AllocationRead"];
+            lot: components["schemas"]["LotRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Seq */
+            seq: number;
         };
         /** ContainerTypeCreate */
         ContainerTypeCreate: {
@@ -2370,7 +2616,7 @@ export interface components {
          * @description How the movement was captured. Drives trust when balances disagree.
          * @enum {string}
          */
-        LedgerSource: "manual" | "scan" | "scale" | "vision" | "import" | "api" | "defrag";
+        LedgerSource: "manual" | "scan" | "scale" | "vision" | "import" | "api" | "defrag" | "reconciled";
         /** LineShortageRead */
         LineShortageRead: {
             /** Allocated Milli */
@@ -2379,18 +2625,26 @@ export interface components {
             available_milli: number | null;
             /** Bom Line Id */
             bom_line_id: number;
+            /** Consumed Milli */
+            consumed_milli: number;
             /** Is Blocking */
             is_blocking: boolean;
             /** Kind */
             kind: string;
             /** Line No */
             line_no: number;
+            /** Needed Milli */
+            needed_milli: number;
             /** Part Id */
             part_id: number | null;
             /** Required Milli */
             required_milli: number;
+            /** Reserved Milli */
+            reserved_milli: number;
             /** Shortfall Milli */
             shortfall_milli: number | null;
+            /** Staged Milli */
+            staged_milli: number;
             /** Substitute Part Ids */
             substitute_part_ids: number[];
             /** Undeliverable Milli */
@@ -2471,6 +2725,8 @@ export interface components {
             id_path: string;
             /** Is Overfull */
             is_overfull: boolean;
+            /** Is Placeable */
+            is_placeable: boolean | null;
             /** Is Staging */
             is_staging: boolean;
             /** Label Path */
@@ -2990,6 +3246,80 @@ export interface components {
          * @enum {string}
          */
         PendingIntakeStatus: "pending" | "resolved" | "dismissed";
+        /**
+         * PickGapRead
+         * @description A line the walk cannot finish. **Never omitted** — a pick list missing
+         *     its own gaps reads as complete, and the user finds out at the bench.
+         */
+        PickGapRead: {
+            /** Bom Line Id */
+            bom_line_id: number;
+            /** Kind */
+            kind: string;
+            /** Line No */
+            line_no: number;
+            /** Needed Milli */
+            needed_milli: number;
+            /** Part Id */
+            part_id: number | null;
+            /** Pickable Milli */
+            pickable_milli: number;
+            /** Shortfall Milli */
+            shortfall_milli: number;
+        };
+        /** PickListResponse */
+        PickListResponse: {
+            /** Build Id */
+            build_id: number;
+            /** Gaps */
+            gaps: components["schemas"]["PickGapRead"][];
+            /** Is Complete */
+            is_complete: boolean;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Stops */
+            stops: components["schemas"]["PickStopRead"][];
+        };
+        /** PickStopRead */
+        PickStopRead: {
+            /** Id Path */
+            id_path: string;
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Short Id */
+            short_id: string | null;
+            /** Takes */
+            takes: components["schemas"]["PickTakeRead"][];
+        };
+        /** PickTakeRead */
+        PickTakeRead: {
+            /** Allocation Id */
+            allocation_id: number | null;
+            /** Bom Line Id */
+            bom_line_id: number | null;
+            /** Designators */
+            designators: string | null;
+            /** Is Substitute */
+            is_substitute: boolean;
+            /** Line No */
+            line_no: number | null;
+            /** Lot Id */
+            lot_id: number;
+            /** Part Id */
+            part_id: number;
+            /** Part Mpn */
+            part_mpn: string | null;
+            /** Part Name */
+            part_name: string;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Whole Lot */
+            whole_lot: boolean;
+        };
         /** ProjectCreate */
         ProjectCreate: {
             /** Client Op Id */
@@ -3017,6 +3347,18 @@ export interface components {
              * @default false
              */
             replayed?: boolean;
+        };
+        /**
+         * ProjectDeleted
+         * @description What a delete removed. Not a `ReplayableResponse`: a delete is idempotent
+         *     by nature — the second one is a 404 — so there is no stored response a
+         *     retried key would need to replay.
+         */
+        ProjectDeleted: {
+            /** Project Id */
+            project_id: number;
+            /** Removed Location Ids */
+            removed_location_ids: number[];
         };
         /** ProjectList */
         ProjectList: {
@@ -3231,6 +3573,44 @@ export interface components {
             /** Unit Cost Micro */
             unit_cost_micro?: number | null;
         };
+        /**
+         * RecordUsedRequest
+         * @description Record a part that was really used but never tracked.
+         *
+         *     No `source` field, unlike every other movement request: it is forced to
+         *     `reconciled` by the service. See `reservations.record_used` — a correction
+         *     that could label itself `scan` would destroy the only property that makes
+         *     the roster worth reading.
+         */
+        RecordUsedRequest: {
+            /** Bom Line Id */
+            bom_line_id?: number | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Lot Id */
+            lot_id: number;
+            /** Note */
+            note?: string | null;
+            /** Part Id */
+            part_id?: number | null;
+            /** Qty Milli */
+            qty_milli: number;
+        };
+        /** RecordUsedResponse */
+        RecordUsedResponse: {
+            allocation: components["schemas"]["RosterEntryRead"];
+            lot: components["schemas"]["LotRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Seq */
+            seq: number;
+        };
         /** RecountRequest */
         RecountRequest: {
             /**
@@ -3325,6 +3705,89 @@ export interface components {
             label_path?: string | null;
             /** Short Id */
             short_id: string;
+        };
+        /**
+         * RosterEntryRead
+         * @description One allocation row, with the ledger row behind it resolved.
+         */
+        RosterEntryRead: {
+            /** Allocation Id */
+            allocation_id: number;
+            /** Consumed At */
+            consumed_at: string | null;
+            /** Is After The Fact */
+            is_after_the_fact: boolean;
+            /** Ledger Seq */
+            ledger_seq: number | null;
+            /** Ledger Source */
+            ledger_source: string | null;
+            /** Location Id */
+            location_id: number | null;
+            /** Location Label Path */
+            location_label_path: string | null;
+            /** Lot Id */
+            lot_id: number | null;
+            /** Note */
+            note: string | null;
+            /** Part Id */
+            part_id: number;
+            /** Part Mpn */
+            part_mpn: string | null;
+            /** Part Name */
+            part_name: string;
+            /** Qty Milli */
+            qty_milli: number;
+            /** Reserved At */
+            reserved_at: string | null;
+            /** State */
+            state: string;
+        };
+        /**
+         * RosterLineRead
+         * @description One BOM line's account, or one off-BOM part this build used.
+         */
+        RosterLineRead: {
+            /** After The Fact Milli */
+            after_the_fact_milli: number;
+            /** Bom Line Id */
+            bom_line_id: number | null;
+            /** Consumed Milli */
+            consumed_milli: number;
+            /** Designators */
+            designators: string | null;
+            /** Entries */
+            entries: components["schemas"]["RosterEntryRead"][];
+            /** Is Dnp */
+            is_dnp: boolean;
+            /** Is Off Bom */
+            is_off_bom: boolean;
+            /** Line No */
+            line_no: number | null;
+            /** Part Id */
+            part_id: number | null;
+            /** Part Mpn */
+            part_mpn: string | null;
+            /** Part Name */
+            part_name: string | null;
+            /** Required Milli */
+            required_milli: number;
+            /** Reserved Milli */
+            reserved_milli: number;
+            /** Staged Milli */
+            staged_milli: number;
+        };
+        /** RosterResponse */
+        RosterResponse: {
+            /** After The Fact Milli */
+            after_the_fact_milli: number;
+            /** Assembly Count */
+            assembly_count: number;
+            /** Build Id */
+            build_id: number;
+            /** Lines */
+            lines: components["schemas"]["RosterLineRead"][];
+            /** Off Bom Count */
+            off_bom_count: number;
         };
         /** ScanAliasRequest */
         ScanAliasRequest: {
@@ -3840,6 +4303,50 @@ export interface components {
             replayed?: boolean;
             template: components["schemas"]["SlotTemplateRead"];
         };
+        /**
+         * StageRequest
+         * @description Send parts out of a bin to a project, or to one of its assemblies.
+         *
+         *     `assembly_no` omitted means the project's **floating** parts: set aside for
+         *     the project, not yet committed to a unit. That is the state the requirement
+         *     asks for, and it is a location rather than a flag — see ADR 0004.
+         */
+        StageRequest: {
+            /** Allocation Id */
+            allocation_id?: number | null;
+            /** Assembly No */
+            assembly_no?: number | null;
+            /** Bom Line Id */
+            bom_line_id?: number | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Lot Id */
+            lot_id: number;
+            /** Note */
+            note?: string | null;
+            /** Qty Milli */
+            qty_milli: number;
+        };
+        /** StageResponse */
+        StageResponse: {
+            allocation: components["schemas"]["AllocationRead"];
+            /** Group Uuid */
+            group_uuid?: string | null;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Seqs */
+            seqs: number[];
+            source_lot: components["schemas"]["LotRead"];
+            /** Staging Location Id */
+            staging_location_id: number;
+            staging_lot: components["schemas"]["LotRead"];
+        };
         /** StartSessionRequest */
         StartSessionRequest: {
             /** Client Op Id */
@@ -4064,6 +4571,38 @@ export interface components {
             /** Tag Uid */
             tag_uid: string | null;
         };
+        /**
+         * UnstageRequest
+         * @description Put a staged withdrawal back on the shelf.
+         *
+         *     No ledger handle needed, unlike `/api/stock/undo`: the allocation records
+         *     the movement it came from (`staged_ledger_seq`), so "put it back" names the
+         *     parts, not the paperwork.
+         */
+        UnstageRequest: {
+            /** Allocation Id */
+            allocation_id: number;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** UnstageResponse */
+        UnstageResponse: {
+            allocation: components["schemas"]["AllocationRead"];
+            lot: components["schemas"]["LotRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Reversed Seqs */
+            reversed_seqs: number[];
+            staging_lot: components["schemas"]["LotRead"];
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -4218,6 +4757,107 @@ export interface operations {
             };
         };
     };
+    consume_staged_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsumeStagedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumeStagedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_pick_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PickListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_used_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordUsedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordUsedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     release_stock: {
         parameters: {
             query?: never;
@@ -4253,6 +4893,37 @@ export interface operations {
             };
         };
     };
+    read_roster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RosterResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_shortages: {
         parameters: {
             query?: never;
@@ -4271,6 +4942,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShortageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stage_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unstage_stock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                build_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnstageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnstageResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5417,6 +6158,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDeleted"];
                 };
             };
             /** @description Validation Error */

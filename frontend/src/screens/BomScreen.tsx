@@ -31,6 +31,7 @@ import {
   listBomLines,
   searchParts,
   updateBomLines,
+  type BomLineEdit,
   type BomLineRead,
   type BomImportResponse,
   type PartSummary,
@@ -39,6 +40,11 @@ import {
 import { formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { uuid4 } from "../lib/scan/session";
+
+// Whole units, not milli — the same `value / 1000` convention
+// `BuildScreen.ReserveStock`'s quantity field already uses, so a per-assembly
+// quantity reads and types the same way everywhere it appears.
+const MILLI = 1000;
 
 type LineState = "dnp" | "unmatched" | "unconfirmed" | "matched";
 
@@ -77,6 +83,7 @@ export function BomScreen() {
 function Bom({ project }: { project: ProjectRead }) {
   const [params, setParams] = useSearchParams();
   const [importing, setImporting] = useState(false);
+  const [adding, setAdding] = useState(false);
   const unmatchedOnly = params.get("unmatched") === "1";
 
   const lines = useAsync(() => listBomLines(project.id, { unmatchedOnly, limit: 1000 }), [
@@ -124,7 +131,23 @@ function Bom({ project }: { project: ProjectRead }) {
             </button>
           </div>
           <span className="spacer" />
-          <button type="button" className="primary" onClick={() => setImporting(!importing)}>
+          <button
+            type="button"
+            onClick={() => {
+              setAdding(!adding);
+              setImporting(false);
+            }}
+          >
+            {adding ? "Cancel" : "Add a line"}
+          </button>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => {
+              setImporting(!importing);
+              setAdding(false);
+            }}
+          >
             {importing ? "Cancel" : "Import CSV"}
           </button>
         </div>
@@ -135,6 +158,16 @@ function Bom({ project }: { project: ProjectRead }) {
           </p>
         )}
       </div>
+
+      {adding && (
+        <AddBomLine
+          projectId={project.id}
+          onAdded={() => {
+            setAdding(false);
+            lines.reload();
+          }}
+        />
+      )}
 
       {importing && (
         <ImportBom projectId={project.id} onImported={() => lines.reload()} />
@@ -286,6 +319,127 @@ function ImportResult({ result }: { result: BomImportResponse }) {
   );
 }
 
+// ---------------------------------------------------------------- add-line --
+
+/**
+ * "I can't add parts to a project" — a hand-typed line, landing exactly the
+ * way an imported-but-unmatched one does: `part_id` is optional here on
+ * purpose, because an unmatched line is a legal, ordinary row (`stateOf`
+ * already treats it that way), not something this form has to refuse.
+ *
+ * Goes through the same `PUT .../bom` batch `BomLineRow`'s edits do — one
+ * write path for the whole screen, per `BomLineEdit`'s server-side docstring.
+ */
+function AddBomLine({ projectId, onAdded }: { projectId: number; onAdded: () => void }) {
+  const [designators, setDesignators] = useState("");
+  const [qtyMilli, setQtyMilli] = useState(MILLI);
+  const [partId, setPartId] = useState<number | null>(null);
+  const [partLabel, setPartLabel] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function submit(): Promise<void> {
+    if (qtyMilli <= 0) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await updateBomLines(projectId, {
+        edits: [
+          {
+            qty_per_assembly_milli: qtyMilli,
+            designators: designators.trim() === "" ? null : designators.trim(),
+            part_id: partId,
+          },
+        ],
+        client_op_id: uuid4(),
+      });
+      onAdded();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="card"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <h3>Add a line by hand</h3>
+      <p className="muted-note">
+        Leaving the part unset is normal — the same "needs a human to say what it is"
+        state an import leaves an unmatched line in.
+      </p>
+      <label className="field">
+        <span>Designators</span>
+        <input
+          value={designators}
+          onChange={(event) => setDesignators(event.target.value)}
+          placeholder="R7, or R7,R8"
+        />
+      </label>
+      <label className="field">
+        <span>Quantity per assembly</span>
+        <input
+          type="number"
+          min={0}
+          value={qtyMilli / MILLI}
+          onChange={(event) =>
+            setQtyMilli(Math.max(0, Number(event.target.value) || 0) * MILLI)
+          }
+        />
+      </label>
+      <div className="row">
+        <span style={{ flex: 1 }}>
+          {partId === null ? (
+            <span className="dim">No part matched yet</span>
+          ) : (
+            <>
+              Part: <Link to={`/parts/${partId}`}>{partLabel ?? `#${partId}`}</Link>
+            </>
+          )}
+        </span>
+        <button type="button" onClick={() => setPicking(!picking)}>
+          {picking ? "Cancel" : partId === null ? "Pick a part" : "Change part"}
+        </button>
+        {partId !== null && (
+          <button
+            type="button"
+            onClick={() => {
+              setPartId(null);
+              setPartLabel(null);
+            }}
+          >
+            Clear part
+          </button>
+        )}
+      </div>
+      {picking && (
+        <MatchPicker
+          seedText={designators}
+          onPick={(id, label) => {
+            setPartId(id);
+            setPartLabel(label);
+            setPicking(false);
+          }}
+          busy={busy}
+        />
+      )}
+      <ErrorBanner error={error} fallback="That line could not be added." />
+      <button type="submit" className="primary wide" disabled={busy || qtyMilli <= 0}>
+        {busy ? "Adding…" : "Add line"}
+      </button>
+    </form>
+  );
+}
+
 // -------------------------------------------------------------------- rows --
 
 function StateBadge({ state }: { state: LineState }) {
@@ -304,14 +458,11 @@ function StateBadge({ state }: { state: LineState }) {
 function BomLineRow({ line, onChanged }: { line: BomLineRead; onChanged: () => void }) {
   const state = stateOf(line);
   const [picking, setPicking] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  async function apply(edit: {
-    part_id?: number | null;
-    is_match_confirmed?: boolean;
-    is_dnp?: boolean;
-  }): Promise<void> {
+  async function apply(edit: Omit<BomLineEdit, "id">): Promise<void> {
     setBusy(true);
     setError(null);
     try {
@@ -323,6 +474,7 @@ function BomLineRow({ line, onChanged }: { line: BomLineRead; onChanged: () => v
         client_op_id: uuid4(),
       });
       setPicking(false);
+      setEditing(false);
       onChanged();
     } catch (cause) {
       setError(cause);
@@ -394,9 +546,24 @@ function BomLineRow({ line, onChanged }: { line: BomLineRead; onChanged: () => v
               Not DNP after all
             </button>
           )}
+          <button type="button" onClick={() => setEditing(!editing)} disabled={busy}>
+            {editing ? "Cancel" : "Edit"}
+          </button>
+          <button
+            type="button"
+            className="danger"
+            onClick={() => void apply({ delete: true })}
+            disabled={busy}
+          >
+            Remove line
+          </button>
         </div>
 
         <ErrorBanner error={error} fallback="That edit was not saved." />
+
+        {editing && (
+          <EditBomLineFields line={line} busy={busy} onSave={(edit) => void apply(edit)} />
+        )}
 
         {picking && (
           <MatchPicker
@@ -408,6 +575,65 @@ function BomLineRow({ line, onChanged }: { line: BomLineRead; onChanged: () => v
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * Designators, ref value and per-assembly quantity — the fields `bom_import`
+ * fills from a CSV and this is the only other way to correct. Part matching
+ * stays `MatchPicker`'s job, not this form's: mixing "pick a part" into a
+ * text-field form would duplicate the search UI for no benefit, when the row
+ * already has a dedicated Match/Change-match button right beside this one.
+ */
+function EditBomLineFields({
+  line,
+  busy,
+  onSave,
+}: {
+  line: BomLineRead;
+  busy: boolean;
+  onSave: (edit: Omit<BomLineEdit, "id">) => void;
+}) {
+  const [designators, setDesignators] = useState(line.designators ?? "");
+  const [refValue, setRefValue] = useState(line.ref_value ?? "");
+  const [qtyMilli, setQtyMilli] = useState(line.qty_per_assembly_milli);
+
+  return (
+    <div className="card" style={{ marginTop: "0.4rem" }}>
+      <label className="field">
+        <span>Designators</span>
+        <input value={designators} onChange={(event) => setDesignators(event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Value</span>
+        <input value={refValue} onChange={(event) => setRefValue(event.target.value)} />
+      </label>
+      <label className="field">
+        <span>Quantity per assembly</span>
+        <input
+          type="number"
+          min={0}
+          value={qtyMilli / MILLI}
+          onChange={(event) =>
+            setQtyMilli(Math.max(0, Number(event.target.value) || 0) * MILLI)
+          }
+        />
+      </label>
+      <button
+        type="button"
+        className="primary wide"
+        disabled={busy || qtyMilli <= 0}
+        onClick={() =>
+          onSave({
+            designators: designators.trim() === "" ? null : designators.trim(),
+            ref_value: refValue.trim() === "" ? null : refValue.trim(),
+            qty_per_assembly_milli: qtyMilli,
+          })
+        }
+      >
+        {busy ? "Saving…" : "Save"}
+      </button>
+    </div>
   );
 }
 
@@ -424,7 +650,10 @@ function MatchPicker({
   busy,
 }: {
   seedText: string;
-  onPick: (partId: number) => void;
+  // `partLabel` lets a caller show what was picked without a second fetch —
+  // `AddBomLine` has nothing else to render a name from until the new line
+  // comes back from `listBomLines`.
+  onPick: (partId: number, partLabel: string) => void;
   onClear?: (() => void) | undefined;
   busy: boolean;
 }) {
@@ -475,7 +704,7 @@ function MatchPicker({
                   </div>
                   {part.is_stub && <span className="badge badge-warn">stub</span>}
                 </div>
-                <button type="button" onClick={() => onPick(part.id)} disabled={busy}>
+                <button type="button" onClick={() => onPick(part.id, part.name)} disabled={busy}>
                   Use this
                 </button>
               </div>

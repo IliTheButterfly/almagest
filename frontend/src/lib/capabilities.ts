@@ -60,7 +60,10 @@ export function cameraNotice(capabilities: BrowserCapabilities): string | null {
       "camera at all — there is no permission to grant. Open the app at " +
       "https://almagest.lan (or at http://localhost during development); an " +
       "http:// address on the LAN will never have a camera. Type the code or " +
-      "part number instead in the meantime."
+      "part number below — that works everywhere, right now. If you scan the " +
+      "QR with your phone's own camera app instead of opening this page, it will " +
+      "just open the printed URL in your ordinary browser rather than in this " +
+      "app — that is what a printed code is (ADR 0001), not a bug."
     );
   }
   return (

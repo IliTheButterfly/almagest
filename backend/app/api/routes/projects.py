@@ -16,15 +16,29 @@ matters (they change what a lot's stock is promised to), so both go through
 `app.api.idempotency` the same way `stock.py`'s do. `PATCH` on a project or a
 build is not — replaying it sets the same fields to the same values — which is
 why it is unguarded, matching `parts.update_part`.
+
+`POST /stage`, `/unstage`, `/consume-staged` and `/record-used` (ADR 0004) are
+movements in the *literal* sense — parts leave a drawer — so they are guarded
+for the same reason `stock.py`'s are: an append-only ledger has no way to take
+back a second withdrawal except by writing a third row. `DELETE` on a project
+is unguarded because a delete is idempotent by nature; the second one is a 404.
+
+`GET /roster` and `GET /pick-list` are the two views ADR 0004's roster section
+asks for, and they are deliberately separate endpoints rather than fields on
+`/shortages`: one answers "what went into this" (the past, corrections
+included) and the other "where do I go and what do I take" (a route through
+the room). A single response carrying all three would be re-fetched wholesale
+every time any one of them changed.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
-from sqlalchemy import ColumnElement, func, select
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
@@ -34,18 +48,28 @@ from app.db.session import get_db
 from app.models.catalog import Part
 from app.models.enums import BuildStatus, ProjectStatus
 from app.models.projects import BomLine, Project, ProjectBuild, StockAllocation
-from app.models.stock import StockLot
+from app.models.stock import StockLedger, StockLot
+from app.models.storage import Location
 from app.models.types import utcnow
+from app.services import staging
 from app.services.bom_import import import_bom as run_bom_import
 from app.services.bom_import import normalized_mpn, parse_bom
+from app.services.ledger import Attribution, LedgerError
+from app.services.picking import PickGap, PickStop, PickTake, pick_list_for_build
 from app.services.reservations import (
     LineShortage,
     ReservationError,
+    consume_staged,
+    record_used,
     release_build,
     reserve,
     shortage_for_build,
+    stage,
+    unstage,
 )
 from app.services.reservations import release as release_allocation
+from app.services.roster import RosterEntry, RosterLine, roster_for_build
+from app.services.staging import StagingError
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 builds_router = APIRouter(prefix="/api/builds", tags=["projects"])
@@ -93,6 +117,10 @@ class BuildRead(BaseModel):
     assembly_count: int
     bom_revision: str | None
     status: str
+    #: The project box this build's withdrawals went to, null until it stages
+    #: anything (ADR 0004 creates them lazily). Always the *project* node even
+    #: when the parts went to an assembly under it: that is the box a user carries.
+    staging_location_id: int | None
     started_at: datetime | None
     completed_at: datetime | None
     notes: str | None
@@ -187,13 +215,40 @@ class BomImportResponse(ReplayableResponse):
 
 
 class BomLineEdit(BaseModel):
-    """One line's edit. Only the fields actually present in the request are
-    applied — `model_fields_set`, exactly as `parts.PartUpdate` does — so a
-    client can clear `note` with an explicit `null` without every other
-    field on the line needing to be restated.
+    """One line's edit — or, with `id` omitted, a **new** hand-added line — or,
+    with `delete: true`, a line to **remove**. Only the fields actually present
+    in the request are applied to an edit — `model_fields_set`, exactly as
+    `parts.PartUpdate` does — so a client can clear `note` with an explicit
+    `null` without every other field on the line needing to be restated.
+
+    Add and remove ride on this same batch rather than getting their own
+    routes: `PUT .../bom` already owns the one code path that writes
+    `bom_lines` — `_apply_bom_line_edit`, the project-membership check, the
+    idempotency guard — and a `POST .../bom/lines` plus a
+    `DELETE .../bom/lines/{id}` would each have to reconstruct that guard
+    beside it rather than reuse it, which is exactly the duplication CLAUDE.md
+    calls out. A hand-added line is a legal, ordinary row from here on — the
+    same "unmatched is normal, not an error" state an import leaves behind,
+    just entered a different way.
     """
 
-    id: RowId
+    id: RowId | None = None
+    #: Required when adding, optional when editing, which the validator below
+    #: enforces rather than the type: a new line with no quantity is not a BOM
+    #: line at all, while an edit that says nothing about quantity must leave
+    #: the existing one alone. Pydantic cannot express "required only when
+    #: another field is absent", so the check has to be a cross-field one and
+    #: the annotation has to stay optional for both cases.
+    qty_per_assembly_milli: QtyMilli | None = None
+    #: Remove the line outright. A flag rather than a `DELETE` route so one
+    #: batch can add, edit and remove in a single idempotency-guarded write —
+    #: a curation pass over an imported BOM does all three, and splitting it
+    #: across three requests makes half of it landing a normal outcome.
+    #: Deleting is safe here because `bom_lines` is a *plan*, not a record:
+    #: `stock_allocations.bom_line_id` is `ON DELETE SET NULL`, so removing a
+    #: line drops the requirement and keeps every row saying what was really
+    #: taken — which is then reported as off-BOM by the roster.
+    delete: bool = False
     part_id: RowId | None = None
     #: Confirming a match by hand *is* the human agreement
     #: `bom_lines.is_match_confirmed` exists to distinguish from an automatic
@@ -204,7 +259,6 @@ class BomLineEdit(BaseModel):
     #: cross-field invariant.
     is_match_confirmed: bool | None = None
     is_dnp: bool | None = None
-    qty_per_assembly_milli: QtyMilli | None = None
     designators: str | None = Field(default=None, max_length=1024)
     ref_value: str | None = Field(default=None, max_length=128)
     footprint: str | None = Field(default=None, max_length=128)
@@ -212,6 +266,16 @@ class BomLineEdit(BaseModel):
     manufacturer_raw: str | None = Field(default=None, max_length=128)
     description: str | None = None
     note: str | None = None
+
+    @model_validator(mode="after")
+    def _create_needs_a_quantity_delete_needs_an_id(self) -> BomLineEdit:
+        if self.id is None and self.delete:
+            raise ValueError("cannot delete a line that was never created (id is required)")
+        if self.id is None and "qty_per_assembly_milli" not in self.model_fields_set:
+            raise ValueError(
+                "qty_per_assembly_milli is required when adding a new line (id omitted)"
+            )
+        return self
 
 
 class BomLinesUpdateRequest(BaseModel):
@@ -221,7 +285,11 @@ class BomLinesUpdateRequest(BaseModel):
 
 
 class BomLinesUpdateResponse(ReplayableResponse):
+    #: What survived the batch. A deleted line has no row left to render, so it
+    #: is reported by id in `deleted_ids` instead — dropping it silently would
+    #: leave a client unable to tell "removed" from "not in this batch".
     lines: list[BomLineRead]
+    deleted_ids: list[int] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +310,8 @@ class BuildCreated(ReplayableResponse):
 
 
 class BuildUpdate(BaseModel):
-    """Label, notes, and the status transition that closes a build.
+    """Label, notes, `assembly_count`, and the status transition that closes a
+    build.
 
     Not in the route list this module was scoped from — added because nothing
     else can ever set `project_builds.status`, and closing a build is what
@@ -250,10 +319,21 @@ class BuildUpdate(BaseModel):
     construction like `parts.update_part`: replaying "mark it completed" a
     second time finds nothing left to release and leaves `completed_at` alone,
     so no idempotency key is needed.
+
+    **`assembly_count` needs no idempotency key either, and no companion write
+    anywhere.** `reservations.shortage_for_build` computes
+    `required_milli = qty_per_assembly_milli * build.assembly_count` fresh on
+    every read (ADR 0004) — it is never stored per line — so raising this
+    column from 1 to 3 makes `needed_milli` triple the next time anyone asks,
+    with nothing written to `stock_allocations`. Lowering it is equally inert:
+    it only shrinks what is reported *needed*, and can never claw back a unit
+    already `RESERVED`, `STAGED`, or `CONSUMED`, so it can never strand real
+    stock or need a backfill pass.
     """
 
     label: str | None = Field(default=None, max_length=128)
     status: BuildStatus | None = None
+    assembly_count: AssemblyCount | None = None
     notes: str | None = None
 
 
@@ -266,6 +346,10 @@ class AllocationRead(BaseModel):
     qty_milli: int
     state: str
     consumed_ledger_seq: int | None
+    #: The movement that put these parts in a project box, so `/unstage` can
+    #: compensate exactly it. Null on a `STAGED` remainder left by a partial
+    #: build — no single movement describes what the row still holds.
+    staged_ledger_seq: int | None
     reserved_at: datetime | None
     consumed_at: datetime | None
     note: str | None
@@ -318,6 +402,111 @@ class ReleaseResponse(ReplayableResponse):
     lot: LotRead | None = None
 
 
+class StageRequest(BaseModel):
+    """Send parts out of a bin to a project, or to one of its assemblies.
+
+    `assembly_no` omitted means the project's **floating** parts: set aside for
+    the project, not yet committed to a unit. That is the state the requirement
+    asks for, and it is a location rather than a flag — see ADR 0004.
+    """
+
+    lot_id: RowId
+    qty_milli: QtyMilli
+    #: Stage *from* an existing hold, consuming it. Omitted means "take these
+    #: out and put them in the project box" with no prior reservation, which is
+    #: one gesture at a bench rather than two.
+    allocation_id: RowId | None = None
+    bom_line_id: RowId | None = None
+    #: 1-based, and bounded by the build's `assembly_count` — `staging`
+    #: refuses "assembly 7 of 3", because that names a unit that does not
+    #: exist and no later correction could attach the parts to it.
+    assembly_no: AssemblyCount | None = None
+    note: str | None = None
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class StageResponse(ReplayableResponse):
+    allocation: AllocationRead
+    #: The drawer, whose count has already dropped — the number every screen
+    #: reads, correct the instant the parts left it.
+    source_lot: LotRead
+    #: The project box's lot — for a whole-lot move, the *same* lot relocated.
+    staging_lot: LotRead
+    #: Where they landed: the project node, or an assembly node under it. On
+    #: the wire as an id rather than a path because the path is derived and
+    #: `lot_read` already carries `location_label_path` for display.
+    staging_location_id: int
+    #: One row for a whole-lot move, two for a partial one — the ledger rows
+    #: this withdrawal wrote, so a client can hand them to `/api/stock/undo`.
+    seqs: list[int]
+    #: Set only for a partial withdrawal, whose two rows are one undoable
+    #: unit. A whole-lot move is a single row and needs no group.
+    group_uuid: str | None = None
+
+
+class UnstageRequest(BaseModel):
+    """Put a staged withdrawal back on the shelf.
+
+    No ledger handle needed, unlike `/api/stock/undo`: the allocation records
+    the movement it came from (`staged_ledger_seq`), so "put it back" names the
+    parts, not the paperwork.
+    """
+
+    allocation_id: RowId
+    note: str | None = None
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class UnstageResponse(ReplayableResponse):
+    allocation: AllocationRead
+    #: The lot the parts went *back* into — the original bin's lot for a split,
+    #: and the relocated lot itself for a whole-lot move. Derived from the
+    #: compensating rows rather than from the allocation, which names the
+    #: project box.
+    lot: LotRead
+    #: The project box's lot as it now stands, usually at zero.
+    staging_lot: LotRead
+    #: The compensating rows `ledger.reverse` appended. History reads "this
+    #: happened, then it was undone", which is not "this never happened".
+    reversed_seqs: list[int]
+
+
+class ConsumeStagedRequest(BaseModel):
+    """Build staged parts into the assembly: `staged -> consumed`."""
+
+    allocation_id: RowId
+    #: Below the staged quantity leaves the remainder `STAGED` on the same lot,
+    #: because a half-populated board is the normal case. Omitted means all of
+    #: it.
+    qty_milli: QtyMilli | None = None
+    note: str | None = None
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class ConsumeStagedResponse(ReplayableResponse):
+    allocation: AllocationRead
+    #: The *staging* lot, drawn down — the drawer's count already dropped when
+    #: these parts were staged, so nothing at the source changes here. Returned
+    #: rather than the source lot so a client refreshes the box it just emptied.
+    lot: LotRead
+    seq: int
+
+
+class ProjectDeleted(BaseModel):
+    """What a delete removed. Not a `ReplayableResponse`: a delete is idempotent
+    by nature — the second one is a 404 — so there is no stored response a
+    retried key would need to replay."""
+
+    project_id: int
+    #: Staging boxes that went with it — "usually none", because any box that
+    #: ever held stock is named by an undeletable `stock_ledger` row. Reported
+    #: rather than assumed so a client's tree cache knows what to drop.
+    removed_location_ids: list[int]
+
+
 class LineShortageRead(BaseModel):
     bom_line_id: int
     line_no: int
@@ -325,6 +514,19 @@ class LineShortageRead(BaseModel):
     kind: str
     required_milli: int
     allocated_milli: int
+    #: The three states `allocated_milli` is the sum of, kept apart on the wire
+    #: because ADR 0004 is explicit that merging them lets a BOM look buildable
+    #: off parts already soldered into last week's board. Three units in a
+    #: drawer, three in a project box and three in a finished assembly are
+    #: three different situations with three different next actions.
+    reserved_milli: int
+    staged_milli: int
+    consumed_milli: int
+    #: `max(0, required - allocated)` — what still has to be *obtained*, as
+    #: distinct from `shortfall_milli`, which is what cannot be obtained from
+    #: current free stock. Raising `assembly_count` moves this number and
+    #: writes nothing, which is what "demand is derived" means.
+    needed_milli: int
     #: The part of `allocated_milli` its lot can no longer fill — an emptied bin,
     #: an over-committed lot, a lot pulled out of `ACTIVE`. Non-zero means this
     #: line's hold needs a human, and it is why `shortfall_milli` can be positive
@@ -341,6 +543,151 @@ class ShortageResponse(BaseModel):
     assembly_count: int
     is_buildable: bool
     lines: list[LineShortageRead]
+
+
+# ---------------------------------------------------------------------------
+# Wire types — the roster and the pick list
+# ---------------------------------------------------------------------------
+
+
+class RosterEntryRead(BaseModel):
+    """One allocation row, with the ledger row behind it resolved."""
+
+    allocation_id: int
+    part_id: int
+    part_name: str
+    part_mpn: str | None
+    lot_id: int | None
+    qty_milli: int
+    state: str
+    ledger_seq: int | None
+    ledger_source: str | None
+    #: Written down after the fact rather than scanned at the time —
+    #: `stock_ledger.source == reconciled`. A corrected row that looked
+    #: identical to a scanned one would make the roster unreadable as evidence.
+    is_after_the_fact: bool
+    #: Where the parts came from, resolved for display. Null for a row that
+    #: never named a lot — the roster still renders it, because "we used this
+    #: and lost track of where from" is what this report exists to admit.
+    location_id: int | None
+    location_label_path: str | None
+    reserved_at: datetime | None
+    consumed_at: datetime | None
+    note: str | None
+
+
+class RosterLineRead(BaseModel):
+    """One BOM line's account, or one off-BOM part this build used."""
+
+    #: Null on an off-BOM line: a part nobody planned for has no line to hang
+    #: off, and refusing to report it would guarantee the roster is wrong.
+    bom_line_id: int | None
+    line_no: int | None
+    designators: str | None
+    part_id: int | None
+    part_name: str | None
+    part_mpn: str | None
+    is_dnp: bool
+    is_off_bom: bool
+    #: Zero on an off-BOM line — nothing required it. Keeping the field rather
+    #: than omitting it means one renderer handles both kinds.
+    required_milli: int
+    reserved_milli: int
+    staged_milli: int
+    consumed_milli: int
+    #: How much of this line's total was recorded after the fact, so a reader
+    #: can weigh the line's own credibility without walking `entries` — the
+    #: same reason the report carries a build-wide total of it.
+    after_the_fact_milli: int
+    entries: list[RosterEntryRead]
+
+
+class RosterResponse(BaseModel):
+    build_id: int
+    assembly_count: int
+    after_the_fact_milli: int
+    off_bom_count: int
+    lines: list[RosterLineRead]
+
+
+class RecordUsedRequest(BaseModel):
+    """Record a part that was really used but never tracked.
+
+    No `source` field, unlike every other movement request: it is forced to
+    `reconciled` by the service. See `reservations.record_used` — a correction
+    that could label itself `scan` would destroy the only property that makes
+    the roster worth reading.
+    """
+
+    lot_id: RowId
+    qty_milli: QtyMilli
+    bom_line_id: RowId | None = None
+    #: Asserted against the lot's own part, like `AllocateRequest.part_id`, so
+    #: a client that believes it is recording "the 10k" is told when it is not.
+    part_id: RowId | None = None
+    note: str | None = None
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class RecordUsedResponse(ReplayableResponse):
+    #: A roster entry, not an `AllocationRead`: the correction's whole point is
+    #: that it is visible as one, and `is_after_the_fact` lives on that shape.
+    allocation: RosterEntryRead
+    lot: LotRead
+    seq: int
+
+
+class PickTakeRead(BaseModel):
+    bom_line_id: int | None
+    line_no: int | None
+    designators: str | None
+    part_id: int
+    part_name: str
+    part_mpn: str | None
+    lot_id: int
+    qty_milli: int
+    #: Set when this take fills an existing hold rather than drawing on free
+    #: stock, so the picker knows the parts are already spoken for.
+    allocation_id: int | None
+    is_substitute: bool
+    #: Take the whole lot rather than counting out of it — the reel goes in the
+    #: tray. Cheaper and less error-prone than counting, so worth surfacing.
+    whole_lot: bool
+
+
+class PickStopRead(BaseModel):
+    location_id: int
+    label_path: str
+    #: Carried so a client can sort or group by the same key the walk order is
+    #: built from, without re-deriving hierarchy from `label_path` text — which
+    #: would break the moment a location is renamed. `id_path` uses numeric ids
+    #: precisely so a rename never invalidates it.
+    id_path: str
+    short_id: str | None
+    takes: list[PickTakeRead]
+    qty_milli: int
+
+
+class PickGapRead(BaseModel):
+    """A line the walk cannot finish. **Never omitted** — a pick list missing
+    its own gaps reads as complete, and the user finds out at the bench."""
+
+    bom_line_id: int
+    line_no: int
+    part_id: int | None
+    kind: str
+    needed_milli: int
+    pickable_milli: int
+    shortfall_milli: int
+
+
+class PickListResponse(BaseModel):
+    build_id: int
+    is_complete: bool
+    qty_milli: int
+    stops: list[PickStopRead]
+    gaps: list[PickGapRead]
 
 
 # ---------------------------------------------------------------------------
@@ -388,17 +735,91 @@ def _require_lot(db: Session, lot_id: int) -> StockLot:
     return lot
 
 
-def _reservation_error(error: ReservationError) -> HTTPException:
+def _require_allocation(db: Session, build: ProjectBuild, allocation_id: int) -> StockAllocation:
+    """An allocation, addressable **only** under the build that owns it.
+
+    A plain `db.get` would find an allocation belonging to someone else's build
+    and hand a route the chance to act on it; checking `build_id` here is what
+    turns that into a 404 before any service call, the same shape
+    `_require_bom_line`'s sibling checks in `update_bom_lines` enforce for a
+    line. `stage`'s own build-mismatch guard exists too, but it only fires
+    *inside* the service and answers with 409 (`allocation_not_in_build`) —
+    wrong for an id that was never addressable here at all, which is a 404.
+    """
+    allocation = db.get(StockAllocation, allocation_id)
+    if allocation is None or allocation.build_id != build.id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={
+                "reason": "unknown_allocation",
+                "message": f"no allocation {allocation_id} on build {build.id}",
+            },
+        )
+    return allocation
+
+
+def _reservation_error(error: ReservationError | StagingError | LedgerError) -> HTTPException:
     """Map a refusal onto 409, exactly as `stock._ledger_error` does.
 
-    409, not 400: every one of `reserve`'s refusals is a well-formed request
-    that would have succeeded against different state (more stock, an open
-    build, a matching part) — the client needs the reason, not "bad request".
+    409, not 400: every one of these refusals is a well-formed request that
+    would have succeeded against different state (more stock, an open build, a
+    matching part, an un-reversed movement) — the client needs the reason, not
+    "bad request". One function for all three error types because a staging
+    movement can fail for a reservation reason (`build_closed`), a destination
+    reason (`unknown_assembly`), or a ledger reason (`already_reversed` from a
+    double-tapped `/unstage`), and the response shape does not care which.
     """
     return HTTPException(
         status.HTTP_409_CONFLICT,
         detail={"reason": error.reason, "message": str(error)},
     )
+
+
+def _staging_attribution(
+    request: StageRequest | UnstageRequest | ConsumeStagedRequest | RecordUsedRequest,
+) -> Attribution:
+    """`Attribution` for a staging-family movement.
+
+    None of these four requests carry a `source` field, unlike `stock.py`'s
+    `MovementRequest`: stage, unstage, consume-staged and record-used are
+    always typed at a build screen, never a raw barcode scan, so there is
+    nothing for a client to choose between. `Attribution.source` therefore
+    stays at its default, `LedgerSource.MANUAL` — `record_used` overrides it to
+    `RECONCILED` itself (never trusting the caller for exactly that field, see
+    `LedgerSource.RECONCILED`), so this helper stays the same for every caller.
+    """
+    return Attribution(note=request.note, client_op_id=request.client_op_id)
+
+
+def _location_is_referenced(db: Session, location_id: int) -> bool:
+    """Whether anything still names this location: a lot sitting in it (even at
+    zero balance) or a ledger row that ever moved stock through it.
+
+    Checked **before** attempting a delete rather than caught as an
+    `IntegrityError`. `stock_lots.location_id` and `stock_ledger.{from,to}_
+    location_id` are all `RESTRICT`, and once any lot has ever been created in
+    a project's staging box there is always at least one `stock_lots` row
+    pointing at it — even after that lot is drawn down to zero, because nothing
+    ever deletes a lot row. So this is true for almost every box that ever held
+    anything, which is the honest answer `delete_project` promises: "usually
+    none" removed, not "usually fails".
+    """
+    lot_row = db.execute(
+        select(StockLot.id).where(StockLot.location_id == location_id).limit(1)
+    ).first()
+    if lot_row is not None:
+        return True
+    ledger_row = db.execute(
+        select(StockLedger.seq)
+        .where(
+            or_(
+                StockLedger.from_location_id == location_id,
+                StockLedger.to_location_id == location_id,
+            )
+        )
+        .limit(1)
+    ).first()
+    return ledger_row is not None
 
 
 # ---------------------------------------------------------------------------
@@ -448,11 +869,112 @@ def _line_shortage_read(line: LineShortage) -> LineShortageRead:
         kind=line.kind.value,
         required_milli=line.required_milli,
         allocated_milli=line.allocated_milli,
+        reserved_milli=line.reserved_milli,
+        staged_milli=line.staged_milli,
+        consumed_milli=line.consumed_milli,
+        needed_milli=line.needed_milli,
         undeliverable_milli=line.undeliverable_milli,
         available_milli=line.available_milli,
         shortfall_milli=line.shortfall_milli,
         substitute_part_ids=list(line.substitute_part_ids),
         is_blocking=line.is_blocking,
+    )
+
+
+def _roster_entry_read(entry: RosterEntry) -> RosterEntryRead:
+    return RosterEntryRead(
+        allocation_id=entry.allocation_id,
+        part_id=entry.part_id,
+        part_name=entry.part_name,
+        part_mpn=entry.part_mpn,
+        lot_id=entry.lot_id,
+        qty_milli=entry.qty_milli,
+        state=entry.state.value,
+        ledger_seq=entry.ledger_seq,
+        ledger_source=None if entry.ledger_source is None else entry.ledger_source.value,
+        is_after_the_fact=entry.is_after_the_fact,
+        location_id=entry.location_id,
+        location_label_path=entry.location_label_path,
+        reserved_at=entry.reserved_at,
+        consumed_at=entry.consumed_at,
+        note=entry.note,
+    )
+
+
+def _roster_line_read(line: RosterLine) -> RosterLineRead:
+    return RosterLineRead(
+        bom_line_id=line.bom_line_id,
+        line_no=line.line_no,
+        designators=line.designators,
+        part_id=line.part_id,
+        part_name=line.part_name,
+        part_mpn=line.part_mpn,
+        is_dnp=line.is_dnp,
+        is_off_bom=line.is_off_bom,
+        required_milli=line.required_milli,
+        reserved_milli=line.reserved_milli,
+        staged_milli=line.staged_milli,
+        consumed_milli=line.consumed_milli,
+        after_the_fact_milli=line.after_the_fact_milli,
+        entries=[_roster_entry_read(entry) for entry in line.entries],
+    )
+
+
+def _pick_take_read(take: PickTake) -> PickTakeRead:
+    return PickTakeRead(
+        bom_line_id=take.bom_line_id,
+        line_no=take.line_no,
+        designators=take.designators,
+        part_id=take.part_id,
+        part_name=take.part_name,
+        part_mpn=take.part_mpn,
+        lot_id=take.lot_id,
+        qty_milli=take.qty_milli,
+        allocation_id=take.allocation_id,
+        is_substitute=take.is_substitute,
+        whole_lot=take.whole_lot,
+    )
+
+
+def _pick_stop_read(stop: PickStop) -> PickStopRead:
+    return PickStopRead(
+        location_id=stop.location_id,
+        label_path=stop.label_path,
+        id_path=stop.id_path,
+        short_id=stop.short_id,
+        takes=[_pick_take_read(take) for take in stop.takes],
+        qty_milli=stop.qty_milli,
+    )
+
+
+def _pick_gap_read(gap: PickGap) -> PickGapRead:
+    return PickGapRead(
+        bom_line_id=gap.bom_line_id,
+        line_no=gap.line_no,
+        part_id=gap.part_id,
+        kind=gap.kind.value,
+        needed_milli=gap.needed_milli,
+        pickable_milli=gap.pickable_milli,
+        shortfall_milli=gap.shortfall_milli,
+    )
+
+
+def _roster_entry_of(db: Session, build: ProjectBuild, allocation_id: int) -> RosterEntryRead:
+    """One allocation's roster row, the same shape `GET /roster` would render
+    for it — so `record_used`'s response looks exactly like the entry the
+    report would add, without a second copy of `is_after_the_fact`'s
+    derivation living in this module. Cheap enough to afford: bounded by one
+    build's BOM and allocations, not by history.
+    """
+    for line in roster_for_build(db, build).lines:
+        for entry in line.entries:
+            if entry.allocation_id == allocation_id:
+                return _roster_entry_read(entry)
+
+    # Unreachable unless the roster's own predicate and `record_used` disagree.
+    raise HTTPException(
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"allocation {allocation_id} was written but is not in its own build's roster",
     )
 
 
@@ -674,22 +1196,65 @@ def _apply_bom_line_edit(db: Session, line: BomLine, edit: BomLineEdit) -> None:
         line.mpn_norm = normalized_mpn(edit.mpn_raw)
 
 
+def _next_line_no(db: Session, project_id: int) -> int:
+    """One past this project's highest `line_no` — for a hand-added line, so it
+    lands after every imported line rather than colliding with the number a
+    later re-import would assign next. Same shape as `_next_build_no` below and
+    as `bom_import._highest_line_no`, and deliberately not imported from that
+    module: it is that module's own private helper for its own re-import pass,
+    not a shared utility, and the two aggregates are one line each to keep
+    separate rather than one round trip apart to keep the same.
+    """
+    highest = db.execute(
+        select(func.coalesce(func.max(BomLine.line_no), 0)).where(BomLine.project_id == project_id)
+    ).scalar_one()
+    return int(highest) + 1
+
+
 @router.put("/{project_id}/bom", response_model=BomLinesUpdateResponse)
 def update_bom_lines(
     project_id: RowId, request: BomLinesUpdateRequest, db: Session = Depends(get_db)
 ) -> BomLinesUpdateResponse:
-    """Apply a batch of per-line edits — corrections, DNP toggles, and manual
-    part matching. Idempotency-guarded because, unlike `parts.update_part`,
+    """Apply a batch of per-line edits — corrections, DNP toggles, manual part
+    matching, hand-adding a line (`id` omitted), and removing one
+    (`delete: true`). Idempotency-guarded because, unlike `parts.update_part`,
     the edit that matters most here (confirming a match) has a
     request-shape-dependent default (see `_apply_bom_line_edit`): a retried
     POST that landed and a retried POST that never reached the server are only
-    safely indistinguishable with a key.
+    safely indistinguishable with a key — which also means a retried *add*
+    adds one line, not two.
     """
     _require_project(db, project_id)
 
     def work() -> BomLinesUpdateResponse:
         touched: list[BomLine] = []
+        deleted_ids: list[int] = []
+        # Queried once and then counted up locally: `_next_line_no` reads an
+        # aggregate over rows this loop is still adding, and re-querying per
+        # add would return the same number until a flush, which is how two new
+        # lines end up sharing one `line_no`.
+        next_line_no: int | None = None
         for edit in request.edits:
+            if edit.id is None:
+                next_line_no = (
+                    _next_line_no(db, project_id) if next_line_no is None else next_line_no + 1
+                )
+                # Guaranteed by `BomLineEdit`'s validator, restated for mypy
+                # because the field is `| None` for the edit case. An `assert`
+                # rather than a raise: a request that reaches here without it
+                # has already been rejected with a 422 by validation, so this
+                # is a type narrowing, not a runtime check whose failure a
+                # client could ever observe.
+                qty = edit.qty_per_assembly_milli
+                assert qty is not None
+                line = BomLine(
+                    project_id=project_id, line_no=next_line_no, qty_per_assembly_milli=qty
+                )
+                db.add(line)
+                _apply_bom_line_edit(db, line, edit)
+                touched.append(line)
+                continue
+
             line = _require_bom_line(db, edit.id)
             if line.project_id != project_id:
                 raise HTTPException(
@@ -699,10 +1264,16 @@ def update_bom_lines(
                         "message": f"bom line {line.id} belongs to project {line.project_id}",
                     },
                 )
+            if edit.delete:
+                deleted_ids.append(line.id)
+                db.delete(line)
+                continue
             _apply_bom_line_edit(db, line, edit)
             touched.append(line)
         db.flush()
-        return BomLinesUpdateResponse(lines=[_bom_line_read(line) for line in touched])
+        return BomLinesUpdateResponse(
+            lines=[_bom_line_read(line) for line in touched], deleted_ids=deleted_ids
+        )
 
     return idempotency.run(
         db,
@@ -794,6 +1365,13 @@ def update_build(build_id: RowId, request: BuildUpdate, db: Session = Depends(ge
         build.label = request.label
     if "notes" in assigned:
         build.notes = request.notes
+    if "assembly_count" in assigned and request.assembly_count is not None:
+        # **The whole write.** ADR 0004's "changing the assembly count marks the
+        # extra parts as needed" is satisfied by this one column, because
+        # `required_milli` is `qty_per_assembly_milli * assembly_count` computed
+        # on every read. Backfilling `stock_allocations` here would be a second
+        # place demand lives, and an event handler that could be missed.
+        build.assembly_count = request.assembly_count
 
     if "status" in assigned and request.status is not None:
         new_status = BuildStatus(request.status)
@@ -878,15 +1456,7 @@ def release_stock(
 
     def work() -> ReleaseResponse:
         if request.allocation_id is not None:
-            allocation = db.get(StockAllocation, request.allocation_id)
-            if allocation is None or allocation.build_id != build.id:
-                raise HTTPException(
-                    status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "reason": "unknown_allocation",
-                        "message": f"no allocation {request.allocation_id} on build {build.id}",
-                    },
-                )
+            allocation = _require_allocation(db, build, request.allocation_id)
             lot = db.get(StockLot, allocation.lot_id) if allocation.lot_id is not None else None
             try:
                 release_allocation(db, allocation, note=request.note)
@@ -910,3 +1480,337 @@ def release_stock(
         response_model=ReleaseResponse,
         work=work,
     )
+
+
+# ---------------------------------------------------------------------------
+# Staging: withdrawing parts to a project (ADR 0004)
+# ---------------------------------------------------------------------------
+
+
+@builds_router.post("/{build_id}/stage", response_model=StageResponse)
+def stage_stock(
+    build_id: RowId, request: StageRequest, db: Session = Depends(get_db)
+) -> StageResponse:
+    """Withdraw parts to the project, or to one of its assemblies.
+
+    **This is an ordinary stock movement**, guarded by `app.api.idempotency`
+    like every other one: the parts leave the bin, so the bin's count drops in
+    the same transaction. A retried request that carries the same
+    `client_op_id` replays the stored response instead of emptying the drawer
+    twice — the ledger's `client_op_id` UNIQUE is the second backstop under
+    that.
+    """
+    build = _require_build(db, build_id)
+    lot = _require_lot(db, request.lot_id)
+    # Resolved out here rather than inside `work`, so a bad id is a 404 before
+    # the idempotency guard stores anything — a replayed key must never be able
+    # to return a stored 404.
+    allocation = (
+        None
+        if request.allocation_id is None
+        else _require_allocation(db, build, request.allocation_id)
+    )
+    bom_line = None if request.bom_line_id is None else _require_bom_line(db, request.bom_line_id)
+
+    def work() -> StageResponse:
+        try:
+            move = stage(
+                db,
+                build,
+                lot,
+                request.qty_milli,
+                attribution=_staging_attribution(request),
+                allocation=allocation,
+                bom_line=bom_line,
+                assembly_no=request.assembly_no,
+                note=request.note,
+            )
+        except (ReservationError, StagingError) as error:
+            raise _reservation_error(error) from error
+        return StageResponse(
+            allocation=_allocation_read(move.allocation),
+            source_lot=lot_read(db, move.source_lot),
+            staging_lot=lot_read(db, move.staging_lot),
+            staging_location_id=move.location.id,
+            seqs=[row.seq for row in move.rows],
+            group_uuid=move.group_uuid,
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="builds.stage",
+        payload=request,
+        response_model=StageResponse,
+        work=work,
+    )
+
+
+@builds_router.post("/{build_id}/unstage", response_model=UnstageResponse)
+def unstage_stock(
+    build_id: RowId, request: UnstageRequest, db: Session = Depends(get_db)
+) -> UnstageResponse:
+    """Put a staged withdrawal back on the shelf — the ledger's existing undo.
+
+    Not a fresh move in the opposite direction: `reservations.unstage` appends
+    compensating rows against the movement the allocation names, so the
+    history reads "this happened, then it was undone" and the double-tap
+    refusals (`already_reversed`) come from `ledger.reverse` for free.
+    """
+    build = _require_build(db, build_id)
+    allocation = _require_allocation(db, build, request.allocation_id)
+
+    def work() -> UnstageResponse:
+        try:
+            move = unstage(
+                db, allocation, attribution=_staging_attribution(request), note=request.note
+            )
+        except (ReservationError, LedgerError) as error:
+            raise _reservation_error(error) from error
+        return UnstageResponse(
+            allocation=_allocation_read(move.allocation),
+            lot=lot_read(db, move.restored_lot),
+            staging_lot=lot_read(db, move.staging_lot),
+            reversed_seqs=[row.seq for row in move.compensations],
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="builds.unstage",
+        payload=request,
+        response_model=UnstageResponse,
+        work=work,
+    )
+
+
+@builds_router.post("/{build_id}/consume-staged", response_model=ConsumeStagedResponse)
+def consume_staged_stock(
+    build_id: RowId, request: ConsumeStagedRequest, db: Session = Depends(get_db)
+) -> ConsumeStagedResponse:
+    """Build staged parts into the assembly: `staged -> consumed`.
+
+    Consumes the *staging* lot, because that is where the parts physically
+    are. The bin's count dropped when they were staged; taking it down again
+    here would remove the same units twice.
+    """
+    build = _require_build(db, build_id)
+    allocation = _require_allocation(db, build, request.allocation_id)
+
+    def work() -> ConsumeStagedResponse:
+        try:
+            allocation_after, row = consume_staged(
+                db,
+                allocation,
+                attribution=_staging_attribution(request),
+                qty_milli=request.qty_milli,
+            )
+        except ReservationError as error:
+            raise _reservation_error(error) from error
+        lot_id = allocation_after.lot_id
+        assert lot_id is not None
+        return ConsumeStagedResponse(
+            allocation=_allocation_read(allocation_after),
+            lot=lot_read(db, _require_lot(db, lot_id)),
+            seq=row.seq,
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="builds.consume_staged",
+        payload=request,
+        response_model=ConsumeStagedResponse,
+        work=work,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The as-built roster and the pick list (ADR 0004)
+# ---------------------------------------------------------------------------
+
+
+@builds_router.get("/{build_id}/roster", response_model=RosterResponse)
+def read_roster(build_id: RowId, db: Session = Depends(get_db)) -> RosterResponse:
+    """What this build actually used, corrections and all. A pure read.
+
+    Distinct from `/shortages`, which asks "can this be built": this asks
+    "what went into it", which is a question about the past and therefore has
+    to admit that the past was not always recorded. So it reports parts used
+    that no BOM line asked for, and it marks every row somebody wrote down
+    after the fact — see `RosterEntryRead.is_after_the_fact` and
+    `app.services.roster`.
+    """
+    build = _require_build(db, build_id)
+    report = roster_for_build(db, build)
+    return RosterResponse(
+        build_id=report.build_id,
+        assembly_count=report.assembly_count,
+        after_the_fact_milli=report.after_the_fact_milli,
+        off_bom_count=len(report.off_bom_lines),
+        lines=[_roster_line_read(line) for line in report.lines],
+    )
+
+
+@builds_router.post("/{build_id}/record-used", response_model=RecordUsedResponse)
+def record_used_stock(
+    build_id: RowId, request: RecordUsedRequest, db: Session = Depends(get_db)
+) -> RecordUsedResponse:
+    """Record a part that was really used but never tracked.
+
+    One ledger consume plus one `consumed` allocation, in one step, against a
+    BOM line or against no line at all. Guarded by `app.api.idempotency` like
+    every other movement, and for the sharper reason here: an append-only
+    ledger has no way to take back a doubled correction except by writing a
+    third row, and the user reaching for this endpoint is already
+    reconstructing history by hand.
+
+    **Deliberately permissive**, unlike `/allocate` and `/stage`: a closed
+    build, a quarantined lot and a bin with less stock than the correction
+    claims are all accepted. Refusing any of them would guarantee the roster
+    stays wrong, which ADR 0004 is explicit is the worse outcome. See
+    `reservations.record_used`.
+    """
+    build = _require_build(db, build_id)
+    lot = _require_lot(db, request.lot_id)
+    bom_line = None if request.bom_line_id is None else _require_bom_line(db, request.bom_line_id)
+
+    def work() -> RecordUsedResponse:
+        try:
+            allocation, row = record_used(
+                db,
+                build,
+                lot,
+                request.qty_milli,
+                attribution=_staging_attribution(request),
+                bom_line=bom_line,
+                part_id=request.part_id,
+                note=request.note,
+            )
+        except ReservationError as error:
+            raise _reservation_error(error) from error
+        return RecordUsedResponse(
+            allocation=_roster_entry_of(db, build, allocation.id),
+            lot=lot_read(db, lot),
+            seq=row.seq,
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="builds.record_used",
+        payload=request,
+        response_model=RecordUsedResponse,
+        work=work,
+    )
+
+
+@builds_router.get("/{build_id}/pick-list", response_model=PickListResponse)
+def read_pick_list(build_id: RowId, db: Session = Depends(get_db)) -> PickListResponse:
+    """Where to go and what to take, **in walking order**. A pure read.
+
+    Stops are sorted by `locations.id_path`, so every drawer of one cabinet is
+    consecutive and the room is crossed once. That ordering is the feature;
+    BOM order would cross it once per line. See `app.services.picking`.
+    """
+    build = _require_build(db, build_id)
+    plan = pick_list_for_build(db, build)
+    return PickListResponse(
+        build_id=plan.build_id,
+        is_complete=plan.is_complete,
+        qty_milli=plan.qty_milli,
+        stops=[_pick_stop_read(stop) for stop in plan.stops],
+        gaps=[_pick_gap_read(gap) for gap in plan.gaps],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Deleting a project
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/{project_id}", response_model=ProjectDeleted)
+def delete_project(project_id: RowId, db: Session = Depends(get_db)) -> ProjectDeleted:
+    """Delete a project, its BOM and its builds. **Refused while parts are
+    still in its staging boxes.**
+
+    That refusal is the ADR 0004 consequence, and it is not tidiness: those
+    parts are real and on a shelf. Cascading the delete would remove the only
+    record of why a box of components is sitting there, which is strictly
+    worse than leaving the project in place until someone un-stages them or
+    records them as used. Same reasoning as an over-capacity put-away being
+    recorded rather than blocked — the physical world wins.
+
+    Empty staging boxes are then removed only *if nothing references them*. A
+    box that ever held stock is named by `stock_ledger.from_location_id` /
+    `to_location_id`, which are `RESTRICT` against a table nothing can delete
+    from, so in practice it stays — visible, empty and harmless. ADR 0004
+    implies a cleanup here; the ledger makes that impossible for any box that
+    was ever used, and pretending otherwise would mean either deleting history
+    or failing the whole request over furniture.
+    """
+    project = _require_project(db, project_id)
+    stuck = staging.stock_in_staging(db, project)
+    if stuck:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "stock_in_project_staging",
+                "message": (
+                    f"{len(stuck)} lot(s) still hold stock in this project's staging boxes;"
+                    " un-stage or record them as used before deleting"
+                ),
+                "lot_ids": [lot.id for lot in stuck],
+            },
+        )
+
+    # Collected before the delete: every lookup below autoflushes, and reading
+    # `project.id` back off an instance the flush has already deleted is a trap
+    # worth not setting.
+    boxes = staging.staging_locations_of_project(db, project)
+    db.delete(project)
+    removed = _remove_unreferenced_staging_boxes(db, boxes)
+    db.commit()
+    return ProjectDeleted(project_id=project_id, removed_location_ids=removed)
+
+
+def _remove_unreferenced_staging_boxes(db: Session, boxes: Sequence[Location]) -> list[int]:
+    """Delete the project's staging branch, keeping whatever anything still names.
+
+    **Removable has to mean "and nothing retained sits under me".** Review found
+    ADR 0004's headline workflow — stage straight into an assembly — making a
+    project permanently undeletable with a 500: the lot lives at the *assembly*
+    node, so the project node in the middle is named by no lot and no ledger row
+    and looked removable, while its child was retained. `locations.parent_id` is
+    `RESTRICT`, so its delete raised `IntegrityError` at commit and rolled the
+    whole request back. Deepest-first ordering was standing in for this
+    predicate, and ordering only ever helped when *both* nodes were removable.
+
+    **The flush per node is load-bearing too**, and not a belt-and-braces flush:
+    `locations` has no `relationship()` for `parent_id` (see `TreeMixin` — the
+    tree is driven by the path cache, not by ORM cascades), so the unit of work
+    has no dependency to sort on and batches same-table deletes into one
+    `executemany` in arbitrary order. Parent-before-child then fails the
+    `RESTRICT` even when every node is unreferenced. Deleting one row at a time
+    is the only way the deepest-first order reaches SQL at all.
+
+    `boxes` arrives deepest first, as `staging_locations_of_project` orders them.
+    """
+    retained: set[int] = set()
+    removed: list[int] = []
+    for location in boxes:
+        if _location_is_referenced(db, location.id) or location.id in retained:
+            # A retained node pins every ancestor, so mark the parent before the
+            # loop reaches it — which deepest-first guarantees it will.
+            retained.add(location.id)
+            if location.parent_id is not None:
+                retained.add(location.parent_id)
+            continue
+        db.delete(location)
+        db.flush()
+        removed.append(location.id)
+    return removed

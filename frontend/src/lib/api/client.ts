@@ -70,6 +70,24 @@ export type SuggestRequest = Schemas["SuggestRequest"];
 export type SuggestResponse = Schemas["SuggestResponse"];
 export type ShortIdRequest = Schemas["ShortIdRequest"];
 export type ShortIdResponse = Schemas["ShortIdResponse"];
+
+// --- layout authoring: container types, their canvas, and one instance's --
+// own copy of it (docs/PLAN.md, "Layout authoring"; ADR 0002). ---------------
+export type ContainerTypeRead = Schemas["ContainerTypeRead"];
+export type ContainerTypeUpdate = Schemas["ContainerTypeUpdate"];
+export type ContainerTypeCreated = Schemas["ContainerTypeCreated"];
+export type ContainerTypeEdited = Schemas["ContainerTypeEdited"];
+export type CloneRequest = Schemas["CloneRequest"];
+export type SlotSpecIn = Schemas["SlotSpecIn"];
+export type SlotSpecOut = Schemas["SlotSpecOut"];
+export type SlotLabelScheme = Schemas["SlotLabelScheme"];
+export type SlotTemplateRead = Schemas["SlotTemplateRead"];
+export type SlotTemplateWrite = Schemas["SlotTemplateWrite"];
+export type SlotTemplateWritten = Schemas["SlotTemplateWritten"];
+export type LayoutRead = Schemas["LayoutRead"];
+export type SlotStateRead = Schemas["SlotStateRead"];
+export type ReapplyLayoutRequest = Schemas["ReapplyLayoutRequest"];
+export type ReapplyLayoutResponse = Schemas["ReapplyLayoutResponse"];
 export type PendingIntakeIn = Schemas["PendingIntakeIn"];
 export type PendingIntakeRead = Schemas["PendingIntakeRead"];
 export type PendingIntakeCreated = Schemas["PendingIntakeCreated"];
@@ -127,8 +145,26 @@ export type AllocateResponse = Schemas["AllocateResponse"];
 export type ReleaseRequest = Schemas["ReleaseRequest"];
 export type ReleaseResponse = Schemas["ReleaseResponse"];
 
+export type StageRequest = Schemas["StageRequest"];
+export type StageResponse = Schemas["StageResponse"];
+export type UnstageRequest = Schemas["UnstageRequest"];
+export type UnstageResponse = Schemas["UnstageResponse"];
+export type ConsumeStagedRequest = Schemas["ConsumeStagedRequest"];
+export type ConsumeStagedResponse = Schemas["ConsumeStagedResponse"];
+
 export type ShortageResponse = Schemas["ShortageResponse"];
 export type LineShortageRead = Schemas["LineShortageRead"];
+
+export type RosterResponse = Schemas["RosterResponse"];
+export type RosterLineRead = Schemas["RosterLineRead"];
+export type RosterEntryRead = Schemas["RosterEntryRead"];
+export type RecordUsedRequest = Schemas["RecordUsedRequest"];
+export type RecordUsedResponse = Schemas["RecordUsedResponse"];
+
+export type PickListResponse = Schemas["PickListResponse"];
+export type PickStopRead = Schemas["PickStopRead"];
+export type PickTakeRead = Schemas["PickTakeRead"];
+export type PickGapRead = Schemas["PickGapRead"];
 
 export class ApiError extends Error {
   readonly detail: unknown;
@@ -314,6 +350,141 @@ export async function assignLocationShortId(
   });
   if (error !== undefined) {
     fail("could not assign that printed id", error, response);
+  }
+  return data;
+}
+
+// ------------------------------------------------------- container types ----
+//
+// The reusable template a cabinet or a baseplate is stamped from, and the
+// canvas editor that authors its slot layout. `slot-template` is the one
+// door onto that canvas — see `app.services.layout_authoring` for the half
+// that decides what a merge, a split or a relabel actually means.
+
+export async function listContainerTypes(
+  options: { isSeed?: boolean } = {},
+): Promise<ContainerTypeRead[]> {
+  const { data, error, response } = await api.GET("/api/container-types", {
+    params: { query: options.isSeed === undefined ? {} : { is_seed: options.isSeed } },
+  });
+  if (error !== undefined) {
+    fail("could not load the container types", error, response);
+  }
+  return data;
+}
+
+export async function getContainerType(containerTypeId: number): Promise<ContainerTypeRead> {
+  const { data, error, response } = await api.GET("/api/container-types/{container_type_id}", {
+    params: { path: { container_type_id: containerTypeId } },
+  });
+  if (error !== undefined) {
+    fail(`no container type ${containerTypeId}`, error, response);
+  }
+  return data;
+}
+
+/**
+ * Edit a type's own fields (name, description, capacity, …) — never its
+ * slot layout, which is `putSlotTemplate`'s job alone. A seed clones itself
+ * first, which is why this carries `client_op_id` unlike `updatePart`: a
+ * retried edit of a seed must replay rather than mint a second clone.
+ */
+export async function updateContainerType(
+  containerTypeId: number,
+  request: ContainerTypeUpdate,
+): Promise<ContainerTypeEdited> {
+  const { data, error, response } = await api.PATCH("/api/container-types/{container_type_id}", {
+    params: { path: { container_type_id: containerTypeId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save that container type", error, response);
+  }
+  return data;
+}
+
+/** "This cabinet is identical to that one" — clone with no edit attached. */
+export async function cloneContainerType(
+  containerTypeId: number,
+  request: CloneRequest,
+): Promise<ContainerTypeCreated> {
+  const { data, error, response } = await api.POST(
+    "/api/container-types/{container_type_id}/clone",
+    { params: { path: { container_type_id: containerTypeId } }, body: request },
+  );
+  if (error !== undefined) {
+    fail("could not clone that container type", error, response);
+  }
+  return data;
+}
+
+/** The type's current effective layout — generated or materialised, indistinguishably. */
+export async function getSlotTemplate(containerTypeId: number): Promise<SlotTemplateRead> {
+  const { data, error, response } = await api.GET(
+    "/api/container-types/{container_type_id}/slot-template",
+    { params: { path: { container_type_id: containerTypeId } } },
+  );
+  if (error !== undefined) {
+    fail("could not load that container type's layout", error, response);
+  }
+  return data;
+}
+
+/**
+ * Save the canvas. `slots` is always the complete desired layout, never a
+ * delta. A seed clones first — `cloned` and `container_type_id` on the
+ * response say whether the id just written is the one in the URL.
+ */
+export async function putSlotTemplate(
+  containerTypeId: number,
+  request: SlotTemplateWrite,
+): Promise<SlotTemplateWritten> {
+  const { data, error, response } = await api.PUT(
+    "/api/container-types/{container_type_id}/slot-template",
+    { params: { path: { container_type_id: containerTypeId } }, body: request },
+  );
+  if (error !== undefined) {
+    fail("could not save that layout", error, response);
+  }
+  return data;
+}
+
+/**
+ * Grid + tag + contents state for one location's own children — the same
+ * document the provisioning and verification walks read, so an instance's
+ * layout editor never guesses at what a slot holds.
+ */
+export async function getLocationLayout(locationId: number): Promise<LayoutRead> {
+  const { data, error, response } = await api.GET("/api/locations/{location_id}/layout", {
+    params: { path: { location_id: locationId } },
+  });
+  if (error !== undefined) {
+    fail("could not load that container's layout", error, response);
+  }
+  return data;
+}
+
+/**
+ * Edit an already-instantiated location's own layout, through the change
+ * guard. Never touches `container_types` — editing a type and pushing a
+ * change into one of its instances are deliberately two different calls.
+ *
+ * Three outcomes, distinguished by the caller on the thrown `ApiError`:
+ * success (every change was safe), a 409 naming every slot a deletion is
+ * blocked on (`reason: "slots_hold_content"`, see `AffectedSlotProblem` in
+ * `lib/api/errors.ts`), or a 422 for a structurally refused request (most
+ * often `slot_identity_reinterpreted`).
+ */
+export async function reapplyLayout(
+  locationId: number,
+  request: ReapplyLayoutRequest,
+): Promise<ReapplyLayoutResponse> {
+  const { data, error, response } = await api.POST("/api/locations/{location_id}/reapply-layout", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not reapply that layout", error, response);
   }
   return data;
 }
@@ -701,6 +872,136 @@ export async function releaseStock(
   });
   if (error !== undefined) {
     fail("could not release that hold", error, response);
+  }
+  return data;
+}
+
+// ----------------------------------------------------- staging (ADR 0004) ----
+
+/**
+ * Withdraw parts to a project, or to one of its assemblies — ADR 0004's
+ * namesake workflow, and the reason these three functions exist at all: review
+ * found the routes implemented, tested and in the schema with **nothing in the
+ * frontend calling them**, so the one gesture the ADR was written for could not
+ * be performed.
+ *
+ * **This moves real stock**, so it is `client_op_id`-guarded like every other
+ * movement: the source bin's count drops in the same transaction, and a retried
+ * request without a key empties the drawer twice. `assembly_no` omitted means
+ * the project's floating parts; given, it is the specific unit.
+ */
+export async function stageStock(
+  buildId: number,
+  request: StageRequest,
+): Promise<StageResponse> {
+  const { data, error, response } = await api.POST("/api/builds/{build_id}/stage", {
+    params: { path: { build_id: buildId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not send those parts to the project", error, response);
+  }
+  return data;
+}
+
+/**
+ * Put a staged withdrawal back on the shelf — the ledger's existing undo, not a
+ * fresh move in the opposite direction, so the history reads "this happened,
+ * then it was undone".
+ *
+ * Refused (409) when the box no longer holds it all, or when the row is a
+ * remainder with no single movement to compensate. Both are worth surfacing
+ * verbatim: the message names the quantity and says what to do instead.
+ */
+export async function unstageStock(
+  buildId: number,
+  request: UnstageRequest,
+): Promise<UnstageResponse> {
+  const { data, error, response } = await api.POST("/api/builds/{build_id}/unstage", {
+    params: { path: { build_id: buildId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not put those parts back", error, response);
+  }
+  return data;
+}
+
+/**
+ * Build staged parts into the assembly: `staged → consumed`. Consumes the
+ * *project box's* lot, because that is where the parts are — the bin's count
+ * dropped when they were staged.
+ *
+ * `qty_milli` below the staged quantity is the normal case, not an edge one: a
+ * half-populated board leaves the remainder staged.
+ */
+export async function consumeStaged(
+  buildId: number,
+  request: ConsumeStagedRequest,
+): Promise<ConsumeStagedResponse> {
+  const { data, error, response } = await api.POST("/api/builds/{build_id}/consume-staged", {
+    params: { path: { build_id: buildId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not record those parts as built in", error, response);
+  }
+  return data;
+}
+
+// ----------------------------------------------- roster and the pick list ----
+
+/**
+ * What this build actually used, corrections included. A pure read.
+ *
+ * Distinct from `getShortages`, which asks "can this be built": this asks "what
+ * went into it", so it also reports parts consumed that no BOM line asked for
+ * and marks every row somebody wrote down after the fact.
+ */
+export async function getRoster(buildId: number): Promise<RosterResponse> {
+  const { data, error, response } = await api.GET("/api/builds/{build_id}/roster", {
+    params: { path: { build_id: buildId } },
+  });
+  if (error !== undefined) {
+    fail("could not load the roster", error, response);
+  }
+  return data;
+}
+
+/**
+ * Record a part that was really used but never tracked.
+ *
+ * Guarded by `client_op_id` for the sharper reason than usual: the server's
+ * ledger is append-only, so a doubled correction can only be taken back by
+ * writing a third row — and the user reaching for this is already
+ * reconstructing history by hand. No `source` field: the server forces
+ * `reconciled`, which is what makes the roster's own edits visible.
+ */
+export async function recordUsed(
+  buildId: number,
+  request: RecordUsedRequest,
+): Promise<RecordUsedResponse> {
+  const { data, error, response } = await api.POST("/api/builds/{build_id}/record-used", {
+    params: { path: { build_id: buildId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not record that part as used", error, response);
+  }
+  return data;
+}
+
+/**
+ * Where to go and what to take, **already in walking order** — the server sorts
+ * the stops by `locations.id_path`. Never re-sort this by BOM line on the way to
+ * the screen; that ordering is the entire feature.
+ */
+export async function getPickList(buildId: number): Promise<PickListResponse> {
+  const { data, error, response } = await api.GET("/api/builds/{build_id}/pick-list", {
+    params: { path: { build_id: buildId } },
+  });
+  if (error !== undefined) {
+    fail("could not load the pick list", error, response);
   }
   return data;
 }

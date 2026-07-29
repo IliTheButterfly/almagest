@@ -55,6 +55,14 @@ from app.models.types import StrEnumType, UtcDateTime, utcnow
 #: `COALESCE(..., 0)` is doing real work — a lot with no reservations gets 0, not
 #: NULL, so the column stays NOT NULL and `qty_milli_cached -
 #: qty_reserved_milli_cached` never evaluates to NULL.
+#:
+#: **ADR 0004 added `AllocationState.STAGED` and did not touch this line.** That
+#: is not an omission: a staged row's parts have physically left the source lot,
+#: so including them here would hold stock in a drawer that no longer contains
+#: it *while* the same units also sit as real stock in the project's staging
+#: location — the double count the ADR spends a section on. A staged row holds
+#: stock at its new place in the ordinary way, so the predicate stays a single
+#: indexable equality and `ix_stock_allocations_reserved_lot` still covers it.
 RESERVED_SUM_SQL = (
     "COALESCE((SELECT SUM(a.qty_milli) FROM stock_allocations a"
     f" WHERE a.lot_id = {{lot}} AND a.state = '{AllocationState.RESERVED.value}'), 0)"
@@ -163,6 +171,27 @@ class ProjectBuild(Base, TimestampMixin):
         nullable=False,
         default=BuildStatus.PLANNED,
         server_default=BuildStatus.PLANNED.value,
+    )
+
+    #: Where this build's *floating* parts went — the `locations` row that
+    #: represents the project inside the `PROJECTS` staging root (ADR 0004).
+    #: NULL until the first withdrawal, because a project that never takes
+    #: anything out of stock must not litter the storage tree with an empty box.
+    #:
+    #: It points at the **project's** node, not a per-build one, so every build
+    #: of one project records the same location: physically there is one project
+    #: box, and `app.services.staging` looks the node up by a DB-unique key
+    #: rather than by name (project names are deliberately not unique). Kept as
+    #: a column anyway so a reader — the UI, the delete refusal — never has to
+    #: re-derive it, and so `SET NULL` below makes a manually deleted staging
+    #: tree self-healing instead of a dangling reference.
+    #:
+    #: `SET NULL`, not `RESTRICT`: a staging location holding nothing is
+    #: ordinary furniture a user may remove, and the next withdrawal recreates
+    #: it. `RESTRICT` would instead make deleting an empty project box
+    #: impossible for as long as any build of the project exists.
+    staging_location_id: Mapped[int | None] = mapped_column(
+        ForeignKey("locations.id", ondelete="SET NULL")
     )
 
     started_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
@@ -310,8 +339,11 @@ class StockAllocation(Base, TimestampMixin):
 
     **The reserved cache is derived from this table and nothing else.**
     :data:`RESERVED_CACHE_REBUILD_SQL` is the rebuild; the invariant it depends
-    on is that exactly one state — `RESERVED` — holds stock, so the predicate is
-    a single equality and can be indexed.
+    on is that exactly one state — `RESERVED` — holds stock *in the lot it
+    names*, so the predicate is a single equality and can be indexed. `STAGED`
+    also names a lot and also holds stock, but that lot is the one in the
+    project's staging location, which holds it the ordinary way; see
+    `AllocationState.STAGED`.
 
     A `CONSUMED` row stops counting as reserved at the same moment
     `stock_lots.qty_milli_cached` drops, which is why consumption is a state
@@ -374,6 +406,25 @@ class StockAllocation(Base, TimestampMixin):
     #: does not exist — and the ledger's triggers make the reference permanent,
     #: because nothing can delete the row it points at.
     consumed_ledger_seq: Mapped[int | None] = mapped_column(
+        ForeignKey("stock_ledger.seq", ondelete="RESTRICT")
+    )
+
+    #: The `stock_ledger.seq` that moved these parts into the project's staging
+    #: location, set with the transition to `STAGED`. The exact counterpart of
+    #: `consumed_ledger_seq`, and it exists because **un-staging is the ledger's
+    #: existing compensating undo** (ADR 0004) and an undo needs the row it
+    #: compensates for. ADR 0004's consequence list says "one new nullable
+    #: column"; it never says how "put it back" finds the movement to reverse,
+    #: and the alternative — re-deriving it from `(lot, location, ref_id)` at
+    #: undo time — is a heuristic that picks the wrong row as soon as one lot is
+    #: staged twice.
+    #:
+    #: For a partial move it is the `split_in` half; `group_uuid` on that row
+    #: ties in the `split_out`, so one reversal unwinds both. Cleared on the
+    #: remainder row a partial consumption leaves behind, because that remainder
+    #: is no longer the quantity the movement recorded — see
+    #: `app.services.reservations.consume_staged`.
+    staged_ledger_seq: Mapped[int | None] = mapped_column(
         ForeignKey("stock_ledger.seq", ondelete="RESTRICT")
     )
 

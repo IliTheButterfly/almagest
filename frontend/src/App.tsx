@@ -17,7 +17,10 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { intakeQueue } from "./lib/intake/queue";
 import { BomScreen } from "./screens/BomScreen";
 import { BuildScreen } from "./screens/BuildScreen";
+import { ContainerTypeScreen } from "./screens/ContainerTypeScreen";
+import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
+import { LocationLayoutScreen } from "./screens/LocationLayoutScreen";
 import { LocationScreen } from "./screens/LocationScreen";
 import { LotScreen } from "./screens/LotScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
@@ -56,6 +59,7 @@ export function App() {
       <nav className="app-nav" aria-label="Main">
         <NavLink to="/search">Search</NavLink>
         <NavLink to="/tree">Storage</NavLink>
+        <NavLink to="/container-types">Types</NavLink>
         <NavLink to="/projects">Projects</NavLink>
         <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
@@ -73,6 +77,11 @@ export function App() {
           <Route path="/locations/:locationId" element={<LocationScreen />} />
           <Route path="/lots/:lotId" element={<LotScreen />} />
           <Route path="/provision" element={<ProvisionScreen />} />
+          {/* Layout authoring — reached from the tab and from a container's own
+              screen, never from a scanned tag. */}
+          <Route path="/container-types" element={<ContainerTypesScreen />} />
+          <Route path="/container-types/:containerTypeId" element={<ContainerTypeScreen />} />
+          <Route path="/locations/:locationId/layout" element={<LocationLayoutScreen />} />
           {/* Projects, BOMs and builds — not a scan target; reached from the tab. */}
           <Route path="/projects" element={<ProjectsScreen />} />
           <Route path="/projects/:projectId" element={<ProjectScreen />} />
