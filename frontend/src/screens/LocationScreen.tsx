@@ -1,8 +1,18 @@
 /**
- * Bin contents — what is physically in this container, and its children.
+ * `/locations/:id` — **the** page for one container. Using it, and editing it.
  *
- * `/locations/:id` is where a tapped drawer tag lands, so it is the most-visited
- * screen in the system and it answers exactly one question first: what is in here.
+ * This is where a tapped drawer tag lands, so it answers what is in here first,
+ * and it is the most-visited screen in the system. It is now also the only place a
+ * container is edited: the edit-mode toggle in the header turns the same page into
+ * its own editor, and what used to be `/locations/:id/layout` and
+ * `/containers/new?parent=:id` are panels over it (`components/ContainerEditMode`).
+ * Iliana asked for exactly that shape — "a page and an edit mode... you can
+ * customize the UI (storage) or use it normally" — and the two halves are kept
+ * visually apart rather than blended, because putting a part away and rearranging
+ * the furniture are different intentions and a mis-tap between them is expensive.
+ *
+ * Normal mode is for *using* storage: what is in here, how full it is, what is
+ * inside, take it or put it back, empty this bin into that one.
  *
  * The path shown at the top is **derived**, never read off the tag. The tag carries
  * only the opaque short ID: a drawer moves between cabinets, and any hierarchy
@@ -12,29 +22,26 @@
  * blocks anything, here or anywhere else.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { ContainerPhotoPanel } from "../components/ContainerPhotoPanel";
-import { RemoveContainer } from "../components/RemoveContainer";
+import { ContainerLayout } from "../components/ContainerLayout";
+import { ContainerEditMode, EditModeToggle, useEditMode } from "../components/ContainerEditMode";
+import { ContainerPhoto } from "../components/ContainerPhoto";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
 import {
   assignLocationShortId,
-  detachLocationDocument,
   emptyBin,
   getLocation,
   getLocationTree,
   resolveShortId,
-  setLocationGlyph,
-  uploadDocument,
-  type ContainerGlyph,
   type LocationRead,
   type LocationTree,
 } from "../lib/api/client";
 import { formatFillRatio, formatQty } from "../lib/format";
-import { ALL_GLYPHS, glyphLabel } from "../lib/locations/glyphs";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
+import { indexTree } from "../lib/locations/tree";
 import { useAsync } from "../lib/hooks/useAsync";
 import { uuid4 } from "../lib/scan/session";
 import { formatShortId, looksLikeShortId, normalizeShortId } from "../lib/shortid";
@@ -62,6 +69,7 @@ export function LocationScreen() {
 }
 
 function Bin({ location, onChanged }: { location: LocationRead; onChanged: () => void }) {
+  const { editing, setEditing } = useEditMode();
   const children = useAsync<LocationTree | null>(
     () => (location.child_count > 0 ? getLocationTree(location.id) : Promise.resolve(null)),
     [location.id, location.child_count],
@@ -69,7 +77,7 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
 
   return (
     <div className="stack">
-      <div className="card">
+      <div className={editing ? "card editing" : "card"}>
         <p className="muted-note" style={{ margin: 0 }}>
           {location.label_path}
         </p>
@@ -98,48 +106,21 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
           {location.parent_id !== null && (
             <Link to={`/locations/${location.parent_id}`}>Up one level</Link>
           )}
+          <span className="spacer" />
+          {/* The same toggle at every depth — a drawer inside a cabinet inside a
+              room is edited by the identical component, which is what keeps this
+              page honest about the tree having no named levels. */}
+          <EditModeToggle editing={editing} onChange={setEditing} />
         </div>
       </div>
 
-      <Picture location={location} onDone={onChanged} />
+      {editing && <ContainerEditMode location={location} onChanged={onChanged} />}
+
+      <Picture location={location} />
 
       <Capacity location={location} />
 
-      {/*
-        Two different jobs, so two links rather than one "manage" screen: adding
-        containers *inside* this one creates new rows from a container type
-        (`instantiate`), while editing the layout rearranges the slots this one
-        already has and goes through the change guard. Conflating them would put a
-        create button behind a guard that exists to protect existing contents.
-      */}
-      <div className="card">
-        <div className="row">
-          <p className="muted-note" style={{ flex: 1, margin: 0 }}>
-            {location.child_count === 0
-              ? "No slots laid out here yet."
-              : `${location.child_count} slot(s) laid out here.`}{" "}
-            Merging, splitting and relabelling go through the change guard: a slot that
-            still holds stock or a bound tag blocks the change rather than losing it.
-          </p>
-          <Link to={`/locations/${location.id}/layout`}>Edit layout →</Link>
-        </div>
-        <div className="row">
-          <p className="muted-note" style={{ flex: 1, margin: 0 }}>
-            Drawers, trays or bins that live in here are containers of their own — stamped
-            from a container type, each with its own copy of that type's layout.
-          </p>
-          <Link to={`/containers/new?parent=${location.id}`}>Add containers inside →</Link>
-        </div>
-      </div>
-
       <PrintedId location={location} onDone={onChanged} />
-
-      {/* TEMPORARY HOST. This affordance belongs in the storage screen's edit
-          mode, which is being built alongside it — `RemoveContainer` needs only a
-          `LocationRead` and a reload callback, so moving it there is one line and
-          this block deletes cleanly. It is here rather than nowhere because
-          "there is no way to remove a container" is the bug being fixed. */}
-      <RemoveContainer location={location} onChanged={onChanged} />
 
       <div className="card">
         <div className="row">
@@ -175,132 +156,76 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
 
       {location.lots.length > 0 && <EmptyInto location={location} onDone={onChanged} />}
 
-      {location.child_count > 0 && (
-        <div className="card">
-          <div className="row">
-            <h3 style={{ margin: 0 }}>Inside ({location.child_count})</h3>
-            <span className="spacer" />
-            {/* The spatial view of the same children, laid out from their slot
-                labels rather than listed. */}
-            <Link to={`/tree?at=${location.id}`}>See the layout →</Link>
-          </div>
-          {children.data === null ? (
-            <Loading what="the children" />
-          ) : (
-            <ul className="list">
-              {children.data.nodes
-                .filter((node) => node.parent_id === location.id)
-                .map((node) => (
-                  <li key={node.id}>
-                    <Link className="list-item" to={`/locations/${node.id}`}>
-                      <div className="row">
-                        <span className="title">{node.name}</span>
-                        <span className="spacer" />
-                        {node.slot_label !== null && (
-                          <span className="badge mono">{node.slot_label}</span>
-                        )}
-                        {node.is_overfull && <span className="badge badge-warn">over</span>}
-                      </div>
-                      <div className="sub">
-                        {node.lot_count} lot(s) · {formatQty(node.qty_milli)} ·{" "}
-                        {/* Null fill is "no capacity model", which is not the same
-                            claim as "empty" and must not read like it. */}
-                        {node.fill_ratio === null
-                          ? "fill not measured"
-                          : `${formatFillRatio(node.fill_ratio)} full`}
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </div>
+      <Inside location={location} tree={children.data} />
+    </div>
+  );
+}
+
+/**
+ * What is inside, drawn as the thing it is.
+ *
+ * The same `ContainerLayout` the map uses, asked about **this** container's id —
+ * so a cabinet's page shows drawer fronts and a room's page shows a floor plan,
+ * for the same reason and through the same call (ADR 0006). Nothing here knows
+ * which of those it is holding.
+ */
+function Inside({ location, tree }: { location: LocationRead; tree: LocationTree | null }) {
+  const index = useMemo(() => (tree === null ? null : indexTree(tree.nodes)), [tree]);
+
+  if (location.child_count === 0) {
+    return (
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Inside</h3>
+        <p className="dim">
+          Nothing is laid out in here yet. Edit this container to add drawers, trays or bins — or to
+          stamp a set of them out of a container type.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>Inside ({location.child_count})</h3>
+        <span className="spacer" />
+        <Link to={`/tree?at=${location.id}`}>See it in the whole tree →</Link>
+      </div>
+      {index === null ? (
+        <Loading what="what is inside" />
+      ) : (
+        <ContainerLayout
+          index={index}
+          parentId={location.id}
+          drillTo={(node) => `/locations/${node.id}`}
+        />
       )}
     </div>
   );
 }
 
 /**
- * "What does this container look like" — a real photo (own, falling back to
- * the container type's) and, separately, the pictogram used everywhere else:
- * the dense tree map. See `ContainerPhoto`'s docstring for why the two are
- * different components with different costs, and `ContainerPhotoPanel`'s for
- * why the upload/remove mechanics live there rather than being duplicated
- * between this screen and `ContainerTypeScreen`.
+ * "What does this container look like" — the real photo (its own, falling back to
+ * the container type's) and the fill state beside it. Read-only here: changing it
+ * is an edit, and every edit lives in edit mode.
  */
-function Picture({ location, onDone }: { location: LocationRead; onDone: () => void }) {
-  const [glyph, setGlyph] = useState(location.glyph ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-
-  async function saveGlyph(next: string): Promise<void> {
-    setBusy(true);
-    setError(null);
-    try {
-      await setLocationGlyph(location.id, {
-        glyph: next === "" ? null : (next as ContainerGlyph),
-        client_op_id: uuid4(),
-      });
-      setGlyph(next);
-      onDone();
-    } catch (cause) {
-      setError(cause);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function uploadPhoto(file: File): Promise<void> {
-    await uploadDocument(file, {
-      mediaType: file.type !== "" ? file.type : "image/jpeg",
-      kind: "photo",
-      role: "photo",
-      locationId: location.id,
-      isPrimary: true,
-    });
-    onDone();
-  }
-
-  async function removePhoto(): Promise<void> {
-    if (location.photo === null) {
-      return;
-    }
-    await detachLocationDocument(location.id, location.photo.sha256);
-    onDone();
-  }
-
+function Picture({ location }: { location: LocationRead }) {
   return (
     <div className="card">
-      <h3>Picture</h3>
-      <ContainerPhotoPanel
-        displayPhoto={location.effective_photo}
-        ownPhoto={location.photo}
-        glyph={location.effective_glyph}
-        note={
-          location.photo === null && location.effective_photo !== null
-            ? "Inherited from the container type's photo. Uploading one here " +
-              "overrides it just for this one container."
-            : null
-        }
-        onUpload={uploadPhoto}
-        onRemoveOwn={location.photo === null ? null : removePhoto}
-      />
-      <label className="field">
-        <span>Pictogram in the map view</span>
-        <select value={glyph} disabled={busy} onChange={(event) => void saveGlyph(event.target.value)}>
-          <option value="">
-            {location.effective_glyph === null
-              ? "None chosen"
-              : `Use the container type's — currently ${glyphLabel(location.effective_glyph) ?? "none"}`}
-          </option>
-          {ALL_GLYPHS.map((value) => (
-            <option key={value} value={value}>
-              {glyphLabel(value)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <ErrorBanner error={error} fallback="That could not be saved." />
+      <div className="row">
+        <ContainerPhoto
+          photo={location.effective_photo}
+          glyph={location.effective_glyph}
+          alt=""
+          size="card"
+        />
+        {location.photo === null && location.effective_photo !== null && (
+          <p className="muted-note" style={{ flex: 1, margin: 0 }}>
+            This picture comes from the container type. Edit this container to give it one of its
+            own.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -331,13 +256,6 @@ function Capacity({ location }: { location: LocationRead }) {
 }
 
 /**
- * "Empty this bin into that one" — workflow 4, from the bin's own screen.
- *
- * One lot failing validation commits the rest and reports just that failure, which
- * is what the endpoint does and what this renders. The destination is given by short
- * ID, because that is what is printed on the other drawer.
- */
-/**
  * The container's printed identity: mint one, or adopt one already printed.
  *
  * A generated grid cell starts with no printed id — nobody sticks 96 labels on an
@@ -356,6 +274,10 @@ function Capacity({ location }: { location: LocationRead }) {
  * Relabelling is offered even when there is already an id, because it is
  * non-destructive: the old code stays resolvable, so the label still stuck to the
  * drawer and the one in your hand both keep working.
+ *
+ * Deliberately **not** behind edit mode: this is what makes a drawer scannable,
+ * which is a using-storage act — you assign one because you are standing at the
+ * printer, not because you are rearranging the furniture.
  *
  * The 409 is worth its own branch. `held_by` names the drawer that holds the code
  * — "already bound to Cabinet A / Drawer B2" tells you which drawer to walk to,
@@ -462,6 +384,13 @@ function PrintedId({ location, onDone }: { location: LocationRead; onDone: () =>
   );
 }
 
+/**
+ * "Empty this bin into that one" — workflow 4, from the bin's own screen.
+ *
+ * One lot failing validation commits the rest and reports just that failure, which
+ * is what the endpoint does and what this renders. The destination is given by short
+ * ID, because that is what is printed on the other drawer.
+ */
 function EmptyInto({ location, onDone }: { location: LocationRead; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
