@@ -37,6 +37,28 @@ def _alembic_config(database_url: str) -> Config:
     return cfg
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip `live`-marked tests unless `-m live` asked for them.
+
+    `pyproject.toml` registers the marker as "skipped unless `-m live` is
+    passed", and `make test` runs a bare `pytest` — so until this hook existed
+    that sentence was a comment rather than a behaviour, and the first
+    network-touching test added would have run in CI and failed there.
+
+    **Skipped, not deselected.** A deselected test is invisible: it does not
+    appear in the summary, and a live contract test that silently stops being
+    collected is one nobody notices the loss of. A skip line in the output is
+    the reminder that an unexercised contract exists, and it is also what lets a
+    test assert the arrangement is still in place.
+    """
+    if "live" in str(config.getoption("markexpr", default="") or ""):
+        return
+    skip_live = pytest.mark.skip(reason="network test: run with `-m live` (make test-live)")
+    for item in items:
+        if "live" in item.keywords:
+            item.add_marker(skip_live)
+
+
 @pytest.fixture
 def database_url(tmp_path: Path) -> str:
     return f"sqlite+pysqlite:///{tmp_path / 'almagest-test.db'}"

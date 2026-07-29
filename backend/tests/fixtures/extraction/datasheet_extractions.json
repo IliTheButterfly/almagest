@@ -1,0 +1,95 @@
+{
+  "_provenance": "HAND-AUTHORED, NOT YET RECORDED. This file has the exact shape of a structured-output response against schema_for(), and every field in it was written by hand — there is no model or network in CI, and none was available when the interface was built. Replace it with a genuine recording the first time the live contract test runs against a real provider (tests/integration/test_cross_check.py::test_live_extraction_matches_the_recorded_contract), and do not add a variant here to make a new test pass without checking that a real model would actually emit it. A fixture that drifts from reality makes every test above it a test of this file.",
+  "provider": "fake",
+  "model": "hand-authored-fixture",
+  "responses": {
+    "sha256:3f1c9a2b7d4e6058c1a9f3b2d84e70615c2d9a8b4f6071e3d5c8a2b9f0e17364": {
+      "variants": [
+        {
+          "mpn": "GRM188R71H104KA93D",
+          "mpn_source_text": "GRM188R71H104KA93D | 0.10 | X7R | 50 | 0603 (1608M)",
+          "fields": [
+            {
+              "template_name": "capacitance",
+              "raw_value": "0.10 uF",
+              "confidence": 0.62,
+              "source_text": "GRM188R71H104KA93D | 0.10 | X7R | 50 | 0603 (1608M)",
+              "page": 4
+            },
+            {
+              "template_name": "voltage_rating",
+              "raw_value": "50 V",
+              "confidence": 0.91,
+              "source_text": "Rated voltage 50 Vdc (all X7R 0603 types in this table)",
+              "page": 4
+            },
+            {
+              "template_name": "dielectric",
+              "raw_value": "X7R",
+              "confidence": 0.88,
+              "source_text": "Temperature characteristic: X7R (EIA), -55 to +125 degC",
+              "page": 2
+            }
+          ]
+        },
+        {
+          "mpn": "GRM188R61A475KE15D",
+          "mpn_source_text": "GRM188R61A475KE15D | 4.7 | X5R | 10 | 0603 (1608M)",
+          "fields": [
+            {
+              "template_name": "capacitance",
+              "raw_value": "10 uF",
+              "confidence": 0.94,
+              "source_text": "GRM188R61A106ME15D | 10 | X5R | 10 | 0603 (1608M)",
+              "page": 5
+            },
+            {
+              "template_name": "voltage_rating",
+              "raw_value": "10 V",
+              "confidence": 0.9,
+              "source_text": "GRM188R61A475KE15D | 4.7 | X5R | 10 | 0603 (1608M)",
+              "page": 5
+            }
+          ]
+        },
+        {
+          "mpn": "GRM188R71H224KA12D",
+          "mpn_source_text": "GRM188R71H224KA12D | 0.22 | X7R | 50 | 0603 (1608M)",
+          "fields": [
+            {
+              "template_name": "capacitance",
+              "raw_value": "0.22 uF",
+              "confidence": 0.93,
+              "source_text": "GRM188R71H224KA12D | 0.22 | X7R | 50 | 0603 (1608M)",
+              "page": 4
+            }
+          ]
+        }
+      ]
+    },
+    "sha256:a71d4e0c93b28f6157d0e4a2b9c8371f5e6a0d2c4b8917e3f05a6c1d92b4837e": {
+      "variants": [
+        {
+          "mpn": "TPS62840DLCR",
+          "mpn_source_text": "TPS62840DLCR ACTIVE SOT-563 (DLC) 6 750-mA step-down converter",
+          "fields": [
+            {
+              "template_name": "voltage_rating",
+              "raw_value": "6.5 V",
+              "confidence": 0.86,
+              "source_text": "VIN Input voltage range 1.8 6.5 V (Recommended Operating Conditions)",
+              "page": 6
+            },
+            {
+              "template_name": "current_rating",
+              "raw_value": "750 mA",
+              "confidence": 0.7,
+              "source_text": "750-mA output current (typical, see Figure 8-3)",
+              "page": 1
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

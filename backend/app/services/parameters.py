@@ -27,6 +27,24 @@ class ChoiceNotFound(ValueError):
     """No `parameter_choice` matches the given key or alias."""
 
 
+class UnboundedValue(ValueError):
+    """Refused: the parsed value has only one bound, so it cannot be stored.
+
+    A one-sided limit — `>=50V`, `<100nF` — is a perfectly good *query* and the
+    grammar parses it deliberately, but it is not a value a part *has*. Stored,
+    it leaves `value_min` or `value_max` NULL, and because search is
+    `value_min <= hi AND value_max >= lo` the row then matches **no** range
+    query at all: a part accepted as `>=50V` disappears from a search for
+    40–100 V while still looking, in every listing, like a part with a voltage
+    rating.
+
+    Refusing here rather than at each caller is the point of this module. The
+    check is written against the interval, not against `ParsedValue.kind`, so a
+    future grammar addition that yields a half-open interval is refused the day
+    it lands instead of the day someone notices a part missing from a search.
+    """
+
+
 class LowerPrecedence(ValueError):
     """Refused: an existing value came from a more trusted source.
 
@@ -45,11 +63,27 @@ def set_numeric(
     provenance: Provenance = Provenance.MANUAL,
     confidence: float | None = None,
 ) -> ParameterValue:
-    """Parse and store a numeric parameter. Raises `ValueParseError` on bad input."""
+    """Parse and store a numeric parameter.
+
+    Raises `ValueParseError` on bad input and `UnboundedValue` when the input
+    parses to a one-sided limit, which is the invariant this module exists for:
+    both bounds populated, or no row at all.
+    """
     parsed = parse_for_template(raw_input, template)
-    row = _existing_or_new(session, part, template, provenance)
 
     low, high = parsed.to_interval()
+    if low is None or high is None:
+        # Checked before `_existing_or_new`, so a refusal never leaves a blank
+        # `ParameterValue` pending in the session for the caller's next flush to
+        # write out.
+        missing = "lower" if low is None else "upper"
+        raise UnboundedValue(
+            f"{raw_input!r} is a one-sided limit, so it has no {missing} bound to store for "
+            f"{template.name}; parametric search is an interval-overlap test and a null-bounded "
+            "row matches no range query at all. Give a value or a range."
+        )
+
+    row = _existing_or_new(session, part, template, provenance)
 
     row.raw_input = raw_input
     row.value_nominal = parsed.value_nominal
