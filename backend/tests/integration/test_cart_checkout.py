@@ -354,6 +354,58 @@ def test_two_lines_sharing_one_line_key_is_the_second_line_s_failure(
     assert _ledger_count() == 1
 
 
+def test_a_key_another_route_already_used_refuses_only_its_own_line(
+    client: TestClient, db: Session
+) -> None:
+    """`stock_ledger.client_op_id` is UNIQUE across every route.
+
+    The station mints a key per container and the intake queue one per scan, so a
+    cart line can arrive carrying a key some other route already recorded. What
+    must not happen is the insert being left to fail: the `IntegrityError` would
+    poison the session and take the lines that did apply down with it, which is the
+    one failure mode this batch exists to prevent. So the assertion that matters is
+    the *second* line, not the refusal's wording.
+    """
+    bin_a = make_location(db, "Bin A")
+    resistor = make_part(db, "10k")
+    capacitor = make_part(db, "100n")
+    elsewhere = make_lot(db, resistor, bin_a, qty_milli=10_000)
+    fine = make_lot(db, capacitor, bin_a, qty_milli=10_000)
+    db.commit()
+
+    spent = _key()
+    client.post(
+        f"/api/stock/lots/{elsewhere.id}/consume",
+        json={"qty_milli": 1_000, "client_op_id": spent},
+    ).raise_for_status()
+
+    body = client.post(
+        "/api/stock/movements",
+        json={
+            "location_id": bin_a.id,
+            "lines": [
+                {
+                    "lot_id": elsewhere.id,
+                    "direction": "take",
+                    "qty_milli": 2_000,
+                    "client_op_id": spent,
+                },
+                {"lot_id": fine.id, "direction": "take", "qty_milli": 3_000},
+            ],
+        },
+    ).json()
+
+    # `replay_line` recognises the key as belonging to another endpoint and gets
+    # there before the ledger's own UNIQUE constraint could.
+    assert body["results"][0]["applied"] is False
+    assert body["results"][0]["reason"] in {"request_mismatch", "duplicate_client_op_id"}
+    # The point of the guard: the good line still applied.
+    assert body["results"][1]["applied"] is True
+    assert _balance(elsewhere.id) == 9_000
+    assert _balance(fine.id) == 7_000
+    assert _ledger_count() == 2
+
+
 def test_a_cart_checkout_is_one_group_so_one_undo_reverses_it(
     client: TestClient, db: Session
 ) -> None:
@@ -586,8 +638,14 @@ def test_one_refused_hold_does_not_lose_the_others(client: TestClient, db: Sessi
 def test_two_lines_of_one_cart_compete_for_the_same_lot_in_order(
     client: TestClient, db: Session
 ) -> None:
-    """Applied in order, each in its own SAVEPOINT, so the second sees what the
-    first left — exactly as two separate requests would."""
+    """Applied in order, so the second sees what the first left — exactly as two
+    separate requests would.
+
+    No SAVEPOINT is involved, deliberately: `reserve` decides every refusal before
+    it mutates anything, and under pysqlite releasing the outermost SAVEPOINT
+    commits, which would split the enclosing `run`'s single transaction rather than
+    protect it.
+    """
     project = make_project(db)
     build = make_build(db, project)
     resistor = make_part(db, "10k")
@@ -729,6 +787,59 @@ def test_bom_without_partial_still_refuses_the_whole_batch(client: TestClient, d
 
     assert response.status_code == 422
     assert response.json()["detail"]["reason"] == "unknown_part"
+    assert client.get(f"/api/projects/{project.id}/bom").json()["total"] == 0
+
+
+def test_a_reused_edit_key_is_a_409_when_the_caller_did_not_ask_for_partial(
+    client: TestClient, db: Session
+) -> None:
+    """The other half of `_bom_line_refusal`: without `partial`, a per-line refusal
+    is the whole request's refusal. A duplicated key inside one batch is the case
+    that has nothing to do with state, so it is the one worth pinning here."""
+    project = make_project(db)
+    db.commit()
+
+    shared = _key()
+    response = client.put(
+        f"/api/projects/{project.id}/bom",
+        json={
+            "edits": [
+                {"qty_per_assembly_milli": 2_000, "client_op_id": shared},
+                {"qty_per_assembly_milli": 5_000, "client_op_id": shared},
+            ]
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["reason"] == "duplicate_client_op_id"
+    assert client.get(f"/api/projects/{project.id}/bom").json()["total"] == 0
+
+
+def test_resubmitting_a_deletion_reports_the_line_as_deleted_again(
+    client: TestClient, db: Session
+) -> None:
+    """A replayed *delete* has to reconstruct the deletion it reports.
+
+    The row is already gone, so nothing is re-deleted — but the response must
+    still name it in `deleted_ids`, or a client that lost the first response is
+    told the line both was and was not removed and has no way to reconcile its
+    own list.
+    """
+    project = make_project(db)
+    line = make_bom_line(db, project, qty_per_assembly_milli=1_000)
+    db.commit()
+
+    body = {"partial": True, "edits": [{"id": line.id, "delete": True, "client_op_id": _key()}]}
+    first = client.put(f"/api/projects/{project.id}/bom", json=body).json()
+    assert first["deleted_ids"] == [line.id]
+
+    second = client.put(f"/api/projects/{project.id}/bom", json=body).json()
+
+    assert second["results"][0]["applied"] is True
+    assert second["results"][0]["replayed"] is True
+    assert second["results"][0]["deleted"] is True
+    assert second["deleted_ids"] == [line.id]
+    assert second["lines"] == []
     assert client.get(f"/api/projects/{project.id}/bom").json()["total"] == 0
 
 

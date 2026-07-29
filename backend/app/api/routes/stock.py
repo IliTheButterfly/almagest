@@ -735,9 +735,13 @@ def _apply_movement_line(
     if line.client_op_id is not None and _ledger_holds_key(db, line.client_op_id):
         # `stock_ledger.client_op_id` is UNIQUE, and some *other* route may have
         # written this key — the station mints one per container, the intake queue
-        # one per scan. Checked rather than left to the insert, because the
-        # `IntegrityError` would poison the session and lose the lines that did
-        # apply along with it.
+        # one per scan. In practice `replay_line` above gets there first and calls
+        # it a `request_mismatch`, because every route that writes a keyed ledger
+        # row records a `client_operations` row under the same key and a different
+        # endpoint; this is the net under that, for a ledger row whose operation
+        # record is missing. Checked rather than left to the insert either way,
+        # because the `IntegrityError` would poison the session and lose the lines
+        # that did apply along with it.
         return refused(
             "duplicate_client_op_id",
             f"client_op_id {line.client_op_id} has already recorded a movement",

@@ -8,8 +8,20 @@
  * succeeds silently and the user is left with a line they did not ask for and no
  * search results.
  *
- * Both halves are asserted, because either alone can pass while the bug is
- * present: that a search happened, and that nothing was written.
+ * Asserting "no PUT was issued" is **not** what pins that, though it reads like
+ * it: jsdom does not implement implicit form submission, so a synthetic `keyDown`
+ * never produces a `submit` and that expectation passes whether the handler exists
+ * or not. It is kept as a guard against some *other* path writing, and the real
+ * assertions are that a search fired and that the keypress came back **cancelled**
+ * — `preventDefault` being what suppresses a real browser's implicit submit.
+ *
+ * `stopPropagation` cannot be observed here at all: React delegates listeners at
+ * the root container, so the native event reaches the enclosing form either way
+ * and only a real browser's submit would tell them apart. It is belt-and-braces in
+ * the handler, and this file does not pretend to cover it.
+ *
+ * The deliberate "Add line" click is asserted separately, because a fix that broke
+ * it would only move the complaint.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -138,13 +150,19 @@ describe("Enter in the part picker", () => {
 
   it("searches instead of adding the line", async () => {
     const field = await openPickerInTheAddForm();
+    // The picker really is inside the form whose submit handler wrote the line —
+    // the arrangement the bug depended on, so if it is ever restructured this test
+    // should be re-read rather than trusted.
+    expect(field.closest("form")).not.toBeNull();
 
     fireEvent.change(field, { target: { value: "10k 0603" } });
-    fireEvent.keyDown(field, { key: "Enter", code: "Enter" });
+    // `fireEvent` returns false when the event was cancelled — which is what
+    // `preventDefault` does, and what suppresses a real browser's implicit submit.
+    const notCancelled = fireEvent.keyDown(field, { key: "Enter", code: "Enter" });
 
     await waitFor(() => expect(searches()).toHaveLength(1));
     expect(searches()[0]?.body["text"]).toBe("10k 0603");
-    // The line that used to appear out of nowhere.
+    expect(notCancelled).toBe(false);
     expect(writes()).toHaveLength(0);
     // …and the results are on screen, which is what the keypress was for.
     expect(await screen.findByText("10k 0603 resistor")).toBeTruthy();
