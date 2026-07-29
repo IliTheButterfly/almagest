@@ -27,22 +27,23 @@
  * row that caused it.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { CategoryRail } from "../components/CategoryRail";
 import { FacetPanel } from "../components/FacetPanel";
 import { ErrorBanner, Loading } from "../components/Feedback";
+import { PartResultRow } from "../components/PartResultRow";
 import {
   getParameterFacets,
   listPartCategories,
   searchParts,
   type CategoryNode,
   type FacetsResponse,
+  type PartSummary,
   type SearchResponse,
 } from "../lib/api/client";
 import { describeError } from "../lib/api/errors";
-import { formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { useDeferredCommit } from "../lib/hooks/useDeferredCommit";
 import { useMediaQuery } from "../lib/hooks/useMediaQuery";
@@ -64,7 +65,20 @@ const COMMIT_DELAY_MS = 300;
 /** The same breakpoint `.search-layout` uses for its two-column grid. */
 const WIDE = "(min-width: 52rem)";
 
-export function SearchScreen() {
+export interface SearchScreenProps {
+  /**
+   * An extra control per result row — how the cart is fed (ADR 0007).
+   *
+   * A prop rather than a second screen, and rendered *beside* the row's link
+   * rather than inside it, because a `<button>` nested in an `<a>` is invalid and
+   * would need its click cancelling to work at all. Omitted, this screen renders
+   * exactly what it always did: the plain `/search` route is unchanged, and the
+   * shopping view is this same component with one argument.
+   */
+  readonly rowAction?: ((part: PartSummary) => ReactNode) | undefined;
+}
+
+export function SearchScreen({ rowAction }: SearchScreenProps = {}) {
   const [params, setParams] = useSearchParams();
   const urlKey = params.toString();
   const wide = useMediaQuery(WIDE);
@@ -182,6 +196,7 @@ export function SearchScreen() {
             state={applied}
             results={results.data}
             loading={results.loading}
+            rowAction={rowAction}
             onPage={(page) => change(withPage(applied, page), true)}
           />
         </div>
@@ -245,46 +260,17 @@ function Options({
   );
 }
 
-/**
- * How much of this part you have, and how it is packaged.
- *
- * The list is ordered stock-first, so without this the ordering looks arbitrary
- * — the quantity is the one number that explains the sort. `0` is stated rather
- * than left blank: "you have none of this" is most of what a personal inventory
- * is asked, and a blank cell reads as "unknown" instead.
- *
- * Lots and bins are shown only when there is more than one, because "500 in 2
- * lots across 2 bins" is a genuinely different physical situation from "500 on a
- * reel" — and repeating "1 lot, 1 bin" on every row would bury the cases where
- * it matters.
- */
-function StockLine({ part }: { part: SearchResponse["results"][number] }) {
-  if (part.qty_milli === 0) {
-    return <span className="badge">none in stock</span>;
-  }
-
-  const detail = [
-    part.lot_count > 1 ? `${part.lot_count} lots` : null,
-    part.location_count > 1 ? `${part.location_count} bins` : null,
-  ].filter((piece) => piece !== null);
-
-  return (
-    <span className="badge badge-good">
-      {formatQty(part.qty_milli)} in stock
-      {detail.length > 0 && ` · ${detail.join(", ")}`}
-    </span>
-  );
-}
-
 function Results({
   state,
   results,
   loading,
+  rowAction,
   onPage,
 }: {
   state: SearchState;
   results: SearchResponse | null;
   loading: boolean;
+  rowAction?: ((part: PartSummary) => ReactNode) | undefined;
   onPage: (page: number) => void;
 }) {
   if (results === null) {
@@ -310,20 +296,30 @@ function Results({
       </div>
 
       <ul className="list">
-        {results.results.map((part) => (
-          <li key={part.id}>
-            <Link className="list-item" to={`/parts/${part.id}`}>
-              <div className="title">{part.name}</div>
-              <div className="sub">
-                {part.mpn !== null && <span className="mono">{part.mpn}</span>}
-                {part.mpn !== null && part.description !== null && " · "}
-                {part.description}
+        {results.results.map((part) =>
+          rowAction === undefined ? (
+            <li key={part.id}>
+              <Link className="list-item" to={`/parts/${part.id}`}>
+                <PartResultRow part={part} />
+              </Link>
+            </li>
+          ) : (
+            /* With an action the row stops being one anchor: the link keeps the
+               left cell so the part is still one tap from its own screen, and the
+               action sits outside it. */
+            <li key={part.id} className="list-item">
+              <div className="row">
+                <Link
+                  to={`/parts/${part.id}`}
+                  style={{ flex: 1, minWidth: 0, textDecoration: "none" }}
+                >
+                  <PartResultRow part={part} />
+                </Link>
+                {rowAction(part)}
               </div>
-              {part.is_stub && <span className="badge badge-warn">stub</span>}
-              <StockLine part={part} />
-            </Link>
-          </li>
-        ))}
+            </li>
+          ),
+        )}
       </ul>
 
       {(state.page > 1 || hasMore) && (
