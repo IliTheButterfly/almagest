@@ -272,8 +272,11 @@ Both rules are imported from `idcodec.tagpayload` (`parse_ndef_url`,
 is invisible to the `location_tags` binding it should match while looking
 perfectly correct in the event payload.
 
-`idcodec` is the same code the API runs — it re-exports these two through
-`app.services.provisioning` — and it declares no dependencies at all, so sharing
+`idcodec` is the same code the API runs — `app.services.provisioning` re-exports
+`parse_ndef_url` verbatim and wraps `normalize_tag_uid` only to translate its
+`InvalidTagUid` into the `ProvisioningError` four routes turn into a 422, so the
+folding rule is the same one this process runs — and it declares no dependencies
+at all, so sharing
 them costs this process nothing. It used to: the agent depended on
 `almagest-backend` for exactly these functions and got fastapi, sqlalchemy,
 alembic and pint onto the Pi along with them. `almagest-backend` is now a

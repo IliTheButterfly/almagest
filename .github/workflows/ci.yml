@@ -14,10 +14,13 @@ permissions:
 
 jobs:
   # First, and its own job, because it is the one component whose defining
-  # property is what it does *not* install. Running it in a venv that also holds
-  # the backend would make `tests/test_stdlib_only.py` pass for the wrong reason
-  # — the subprocess it spawns would find sqlalchemy importable. Its own venv is
-  # the environment the assertion is actually about, and it installs in seconds.
+  # property is what it does *not* install. `tests/test_stdlib_only.py` would
+  # still fail in a venv that also holds the backend — it diffs `sys.modules`
+  # against `sys.stdlib_module_names` rather than asking whether sqlalchemy is
+  # importable — but a venv holding nothing else is the environment the assertion
+  # is actually *about*: it is what the Pi has, and a failure here is then a
+  # `ModuleNotFoundError` naming the offending import rather than a diff to read.
+  # It installs in seconds either way.
   idcodec:
     name: idcodec
     runs-on: ubuntu-latest

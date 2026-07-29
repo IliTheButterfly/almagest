@@ -9,8 +9,10 @@ a second copy that skipped it would forward a mis-read short id as fact.
 
 `idcodec` is the same code the API runs, and it is standard-library-only, so
 sharing it costs this process nothing: importing it does not put FastAPI or
-SQLAlchemy on the Pi. The API reaches the identical functions through
-`app.services.provisioning`, which re-exports them.
+SQLAlchemy on the Pi. The API reaches the same two through
+`app.services.provisioning`, which re-exports `parse_ndef_url` verbatim and wraps
+`normalize_tag_uid` only to turn its `InvalidTagUid` into the `ProvisioningError`
+its routes answer with — the folding rule either side applies is this one.
 
 **Why the agent parses at all, given the backend already has
 `POST /api/location-tags/resolve`.** Two reasons, both narrow:

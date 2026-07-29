@@ -13,7 +13,7 @@ name each repo after the instrument it actually is.
 
 | Name | Repo | What it is |
 |---|---|---|
-| **Almagest** | `almagest` (master) | The web platform: `backend/`, `frontend/`, `deviceagent/`, the SQLite database, deployment manifests, docs |
+| **Almagest** | `almagest` (master) | The web platform: `backend/`, `frontend/`, `deviceagent/`, `idcodec/`, the SQLite database, deployment manifests, docs |
 | **Mensa** | `mensa` (submodule) | ESP-IDF firmware for the bench station — NAU7802 scale, WS2812B, USB-serial line protocol |
 | **Circinus** | `circinus` (submodule) | OpenSCAD/CAD — Gridfinity trays, label cards, station plinth/gantry/platform |
 | — | `ecia-barcode` (submodule) | MH10.8.2 / EIGP-114 barcode parser. **Descriptive on purpose** |

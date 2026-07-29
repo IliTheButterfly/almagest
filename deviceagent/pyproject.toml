@@ -25,7 +25,10 @@ dependencies = [
     # never imports — on a Pi 4 running kiosk Chromium. `almagest-idcodec`
     # declares no dependencies at all and `idcodec/tests/test_stdlib_only.py`
     # keeps it that way, so the guarantee now costs nothing. The API reaches the
-    # identical functions by re-exporting them from `app.services.provisioning`.
+    # same two through `app.services.provisioning`, which re-exports
+    # `parse_ndef_url` verbatim and wraps `normalize_tag_uid` only to translate
+    # its `InvalidTagUid` into the `ProvisioningError` its routes answer with, so
+    # the rule being applied is this same one.
     "almagest-idcodec",
 ]
 
