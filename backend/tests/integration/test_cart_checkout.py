@@ -497,9 +497,7 @@ def test_a_return_naming_a_part_goes_back_into_the_lot_it_came_out_of(
 
     lots = _session()
     try:
-        held = list(
-            lots.execute(select(StockLot).where(StockLot.part_id == resistor.id)).scalars()
-        )
+        held = list(lots.execute(select(StockLot).where(StockLot.part_id == resistor.id)).scalars())
         assert [lot.id for lot in held] == [reel.id]
     finally:
         lots.close()
