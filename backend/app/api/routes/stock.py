@@ -19,12 +19,15 @@ path, which is exactly the thing the module docstring there forbids.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
+from app.api.batch import LineRefused
 from app.api.limits import CountMilli, DeltaMilli, MassMg, MoneyMicro, QtyMilli, RowId
 from app.api.schemas import LotRead, ReplayableResponse, lot_read
 from app.db.session import get_db
@@ -130,6 +133,108 @@ class LotFailure(BaseModel):
     lot_id: RowId
     reason: str
     message: str
+
+
+class MovementDirection(StrEnum):
+    """Which way one cart line moves stock.
+
+    Two values, not four: a cart checkout to plain stock is ADR 0007's "pick a
+    container, scan it and say how many parts you took or put back", and
+    `adjust`/`recount` are corrections rather than things you did with your
+    hands. Those stay one-at-a-time on their own routes, where the single lot in
+    front of you is the whole subject of the request.
+    """
+
+    TAKE = "take"
+    RETURN = "return"
+
+
+class MovementLine(BaseModel):
+    """One line of a batch movement.
+
+    Names its stock **either** by `lot_id` — what a cart captured when the part
+    was added — **or** by `part_id` inside `location_id`, which is what a client
+    has when the user picked a container and then chose parts from search. The
+    first is exact and can go stale; the second is resolved against the container
+    now, so it cannot.
+    """
+
+    #: Echoed back verbatim on this line's result. The cart's own row id, so a
+    #: client marks the row that failed rather than counting positions — see
+    #: `MovementLineResult.index` for why both exist.
+    client_line_id: str | None = Field(default=None, max_length=64)
+    lot_id: RowId | None = None
+    #: Resolved inside `location_id`, which must then be given. For a `return`
+    #: with no matching lot in that container, one is created — putting parts
+    #: back into a bin that has none of them yet is an ordinary thing to do. A
+    #: `take` refuses instead: there is nothing there to take.
+    part_id: RowId | None = None
+    direction: MovementDirection
+    qty_milli: QtyMilli
+    #: This line's own idempotency key. Separate from the batch's, because a
+    #: batch fails per line and so a retry of it is partial — see
+    #: `app.api.idempotency.replay_line`.
+    client_op_id: str | None = Field(default=None, max_length=36)
+    note: str | None = None
+
+    @model_validator(mode="after")
+    def _names_exactly_one_thing(self) -> MovementLine:
+        if (self.lot_id is None) == (self.part_id is None):
+            raise ValueError("give exactly one of lot_id or part_id")
+        return self
+
+
+class BatchMovementRequest(MovementRequest):
+    """A cart's worth of takes and returns, in one request (ADR 0007).
+
+    The bound is the cart's: five hundred lines is already past what anybody
+    gathers by hand, and it keeps the stored idempotency response a sane size.
+    """
+
+    #: The container the user scanned. Required to resolve a `part_id` line, and
+    #: **asserted** against a `lot_id` line: a cart holding a lot that has since
+    #: been moved to another bin fails that line rather than quietly taking stock
+    #: from wherever it went. That is the staleness ADR 0007 says must fail the
+    #: line and not the batch.
+    location_id: RowId | None = None
+    lines: list[MovementLine] = Field(min_length=1, max_length=500)
+
+
+class MovementLineResult(ReplayableResponse):
+    """What became of one line.
+
+    Carries `index` **and** `client_line_id` because they answer different
+    questions: the index is always present and unambiguous, and the client line
+    id is what a cart row is keyed by locally. A client that only had the index
+    would have to trust that it did not reorder the cart between building the
+    request and rendering the answer.
+    """
+
+    index: int
+    client_line_id: str | None
+    applied: bool
+    #: Machine-readable, and null exactly when `applied`. Same vocabulary as
+    #: `LedgerError.reason` and `LotFailure.reason`, extended with the resolution
+    #: failures a batch can have and a single-lot route cannot.
+    reason: str | None = None
+    message: str | None = None
+    lot_id: int | None = None
+    seq: int | None = None
+    #: The lot's balance after this line, read from `qty_milli_cached` — the
+    #: number every screen reads. A whole `LotRead` per line would make a
+    #: five-hundred-line stored response enormous for data the client refetches
+    #: anyway.
+    qty_milli_after: int | None = None
+
+
+class BatchMovementResponse(ReplayableResponse):
+    applied_count: int
+    failed_count: int
+    #: Shared by every row this checkout wrote, so `POST /api/stock/undo` with
+    #: `group_uuid_to_undo` reverses the whole cart in one tap. Present even when
+    #: nothing applied, so a client can record it without branching.
+    group_uuid: str
+    results: list[MovementLineResult]
 
 
 class UndoRequest(MovementRequest):
@@ -494,6 +599,268 @@ def empty_bin(
         response_model=EmptyBinResponse,
         work=work,
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch movements — the cart's plain-stock checkout (ADR 0007)
+# ---------------------------------------------------------------------------
+
+#: The endpoint name a *line's* idempotency record is filed under. Distinct from
+#: the batch's `stock.movements`, so reusing a line key as a batch key (or the
+#: reverse) is caught as `request_mismatch` rather than replaying the wrong
+#: shape.
+_MOVEMENT_LINE_ENDPOINT = "stock.movement_line"
+
+
+def _movement_line_endpoint(location_id: int | None) -> str:
+    """The line endpoint, **scoped to the container**.
+
+    A line's idempotency record is keyed on `(client_op_id, endpoint, digest of
+    the line)`, and `MovementLine` does not carry `location_id` — it is the
+    request's. Without the scope here, a cart whose response was lost and which
+    was then retargeted at a different bin would replay the *old* bin's movement
+    and be reported as applied, leaving the bin the user actually scanned
+    untouched. Scoped, that retry is a `request_mismatch` refusal on the line,
+    which is a state the client can see and fix rather than a silent wrong write.
+    """
+    return f"{_MOVEMENT_LINE_ENDPOINT}:{'none' if location_id is None else location_id}"
+
+
+@router.post("/movements", response_model=BatchMovementResponse)
+def batch_movements(
+    request: BatchMovementRequest, db: Session = Depends(get_db)
+) -> BatchMovementResponse:
+    """Take or put back several parts in one request — a cart checkout to plain
+    stock, with no project involved (ADR 0007).
+
+    **One line failing applies the rest and reports just that failure**, the
+    same rule `empty_bin` follows and for a sharper version of the same reason:
+    a cart is gathered over minutes at a shelf, so by checkout time a line's lot
+    may have been moved, emptied or deleted by somebody else. Rolling the batch
+    back would discard nineteen correct statements about what the user physically
+    did in order to protect the twentieth, and 4xx-ing it would leave the client
+    unable to say which row to fix.
+
+    Every row still goes through `app.services.ledger`, all of them under the
+    single `commit()` `idempotency.run` owns — a refused line needs no rollback
+    because nothing is mutated until it has passed (see `_apply_movement_line`).
+    Both keys matter: the batch key makes a whole resubmission a no-op, and the
+    per-line keys make a *partial* resubmission one — see
+    `idempotency.replay_line`.
+    """
+    location = None if request.location_id is None else _require_location(db, request.location_id)
+
+    def work() -> BatchMovementResponse:
+        group = ledger.new_group_uuid()
+        seen_keys: set[str] = set()
+        results = [
+            _apply_movement_line(db, request, line, index, location, group, seen_keys)
+            for index, line in enumerate(request.lines)
+        ]
+        applied = sum(1 for result in results if result.applied)
+        return BatchMovementResponse(
+            applied_count=applied,
+            failed_count=len(results) - applied,
+            group_uuid=group,
+            results=results,
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="stock.movements",
+        payload=request,
+        response_model=BatchMovementResponse,
+        work=work,
+    )
+
+
+def _apply_movement_line(
+    db: Session,
+    request: BatchMovementRequest,
+    line: MovementLine,
+    index: int,
+    location: Location | None,
+    group: str,
+    seen_keys: set[str],
+) -> MovementLineResult:
+    """One line, never raising.
+
+    No SAVEPOINT, deliberately: every refusal is decided *before* anything is
+    mutated, so a refused line has nothing to roll back. `_resolve_line_lot`
+    only reads, except on the one path that may create an empty lot for a return
+    — and past that point the only remaining step is `ledger.return_to_stock`,
+    whose sole refusal is a non-positive quantity that `QtyMilli` has already
+    made impossible. A SAVEPOINT could not be used here anyway: under pysqlite,
+    releasing the outermost one commits, which would split the enclosing `run`'s
+    single transaction instead of protecting it.
+    """
+
+    def refused(reason: str, message: str) -> MovementLineResult:
+        return MovementLineResult(
+            index=index,
+            client_line_id=line.client_line_id,
+            applied=False,
+            reason=reason,
+            message=message,
+        )
+
+    if line.client_op_id is not None:
+        if line.client_op_id in seen_keys:
+            # Two lines of one cart cannot share a key: `stock_ledger.client_op_id`
+            # is UNIQUE, so the second would fail on flush anyway — reported here
+            # with a reason a client can act on instead.
+            return refused(
+                "duplicate_client_op_id",
+                f"client_op_id {line.client_op_id} appears on more than one line",
+            )
+        seen_keys.add(line.client_op_id)
+
+    try:
+        stored = idempotency.replay_line(
+            db,
+            client_op_id=line.client_op_id,
+            endpoint=_movement_line_endpoint(request.location_id),
+            payload=line,
+            response_model=MovementLineResult,
+        )
+    except idempotency.LineIdempotencyError as error:
+        return refused(error.reason, str(error))
+    if stored is not None:
+        # The position may differ from the run that recorded it — the same cart
+        # resubmitted with the failed rows removed is the normal retry.
+        return stored.model_copy(update={"index": index})
+
+    if line.client_op_id is not None and _ledger_holds_key(db, line.client_op_id):
+        # `stock_ledger.client_op_id` is UNIQUE, and some *other* route may have
+        # written this key — the station mints one per container, the intake queue
+        # one per scan. In practice `replay_line` above gets there first and calls
+        # it a `request_mismatch`, because every route that writes a keyed ledger
+        # row records a `client_operations` row under the same key and a different
+        # endpoint; this is the net under that, for a ledger row whose operation
+        # record is missing. Checked rather than left to the insert either way,
+        # because the `IntegrityError` would poison the session and lose the lines
+        # that did apply along with it.
+        return refused(
+            "duplicate_client_op_id",
+            f"client_op_id {line.client_op_id} has already recorded a movement",
+        )
+
+    try:
+        lot = _resolve_line_lot(db, line, location)
+        attribution = Attribution(
+            source=request.source,
+            note=line.note if line.note is not None else request.note,
+            client_op_id=line.client_op_id,
+            group_uuid=group,
+        )
+        if line.direction is MovementDirection.TAKE:
+            row = ledger.consume(db, lot, line.qty_milli, attribution=attribution)
+        else:
+            row = ledger.return_to_stock(db, lot, line.qty_milli, attribution=attribution)
+    except LineRefused as error:
+        return refused(error.reason, str(error))
+    except LedgerError as error:
+        return refused(error.reason, str(error))
+
+    result = MovementLineResult(
+        index=index,
+        client_line_id=line.client_line_id,
+        applied=True,
+        lot_id=lot.id,
+        seq=row.seq,
+        qty_milli_after=lot.qty_milli_cached,
+    )
+    idempotency.record_line(
+        db,
+        client_op_id=line.client_op_id,
+        device_id=request.device_id,
+        endpoint=_movement_line_endpoint(request.location_id),
+        payload=line,
+        result=result,
+    )
+    return result
+
+
+def _ledger_holds_key(db: Session, client_op_id: str) -> bool:
+    """Whether any ledger row already carries this key."""
+    row = db.execute(
+        select(StockLedger.seq).where(StockLedger.client_op_id == client_op_id).limit(1)
+    ).first()
+    return row is not None
+
+
+def _resolve_line_lot(db: Session, line: MovementLine, location: Location | None) -> StockLot:
+    """The lot this line moves, or a refusal naming why it could not be found.
+
+    Every path out of here is a *readable* refusal rather than an exception: a
+    cart line whose part or lot has been deleted since it was added is the case
+    ADR 0007 requires to degrade to a removable row, not to a 500.
+
+    A line naming a part resolves against what the container holds **the same way
+    in both directions**, and only then does a return fall through to creating a
+    lot. Reaching for `find_or_create_lot` first looks equivalent and is not: it
+    matches on packaging, batch, serial and date code as well, so a return into a
+    bin holding one ordinary distributor reel (`date_code` set, as an intake
+    records it) matches nothing, creates a *second* active lot of that part, and
+    posts the return to it — leaving the reel's balance short of the parts that
+    physically went back into it, and making every later `part_id` take from that
+    bin `ambiguous_lot`. Take-five-then-put-two-back through the cart is enough
+    to do it.
+    """
+    if line.lot_id is not None:
+        lot = db.get(StockLot, line.lot_id)
+        if lot is None:
+            raise LineRefused(f"no stock lot with id {line.lot_id}", reason="unknown_lot")
+        if location is not None and lot.location_id != location.id:
+            # The staleness the cart is built to survive: it captured this lot in
+            # the container the user is holding, and it is somewhere else now.
+            raise LineRefused(
+                f"lot {lot.id} is no longer in location {location.id}", reason="lot_moved"
+            )
+        return lot
+
+    assert line.part_id is not None  # `MovementLine` validates exactly one is set
+    if location is None:
+        raise LineRefused(
+            "a line naming a part needs location_id — which container are these in?",
+            reason="no_container",
+        )
+    if db.get(Part, line.part_id) is None:
+        raise LineRefused(f"no part with id {line.part_id}", reason="unknown_part")
+
+    candidates = list(
+        db.execute(
+            select(StockLot)
+            .where(
+                StockLot.part_id == line.part_id,
+                StockLot.location_id == location.id,
+                StockLot.status == LotStatus.ACTIVE,
+            )
+            .order_by(StockLot.id)
+        ).scalars()
+    )
+    if not candidates:
+        if line.direction is MovementDirection.RETURN:
+            # Putting parts back into a bin that holds none of them yet is
+            # ordinary, so a return — and only a return — may create the lot.
+            lot, _ = ledger.find_or_create_lot(db, part_id=line.part_id, location=location)
+            return lot
+        raise LineRefused(
+            f"location {location.id} holds no active lot of part {line.part_id}",
+            reason="no_lot_for_part",
+        )
+    if len(candidates) > 1:
+        # Two packages of one MPN in one bin — a reel and a cut strip. Which one
+        # was taken from, or put back into, is a fact only the user has, and
+        # guessing would file the movement against the wrong per-lot cost.
+        raise LineRefused(
+            f"location {location.id} holds {len(candidates)} lots of part {line.part_id};"
+            " name one with lot_id",
+            reason="ambiguous_lot",
+        )
+    return candidates[0]
 
 
 # ---------------------------------------------------------------------------

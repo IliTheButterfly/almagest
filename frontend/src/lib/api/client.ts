@@ -151,6 +151,12 @@ export type EmptyBinResponse = Schemas["EmptyBinResponse"];
 export type UndoRequest = Schemas["UndoRequest"];
 export type UndoResponse = Schemas["UndoResponse"];
 
+export type MovementDirection = Schemas["MovementDirection"];
+export type MovementLine = Schemas["MovementLine"];
+export type MovementLineResult = Schemas["MovementLineResult"];
+export type BatchMovementRequest = Schemas["BatchMovementRequest"];
+export type BatchMovementResponse = Schemas["BatchMovementResponse"];
+
 export type ScanResolveRequest = Schemas["ScanResolveRequest"];
 export type ScanResolveResponse = Schemas["ScanResolveResponse"];
 export type ScanAliasRequest = Schemas["ScanAliasRequest"];
@@ -197,6 +203,11 @@ export type SubstitutionReasonRead = Schemas["SubstitutionReasonRead"];
 export type AllocationRead = Schemas["AllocationRead"];
 export type AllocateRequest = Schemas["AllocateRequest"];
 export type AllocateResponse = Schemas["AllocateResponse"];
+export type AllocateLine = Schemas["AllocateLine"];
+export type AllocateLineResult = Schemas["AllocateLineResult"];
+export type AllocateBatchRequest = Schemas["AllocateBatchRequest"];
+export type AllocateBatchResponse = Schemas["AllocateBatchResponse"];
+export type BomLineOutcome = Schemas["BomLineOutcome"];
 export type ReleaseRequest = Schemas["ReleaseRequest"];
 export type ReleaseResponse = Schemas["ReleaseResponse"];
 
@@ -1058,6 +1069,27 @@ export async function emptyBin(
 }
 
 /**
+ * A cart's worth of takes and returns against one container, in one request.
+ *
+ * ADR 0007's third destination — "pick a container, scan it and say how many
+ * parts you took or put back". **This never 4xx's for a bad line**: every line
+ * comes back in `results` with `applied` true or false plus a `reason`, and a
+ * good line is not rolled back because a later one was refused. That is what
+ * lets the cart keep the refused rows and drop the rest, exactly as
+ * `syncIntakeQueue` does. The whole batch shares one `group_uuid`, so undoing
+ * the checkout is a single `undoMovement`.
+ */
+export async function moveStockBatch(
+  request: BatchMovementRequest,
+): Promise<BatchMovementResponse> {
+  const { data, error, response } = await api.POST("/api/stock/movements", { body: request });
+  if (error !== undefined) {
+    fail("could not record those movements", error, response);
+  }
+  return data;
+}
+
+/**
  * Undo by appending a compensating row. Never by deleting one.
  *
  * `client_op_id_to_undo` is the handle the UI uses: it already minted that key at
@@ -1257,6 +1289,30 @@ export async function allocateStock(
   request: AllocateRequest,
 ): Promise<AllocateResponse> {
   const { data, error, response } = await api.POST("/api/builds/{build_id}/allocate", {
+    params: { path: { build_id: buildId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not reserve that stock", error, response);
+  }
+  return data;
+}
+
+/**
+ * A cart's worth of holds against one build, in one request (ADR 0007).
+ *
+ * Lines are applied **in order**, so two lines drawing on the same lot compete
+ * exactly as two separate requests would; the second is refused with
+ * `available_milli` rather than quietly overcommitting. Per-line `client_op_id`
+ * is not optional in practice: `stock_allocations` has no UNIQUE to fall back
+ * on, so a cart resent after one refusal would otherwise double every hold that
+ * had already been placed.
+ */
+export async function allocateStockBatch(
+  buildId: number,
+  request: AllocateBatchRequest,
+): Promise<AllocateBatchResponse> {
+  const { data, error, response } = await api.POST("/api/builds/{build_id}/allocate-batch", {
     params: { path: { build_id: buildId } },
     body: request,
   });

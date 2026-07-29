@@ -66,6 +66,260 @@
         "title": "AliasKind",
         "type": "string"
       },
+      "AllocateBatchRequest": {
+        "description": "A cart's worth of holds against one build, in one request (ADR 0007).\n\nTwo levels of idempotency key, as `stock.batch_movements` has: this one makes\na whole resubmission a no-op, and each line's own makes a *partial*\nresubmission one. The second is not redundant here even though a reservation\nwrites no ledger row \u2014 `stock_allocations` has no UNIQUE to fall back on, so\nwithout a line key a cart resent after one refusal would double every hold\nthat had already been placed.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/AllocateLine"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "title": "AllocateBatchRequest",
+        "type": "object"
+      },
+      "AllocateBatchResponse": {
+        "properties": {
+          "applied_count": {
+            "title": "Applied Count",
+            "type": "integer"
+          },
+          "failed_count": {
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/AllocateLineResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied_count",
+          "failed_count",
+          "results"
+        ],
+        "title": "AllocateBatchResponse",
+        "type": "object"
+      },
+      "AllocateLine": {
+        "description": "One line of a batch allocation \u2014 one hold, on one lot.",
+        "properties": {
+          "allow_overcommit": {
+            "default": false,
+            "title": "Allow Overcommit",
+            "type": "boolean"
+          },
+          "bom_line_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bom Line Id"
+          },
+          "client_line_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Line Id"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "lot_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Lot Id",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "qty_milli": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000000000.0,
+            "title": "Qty Milli",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lot_id",
+          "qty_milli"
+        ],
+        "title": "AllocateLine",
+        "type": "object"
+      },
+      "AllocateLineResult": {
+        "properties": {
+          "allocation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllocationRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "available_milli": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available Milli"
+          },
+          "client_line_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Line Id"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "lot_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Id"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "index",
+          "client_line_id",
+          "applied"
+        ],
+        "title": "AllocateLineResult",
+        "type": "object"
+      },
       "AllocateRequest": {
         "properties": {
           "allow_overcommit": {
@@ -295,6 +549,113 @@
         "title": "AllocationRead",
         "type": "object"
       },
+      "BatchMovementRequest": {
+        "description": "A cart's worth of takes and returns, in one request (ADR 0007).\n\nThe bound is the cart's: five hundred lines is already past what anybody\ngathers by hand, and it keeps the stored idempotency response a sane size.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Client-generated idempotency key, attached at scan time. A retry or a double scan carrying the same key resolves to the same ledger row.",
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/MovementLine"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Lines",
+            "type": "array"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "source": {
+            "$ref": "#/components/schemas/LedgerSource",
+            "default": "manual"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "title": "BatchMovementRequest",
+        "type": "object"
+      },
+      "BatchMovementResponse": {
+        "properties": {
+          "applied_count": {
+            "title": "Applied Count",
+            "type": "integer"
+          },
+          "failed_count": {
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "group_uuid": {
+            "title": "Group Uuid",
+            "type": "string"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/MovementLineResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied_count",
+          "failed_count",
+          "group_uuid",
+          "results"
+        ],
+        "title": "BatchMovementResponse",
+        "type": "object"
+      },
       "BindRequest": {
         "properties": {
           "client_op_id": {
@@ -517,6 +878,30 @@
       "BomLineEdit": {
         "description": "One line's edit \u2014 or, with `id` omitted, a **new** hand-added line \u2014 or,\nwith `delete: true`, a line to **remove**. Only the fields actually present\nin the request are applied to an edit \u2014 `model_fields_set`, exactly as\n`parts.PartUpdate` does \u2014 so a client can clear `note` with an explicit\n`null` without every other field on the line needing to be restated.\n\nAdd and remove ride on this same batch rather than getting their own\nroutes: `PUT .../bom` already owns the one code path that writes\n`bom_lines` \u2014 `_apply_bom_line_edit`, the project-membership check, the\nidempotency guard \u2014 and a `POST .../bom/lines` plus a\n`DELETE .../bom/lines/{id}` would each have to reconstruct that guard\nbeside it rather than reuse it, which is exactly the duplication CLAUDE.md\ncalls out. A hand-added line is a legal, ordinary row from here on \u2014 the\nsame \"unmatched is normal, not an error\" state an import leaves behind,\njust entered a different way.",
         "properties": {
+          "client_line_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Line Id"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
           "delete": {
             "default": false,
             "title": "Delete",
@@ -688,6 +1073,81 @@
           "lines"
         ],
         "title": "BomLineList",
+        "type": "object"
+      },
+      "BomLineOutcome": {
+        "description": "What became of one edit.\n\nThe same shape `stock.MovementLineResult` and `AllocateLineResult` use, on\npurpose: a cart drains to one of three destinations (ADR 0007) and a client\nthat had to read three different failure shapes would have three chances to\nmishandle the one that matters.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "bom_line_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bom Line Id"
+          },
+          "client_line_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Line Id"
+          },
+          "deleted": {
+            "default": false,
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "index",
+          "client_line_id",
+          "applied"
+        ],
+        "title": "BomLineOutcome",
         "type": "object"
       },
       "BomLineRead": {
@@ -882,6 +1342,11 @@
             "minItems": 1,
             "title": "Edits",
             "type": "array"
+          },
+          "partial": {
+            "default": false,
+            "title": "Partial",
+            "type": "boolean"
           }
         },
         "required": [
@@ -911,6 +1376,13 @@
             "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
             "title": "Replayed",
             "type": "boolean"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/BomLineOutcome"
+            },
+            "title": "Results",
+            "type": "array"
           }
         },
         "required": [
@@ -4769,6 +5241,10 @@
             ],
             "title": "Part Id"
           },
+          "qty_per_assembly_milli": {
+            "title": "Qty Per Assembly Milli",
+            "type": "integer"
+          },
           "required_milli": {
             "title": "Required Milli",
             "type": "integer"
@@ -4810,6 +5286,7 @@
           "part_id",
           "kind",
           "required_milli",
+          "qty_per_assembly_milli",
           "allocated_milli",
           "reserved_milli",
           "staged_milli",
@@ -6051,6 +6528,188 @@
           "qty_milli"
         ],
         "title": "MoveStepRead",
+        "type": "object"
+      },
+      "MovementDirection": {
+        "description": "Which way one cart line moves stock.\n\nTwo values, not four: a cart checkout to plain stock is ADR 0007's \"pick a\ncontainer, scan it and say how many parts you took or put back\", and\n`adjust`/`recount` are corrections rather than things you did with your\nhands. Those stay one-at-a-time on their own routes, where the single lot in\nfront of you is the whole subject of the request.",
+        "enum": [
+          "take",
+          "return"
+        ],
+        "title": "MovementDirection",
+        "type": "string"
+      },
+      "MovementLine": {
+        "description": "One line of a batch movement.\n\nNames its stock **either** by `lot_id` \u2014 what a cart captured when the part\nwas added \u2014 **or** by `part_id` inside `location_id`, which is what a client\nhas when the user picked a container and then chose parts from search. The\nfirst is exact and can go stale; the second is resolved against the container\nnow, so it cannot.",
+        "properties": {
+          "client_line_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Line Id"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/MovementDirection"
+          },
+          "lot_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "qty_milli": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000000000.0,
+            "title": "Qty Milli",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "direction",
+          "qty_milli"
+        ],
+        "title": "MovementLine",
+        "type": "object"
+      },
+      "MovementLineResult": {
+        "description": "What became of one line.\n\nCarries `index` **and** `client_line_id` because they answer different\nquestions: the index is always present and unambiguous, and the client line\nid is what a cart row is keyed by locally. A client that only had the index\nwould have to trust that it did not reorder the cart between building the\nrequest and rendering the answer.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "client_line_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Line Id"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "lot_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Id"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "qty_milli_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qty Milli After"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          }
+        },
+        "required": [
+          "index",
+          "client_line_id",
+          "applied"
+        ],
+        "title": "MovementLineResult",
         "type": "object"
       },
       "MovementResponse": {
@@ -9407,6 +10066,10 @@
       "RosterLineRead": {
         "description": "One BOM line's account, or one off-BOM part this build used.",
         "properties": {
+          "accounted_milli": {
+            "title": "Accounted Milli",
+            "type": "integer"
+          },
           "after_the_fact_milli": {
             "title": "After The Fact Milli",
             "type": "integer"
@@ -9462,6 +10125,10 @@
               }
             ],
             "title": "Line No"
+          },
+          "needed_milli": {
+            "title": "Needed Milli",
+            "type": "integer"
           },
           "part_id": {
             "anyOf": [
@@ -9522,6 +10189,8 @@
           "reserved_milli",
           "staged_milli",
           "consumed_milli",
+          "accounted_milli",
+          "needed_milli",
           "after_the_fact_milli",
           "entries"
         ],
@@ -12348,6 +13017,61 @@
           }
         },
         "summary": "Allocate Stock",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/builds/{build_id}/allocate-batch": {
+      "post": {
+        "description": "Hold stock for a build, several lots at once \u2014 a cart checkout to a build\n(ADR 0007).\n\n**One line failing places the rest and reports just that failure.** That is\nnot a convenience: the cart was gathered at the shelf over minutes, so by\ncheckout time one of its lots may have been emptied, quarantined or promised\nto another build, and `reserve` is the one service in this system allowed to\nsay no. Refusing the whole cart over that would throw away the user's other\nnineteen decisions, and a 4xx would leave them unable to see which row to fix.\n\nLines are applied **in order**, so two lines of one cart drawing on the same\nlot compete for it exactly as two separate requests would \u2014 the second sees\nwhat the first left. `reserve` stays the sole writer of `stock_allocations`\nand `qty_reserved_milli_cached`, and it decides every refusal before it\nmutates anything, which is what lets a refused line leave nothing behind\nwithout a SAVEPOINT to roll back.",
+        "operationId": "allocate_stock_batch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "build_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Build Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllocateBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllocateBatchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Allocate Stock Batch",
         "tags": [
           "projects"
         ]
@@ -15949,7 +16673,7 @@
         ]
       },
       "put": {
-        "description": "Apply a batch of per-line edits \u2014 corrections, DNP toggles, manual part\nmatching, hand-adding a line (`id` omitted), and removing one\n(`delete: true`). Idempotency-guarded because, unlike `parts.update_part`,\nthe edit that matters most here (confirming a match) has a\nrequest-shape-dependent default (see `_apply_bom_line_edit`): a retried\nPOST that landed and a retried POST that never reached the server are only\nsafely indistinguishable with a key \u2014 which also means a retried *add*\nadds one line, not two.",
+        "description": "Apply a batch of per-line edits \u2014 corrections, DNP toggles, manual part\nmatching, hand-adding a line (`id` omitted), and removing one\n(`delete: true`). Idempotency-guarded because, unlike `parts.update_part`,\nthe edit that matters most here (confirming a match) has a\nrequest-shape-dependent default (see `_apply_bom_line_edit`): a retried\nPOST that landed and a retried POST that never reached the server are only\nsafely indistinguishable with a key \u2014 which also means a retried *add*\nadds one line, not two.\n\n**This is also the cart's checkout door for a project BOM** (ADR 0007), and\nno parallel batch route was added for it: adding a line is already what a\ncart line becomes, and a second route would have to rebuild the\nproject-membership check, `_apply_bom_line_edit` and the idempotency guard\nbeside this one. What the cart needs and a curation pass does not is\n`partial: true` \u2014 apply what can be applied, report the rest per line \u2014 plus\na `client_op_id` per edit, so resubmitting a cart after one line was refused\ndoes not re-add the lines that landed.",
         "operationId": "update_bom_lines",
         "parameters": [
           {
@@ -17287,6 +18011,48 @@
           }
         },
         "summary": "Return Stock",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/stock/movements": {
+      "post": {
+        "description": "Take or put back several parts in one request \u2014 a cart checkout to plain\nstock, with no project involved (ADR 0007).\n\n**One line failing applies the rest and reports just that failure**, the\nsame rule `empty_bin` follows and for a sharper version of the same reason:\na cart is gathered over minutes at a shelf, so by checkout time a line's lot\nmay have been moved, emptied or deleted by somebody else. Rolling the batch\nback would discard nineteen correct statements about what the user physically\ndid in order to protect the twentieth, and 4xx-ing it would leave the client\nunable to say which row to fix.\n\nEvery row still goes through `app.services.ledger`, all of them under the\nsingle `commit()` `idempotency.run` owns \u2014 a refused line needs no rollback\nbecause nothing is mutated until it has passed (see `_apply_movement_line`).\nBoth keys matter: the batch key makes a whole resubmission a no-op, and the\nper-line keys make a *partial* resubmission one \u2014 see\n`idempotency.replay_line`.",
+        "operationId": "batch_movements",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchMovementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchMovementResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Batch Movements",
         "tags": [
           "stock"
         ]

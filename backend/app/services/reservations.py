@@ -1112,6 +1112,13 @@ class LineShortage:
     #: `qty_per_assembly_milli * assembly_count`. Known even when the part is
     #: not — the board needs three of *something*.
     required_milli: int
+    #: The BOM line's own per-assembly quantity, reported rather than left to be
+    #: divided back out of `required_milli`. A UI has to be able to say "3 each for
+    #: 5 boards = 15", and the division is not available to it: a DNP line
+    #: reports `required_milli == 0` on purpose, so `required / assembly_count`
+    #: is 0 there and the per-assembly figure would silently disappear from the
+    #: one kind of line whose quantity is only meaningful per assembly.
+    qty_per_assembly_milli: int
     #: What this build already holds, has set aside or has built in:
     #: `RESERVED + STAGED + CONSUMED`, exactly as `stock_allocations` records it
     #: — ADR 0004's `accounted`. Reported raw; a hold this line's lot can no
@@ -1254,6 +1261,7 @@ def _net_one_line(
             part_id=line.part_id,
             kind=ShortageKind.NOT_FITTED,
             required_milli=0,
+            qty_per_assembly_milli=line.qty_per_assembly_milli,
             allocated_milli=held,
             reserved_milli=holding.reserved_milli,
             staged_milli=holding.staged_milli,
@@ -1280,6 +1288,7 @@ def _net_one_line(
             part_id=None,
             kind=ShortageKind.UNIDENTIFIED,
             required_milli=required,
+            qty_per_assembly_milli=line.qty_per_assembly_milli,
             allocated_milli=held,
             reserved_milli=holding.reserved_milli,
             staged_milli=holding.staged_milli,
@@ -1319,6 +1328,7 @@ def _net_one_line(
         part_id=line.part_id,
         kind=ShortageKind.SHORT if shortfall else ShortageKind.SATISFIED,
         required_milli=required,
+        qty_per_assembly_milli=line.qty_per_assembly_milli,
         allocated_milli=held,
         reserved_milli=holding.reserved_milli,
         staged_milli=holding.staged_milli,

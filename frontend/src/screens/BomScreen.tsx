@@ -22,9 +22,10 @@
  */
 
 import { useState, type ChangeEvent } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { ErrorBanner, Empty, Loading, Notice } from "../components/Feedback";
+import { PartResultRow } from "../components/PartResultRow";
 import {
   getProject,
   importBom,
@@ -41,6 +42,7 @@ import {
   type RequirementRead,
   type SuggestionLineRead,
 } from "../lib/api/client";
+import { shoppingCart } from "../lib/cart/cart";
 import { formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { uuid4 } from "../lib/scan/session";
@@ -86,6 +88,7 @@ export function BomScreen() {
 
 function Bom({ project }: { project: ProjectRead }) {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
   const [pasting, setPasting] = useState(false);
@@ -136,6 +139,24 @@ function Bom({ project }: { project: ProjectRead }) {
             </button>
           </div>
           <span className="spacer" />
+          {/* ADR 0007's second way in, and the one this screen had no answer for:
+              a BOM you are *deciding* rather than transcribing is chosen by
+              browsing your own stock, which needs the whole faceted search view.
+              Aiming the cart at this project here means the destination is already
+              set by the time the parts are gathered. */}
+          <button
+            type="button"
+            onClick={() => {
+              shoppingCart.setTarget({
+                kind: "project",
+                projectId: project.id,
+                label: project.name,
+              });
+              navigate("/cart/add");
+            }}
+          >
+            Choose from what you have
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -1133,10 +1154,28 @@ function EditBomLineFields({
 }
 
 /**
- * The one-tap path the design problem calls for: search by the text already
- * on the line (its raw MPN, falling back to the ref value) and confirm a
- * result with a single tap. It searches the whole catalogue, not "parts like
- * this one" — a BOM's `mpn_raw` is exactly the free text this box is for.
+ * Match **one existing line** to a part, seeded with the text already on it.
+ *
+ * Deliberately narrow after ADR 0007, and this is the whole of what survives of
+ * the old "pick a part" flow. A BOM line that arrived from an import already
+ * carries the string to search with (`mpn_raw`, falling back to `ref_value`), so
+ * the useful gesture here is *confirm this row*: one seeded query, one tap. That
+ * is not the same task as **choosing** parts, which is a browsing session and
+ * belongs on the real search screen with its facets, category rail and
+ * stock-per-row — "it's still not the same view as the search tab" was a correct
+ * complaint about using this box for that job. Choosing is now the cart's, fed
+ * from the real search screen; this stays only as the seeded confirm-a-row
+ * convenience, and both places on this screen that offer it say which is which.
+ *
+ * Every result row renders through `PartResultRow`, the same component the search
+ * screen's list uses, so a part reads identically in both places.
+ *
+ * **Enter searches.** This box sits inside `AddBomLine`'s `<form>`, so a bare
+ * `<input>` made Enter submit the *form* — "pressing enter on the pick a part for
+ * project BOM adds the line instead of searching", as reported. The key is
+ * therefore handled on the field itself rather than by moving buttons around:
+ * every button here is already `type="button"`, so the submission came from the
+ * implicit-submit rule, which only the keypress can intercept.
  */
 function MatchPicker({
   seedText,
@@ -1176,7 +1215,25 @@ function MatchPicker({
         <input
           value={text}
           onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") {
+              return;
+            }
+            // `preventDefault` stops the implicit submit; `stopPropagation` stops
+            // the enclosing form's `onSubmit` from ever being consulted. Both,
+            // because the two mechanisms are independent and only the pair of
+            // them makes Enter mean "search" wherever this box is embedded.
+            event.preventDefault();
+            event.stopPropagation();
+            if (!searching) {
+              void search();
+            }
+          }}
           placeholder="name, MPN, keywords"
+          enterKeyHint="search"
+          type="search"
+          autoComplete="off"
+          aria-label="Search parts to match"
           style={{ flex: 1 }}
         />
         <button type="button" onClick={() => void search()} disabled={searching}>
@@ -1191,13 +1248,7 @@ function MatchPicker({
             <li key={part.id} className="list-item">
               <div className="row">
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="title">{part.name}</div>
-                  <div className="sub">
-                    {part.mpn !== null && <span className="mono">{part.mpn}</span>}
-                    {part.mpn !== null && part.description !== null && " · "}
-                    {part.description}
-                  </div>
-                  {part.is_stub && <span className="badge badge-warn">stub</span>}
+                  <PartResultRow part={part} />
                 </div>
                 <button type="button" onClick={() => onPick(part.id, part.name)} disabled={busy}>
                   Use this

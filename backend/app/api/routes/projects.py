@@ -43,6 +43,7 @@ from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
+from app.api.batch import LineRefused
 from app.api.limits import AssemblyCount, CandidateLimit, QtyMilli, ResultOffset, RowId
 from app.api.schemas import (
     LotRead,
@@ -68,6 +69,7 @@ from app.services.requirements.matching import RequirementInput
 from app.services.reservations import (
     LineShortage,
     ReservationError,
+    available,
     consume_staged,
     record_used,
     release_build,
@@ -262,6 +264,15 @@ class BomLineEdit(BaseModel):
     """
 
     id: RowId | None = None
+    #: Echoed on this edit's entry in `results`, so a cart marks the row that
+    #: failed by its own key rather than by counting positions.
+    client_line_id: str | None = Field(default=None, max_length=64)
+    #: This edit's own idempotency key, honoured whether or not `partial` is set.
+    #: The batch key alone protects a whole resubmission; only a per-line key
+    #: protects the *partial* resubmission a per-line failure invites, which for
+    #: an add is the difference between one new line and two. See
+    #: `app.api.idempotency.replay_line`.
+    client_op_id: str | None = Field(default=None, max_length=36)
     #: Required when adding, optional when editing, which the validator below
     #: enforces rather than the type: a new line with no quantity is not a BOM
     #: line at all, while an edit that says nothing about quantity must leave
@@ -309,8 +320,34 @@ class BomLineEdit(BaseModel):
 
 class BomLinesUpdateRequest(BaseModel):
     edits: list[BomLineEdit] = Field(min_length=1, max_length=500)
+    #: Apply what can be applied and report the rest per line, instead of
+    #: refusing the whole batch on the first bad edit (ADR 0007). Off by default:
+    #: a curation pass over an imported BOM is one person's considered set of
+    #: changes, and half of it landing is a worse outcome than being told the
+    #: request was wrong. A **cart** checkout is the opposite — its lines were
+    #: gathered minutes apart and one of them naming a part somebody has since
+    #: deleted must not discard the other nineteen — so it sets this.
+    partial: bool = False
     client_op_id: str | None = Field(default=None, max_length=36)
     device_id: str | None = Field(default=None, max_length=64)
+
+
+class BomLineOutcome(ReplayableResponse):
+    """What became of one edit.
+
+    The same shape `stock.MovementLineResult` and `AllocateLineResult` use, on
+    purpose: a cart drains to one of three destinations (ADR 0007) and a client
+    that had to read three different failure shapes would have three chances to
+    mishandle the one that matters.
+    """
+
+    index: int
+    client_line_id: str | None
+    applied: bool
+    reason: str | None = None
+    message: str | None = None
+    bom_line_id: int | None = None
+    deleted: bool = False
 
 
 class BomLinesUpdateResponse(ReplayableResponse):
@@ -319,6 +356,11 @@ class BomLinesUpdateResponse(ReplayableResponse):
     #: leave a client unable to tell "removed" from "not in this batch".
     lines: list[BomLineRead]
     deleted_ids: list[int] = Field(default_factory=list)
+    #: One entry per edit, in request order, applied or not. Always populated,
+    #: including when `partial` is off — a caller then never sees a refusal here
+    #: because the first one is a 4xx, but it still gets the per-edit mapping from
+    #: its own `client_line_id` to the row that was written.
+    results: list[BomLineOutcome] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +448,60 @@ class AllocateRequest(BaseModel):
 class AllocateResponse(ReplayableResponse):
     allocation: AllocationRead
     lot: LotRead
+
+
+class AllocateLine(BaseModel):
+    """One line of a batch allocation — one hold, on one lot."""
+
+    #: Echoed on this line's result, so a cart marks the row that failed by its
+    #: own key rather than by counting positions.
+    client_line_id: str | None = Field(default=None, max_length=64)
+    lot_id: RowId
+    qty_milli: QtyMilli
+    bom_line_id: RowId | None = None
+    part_id: RowId | None = None
+    note: str | None = None
+    allow_overcommit: bool = False
+    #: This line's own idempotency key — see `AllocateBatchRequest`.
+    client_op_id: str | None = Field(default=None, max_length=36)
+
+
+class AllocateLineResult(ReplayableResponse):
+    index: int
+    client_line_id: str | None
+    applied: bool
+    #: Machine-readable, null exactly when `applied`. `reserve`'s own refusal
+    #: codes (`insufficient_available`, `lot_not_active`, `build_closed`, …) plus
+    #: the resolution ones only a batch can have.
+    reason: str | None = None
+    message: str | None = None
+    allocation: AllocationRead | None = None
+    lot_id: int | None = None
+    #: What is left free on that lot after this hold — the number the next line
+    #: of the same cart is competing for, and the one a refusal is explained by.
+    available_milli: int | None = None
+
+
+class AllocateBatchRequest(BaseModel):
+    """A cart's worth of holds against one build, in one request (ADR 0007).
+
+    Two levels of idempotency key, as `stock.batch_movements` has: this one makes
+    a whole resubmission a no-op, and each line's own makes a *partial*
+    resubmission one. The second is not redundant here even though a reservation
+    writes no ledger row — `stock_allocations` has no UNIQUE to fall back on, so
+    without a line key a cart resent after one refusal would double every hold
+    that had already been placed.
+    """
+
+    lines: list[AllocateLine] = Field(min_length=1, max_length=500)
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class AllocateBatchResponse(ReplayableResponse):
+    applied_count: int
+    failed_count: int
+    results: list[AllocateLineResult]
 
 
 class ReleaseRequest(BaseModel):
@@ -542,6 +638,11 @@ class LineShortageRead(BaseModel):
     part_id: int | None
     kind: str
     required_milli: int
+    #: The line's per-assembly quantity, so a client can render the arithmetic
+    #: — `qty_per_assembly * assembly_count = required` — rather than assert a
+    #: total it cannot explain. Not derivable client-side: a DNP line reports
+    #: `required_milli == 0`.
+    qty_per_assembly_milli: int
     allocated_milli: int
     #: The three states `allocated_milli` is the sum of, kept apart on the wire
     #: because ADR 0004 is explicit that merging them lets a BOM look buildable
@@ -624,6 +725,15 @@ class RosterLineRead(BaseModel):
     reserved_milli: int
     staged_milli: int
     consumed_milli: int
+    #: ADR 0004's `accounted` — `reserved + staged + consumed` — and ADR 0007's
+    #: `needed`, `max(0, required - accounted)`. Computed server-side and sent
+    #: even though the three states are all here for a client to add up: ADR 0007
+    #: asks for *per build* and *in use* to be legible, and a screen doing its own
+    #: arithmetic is a second definition of demand that can drift from
+    #: `reservations.shortage_for_build`'s. Neither is stored, so raising
+    #: `assembly_count` moves both on the next read with nothing backfilled.
+    accounted_milli: int
+    needed_milli: int
     #: How much of this line's total was recorded after the fact, so a reader
     #: can weigh the line's own credibility without walking `entries` — the
     #: same reason the report carries a build-wide total of it.
@@ -897,6 +1007,7 @@ def _line_shortage_read(line: LineShortage) -> LineShortageRead:
         part_id=line.part_id,
         kind=line.kind.value,
         required_milli=line.required_milli,
+        qty_per_assembly_milli=line.qty_per_assembly_milli,
         allocated_milli=line.allocated_milli,
         reserved_milli=line.reserved_milli,
         staged_milli=line.staged_milli,
@@ -944,6 +1055,8 @@ def _roster_line_read(line: RosterLine) -> RosterLineRead:
         reserved_milli=line.reserved_milli,
         staged_milli=line.staged_milli,
         consumed_milli=line.consumed_milli,
+        accounted_milli=line.accounted_milli,
+        needed_milli=line.needed_milli,
         after_the_fact_milli=line.after_the_fact_milli,
         entries=[_roster_entry_read(entry) for entry in line.entries],
     )
@@ -1297,8 +1410,48 @@ def read_bom_suggestions(
     )
 
 
+def _validate_bom_line_edit(db: Session, line: BomLine | None, edit: BomLineEdit) -> None:
+    """Every refusal one edit can produce, decided **before anything is mutated**.
+
+    Split out from `_apply_bom_line_edit` so that applying an edit cannot fail
+    halfway through. That matters twice over: the default mode of
+    `update_bom_lines` is all-or-nothing, and `partial` mode reports a refusal and
+    carries on — and a half-applied edit left behind on the session would be
+    committed by the *next* line's success either way. Validate-then-apply is why
+    neither mode needs a SAVEPOINT to undo a mutation.
+
+    `line` is None for an add, where nothing is on the row yet.
+    """
+    assigned = set(edit.model_fields_set) - {"id"}
+
+    if "part_id" in assigned and edit.part_id is not None and db.get(Part, edit.part_id) is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"reason": "unknown_part", "message": f"no part with id {edit.part_id}"},
+        )
+
+    if "is_match_confirmed" in assigned and edit.is_match_confirmed:
+        # What the line's `part_id` will be once this edit lands, which is the
+        # only thing "confirmed" can be a claim about.
+        part_after = (
+            edit.part_id if "part_id" in assigned else (None if line is None else line.part_id)
+        )
+        if part_after is None:
+            subject = "this new bom line" if line is None else f"bom line {line.id}"
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "reason": "no_part_to_confirm",
+                    "message": f"{subject} has no part_id; set one in the same edit",
+                },
+            )
+
+
 def _apply_bom_line_edit(db: Session, line: BomLine, edit: BomLineEdit) -> None:
     """Copy the fields actually present in `edit` onto `line`.
+
+    Refusals are `_validate_bom_line_edit`'s job and it is called first here, so
+    this function either mutates nothing or mutates everything the edit asked for.
 
     The one cross-field rule that cannot be a `CHECK`: `is_match_confirmed`
     means nothing without a `part_id`. Concretely —
@@ -1313,14 +1466,10 @@ def _apply_bom_line_edit(db: Session, line: BomLine, edit: BomLineEdit) -> None:
       `bom_import`'s automatic exact-MPN hits, which is why that importer
       never sets it: nobody has told this line's story until now.
     """
+    _validate_bom_line_edit(db, line, edit)
     assigned = set(edit.model_fields_set) - {"id"}
 
     if "part_id" in assigned:
-        if edit.part_id is not None and db.get(Part, edit.part_id) is None:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={"reason": "unknown_part", "message": f"no part with id {edit.part_id}"},
-            )
         line.part_id = edit.part_id
         if edit.part_id is None:
             line.is_match_confirmed = False
@@ -1328,14 +1477,6 @@ def _apply_bom_line_edit(db: Session, line: BomLine, edit: BomLineEdit) -> None:
             line.is_match_confirmed = True
 
     if "is_match_confirmed" in assigned and edit.is_match_confirmed is not None:
-        if edit.is_match_confirmed and line.part_id is None:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={
-                    "reason": "no_part_to_confirm",
-                    "message": f"bom line {line.id} has no part_id; set one in the same edit",
-                },
-            )
         line.is_match_confirmed = edit.is_match_confirmed
 
     for name in (
@@ -1376,6 +1517,56 @@ def _next_line_no(db: Session, project_id: int) -> int:
     return int(highest) + 1
 
 
+#: Where a single BOM edit's idempotency record is filed, distinct from the
+#: batch's `projects.bom_update`.
+_BOM_LINE_ENDPOINT = "projects.bom_line"
+
+
+def _bom_line_endpoint(project_id: int) -> str:
+    """The per-edit endpoint, **scoped to the project**.
+
+    An edit's idempotency record is keyed on `(client_op_id, endpoint, digest of
+    the edit)`, and `BomLineEdit` carries no `project_id` — that comes from the
+    path. Unscoped, a cart whose response was lost and which was then retargeted
+    at a different project replayed the *first* project's outcome, reported the
+    line as applied, and left the project the user actually chose with nothing.
+    Scoped, the retry is a `request_mismatch` refusal on that line: visible, and
+    fixable by re-keying the row.
+    """
+    return f"{_BOM_LINE_ENDPOINT}:{project_id}"
+
+
+def _http_failure(error: HTTPException) -> tuple[str, str]:
+    """`(reason, message)` out of a per-line `HTTPException`.
+
+    Every refusal this module raises carries `detail={"reason", "message"}`, so a
+    batch can turn one back into a line failure without the validation helpers
+    needing a second, batch-only error type. The fallback covers a detail that is
+    a bare string, which nothing here produces today and a future edit might.
+    """
+    detail = error.detail
+    if isinstance(detail, dict):
+        return str(detail.get("reason", "refused")), str(detail.get("message", detail))
+    return "refused", str(detail)
+
+
+def _bom_line_refusal(
+    index: int, edit: BomLineEdit, reason: str, message: str, *, partial: bool
+) -> BomLineOutcome:
+    """This edit's failure entry — or a 409, when the caller did not ask for
+    partial application. One helper so the two modes cannot drift apart."""
+    if not partial:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"reason": reason, "message": message})
+    return BomLineOutcome(
+        index=index,
+        client_line_id=edit.client_line_id,
+        applied=False,
+        reason=reason,
+        message=message,
+        bom_line_id=edit.id,
+    )
+
+
 @router.put("/{project_id}/bom", response_model=BomLinesUpdateResponse)
 def update_bom_lines(
     project_id: RowId, request: BomLinesUpdateRequest, db: Session = Depends(get_db)
@@ -1388,56 +1579,168 @@ def update_bom_lines(
     POST that landed and a retried POST that never reached the server are only
     safely indistinguishable with a key — which also means a retried *add*
     adds one line, not two.
+
+    **This is also the cart's checkout door for a project BOM** (ADR 0007), and
+    no parallel batch route was added for it: adding a line is already what a
+    cart line becomes, and a second route would have to rebuild the
+    project-membership check, `_apply_bom_line_edit` and the idempotency guard
+    beside this one. What the cart needs and a curation pass does not is
+    `partial: true` — apply what can be applied, report the rest per line — plus
+    a `client_op_id` per edit, so resubmitting a cart after one line was refused
+    does not re-add the lines that landed.
     """
     _require_project(db, project_id)
 
     def work() -> BomLinesUpdateResponse:
         touched: list[BomLine] = []
         deleted_ids: list[int] = []
+        results: list[BomLineOutcome] = []
+        seen_keys: set[str] = set()
         # Queried once and then counted up locally: `_next_line_no` reads an
         # aggregate over rows this loop is still adding, and re-querying per
         # add would return the same number until a flush, which is how two new
-        # lines end up sharing one `line_no`.
+        # lines end up sharing one `line_no`. Only advanced once an add has
+        # actually landed, so a refused add does not burn a number.
         next_line_no: int | None = None
-        for edit in request.edits:
-            if edit.id is None:
-                next_line_no = (
-                    _next_line_no(db, project_id) if next_line_no is None else next_line_no + 1
+
+        for index, edit in enumerate(request.edits):
+            key = edit.client_op_id
+            if key is not None and key in seen_keys:
+                results.append(
+                    _bom_line_refusal(
+                        index,
+                        edit,
+                        "duplicate_client_op_id",
+                        f"client_op_id {key} appears on more than one edit",
+                        partial=request.partial,
+                    )
                 )
-                # Guaranteed by `BomLineEdit`'s validator, restated for mypy
-                # because the field is `| None` for the edit case. An `assert`
-                # rather than a raise: a request that reaches here without it
-                # has already been rejected with a 422 by validation, so this
-                # is a type narrowing, not a runtime check whose failure a
-                # client could ever observe.
-                qty = edit.qty_per_assembly_milli
-                assert qty is not None
-                line = BomLine(
-                    project_id=project_id, line_no=next_line_no, qty_per_assembly_milli=qty
+                continue
+            if key is not None:
+                seen_keys.add(key)
+
+            try:
+                stored = idempotency.replay_line(
+                    db,
+                    client_op_id=key,
+                    endpoint=_bom_line_endpoint(project_id),
+                    payload=edit,
+                    response_model=BomLineOutcome,
                 )
-                db.add(line)
-                _apply_bom_line_edit(db, line, edit)
-                touched.append(line)
+            except idempotency.LineIdempotencyError as error:
+                results.append(
+                    _bom_line_refusal(
+                        index, edit, error.reason, str(error), partial=request.partial
+                    )
+                )
+                continue
+            if stored is not None:
+                results.append(stored.model_copy(update={"index": index}))
+                if stored.bom_line_id is not None:
+                    if stored.deleted:
+                        deleted_ids.append(stored.bom_line_id)
+                    else:
+                        replayed = db.get(BomLine, stored.bom_line_id)
+                        # Membership re-checked rather than assumed. The scoped
+                        # endpoint already makes a cross-project replay impossible,
+                        # and this is the belt to that brace: a `PUT` on one project
+                        # must never answer with a row belonging to another.
+                        if replayed is not None and replayed.project_id == project_id:
+                            touched.append(replayed)
                 continue
 
-            line = _require_bom_line(db, edit.id)
-            if line.project_id != project_id:
-                raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail={
-                        "reason": "line_not_in_project",
-                        "message": f"bom line {line.id} belongs to project {line.project_id}",
-                    },
-                )
-            if edit.delete:
-                deleted_ids.append(line.id)
-                db.delete(line)
+            # Validated first, mutated second, so a refusal leaves nothing
+            # half-applied on the session — which is what lets both modes work
+            # without a SAVEPOINT to undo. (A released SAVEPOINT commits under
+            # pysqlite, so one here would break the default mode's
+            # all-or-nothing contract rather than protect it.)
+            try:
+                if edit.id is None:
+                    _validate_bom_line_edit(db, None, edit)
+                    line_no = (
+                        _next_line_no(db, project_id) if next_line_no is None else next_line_no + 1
+                    )
+                    # Guaranteed by `BomLineEdit`'s validator, restated for mypy
+                    # because the field is `| None` for the edit case. An
+                    # `assert` rather than a raise: a request that reaches here
+                    # without it has already been rejected with a 422 by
+                    # validation, so this is a type narrowing, not a runtime
+                    # check whose failure a client could ever observe.
+                    qty = edit.qty_per_assembly_milli
+                    assert qty is not None
+                    line = BomLine(
+                        project_id=project_id, line_no=line_no, qty_per_assembly_milli=qty
+                    )
+                    db.add(line)
+                    _apply_bom_line_edit(db, line, edit)
+                    db.flush()
+                    next_line_no = line_no
+                    touched.append(line)
+                    outcome = BomLineOutcome(
+                        index=index,
+                        client_line_id=edit.client_line_id,
+                        applied=True,
+                        bom_line_id=line.id,
+                    )
+                else:
+                    line = _require_bom_line(db, edit.id)
+                    if line.project_id != project_id:
+                        raise HTTPException(
+                            status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail={
+                                "reason": "line_not_in_project",
+                                "message": (
+                                    f"bom line {line.id} belongs to project {line.project_id}"
+                                ),
+                            },
+                        )
+                    if edit.delete:
+                        deleted_ids.append(line.id)
+                        outcome = BomLineOutcome(
+                            index=index,
+                            client_line_id=edit.client_line_id,
+                            applied=True,
+                            bom_line_id=line.id,
+                            deleted=True,
+                        )
+                        db.delete(line)
+                    else:
+                        _validate_bom_line_edit(db, line, edit)
+                        _apply_bom_line_edit(db, line, edit)
+                        touched.append(line)
+                        outcome = BomLineOutcome(
+                            index=index,
+                            client_line_id=edit.client_line_id,
+                            applied=True,
+                            bom_line_id=line.id,
+                        )
+            except HTTPException as error:
+                # Every per-edit refusal in this module is an `HTTPException`
+                # carrying `{reason, message}`. Re-raised unchanged in the default
+                # mode, so the existing contract (a bad edit is a 404/422 and
+                # nothing lands) is exactly preserved; turned into this line's
+                # failure when the caller asked for partial application.
+                if not request.partial:
+                    raise
+                reason, message = _http_failure(error)
+                results.append(_bom_line_refusal(index, edit, reason, message, partial=True))
                 continue
-            _apply_bom_line_edit(db, line, edit)
-            touched.append(line)
+
+            idempotency.record_line(
+                db,
+                client_op_id=key,
+                device_id=request.device_id,
+                endpoint=_bom_line_endpoint(project_id),
+                payload=edit,
+                result=outcome,
+            )
+            results.append(outcome)
+
         db.flush()
         return BomLinesUpdateResponse(
-            lines=[_bom_line_read(line) for line in touched], deleted_ids=deleted_ids
+            lines=[_bom_line_read(line) for line in touched],
+            deleted_ids=deleted_ids,
+            results=results,
         )
 
     return idempotency.run(
@@ -1606,6 +1909,156 @@ def allocate_stock(
         response_model=AllocateResponse,
         work=work,
     )
+
+
+#: Where a *line's* idempotency record is filed, distinct from the batch's
+#: `builds.allocate_batch` so a key reused across the two levels is caught as a
+#: mismatch instead of replaying the wrong shape.
+_ALLOCATE_LINE_ENDPOINT = "builds.allocate_line"
+
+
+def _allocate_line_endpoint(build_id: int) -> str:
+    """The per-line endpoint, **scoped to the build** — for the reason spelled out
+    on `_bom_line_endpoint`. `AllocateLine` names a lot and a quantity but not
+    which build is holding it, so without the scope a retry aimed at a second
+    build would replay the first build's hold and report it as placed."""
+    return f"{_ALLOCATE_LINE_ENDPOINT}:{build_id}"
+
+
+@builds_router.post("/{build_id}/allocate-batch", response_model=AllocateBatchResponse)
+def allocate_stock_batch(
+    build_id: RowId, request: AllocateBatchRequest, db: Session = Depends(get_db)
+) -> AllocateBatchResponse:
+    """Hold stock for a build, several lots at once — a cart checkout to a build
+    (ADR 0007).
+
+    **One line failing places the rest and reports just that failure.** That is
+    not a convenience: the cart was gathered at the shelf over minutes, so by
+    checkout time one of its lots may have been emptied, quarantined or promised
+    to another build, and `reserve` is the one service in this system allowed to
+    say no. Refusing the whole cart over that would throw away the user's other
+    nineteen decisions, and a 4xx would leave them unable to see which row to fix.
+
+    Lines are applied **in order**, so two lines of one cart drawing on the same
+    lot compete for it exactly as two separate requests would — the second sees
+    what the first left. `reserve` stays the sole writer of `stock_allocations`
+    and `qty_reserved_milli_cached`, and it decides every refusal before it
+    mutates anything, which is what lets a refused line leave nothing behind
+    without a SAVEPOINT to roll back.
+    """
+    build = _require_build(db, build_id)
+
+    def work() -> AllocateBatchResponse:
+        seen_keys: set[str] = set()
+        results = [
+            _apply_allocate_line(db, build, request, line, index, seen_keys)
+            for index, line in enumerate(request.lines)
+        ]
+        applied = sum(1 for result in results if result.applied)
+        return AllocateBatchResponse(
+            applied_count=applied, failed_count=len(results) - applied, results=results
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="builds.allocate_batch",
+        payload=request,
+        response_model=AllocateBatchResponse,
+        work=work,
+    )
+
+
+def _apply_allocate_line(
+    db: Session,
+    build: ProjectBuild,
+    request: AllocateBatchRequest,
+    line: AllocateLine,
+    index: int,
+    seen_keys: set[str],
+) -> AllocateLineResult:
+    """One hold, never raising.
+
+    No SAVEPOINT: `reserve` performs every check before it touches the allocation
+    or the reserved cache, so a refusal has nothing to undo — and under pysqlite a
+    released SAVEPOINT commits, which would break the enclosing `run`'s single
+    transaction rather than protect it.
+    """
+
+    def refused(reason: str, message: str) -> AllocateLineResult:
+        return AllocateLineResult(
+            index=index,
+            client_line_id=line.client_line_id,
+            applied=False,
+            reason=reason,
+            message=message,
+        )
+
+    if line.client_op_id is not None:
+        if line.client_op_id in seen_keys:
+            return refused(
+                "duplicate_client_op_id",
+                f"client_op_id {line.client_op_id} appears on more than one line",
+            )
+        seen_keys.add(line.client_op_id)
+
+    try:
+        stored = idempotency.replay_line(
+            db,
+            client_op_id=line.client_op_id,
+            endpoint=_allocate_line_endpoint(build.id),
+            payload=line,
+            response_model=AllocateLineResult,
+        )
+    except idempotency.LineIdempotencyError as error:
+        return refused(error.reason, str(error))
+    if stored is not None:
+        return stored.model_copy(update={"index": index})
+
+    try:
+        lot = db.get(StockLot, line.lot_id)
+        if lot is None:
+            raise LineRefused(f"no stock lot with id {line.lot_id}", reason="unknown_lot")
+        bom_line = None
+        if line.bom_line_id is not None:
+            bom_line = db.get(BomLine, line.bom_line_id)
+            if bom_line is None:
+                raise LineRefused(
+                    f"no bom line with id {line.bom_line_id}", reason="unknown_bom_line"
+                )
+        allocation = reserve(
+            db,
+            build,
+            lot,
+            line.qty_milli,
+            bom_line=bom_line,
+            part_id=line.part_id,
+            note=line.note,
+            allow_overcommit=line.allow_overcommit,
+        )
+    except LineRefused as error:
+        return refused(error.reason, str(error))
+    except ReservationError as error:
+        return refused(error.reason, str(error))
+
+    result = AllocateLineResult(
+        index=index,
+        client_line_id=line.client_line_id,
+        applied=True,
+        allocation=_allocation_read(allocation),
+        lot_id=lot.id,
+        available_milli=available(lot),
+    )
+    idempotency.record_line(
+        db,
+        client_op_id=line.client_op_id,
+        device_id=request.device_id,
+        endpoint=_allocate_line_endpoint(build.id),
+        payload=line,
+        result=result,
+    )
+    return result
 
 
 @builds_router.post("/{build_id}/release", response_model=ReleaseResponse)
