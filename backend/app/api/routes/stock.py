@@ -627,10 +627,12 @@ def batch_movements(
     did in order to protect the twentieth, and 4xx-ing it would leave the client
     unable to say which row to fix.
 
-    Every row still goes through `app.services.ledger`, one `SAVEPOINT` per
-    line, all under the single `commit()` `idempotency.run` owns. Both keys
-    matter: the batch key makes a whole resubmission a no-op, and the per-line
-    keys make a *partial* resubmission one — see `idempotency.replay_line`.
+    Every row still goes through `app.services.ledger`, all of them under the
+    single `commit()` `idempotency.run` owns — a refused line needs no rollback
+    because nothing is mutated until it has passed (see `_apply_movement_line`).
+    Both keys matter: the batch key makes a whole resubmission a no-op, and the
+    per-line keys make a *partial* resubmission one — see
+    `idempotency.replay_line`.
     """
     location = None if request.location_id is None else _require_location(db, request.location_id)
 
@@ -672,10 +674,12 @@ def _apply_movement_line(
     """One line, never raising.
 
     No SAVEPOINT, deliberately: every refusal is decided *before* anything is
-    mutated — `_resolve_line_lot` only reads, and `ledger.consume` /
-    `ledger.return_to_stock` validate before they post — so a refused line has
-    nothing to roll back. It could not use one anyway: under pysqlite, releasing
-    the outermost SAVEPOINT commits, which would split the enclosing `run`'s
+    mutated, so a refused line has nothing to roll back. `_resolve_line_lot`
+    only reads, except on the one path that may create an empty lot for a return
+    — and past that point the only remaining step is `ledger.return_to_stock`,
+    whose sole refusal is a non-positive quantity that `QtyMilli` has already
+    made impossible. A SAVEPOINT could not be used here anyway: under pysqlite,
+    releasing the outermost one commits, which would split the enclosing `run`'s
     single transaction instead of protecting it.
     """
 
