@@ -23,6 +23,7 @@ from app.models.enums import (
     ChildLayout,
     ChildView,
     ContainerGlyph,
+    PlanShapeKind,
     SizeClass,
     SlotLabelScheme,
 )
@@ -302,6 +303,54 @@ class Location(Base, TreeMixin, TimestampMixin):
     last_verified_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     last_printed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
 
+    # --- ADR 0009: where this container stands in its parent's floor plan -----
+    #
+    # `row_idx`/`col_idx` above are cells on a parent's slot *canvas*. A room has
+    # no canvas — ADR 0006's `floor_plan` has "no empty positions, because a
+    # space has none" — so a placement is a coordinate, in millimetres, and
+    # nothing about it is a slot.
+    #
+    # **All of it is nullable, and NULL is a real state**: a container that was
+    # added to a room but never dragged anywhere is *unplaced*, and must render
+    # as such. Defaulting to (0, 0) would put every new box in the same corner
+    # and look authored.
+
+    #: **Which parent this coordinate was authored against.** Redundant against
+    #: `parent_id` on purpose, and the redundancy *is* the feature: a coordinate
+    #: is meaningless in another room, so a placement counts as valid only while
+    #: `plan_parent_id == parent_id`. That makes a reparent invalidate the
+    #: placement by construction, through any code path — a move endpoint, a
+    #: bulk import, a hand-written `UPDATE` — rather than only through the ones
+    #: that remembered to clear it. `app.services.room_plan.placement_of()` is
+    #: the single reader of that rule.
+    #:
+    #: **A plain `Integer`, deliberately not a `ForeignKey`.** Two reasons, and
+    #: they agree. Practically, SQLite cannot add a foreign key to an existing
+    #: table without rebuilding it, and rebuilding `locations` is exactly what
+    #: `20260729_0930_c31b7a5e9d04`'s downgrade note says fails: batch mode
+    #: renames the table and SQLite re-parses every trigger on it mid-rename,
+    #: against `trg_stock_ledger_dirty_occupancy`. Semantically, this is a
+    #: *witness* and not a reference — "the coordinates below were authored while
+    #: my parent was N" — so a value pointing at a deleted row is not a broken
+    #: link, it is precisely the stale placement this column exists to detect.
+    #: `object_ids.entity_pk` is the same shape for a related reason.
+    plan_parent_id: Mapped[int | None] = mapped_column(Integer)
+    #: Position of the footprint's top-left corner, in the parent's own
+    #: millimetre coordinates. Signed: the origin is wherever the person drawing
+    #: put it, and demanding it be a corner of the room would make the first
+    #: wall they drew the wrong one.
+    plan_x_mm: Mapped[int | None] = mapped_column(Integer)
+    plan_y_mm: Mapped[int | None] = mapped_column(Integer)
+    #: Clockwise degrees, 0-359. Integer because a cabinet stands square, at
+    #: forty-five degrees across a corner, or it does not matter.
+    plan_rotation_deg: Mapped[int | None] = mapped_column(Integer)
+    #: The footprint **as drawn**, overriding whatever the container type's
+    #: physical dimensions imply. NULL means "use the type's", which is the
+    #: common case; these exist because the type says a Raaco is 306 mm wide and
+    #: the shelf it is bolted to is not in the type library.
+    plan_width_mm: Mapped[int | None] = mapped_column(Integer)
+    plan_depth_mm: Mapped[int | None] = mapped_column(Integer)
+
     __table_args__ = (
         # Two drawers cannot share a slot label within one cabinet. Partial,
         # because standalone containers have no slot label at all.
@@ -393,3 +442,74 @@ class LocationOccupancy(Base):
         Boolean, nullable=False, default=True, server_default="1", index=True
     )
     computed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
+
+class LocationPlanShape(Base, TimestampMixin):
+    """One drawn line on a location's floor plan — a wall, a door, a bench.
+
+    **A drawn wall is not a location** (ADR 0009). It has no `short_id`, holds
+    no stock, appears in no tree and resolves from no scan, so it lives here
+    rather than becoming a `locations` row with a `PlanShapeKind` on it. The
+    alternative considered and rejected was a polygon column on `locations`
+    itself, which conflates "the room I am" with "the furniture I contain" and
+    can express only one shape per room.
+
+    Geometry is an ordered list of `LocationPlanShapePoint` rows, in the
+    location's own millimetre coordinates — **not** an SVG path string, a WKT
+    blob or a JSON array. Integers in a small table are queryable, diffable in a
+    migration, and need no parser on either side; a blob needs one on both, and
+    the first bug in it is silent.
+    """
+
+    __tablename__ = "location_plan_shapes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: `CASCADE`, unlike almost every other reference to `locations` in this
+    #: schema, which is `RESTRICT`. The reason those are `RESTRICT` is that
+    #: deleting a cabinet must never silently take its drawers and their contents
+    #: with it. A drawing of a wall has no contents: if the room is gone, so is
+    #: its floor plan, and refusing to delete a room because somebody once drew a
+    #: door on it would be absurd.
+    location_id: Mapped[int] = mapped_column(
+        ForeignKey("locations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(StrEnumType(PlanShapeKind), nullable=False)
+    #: "north wall", "door to hallway". Free text, for the person drawing.
+    label: Mapped[str | None] = mapped_column(String(255))
+    #: Whether the last point joins back to the first. An outline and a zone are
+    #: closed; a wall run and a door are not.
+    is_closed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    #: Stroke width in millimetres — a 100 mm stud wall is not a hairline. NULL
+    #: means the renderer picks a nominal width for the kind, which is honest:
+    #: nobody measures the thickness of a door swing.
+    thickness_mm: Mapped[int | None] = mapped_column(Integer)
+    #: Draw order, low first. Not a z-index with meaning; just "this hatching
+    #: goes under that wall".
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    __table_args__ = (Index("ix_plan_shapes_location_sort", "location_id", "sort_order"),)
+
+
+class LocationPlanShapePoint(Base):
+    """One vertex of a `LocationPlanShape`, in the location's own millimetres.
+
+    A row per point rather than a coordinate blob, for the same reason
+    `parameter_value` is rows rather than a JSON bag: the smallest thing that
+    can be wrong should be the smallest thing that can be inspected. There is no
+    spatial index and no geometry library — a room holds tens of vertices, and
+    every question asked of them so far ("draw this") reads all of them.
+    """
+
+    __tablename__ = "location_plan_shape_points"
+
+    shape_id: Mapped[int] = mapped_column(
+        ForeignKey("location_plan_shapes.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: 0-based position in the polyline. Part of the primary key, so the order is
+    #: stored rather than inferred from insertion — which `ORDER BY rowid` would
+    #: be, and which a re-authored shape would quietly scramble.
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    x_mm: Mapped[int] = mapped_column(Integer, nullable=False)
+    y_mm: Mapped[int] = mapped_column(Integer, nullable=False)

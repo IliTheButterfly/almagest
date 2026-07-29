@@ -6075,6 +6075,16 @@
               }
             ]
           },
+          "placement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlacementRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "short_id": {
             "anyOf": [
               {
@@ -6130,6 +6140,7 @@
           "effective_photo",
           "is_overfull",
           "is_staging",
+          "placement",
           "access_score",
           "tare_mg",
           "short_id",
@@ -8455,6 +8466,306 @@
         "title": "PickTakeRead",
         "type": "object"
       },
+      "PlacementIn": {
+        "description": "Drop one child at a coordinate in this room.",
+        "properties": {
+          "depth_mm": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Depth Mm"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "rotation_deg": {
+            "default": 0,
+            "maximum": 359.0,
+            "minimum": 0.0,
+            "title": "Rotation Deg",
+            "type": "integer"
+          },
+          "width_mm": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The footprint as drawn, overriding the container type's physical size. Null takes the type's, which is the common case.",
+            "title": "Width Mm"
+          },
+          "x_mm": {
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "X Mm",
+            "type": "integer"
+          },
+          "y_mm": {
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Y Mm",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "x_mm",
+          "y_mm"
+        ],
+        "title": "PlacementIn",
+        "type": "object"
+      },
+      "PlacementRead": {
+        "properties": {
+          "depth_mm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Depth Mm"
+          },
+          "location_id": {
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "integer"
+          },
+          "rotation_deg": {
+            "title": "Rotation Deg",
+            "type": "integer"
+          },
+          "width_mm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width Mm"
+          },
+          "x_mm": {
+            "title": "X Mm",
+            "type": "integer"
+          },
+          "y_mm": {
+            "title": "Y Mm",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "parent_id",
+          "x_mm",
+          "y_mm",
+          "rotation_deg",
+          "width_mm",
+          "depth_mm"
+        ],
+        "title": "PlacementRead",
+        "type": "object"
+      },
+      "PlanExtentRead": {
+        "description": "Bounding box of everything drawn and placed. Derived, never stored.",
+        "properties": {
+          "max_x_mm": {
+            "title": "Max X Mm",
+            "type": "integer"
+          },
+          "max_y_mm": {
+            "title": "Max Y Mm",
+            "type": "integer"
+          },
+          "min_x_mm": {
+            "title": "Min X Mm",
+            "type": "integer"
+          },
+          "min_y_mm": {
+            "title": "Min Y Mm",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "min_x_mm",
+          "min_y_mm",
+          "max_x_mm",
+          "max_y_mm"
+        ],
+        "title": "PlanExtentRead",
+        "type": "object"
+      },
+      "PlanPoint": {
+        "description": "One vertex, in the room's own millimetres. Signed \u2014 see `PlanCoordMm`.",
+        "properties": {
+          "x_mm": {
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "X Mm",
+            "type": "integer"
+          },
+          "y_mm": {
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Y Mm",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x_mm",
+          "y_mm"
+        ],
+        "title": "PlanPoint",
+        "type": "object"
+      },
+      "PlanShapeIn": {
+        "description": "One drawn line as the editor sends it: a wall, a door, the bench.\n\n**No `id`.** The whole plan is replaced on every save, so the client never\nholds shape ids and redrawing a wall is not a diff. See\n`app.services.room_plan.replace_shapes`.",
+        "properties": {
+          "is_closed": {
+            "default": false,
+            "title": "Is Closed",
+            "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PlanShapeKind"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/PlanPoint"
+            },
+            "maxItems": 200,
+            "minItems": 2,
+            "title": "Points",
+            "type": "array"
+          },
+          "thickness_mm": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stroke width \u2014 a 100 mm stud wall is not a hairline. Null lets the renderer pick a nominal width for the kind, which is honest: nobody measures the thickness of a door swing.",
+            "title": "Thickness Mm"
+          }
+        },
+        "required": [
+          "kind",
+          "points"
+        ],
+        "title": "PlanShapeIn",
+        "type": "object"
+      },
+      "PlanShapeKind": {
+        "description": "What one drawn line on a room's floor plan *is* \u2014 ADR 0009.\n\nEvery member is a polyline in the room's own millimetre coordinates, and the\nkind changes only how it is drawn and what it means to a human. **None of\nthem is a `location`**: a wall holds no stock, gets no `short_id`, never\nappears in the tree, and must never be findable by a scan. That is the whole\nreason `location_plan_shapes` is its own table rather than a polygon column\non `locations` \u2014 the moment a drawn wall became a location row, the tree\nwould contain furniture nobody can put anything in.\n\nAdding a member here is one line and a branch in the renderer, because the\ncolumn is a plain `VARCHAR` with no `CHECK`.",
+        "enum": [
+          "outline",
+          "wall",
+          "door",
+          "window",
+          "fixture",
+          "zone"
+        ],
+        "title": "PlanShapeKind",
+        "type": "string"
+      },
+      "PlanShapeRead": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_closed": {
+            "title": "Is Closed",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/PlanPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "thickness_mm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thickness Mm"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "points",
+          "label",
+          "is_closed",
+          "thickness_mm",
+          "sort_order"
+        ],
+        "title": "PlanShapeRead",
+        "type": "object"
+      },
       "ProjectCreate": {
         "properties": {
           "client_op_id": {
@@ -9912,6 +10223,239 @@
           "label"
         ],
         "title": "ResolvedTarget",
+        "type": "object"
+      },
+      "RoomPlacementsResponse": {
+        "properties": {
+          "extent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanExtentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "placements": {
+            "items": {
+              "$ref": "#/components/schemas/PlacementRead"
+            },
+            "title": "Placements",
+            "type": "array"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "unplaced_location_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Unplaced Location Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "location_id",
+          "placements",
+          "unplaced_location_ids",
+          "extent"
+        ],
+        "title": "RoomPlacementsResponse",
+        "type": "object"
+      },
+      "RoomPlacementsUpdate": {
+        "description": "Save where several children now stand, in **one** request.\n\nDragging five cabinets around and then saving is one write. Per-placement\nroutes would make a five-box rearrangement five requests that can partially\nfail, leaving the room in a state nobody authored.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "placements": {
+            "items": {
+              "$ref": "#/components/schemas/PlacementIn"
+            },
+            "maxItems": 500,
+            "title": "Placements",
+            "type": "array"
+          },
+          "unplace_location_ids": {
+            "items": {
+              "maximum": 9.223372036854776e+18,
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxItems": 500,
+            "title": "Unplace Location Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "placements"
+        ],
+        "title": "RoomPlacementsUpdate",
+        "type": "object"
+      },
+      "RoomPlanRead": {
+        "description": "One room's drawing: its outline, its furniture, and where things stand.\n\nThe floor-plan counterpart of `LayoutRead`, and deliberately a separate\nroute from it: a slot canvas and a drawn room are different pictures with no\nshared field, and merging them would give every client a response where half\nthe shape is always null.",
+        "properties": {
+          "extent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanExtentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "placements": {
+            "items": {
+              "$ref": "#/components/schemas/PlacementRead"
+            },
+            "title": "Placements",
+            "type": "array"
+          },
+          "shapes": {
+            "items": {
+              "$ref": "#/components/schemas/PlanShapeRead"
+            },
+            "title": "Shapes",
+            "type": "array"
+          },
+          "unplaced_location_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Unplaced Location Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "location_id",
+          "shapes",
+          "placements",
+          "unplaced_location_ids",
+          "extent"
+        ],
+        "title": "RoomPlanRead",
+        "type": "object"
+      },
+      "RoomPlanShapesResponse": {
+        "properties": {
+          "extent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanExtentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "shapes": {
+            "items": {
+              "$ref": "#/components/schemas/PlanShapeRead"
+            },
+            "title": "Shapes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "location_id",
+          "shapes",
+          "extent"
+        ],
+        "title": "RoomPlanShapesResponse",
+        "type": "object"
+      },
+      "RoomPlanShapesUpdate": {
+        "description": "Replace this location's entire drawn plan.\n\n**One request for the whole drawing**, not a shape at a time: a drawing\nsession ends with \"this is the room now\", and a stream of inserts and deletes\nwhose order matters cannot half-apply safely.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "shapes": {
+            "items": {
+              "$ref": "#/components/schemas/PlanShapeIn"
+            },
+            "maxItems": 500,
+            "title": "Shapes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "shapes"
+        ],
+        "title": "RoomPlanShapesUpdate",
         "type": "object"
       },
       "RosterEntryRead": {
@@ -15668,6 +16212,161 @@
           }
         },
         "summary": "Read Location Layout",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/plan": {
+      "get": {
+        "description": "This location's drawn room \u2014 outline, furniture, and where things stand.\n\nThe floor-plan sibling of `GET /{id}/layout`, which answers the *slot canvas*\nquestion. Two routes rather than one because a room and a grid are different\npictures sharing no field; a merged response would be half null for everyone.\n\n**Never a 404 for an undrawn room.** A location with nothing drawn and nothing\nplaced answers with empty lists and a null `extent`, which is what the editor\nneeds in order to be the thing you draw the first wall in.",
+        "operationId": "read_location_plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomPlanRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Location Plan",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/plan/placements": {
+      "put": {
+        "description": "Save where several children now stand, in **one** request.\n\nDragging five cabinets around the room and then saving is one write. Per-child\nroutes would make that five requests that can partially fail, leaving a room\nin a state nobody authored.\n\nEvery id must be a current child of this location \u2014 a coordinate authored\nagainst one room is meaningless in another, so placing something that is not\nin the room is a 422 rather than a coordinate that would be ignored on read\nanyway. Ids sent in both `placements` and `unplace_location_ids` are the same\nrefusal: the request contradicts itself, and guessing which half was meant is\nhow a drag gets silently discarded.",
+        "operationId": "set_location_plan_placements",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomPlacementsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomPlacementsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Location Plan Placements",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/plan/shapes": {
+      "put": {
+        "description": "Replace this location's drawn plan \u2014 walls, doors, benches \u2014 in one write.\n\n**A drawn wall is not a location** (ADR 0009): it gets no `short_id`, holds no\nstock and never appears in the tree, so nothing here touches `locations`.\nSending an empty list erases the drawing, which is a real edit rather than an\nomission \u2014 same convention as clearing a `child_view` override.\n\nNothing is validated against the location's `child_view`. Drawing a room on a\ncontainer that renders as a cabinet face is allowed and simply unused, for the\nreason ADR 0006 gives: refusing would be the editor overruling the person\nholding the furniture.",
+        "operationId": "set_location_plan_shapes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoomPlanShapesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoomPlanShapesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Location Plan Shapes",
         "tags": [
           "locations"
         ]

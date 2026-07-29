@@ -1173,6 +1173,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/locations/{location_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Location Plan
+         * @description This location's drawn room — outline, furniture, and where things stand.
+         *
+         *     The floor-plan sibling of `GET /{id}/layout`, which answers the *slot canvas*
+         *     question. Two routes rather than one because a room and a grid are different
+         *     pictures sharing no field; a merged response would be half null for everyone.
+         *
+         *     **Never a 404 for an undrawn room.** A location with nothing drawn and nothing
+         *     placed answers with empty lists and a null `extent`, which is what the editor
+         *     needs in order to be the thing you draw the first wall in.
+         */
+        get: operations["read_location_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/plan/placements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Location Plan Placements
+         * @description Save where several children now stand, in **one** request.
+         *
+         *     Dragging five cabinets around the room and then saving is one write. Per-child
+         *     routes would make that five requests that can partially fail, leaving a room
+         *     in a state nobody authored.
+         *
+         *     Every id must be a current child of this location — a coordinate authored
+         *     against one room is meaningless in another, so placing something that is not
+         *     in the room is a 422 rather than a coordinate that would be ignored on read
+         *     anyway. Ids sent in both `placements` and `unplace_location_ids` are the same
+         *     refusal: the request contradicts itself, and guessing which half was meant is
+         *     how a drag gets silently discarded.
+         */
+        put: operations["set_location_plan_placements"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/plan/shapes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Location Plan Shapes
+         * @description Replace this location's drawn plan — walls, doors, benches — in one write.
+         *
+         *     **A drawn wall is not a location** (ADR 0009): it gets no `short_id`, holds no
+         *     stock and never appears in the tree, so nothing here touches `locations`.
+         *     Sending an empty list erases the drawing, which is a real edit rather than an
+         *     omission — same convention as clearing a `child_view` override.
+         *
+         *     Nothing is validated against the location's `child_view`. Drawing a room on a
+         *     container that renders as a cabinet face is allowed and simply unused, for the
+         *     reason ADR 0006 gives: refusing would be the editor overruling the person
+         *     holding the furniture.
+         */
+        put: operations["set_location_plan_shapes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/locations/{location_id}/provisioning-sessions": {
         parameters: {
             query?: never;
@@ -4365,6 +4454,7 @@ export interface components {
             /** Parent Id */
             parent_id: number | null;
             photo: components["schemas"]["DocumentRead"] | null;
+            placement: components["schemas"]["PlacementRead"] | null;
             /** Short Id */
             short_id: string | null;
             /** Slot Label */
@@ -5013,6 +5103,130 @@ export interface components {
             /** Whole Lot */
             whole_lot: boolean;
         };
+        /**
+         * PlacementIn
+         * @description Drop one child at a coordinate in this room.
+         */
+        PlacementIn: {
+            /** Depth Mm */
+            depth_mm?: number | null;
+            /** Location Id */
+            location_id: number;
+            /**
+             * Rotation Deg
+             * @default 0
+             */
+            rotation_deg?: number;
+            /**
+             * Width Mm
+             * @description The footprint as drawn, overriding the container type's physical size. Null takes the type's, which is the common case.
+             */
+            width_mm?: number | null;
+            /** X Mm */
+            x_mm: number;
+            /** Y Mm */
+            y_mm: number;
+        };
+        /** PlacementRead */
+        PlacementRead: {
+            /** Depth Mm */
+            depth_mm: number | null;
+            /** Location Id */
+            location_id: number;
+            /** Parent Id */
+            parent_id: number;
+            /** Rotation Deg */
+            rotation_deg: number;
+            /** Width Mm */
+            width_mm: number | null;
+            /** X Mm */
+            x_mm: number;
+            /** Y Mm */
+            y_mm: number;
+        };
+        /**
+         * PlanExtentRead
+         * @description Bounding box of everything drawn and placed. Derived, never stored.
+         */
+        PlanExtentRead: {
+            /** Max X Mm */
+            max_x_mm: number;
+            /** Max Y Mm */
+            max_y_mm: number;
+            /** Min X Mm */
+            min_x_mm: number;
+            /** Min Y Mm */
+            min_y_mm: number;
+        };
+        /**
+         * PlanPoint
+         * @description One vertex, in the room's own millimetres. Signed — see `PlanCoordMm`.
+         */
+        PlanPoint: {
+            /** X Mm */
+            x_mm: number;
+            /** Y Mm */
+            y_mm: number;
+        };
+        /**
+         * PlanShapeIn
+         * @description One drawn line as the editor sends it: a wall, a door, the bench.
+         *
+         *     **No `id`.** The whole plan is replaced on every save, so the client never
+         *     holds shape ids and redrawing a wall is not a diff. See
+         *     `app.services.room_plan.replace_shapes`.
+         */
+        PlanShapeIn: {
+            /**
+             * Is Closed
+             * @default false
+             */
+            is_closed?: boolean;
+            kind: components["schemas"]["PlanShapeKind"];
+            /** Label */
+            label?: string | null;
+            /** Points */
+            points: components["schemas"]["PlanPoint"][];
+            /**
+             * Thickness Mm
+             * @description Stroke width — a 100 mm stud wall is not a hairline. Null lets the renderer pick a nominal width for the kind, which is honest: nobody measures the thickness of a door swing.
+             */
+            thickness_mm?: number | null;
+        };
+        /**
+         * PlanShapeKind
+         * @description What one drawn line on a room's floor plan *is* — ADR 0009.
+         *
+         *     Every member is a polyline in the room's own millimetre coordinates, and the
+         *     kind changes only how it is drawn and what it means to a human. **None of
+         *     them is a `location`**: a wall holds no stock, gets no `short_id`, never
+         *     appears in the tree, and must never be findable by a scan. That is the whole
+         *     reason `location_plan_shapes` is its own table rather than a polygon column
+         *     on `locations` — the moment a drawn wall became a location row, the tree
+         *     would contain furniture nobody can put anything in.
+         *
+         *     Adding a member here is one line and a branch in the renderer, because the
+         *     column is a plain `VARCHAR` with no `CHECK`.
+         * @enum {string}
+         */
+        PlanShapeKind: "outline" | "wall" | "door" | "window" | "fixture" | "zone";
+        /** PlanShapeRead */
+        PlanShapeRead: {
+            /** Id */
+            id: number;
+            /** Is Closed */
+            is_closed: boolean;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string | null;
+            /** Points */
+            points: components["schemas"]["PlanPoint"][];
+            /** Sort Order */
+            sort_order: number;
+            /** Thickness Mm */
+            thickness_mm: number | null;
+        };
         /** ProjectCreate */
         ProjectCreate: {
             /** Client Op Id */
@@ -5492,6 +5706,90 @@ export interface components {
             label_path?: string | null;
             /** Short Id */
             short_id: string;
+        };
+        /** RoomPlacementsResponse */
+        RoomPlacementsResponse: {
+            extent: components["schemas"]["PlanExtentRead"] | null;
+            /** Location Id */
+            location_id: number;
+            /** Placements */
+            placements: components["schemas"]["PlacementRead"][];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Unplaced Location Ids */
+            unplaced_location_ids: number[];
+        };
+        /**
+         * RoomPlacementsUpdate
+         * @description Save where several children now stand, in **one** request.
+         *
+         *     Dragging five cabinets around and then saving is one write. Per-placement
+         *     routes would make a five-box rearrangement five requests that can partially
+         *     fail, leaving the room in a state nobody authored.
+         */
+        RoomPlacementsUpdate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Placements */
+            placements: components["schemas"]["PlacementIn"][];
+            /** Unplace Location Ids */
+            unplace_location_ids?: number[];
+        };
+        /**
+         * RoomPlanRead
+         * @description One room's drawing: its outline, its furniture, and where things stand.
+         *
+         *     The floor-plan counterpart of `LayoutRead`, and deliberately a separate
+         *     route from it: a slot canvas and a drawn room are different pictures with no
+         *     shared field, and merging them would give every client a response where half
+         *     the shape is always null.
+         */
+        RoomPlanRead: {
+            extent: components["schemas"]["PlanExtentRead"] | null;
+            /** Location Id */
+            location_id: number;
+            /** Placements */
+            placements: components["schemas"]["PlacementRead"][];
+            /** Shapes */
+            shapes: components["schemas"]["PlanShapeRead"][];
+            /** Unplaced Location Ids */
+            unplaced_location_ids: number[];
+        };
+        /** RoomPlanShapesResponse */
+        RoomPlanShapesResponse: {
+            extent: components["schemas"]["PlanExtentRead"] | null;
+            /** Location Id */
+            location_id: number;
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /** Shapes */
+            shapes: components["schemas"]["PlanShapeRead"][];
+        };
+        /**
+         * RoomPlanShapesUpdate
+         * @description Replace this location's entire drawn plan.
+         *
+         *     **One request for the whole drawing**, not a shape at a time: a drawing
+         *     session ends with "this is the room now", and a stream of inserts and deletes
+         *     whose order matters cannot half-apply safely.
+         */
+        RoomPlanShapesUpdate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Shapes */
+            shapes: components["schemas"]["PlanShapeIn"][];
         };
         /**
          * RosterEntryRead
@@ -8310,6 +8608,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LayoutRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_location_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomPlanRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_location_plan_placements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomPlacementsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomPlacementsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_location_plan_shapes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomPlanShapesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomPlanShapesResponse"];
                 };
             };
             /** @description Validation Error */

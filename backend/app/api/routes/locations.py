@@ -23,16 +23,34 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
-from app.api.limits import InstanceCount, MassMg, RowId
+from app.api.limits import (
+    PLAN_MAX_PLACEMENTS,
+    PLAN_MAX_POINTS,
+    PLAN_MAX_SHAPES,
+    PLAN_MIN_POINTS,
+    InstanceCount,
+    MassMg,
+    PlanCoordMm,
+    PlanExtentMm,
+    PlanRotationDeg,
+    RowId,
+)
 from app.api.routes.documents import DocumentRead, primary_photo
 from app.api.schemas import LotRead, ReplayableResponse, SlotSpecIn, lot_read
 from app.db.session import get_db
 from app.models.catalog import Packaging, Part
-from app.models.enums import CapacityModel, ChildView, ContainerGlyph, EntityType, TagGranularity
+from app.models.enums import (
+    CapacityModel,
+    ChildView,
+    ContainerGlyph,
+    EntityType,
+    PlanShapeKind,
+    TagGranularity,
+)
 from app.models.identity import ObjectId
 from app.models.stock import StockLot
 from app.models.storage import ContainerType, Location, LocationOccupancy, LocationTag
-from app.services import assignment, capacity, glyphs, shortid, views
+from app.services import assignment, capacity, glyphs, room_plan, shortid, views
 from app.services import layout_authoring as layout
 from app.services.assignment import AssignmentResult
 from app.services.capacity import DefragPlan
@@ -67,6 +85,157 @@ class CapacityRead(BaseModel):
     is_full: bool
     is_overfull: bool
     unit: str
+
+
+# --- ADR 0009: drawn rooms and placed containers ---------------------------
+
+
+class PlanPoint(BaseModel):
+    """One vertex, in the room's own millimetres. Signed — see `PlanCoordMm`."""
+
+    x_mm: PlanCoordMm
+    y_mm: PlanCoordMm
+
+
+class PlanShapeIn(BaseModel):
+    """One drawn line as the editor sends it: a wall, a door, the bench.
+
+    **No `id`.** The whole plan is replaced on every save, so the client never
+    holds shape ids and redrawing a wall is not a diff. See
+    `app.services.room_plan.replace_shapes`.
+    """
+
+    kind: PlanShapeKind
+    points: list[PlanPoint] = Field(min_length=PLAN_MIN_POINTS, max_length=PLAN_MAX_POINTS)
+    label: str | None = Field(default=None, max_length=255)
+    is_closed: bool = False
+    thickness_mm: PlanExtentMm | None = Field(
+        default=None,
+        description=(
+            "Stroke width — a 100 mm stud wall is not a hairline. Null lets the "
+            "renderer pick a nominal width for the kind, which is honest: nobody "
+            "measures the thickness of a door swing."
+        ),
+    )
+
+
+class PlanShapeRead(BaseModel):
+    #: Assigned on save and **not stable across saves**, because a save replaces
+    #: the plan. Nothing references it: it is not a `short_id`, it is never
+    #: printed, and no tag carries one.
+    id: int
+    kind: str
+    points: list[PlanPoint]
+    label: str | None
+    is_closed: bool
+    thickness_mm: int | None
+    sort_order: int
+
+
+class PlacementIn(BaseModel):
+    """Drop one child at a coordinate in this room."""
+
+    location_id: RowId
+    x_mm: PlanCoordMm
+    y_mm: PlanCoordMm
+    rotation_deg: PlanRotationDeg = 0
+    width_mm: PlanExtentMm | None = Field(
+        default=None,
+        description=(
+            "The footprint as drawn, overriding the container type's physical "
+            "size. Null takes the type's, which is the common case."
+        ),
+    )
+    depth_mm: PlanExtentMm | None = None
+
+
+class PlacementRead(BaseModel):
+    location_id: int
+    #: The parent these coordinates belong to. Always equal to the location's
+    #: current `parent_id` — a placement authored against a different parent is
+    #: not reported at all, it is reported as unplaced (ADR 0009).
+    parent_id: int
+    x_mm: int
+    y_mm: int
+    rotation_deg: int
+    #: The drawn footprint, else the container type's, else null. Null means
+    #: "draw a nominal box" — **never zero**, which would draw nothing.
+    width_mm: int | None
+    depth_mm: int | None
+
+
+class PlanExtentRead(BaseModel):
+    """Bounding box of everything drawn and placed. Derived, never stored."""
+
+    min_x_mm: int
+    min_y_mm: int
+    max_x_mm: int
+    max_y_mm: int
+
+
+class RoomPlanRead(BaseModel):
+    """One room's drawing: its outline, its furniture, and where things stand.
+
+    The floor-plan counterpart of `LayoutRead`, and deliberately a separate
+    route from it: a slot canvas and a drawn room are different pictures with no
+    shared field, and merging them would give every client a response where half
+    the shape is always null.
+    """
+
+    location_id: RowId
+    shapes: list[PlanShapeRead]
+    placements: list[PlacementRead]
+    #: Children with no valid placement — added to the room and never dragged
+    #: anywhere, or dragged in a *different* room and moved here since. A real
+    #: state that the client renders as an unplaced tray, not an error and not a
+    #: container silently sitting at the origin.
+    unplaced_location_ids: list[int]
+    #: Null for a room with nothing drawn and nothing placed. Reportable because
+    #: a default canvas would make the client draw a box that is not there.
+    extent: PlanExtentRead | None
+
+
+class RoomPlanShapesUpdate(BaseModel):
+    """Replace this location's entire drawn plan.
+
+    **One request for the whole drawing**, not a shape at a time: a drawing
+    session ends with "this is the room now", and a stream of inserts and deletes
+    whose order matters cannot half-apply safely.
+    """
+
+    shapes: list[PlanShapeIn] = Field(max_length=PLAN_MAX_SHAPES)
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class RoomPlanShapesResponse(ReplayableResponse):
+    location_id: RowId
+    shapes: list[PlanShapeRead]
+    extent: PlanExtentRead | None
+
+
+class RoomPlacementsUpdate(BaseModel):
+    """Save where several children now stand, in **one** request.
+
+    Dragging five cabinets around and then saving is one write. Per-placement
+    routes would make a five-box rearrangement five requests that can partially
+    fail, leaving the room in a state nobody authored.
+    """
+
+    placements: list[PlacementIn] = Field(max_length=PLAN_MAX_PLACEMENTS)
+    #: Children to return to the unplaced tray. Separate from `placements`
+    #: because "not placed" is a real state and there is no coordinate that
+    #: expresses it — sending (0, 0) would put the box in a corner instead.
+    unplace_location_ids: list[RowId] = Field(default_factory=list, max_length=PLAN_MAX_PLACEMENTS)
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class RoomPlacementsResponse(ReplayableResponse):
+    location_id: RowId
+    placements: list[PlacementRead]
+    unplaced_location_ids: list[int]
+    extent: PlanExtentRead | None
 
 
 class LocationCreate(BaseModel):
@@ -165,6 +334,11 @@ class LocationRead(BaseModel):
     effective_photo: DocumentRead | None
     is_overfull: bool
     is_staging: bool
+    #: Where this container stands in its parent's floor plan (ADR 0009), or null
+    #: — which covers "never dragged anywhere", "moved to another room since it
+    #: was placed", and "this is a root". All three are drawn the same way,
+    #: because the fix for all three is the same gesture.
+    placement: PlacementRead | None
     access_score: float
     tare_mg: int | None
     short_id: str | None
@@ -562,6 +736,66 @@ def _capacity_read(db: Session, location: Location) -> CapacityRead:
     )
 
 
+def _placement_read(placement: room_plan.Placement) -> PlacementRead:
+    return PlacementRead(
+        location_id=placement.location_id,
+        parent_id=placement.parent_id,
+        x_mm=placement.x_mm,
+        y_mm=placement.y_mm,
+        rotation_deg=placement.rotation_deg,
+        width_mm=placement.width_mm,
+        depth_mm=placement.depth_mm,
+    )
+
+
+def _extent_read(extent: room_plan.Extent | None) -> PlanExtentRead | None:
+    if extent is None:
+        return None
+    return PlanExtentRead(
+        min_x_mm=extent.min_x_mm,
+        min_y_mm=extent.min_y_mm,
+        max_x_mm=extent.max_x_mm,
+        max_y_mm=extent.max_y_mm,
+    )
+
+
+def _shape_read(shape: room_plan.Shape) -> PlanShapeRead:
+    return PlanShapeRead(
+        id=shape.id,
+        kind=shape.kind,
+        points=[PlanPoint(x_mm=point.x_mm, y_mm=point.y_mm) for point in shape.points],
+        label=shape.label,
+        is_closed=shape.is_closed,
+        thickness_mm=shape.thickness_mm,
+        sort_order=shape.sort_order,
+    )
+
+
+def _plan_read(db: Session, parent: Location) -> RoomPlanRead:
+    """Everything drawn on, and standing in, one location.
+
+    Placed and unplaced children are split here rather than left to the client,
+    because the split is exactly the `plan_parent_id == parent_id` rule and there
+    must be one implementation of it (`room_plan.placement_of`).
+    """
+    shapes = room_plan.shapes_of(db, parent)
+    placements: list[room_plan.Placement] = []
+    unplaced: list[int] = []
+    for child in room_plan.children_of(db, parent):
+        placement = room_plan.placement_of(db, child)
+        if placement is None:
+            unplaced.append(child.id)
+        else:
+            placements.append(placement)
+    return RoomPlanRead(
+        location_id=parent.id,
+        shapes=[_shape_read(shape) for shape in shapes],
+        placements=[_placement_read(placement) for placement in placements],
+        unplaced_location_ids=unplaced,
+        extent=_extent_read(room_plan.extent(shapes, placements)),
+    )
+
+
 def _read(db: Session, location: Location) -> LocationRead:
     entity = describe(db, EntityType.LOCATION, location.id)
     container_type = (
@@ -606,6 +840,11 @@ def _read(db: Session, location: Location) -> LocationRead:
         effective_photo=own_photo if own_photo is not None else type_photo,
         is_overfull=location.is_overfull,
         is_staging=location.is_staging,
+        placement=(
+            _placement_read(placement)
+            if (placement := room_plan.placement_of(db, location)) is not None
+            else None
+        ),
         access_score=location.access_score,
         tare_mg=location.tare_mg,
         short_id=entity.short_id,
@@ -1108,6 +1347,167 @@ def read_location_layout(location_id: RowId, db: Session = Depends(get_db)) -> L
     """Grid + tag + contents state for one location's own children — shared by
     the editor, the provisioning walk and the verification walk."""
     return _layout_read(db, _require_location(db, location_id))
+
+
+@router.get("/{location_id}/plan", response_model=RoomPlanRead)
+def read_location_plan(location_id: RowId, db: Session = Depends(get_db)) -> RoomPlanRead:
+    """This location's drawn room — outline, furniture, and where things stand.
+
+    The floor-plan sibling of `GET /{id}/layout`, which answers the *slot canvas*
+    question. Two routes rather than one because a room and a grid are different
+    pictures sharing no field; a merged response would be half null for everyone.
+
+    **Never a 404 for an undrawn room.** A location with nothing drawn and nothing
+    placed answers with empty lists and a null `extent`, which is what the editor
+    needs in order to be the thing you draw the first wall in.
+    """
+    return _plan_read(db, _require_location(db, location_id))
+
+
+@router.put("/{location_id}/plan/shapes", response_model=RoomPlanShapesResponse)
+def set_location_plan_shapes(
+    location_id: RowId, request: RoomPlanShapesUpdate, db: Session = Depends(get_db)
+) -> RoomPlanShapesResponse:
+    """Replace this location's drawn plan — walls, doors, benches — in one write.
+
+    **A drawn wall is not a location** (ADR 0009): it gets no `short_id`, holds no
+    stock and never appears in the tree, so nothing here touches `locations`.
+    Sending an empty list erases the drawing, which is a real edit rather than an
+    omission — same convention as clearing a `child_view` override.
+
+    Nothing is validated against the location's `child_view`. Drawing a room on a
+    container that renders as a cabinet face is allowed and simply unused, for the
+    reason ADR 0006 gives: refusing would be the editor overruling the person
+    holding the furniture.
+    """
+    location = _require_location(db, location_id)
+
+    def work() -> RoomPlanShapesResponse:
+        shapes = room_plan.replace_shapes(
+            db,
+            location,
+            [
+                room_plan.ShapeDraft(
+                    kind=shape.kind,
+                    points=[
+                        room_plan.Point(x_mm=point.x_mm, y_mm=point.y_mm) for point in shape.points
+                    ],
+                    label=shape.label,
+                    is_closed=shape.is_closed,
+                    thickness_mm=shape.thickness_mm,
+                )
+                for shape in request.shapes
+            ],
+        )
+        placements = [
+            placement
+            for child in room_plan.children_of(db, location)
+            if (placement := room_plan.placement_of(db, child)) is not None
+        ]
+        return RoomPlanShapesResponse(
+            location_id=location.id,
+            shapes=[_shape_read(shape) for shape in shapes],
+            extent=_extent_read(room_plan.extent(shapes, placements)),
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="PUT /api/locations/{id}/plan/shapes",
+        payload=request,
+        response_model=RoomPlanShapesResponse,
+        work=work,
+    )
+
+
+@router.put("/{location_id}/plan/placements", response_model=RoomPlacementsResponse)
+def set_location_plan_placements(
+    location_id: RowId, request: RoomPlacementsUpdate, db: Session = Depends(get_db)
+) -> RoomPlacementsResponse:
+    """Save where several children now stand, in **one** request.
+
+    Dragging five cabinets around the room and then saving is one write. Per-child
+    routes would make that five requests that can partially fail, leaving a room
+    in a state nobody authored.
+
+    Every id must be a current child of this location — a coordinate authored
+    against one room is meaningless in another, so placing something that is not
+    in the room is a 422 rather than a coordinate that would be ignored on read
+    anyway. Ids sent in both `placements` and `unplace_location_ids` are the same
+    refusal: the request contradicts itself, and guessing which half was meant is
+    how a drag gets silently discarded.
+    """
+    location = _require_location(db, location_id)
+    placed_ids = [item.location_id for item in request.placements]
+    both = sorted(set(placed_ids) & set(request.unplace_location_ids))
+    if both:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "reason": "placed_and_unplaced",
+                "message": (f"these locations are both placed and unplaced in one request: {both}"),
+                "location_ids": both,
+            },
+        )
+    duplicates = sorted({row for row in placed_ids if placed_ids.count(row) > 1})
+    if duplicates:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "reason": "duplicate_placement",
+                "message": f"these locations are placed more than once: {duplicates}",
+                "location_ids": duplicates,
+            },
+        )
+
+    children = {child.id: child for child in room_plan.children_of(db, location)}
+    strangers = sorted(
+        {row for row in [*placed_ids, *request.unplace_location_ids] if row not in children}
+    )
+    if strangers:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "reason": "not_a_child",
+                "message": (
+                    f"these locations are not children of location {location.id}: {strangers}"
+                ),
+                "location_ids": strangers,
+            },
+        )
+
+    def work() -> RoomPlacementsResponse:
+        for item in request.placements:
+            room_plan.place(
+                children[item.location_id],
+                parent_id=location.id,
+                x_mm=item.x_mm,
+                y_mm=item.y_mm,
+                rotation_deg=item.rotation_deg,
+                width_mm=item.width_mm,
+                depth_mm=item.depth_mm,
+            )
+        for stale_id in request.unplace_location_ids:
+            room_plan.forget_placement(children[stale_id])
+        db.flush()
+        plan = _plan_read(db, location)
+        return RoomPlacementsResponse(
+            location_id=location.id,
+            placements=plan.placements,
+            unplaced_location_ids=plan.unplaced_location_ids,
+            extent=plan.extent,
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="PUT /api/locations/{id}/plan/placements",
+        payload=request,
+        response_model=RoomPlacementsResponse,
+        work=work,
+    )
 
 
 @router.put("/{location_id}/child-view", response_model=LocationChildViewResponse)
