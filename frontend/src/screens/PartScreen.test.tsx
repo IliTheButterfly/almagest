@@ -103,6 +103,15 @@ function stubApi(part: Record<string, unknown>): void {
       if (url.pathname === `/api/parts/${String(part["id"])}` && request.method === "GET") {
         return json(part);
       }
+      if (
+        url.pathname === `/api/parts/${String(part["id"])}/documents` &&
+        request.method === "GET"
+      ) {
+        // No datasheet section under test here — `DocumentsPanel.test.tsx`
+        // covers the panel itself. This just keeps `PartScreen`'s own mount
+        // from throwing on an unstubbed request.
+        return json({ part_id: part["id"], links: [] });
+      }
       if (url.pathname === "/api/locations/suggest") {
         return json(SUGGESTION);
       }

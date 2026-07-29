@@ -36,6 +36,26 @@ labels = [
     "pillow>=11.0",
 ]
 
+# Datasheet **extraction**, which per docs/adr/0005-extraction-runs-outside-the-api.md
+# is a separate process with its own image. The API stores blobs, serves them and
+# queries the text index; it never opens a PDF, so it must never install this.
+#
+# That split is the whole reason the extra exists. The API image is rebuilt in CI
+# on every push and the deployment is a single replica on a small RWO volume, so a
+# route that streams a PDF cannot be allowed to drag a parser — let alone Docling's
+# torch and transformers, which are 2-5 GB and are why the pipeline moved out of
+# the API in the first place. **Nothing in this group may ever grow a model
+# runtime**; a heavier extractor belongs in the worker image's own requirements,
+# not here, and the `Extractor` Protocol exists so it can be added without the
+# default install noticing.
+#
+# CI installs it (`uv sync --all-extras`), so a test may import from it — but a
+# test that does is testing extraction, not the store. `tests/integration/
+# test_documents.py` deliberately builds its PDF fixtures by hand instead.
+datasheets = [
+    "pypdf>=5.1",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",

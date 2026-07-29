@@ -102,10 +102,9 @@ def client(engine: Engine) -> Iterator[TestClient]:
 def _isolate_label_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`app.services.labels.render_sheet` writes real PDF/PNG files to
     `Settings.label_output_dir`, which defaults to the repo's own
-    `data/labels` — unlike `datasheet_dir`, which nothing reads yet, this is
-    a settings-derived path real test runs actually write through today.
-    Autouse so a test gains this isolation by writing to the label-printing
-    routes at all, with no per-file fixture to remember.
+    `data/labels` — a settings-derived path real test runs actually write
+    through. Autouse so a test gains this isolation by writing to the
+    label-printing routes at all, with no per-file fixture to remember.
 
     `get_settings()` is a process-wide `lru_cache` singleton, so this mutates
     its one instance in place rather than swapping in a new one — `monkeypatch`
@@ -113,3 +112,19 @@ def _isolate_label_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     plain module attribute.
     """
     monkeypatch.setattr(get_settings(), "label_output_dir", tmp_path / "labels")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_datasheet_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same treatment for the content-addressed document store.
+
+    `app.services.blobstore` reads `Settings.datasheet_dir` at call time for
+    exactly this reason, and it defaults to the repo's own `data/datasheets` —
+    so without this an upload test would write real blobs into the working
+    checkout, and, because the store dedups on content, a fixture stored by one
+    run would make the *next* run's "this upload was new" assertion fail. Test
+    isolation and the store's own no-op-on-duplicate behaviour interact, which
+    is what makes autouse the right scope rather than a fixture each test opts
+    into.
+    """
+    monkeypatch.setattr(get_settings(), "datasheet_dir", tmp_path / "datasheets")

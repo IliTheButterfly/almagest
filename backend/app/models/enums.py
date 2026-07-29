@@ -737,6 +737,109 @@ class AllocationState(StrEnum):
     RELEASED = "released"
 
 
+class DocumentKind(StrEnum):
+    """What a stored file **is**, independent of who points at it.
+
+    One row per file, so this is a property of the bytes: the same PDF cannot be
+    a datasheet and an errata sheet at once. What it is *to* a particular part is
+    `DocumentRole` on the link, and the two are genuinely different questions —
+    a family datasheet is a `DATASHEET` here whether a given part treats it as
+    its authoritative sheet or merely as a reference.
+
+    Not PDF-only, and that is the point: `docs/PLAN.md`'s `count_sessions` sketch
+    already puts tray images in `documents(id)`, so a store that could only hold
+    datasheets would need a second one for Phase 3 to land.
+    """
+
+    DATASHEET = "datasheet"
+    APP_NOTE = "app_note"
+    ERRATA = "errata"
+    #: Mechanical drawing, land pattern, package outline.
+    DRAWING = "drawing"
+    #: A photograph taken here rather than published by a manufacturer: a tray
+    #: under the counting camera, an IC top marking, a bag as it arrived.
+    PHOTO = "photo"
+    OTHER = "other"
+
+
+class DocumentRole(StrEnum):
+    """Why **this** entity points at that document.
+
+    Separate from `DocumentKind` because the relationship is many-to-many and the
+    kind is not: one family PDF covers a hundred MPNs, and it can be the
+    authoritative `DATASHEET` for the twelve parts it actually specifies while
+    being a `REFERENCE` for the pin-compatible one that only appears in its
+    comparison table. There is one `documents` row for that file, so no column on
+    it could express both.
+
+    Exactly one link per (entity, role) is `is_primary` — see
+    `app.services.documents.attach`. That is what `GET /api/parts/{id}/datasheet`
+    redirects to.
+    """
+
+    #: The sheet that specifies this part. What the part detail screen opens and
+    #: what the QR-to-datasheet path lands on.
+    DATASHEET = "datasheet"
+    #: Related and worth keeping to hand, but not the specification: an app note,
+    #: an errata, a footprint drawing.
+    REFERENCE = "reference"
+    #: What the thing looks like.
+    PHOTO = "photo"
+    #: The tray image a `count_sessions` row was computed from, linked to the lot
+    #: as well so "a disputed count is always re-inspectable" (`docs/PLAN.md`).
+    COUNT_EVIDENCE = "count_evidence"
+    #: A photographed top marking routed to review. Its own role because the rule
+    #: is that an OCR'd part number is **never** auto-accepted, and the image is
+    #: the evidence a human needs in order to close it.
+    MARKING = "marking"
+    OTHER = "other"
+
+
+class ExtractionState(StrEnum):
+    """Where one `documents` row stands in the text-extraction queue.
+
+    **The queue is this column plus an index — not a table** (ADR 0005). A work
+    queue as a separate table needs a row inserted for every document that might
+    ever need work, kept in step with `documents` by something, and swept when it
+    falls behind; a state on the row it describes cannot fall out of step with
+    itself.
+
+    `PENDING` is the state of a document whose PDF is stored, served and attached
+    and whose *text* has not been read yet. That is **normal, not broken** — the
+    ADR's load-bearing consequence — so nothing in the API may treat it as an
+    error, hide the document, or block on it. Only search over the contents waits.
+
+    Adding a state later (a second `claimed_by_ocr` stage, a `deferred`) is a
+    one-line change here precisely because there is no `CHECK` on the column. That
+    is what lets Phase 6's LLM stage ride the same queue rather than growing a
+    second one.
+    """
+
+    #: Nothing here has text to read: a tray photograph, an IC marking shot. Set
+    #: at upload from the media type (`app.services.document_text.initial_state`)
+    #: rather than left `PENDING` and filtered out of the queue query, so that
+    #: "12 pending" means twelve real work items instead of twelve items and
+    #: however many photographs. A queue whose depth is not the depth of the work
+    #: is a queue nobody trusts.
+    NOT_APPLICABLE = "not_applicable"
+    #: Waiting for a worker. The default for anything extractable.
+    PENDING = "pending"
+    #: A worker holds a **lease** on it — see
+    #: `app.services.document_text.LEASE_SECONDS`. Not a lock: a lease expires on
+    #: its own, which is the whole reason a worker may be killed mid-run without
+    #: anybody having to notice.
+    CLAIMED = "claimed"
+    #: Text has been submitted and is in `datasheet_fts`. Says nothing about
+    #: whether that text is any good — `documents.text_low_confidence` does.
+    EXTRACTED = "extracted"
+    #: Every attempt failed, or the lease was abandoned
+    #: `MAX_EXTRACTION_ATTEMPTS` times. **Terminal until requeued**, so one
+    #: document that reliably kills the parser cannot be re-served forever at the
+    #: head of the queue. `docs/PLAN.md` lists "failed datasheet extractions"
+    #: among the deterministic health checks; this is that query.
+    FAILED = "failed"
+
+
 class ShortageKind(StrEnum):
     """What stands between one BOM line and being built.
 

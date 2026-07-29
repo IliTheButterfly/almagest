@@ -45,6 +45,18 @@ pi = [
 [project.scripts]
 almagest-deviceagent = "agent.main:main"
 
+# NOTE: because the backend is a path dependency below, **changing
+# `backend/pyproject.toml` invalidates this lockfile** — adding an optional-
+# dependency group there is enough. CI runs `uv sync --locked` and fails; a local
+# `make check` syncs without `--locked`, relocks silently, and passes. So after
+# touching the backend's dependencies, run `uv lock` here and commit the result.
+# Phase 4 adding a `datasheets` extra is what surfaced this.
+# Because the backend is a path dependency here, **changing
+# `backend/pyproject.toml` invalidates this lockfile** — adding an
+# optional-dependency group is enough to do it. CI runs `uv sync --locked` and
+# fails in seconds; a local `make check` syncs *without* `--locked`, relocks
+# silently, and passes. So after touching the backend's dependencies, run
+# `uv lock` here and commit the result. Phase 4's `datasheets` extra surfaced this.
 [tool.uv.sources]
 almagest-backend = { path = "../backend", editable = true }
 

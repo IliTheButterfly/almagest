@@ -60,6 +60,22 @@ export type PartCreate = Schemas["PartCreate"];
 export type PartCreated = Schemas["PartCreated"];
 export type PartUpdate = Schemas["PartUpdate"];
 
+// --- datasheet full-text search (Phase 4's standalone value) ---------------
+export type DatasheetSearchResponse = Schemas["DatasheetSearchResponse"];
+export type DatasheetSearchHit = Schemas["DatasheetSearchHit"];
+export type DatasheetSnippetSegment = Schemas["DatasheetSnippetSegment"];
+
+// --- content-addressed documents: datasheets, and Phase 3's tray photos ----
+export type DocumentRead = Schemas["DocumentRead"];
+export type DocumentLinkRead = Schemas["DocumentLinkRead"];
+export type DocumentLinkList = Schemas["DocumentLinkList"];
+export type DocumentUploadResult = Schemas["DocumentUploadResult"];
+export type DocumentAttachRequest = Schemas["DocumentAttachRequest"];
+export type DocumentAttachResult = Schemas["DocumentAttachResult"];
+export type DocumentDetachResult = Schemas["DocumentDetachResult"];
+export type DocumentKind = Schemas["DocumentKind"];
+export type DocumentRole = Schemas["DocumentRole"];
+
 export type LocationTree = Schemas["LocationTree"];
 export type LocationNode = Schemas["LocationNode"];
 export type LocationRead = Schemas["LocationRead"];
@@ -234,6 +250,26 @@ export async function listPartCategories(): Promise<CategoryNode[]> {
   return data;
 }
 
+/**
+ * Full-text search across every stored PDF's extracted text —
+ * `docs/PLAN.md`'s "useful standalone: full-text search across every PDF you
+ * own." A document nobody has extracted yet is simply absent from `results`;
+ * that is `app.services.document_text`'s first-class "not extracted" state,
+ * never surfaced here as an error.
+ */
+export async function searchDatasheets(
+  query: string,
+  options: { limit?: number; offset?: number } = {},
+): Promise<DatasheetSearchResponse> {
+  const { data, error, response } = await api.GET("/api/search/datasheets", {
+    params: { query: { q: query, ...options } },
+  });
+  if (error !== undefined) {
+    fail("datasheet search failed", error, response);
+  }
+  return data;
+}
+
 // --------------------------------------------------------------- resolve ----
 
 export async function resolveShortId(shortId: string): Promise<ResolveResponse> {
@@ -291,6 +327,117 @@ export async function updatePart(partId: number, request: PartUpdate): Promise<P
     fail("could not save that part", error, response);
   }
   return data;
+}
+
+// --------------------------------------------------------------- documents --
+
+/** Every document attached to a part, primary first within each role. */
+export async function listPartDocuments(partId: number): Promise<DocumentLinkList> {
+  const { data, error, response } = await api.GET("/api/parts/{part_id}/documents", {
+    params: { path: { part_id: partId } },
+  });
+  if (error !== undefined) {
+    fail("could not load the attached documents", error, response);
+  }
+  return data;
+}
+
+/**
+ * Upload a file, storing it under the sha256 of its bytes and — when `partId`
+ * is given — attaching it in one request.
+ *
+ * Not routed through `api.POST`. `openapi-fetch`'s default body serializer
+ * JSON-encodes anything that is not `FormData`, which would corrupt a binary
+ * body; the backend route deliberately avoids `multipart/form-data` too (see
+ * `app.api.routes.documents`'s module docstring — it would pull in
+ * `python-multipart`, a dependency the default API install does not carry), so
+ * there is no `FormData` escape hatch to use instead. The raw bytes go in the
+ * body and every other field rides in the query string, which is what a plain
+ * `fetch()` sends without fighting the typed client's assumptions.
+ */
+export async function uploadDocument(
+  file: Blob,
+  options: {
+    mediaType: string;
+    kind?: DocumentKind;
+    partId?: number;
+    role?: DocumentRole;
+    isPrimary?: boolean;
+    filename?: string;
+    sourceUrl?: string;
+  },
+): Promise<DocumentUploadResult> {
+  const query = new URLSearchParams({ media_type: options.mediaType });
+  if (options.kind !== undefined) query.set("kind", options.kind);
+  if (options.partId !== undefined) query.set("part_id", String(options.partId));
+  if (options.role !== undefined) query.set("role", options.role);
+  if (options.isPrimary !== undefined) query.set("is_primary", String(options.isPrimary));
+  if (options.filename !== undefined) query.set("filename", options.filename);
+  if (options.sourceUrl !== undefined) query.set("source_url", options.sourceUrl);
+
+  const response = await globalThis.fetch(`${currentOrigin()}/api/documents?${query.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  // Mirrors `problemOf`'s expectation (`lib/api/errors.ts`): the raw response
+  // body, `{"detail": {"reason", "message"}}` on a refusal, same as what
+  // `openapi-fetch`'s `error` field would hold for this same route.
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    fail("could not upload that document", body, response);
+  }
+  return body as DocumentUploadResult;
+}
+
+/**
+ * Attach an already-stored document to a part, or promote its existing link to
+ * primary. There is no separate "make primary" route — re-attaching with
+ * `is_primary: true` is that operation, per the backend service's upsert.
+ */
+export async function attachPartDocument(
+  partId: number,
+  request: DocumentAttachRequest,
+): Promise<DocumentAttachResult> {
+  const { data, error, response } = await api.POST("/api/parts/{part_id}/documents", {
+    params: { path: { part_id: partId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not attach that document", error, response);
+  }
+  return data;
+}
+
+/**
+ * Unlink a document from a part. Neither the row nor the blob is deleted — one
+ * family sheet can serve a dozen parts, so a part dropping its link says
+ * nothing about whether the file is still wanted.
+ */
+export async function detachPartDocument(
+  partId: number,
+  sha256: string,
+): Promise<DocumentDetachResult> {
+  const { data, error, response } = await api.DELETE("/api/parts/{part_id}/documents/{sha256}", {
+    params: { path: { part_id: partId, sha256 } },
+  });
+  if (error !== undefined) {
+    fail("could not remove that document", error, response);
+  }
+  return data;
+}
+
+/**
+ * The last hop of `docs/PLAN.md`'s "QR-to-datasheet" path. A scanned tag
+ * already lands the phone on this part's screen via `/s/{short_id}`
+ * (`app.api.routes.resolve.open_short_id` redirects a resolved part straight to
+ * `/parts/{id}`); this is the one tap from there. A plain URL rather than a
+ * fetch helper — the caller hands it to the browser (`window.open` or an
+ * `<a href>`) so the 307 and the eventual `Content-Disposition: inline` are
+ * handled by the browser's own PDF viewer, not by this app.
+ */
+export function partDatasheetUrl(partId: number): string {
+  return `/api/parts/${partId}/datasheet`;
 }
 
 // ------------------------------------------------------------- locations ----

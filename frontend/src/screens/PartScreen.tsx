@@ -16,6 +16,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { AssignStock } from "../components/AssignStock";
+import { DocumentsPanel } from "../components/DocumentsPanel";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { getPart, updatePart, type PartRead, type PartUpdate } from "../lib/api/client";
 import { formatMoneyMicro, formatQty } from "../lib/format";
@@ -73,6 +74,8 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
           </button>
         </div>
       </div>
+
+      <DocumentsPanel partId={part.id} />
 
       {part.is_stub && !editing && (
         <Notice kind="warn" title="This part came from a scan that resolved to nothing">

@@ -348,6 +348,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Document
+         * @description Store a file under the sha256 of its bytes, and optionally attach it.
+         *
+         *     **200, not 201, always.** A content-addressed store cannot promise it created
+         *     anything — the honest answer to "did this upload produce a new document" is in
+         *     `created`, and encoding it in the status code instead would mean one of the two
+         *     outcomes going undeclared in the OpenAPI document that every client is
+         *     generated from.
+         */
+        post: operations["upload_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{sha256}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Document
+         * @description Stream one document inline, by address.
+         *
+         *     `sha256` is annotated as a plain `str` and validated in
+         *     `app.services.blobstore.validate_sha256` rather than by a Pydantic `pattern`,
+         *     so the refusal carries this module's own `reason` vocabulary and — more to the
+         *     point — so the test for it exercises the defence that actually protects the
+         *     filesystem instead of a duplicate of it in the validation layer.
+         */
+        get: operations["read_document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{sha256}/text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Document Text
+         * @description The extracted text of one document, or the honest absence of it.
+         *
+         *     **200 with `text: null` for a document nobody has extracted yet**, which is the
+         *     normal state of every PDF the moment it is uploaded. 404 only when the
+         *     *document* is unknown — the thing that really is missing.
+         */
+        get: operations["read_document_text"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/enrichment/candidates": {
         parameters: {
             query?: never;
@@ -458,6 +534,102 @@ export interface paths {
          *     that produced it; does not touch any sibling candidate for the same field.
          */
         post: operations["dismiss_enrichment_candidate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/extraction/claims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim Extraction Work
+         * @description Lease up to `limit` documents that need text.
+         *
+         *     A POST rather than a GET despite reading like a query, because it **writes**: it
+         *     takes a lease and burns an attempt. A GET that mutated the queue would be
+         *     retried by every proxy and prefetched by every crawler.
+         *
+         *     An empty `claims` list is the ordinary answer and is not an error — it means the
+         *     queue is drained, which is where a healthy install spends most of its life. The
+         *     worker sleeps on it.
+         */
+        post: operations["claim_extraction_work"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/extraction/requeue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requeue Extraction
+         * @description Offer a document to the queue again, from zero attempts.
+         *
+         *     Two uses, one operation: retry a `failed` document once its cause is fixed, and
+         *     **re-read an extracted one with a better extractor**. The second is ADR 0005's
+         *     whole upgrade path, and it needs no new machinery because it is this.
+         */
+        post: operations["requeue_extraction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/extraction/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Extraction Result
+         * @description Record one run's outcome — text, or a failure.
+         *
+         *     Idempotent by content address: submitting the same pages twice lands the same
+         *     row and the same index entry, and submitting *different* pages replaces them,
+         *     which is exactly what re-reading with a better extractor has to do.
+         */
+        post: operations["submit_extraction_result"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/extraction/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Extraction Status
+         * @description Queue depth. One grouped count over an indexed column, cheap enough to poll.
+         */
+        get: operations["read_extraction_status"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1058,6 +1230,91 @@ export interface paths {
         patch: operations["update_part"];
         trace?: never;
     };
+    "/api/parts/{part_id}/datasheet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Part Datasheet
+         * @description Redirect to the part's primary datasheet — `docs/PLAN.md`'s route.
+         *
+         *     A redirect rather than a proxy, so the PDF is served from its own cacheable,
+         *     content-addressed URL and two parts sharing a family sheet share the cache
+         *     entry. 307 rather than 301/308 because which document this resolves to is
+         *     **mutable** — attaching a better datasheet re-points it — and a permanent
+         *     redirect is cached by browsers essentially forever. 307 over 302 for
+         *     method preservation, which costs nothing here and is the correct default;
+         *     nothing in this app answers `HEAD` (an app-wide 405), so this says nothing
+         *     about that.
+         *
+         *     404 when the part has no datasheet, which is an ordinary state: a part created
+         *     from a scan in one tap has none, and that is the whole intake design.
+         */
+        get: operations["read_part_datasheet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parts/{part_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Part Documents
+         * @description Every document attached to a part, primary first within each role.
+         */
+        get: operations["read_part_documents"];
+        put?: never;
+        /**
+         * Attach Part Document
+         * @description Attach an already-stored document to a part, or promote its existing link.
+         *
+         *     An upsert, so this is also the "make this the primary datasheet" operation and
+         *     there is no second route for it. One family PDF covering twelve MPNs is
+         *     twelve calls here and one blob on disk.
+         */
+        post: operations["attach_part_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parts/{part_id}/documents/{sha256}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Detach Part Document
+         * @description Unlink a document from a part. Neither the row nor the blob is deleted.
+         *
+         *     A part dropping its link says nothing about whether the file is still wanted —
+         *     one sheet serves a whole family — so reclaiming unreferenced blobs is a sweep
+         *     somebody runs, never a side effect of a click. 404 when there was no link, so
+         *     a client that thinks it removed something is right.
+         */
+        delete: operations["detach_part_document"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects": {
         parameters: {
             query?: never;
@@ -1339,6 +1596,36 @@ export interface paths {
          *     intake friction is what kills systems like this one.
          */
         post: operations["resolve_scan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/search/datasheets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Datasheets
+         * @description Full-text search across every stored PDF's extracted text.
+         *
+         *     **Never errors on hostile input.** `q` reaches `build_match_query`, which
+         *     allowlists tokens rather than escaping FTS5 syntax — see
+         *     `app.services.search.fts`'s module docstring — so a stray `"`, `*` or `NEAR`
+         *     in the box narrows to nothing (or to a literal word) instead of a 500.
+         *
+         *     A document nobody has extracted yet — the normal state of a freshly
+         *     uploaded PDF per ADR 0005 — is absent from `results` and does not affect
+         *     `total`. That is not a bug to route around; it is search over the text that
+         *     exists, honestly reporting that some of it does not exist yet.
+         */
+        get: operations["search_datasheets"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2427,6 +2714,193 @@ export interface components {
             } | null;
             slot_label_scheme?: components["schemas"]["SlotLabelScheme"] | null;
         };
+        /**
+         * DatasheetSearchHit
+         * @description One matching document. Deliberately the same document shape a client
+         *     already knows from `app.api.routes.documents.DocumentRead` (sha256, url,
+         *     page_count, ...), so a search result and an attached-document row render
+         *     with the same component.
+         */
+        DatasheetSearchHit: {
+            /** Byte Size */
+            byte_size: number;
+            /** Kind */
+            kind: string;
+            /** Media Type */
+            media_type: string;
+            /** Original Filename */
+            original_filename: string | null;
+            /** Page Count */
+            page_count: number | null;
+            /** Sha256 */
+            sha256: string;
+            /** Snippet */
+            snippet: components["schemas"]["DatasheetSnippetSegment"][];
+            /** Url */
+            url: string;
+        };
+        /** DatasheetSearchResponse */
+        DatasheetSearchResponse: {
+            /** Results */
+            results: components["schemas"]["DatasheetSearchHit"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * DatasheetSnippetSegment
+         * @description One run of a snippet. `highlighted` spans are the matched term(s);
+         *     everything else is surrounding context. Plain text on both sides — see
+         *     `app.services.search.datasheets`'s module docstring for why this is a list
+         *     of segments and not a string with embedded markup.
+         */
+        DatasheetSnippetSegment: {
+            /** Highlighted */
+            highlighted: boolean;
+            /** Text */
+            text: string;
+        };
+        /** DocumentAttachRequest */
+        DocumentAttachRequest: {
+            /**
+             * Is Primary
+             * @description Make this the link the role resolves to. Ignored when it would leave the role with no primary: the first document attached in a role is always primary.
+             * @default true
+             */
+            is_primary?: boolean;
+            /** @default datasheet */
+            role?: components["schemas"]["DocumentRole"];
+            /** Sha256 */
+            sha256: string;
+        };
+        /** DocumentAttachResult */
+        DocumentAttachResult: {
+            /** Created */
+            created: boolean;
+            link: components["schemas"]["DocumentLinkRead"];
+        };
+        /** DocumentDetachResult */
+        DocumentDetachResult: {
+            /** Detached */
+            detached: number;
+            /** Promoted */
+            promoted: components["schemas"]["DocumentLinkRead"][];
+        };
+        /**
+         * DocumentKind
+         * @description What a stored file **is**, independent of who points at it.
+         *
+         *     One row per file, so this is a property of the bytes: the same PDF cannot be
+         *     a datasheet and an errata sheet at once. What it is *to* a particular part is
+         *     `DocumentRole` on the link, and the two are genuinely different questions —
+         *     a family datasheet is a `DATASHEET` here whether a given part treats it as
+         *     its authoritative sheet or merely as a reference.
+         *
+         *     Not PDF-only, and that is the point: `docs/PLAN.md`'s `count_sessions` sketch
+         *     already puts tray images in `documents(id)`, so a store that could only hold
+         *     datasheets would need a second one for Phase 3 to land.
+         * @enum {string}
+         */
+        DocumentKind: "datasheet" | "app_note" | "errata" | "drawing" | "photo" | "other";
+        /** DocumentLinkList */
+        DocumentLinkList: {
+            /** Links */
+            links: components["schemas"]["DocumentLinkRead"][];
+            /** Part Id */
+            part_id: number;
+        };
+        /** DocumentLinkRead */
+        DocumentLinkRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            document: components["schemas"]["DocumentRead"];
+            /** Is Primary */
+            is_primary: boolean;
+            /** Role */
+            role: string;
+        };
+        /** DocumentRead */
+        DocumentRead: {
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Media Type */
+            media_type: string;
+            /** Original Filename */
+            original_filename: string | null;
+            /** Page Count */
+            page_count: number | null;
+            /** Sha256 */
+            sha256: string;
+            /** Source Url */
+            source_url: string | null;
+            /** Url */
+            url: string;
+        };
+        /**
+         * DocumentRole
+         * @description Why **this** entity points at that document.
+         *
+         *     Separate from `DocumentKind` because the relationship is many-to-many and the
+         *     kind is not: one family PDF covers a hundred MPNs, and it can be the
+         *     authoritative `DATASHEET` for the twelve parts it actually specifies while
+         *     being a `REFERENCE` for the pin-compatible one that only appears in its
+         *     comparison table. There is one `documents` row for that file, so no column on
+         *     it could express both.
+         *
+         *     Exactly one link per (entity, role) is `is_primary` — see
+         *     `app.services.documents.attach`. That is what `GET /api/parts/{id}/datasheet`
+         *     redirects to.
+         * @enum {string}
+         */
+        DocumentRole: "datasheet" | "reference" | "photo" | "count_evidence" | "marking" | "other";
+        /**
+         * DocumentTextRead
+         * @description One document's text and the judgement about it. Every field but `state` and
+         *     `attempts` may be null, and null is the ordinary case for a fresh upload.
+         */
+        DocumentTextRead: {
+            /** Attempts */
+            attempts: number;
+            /** Char Count */
+            char_count: number | null;
+            /** Chars Per Page */
+            chars_per_page: number | null;
+            /** Error */
+            error: string | null;
+            /** Extracted At */
+            extracted_at: string | null;
+            /** Extractor */
+            extractor: string | null;
+            /** Low Confidence */
+            low_confidence: boolean | null;
+            /** Page Count */
+            page_count: number | null;
+            /** Sha256 */
+            sha256: string;
+            state: components["schemas"]["ExtractionState"];
+            /** Text */
+            text: string | null;
+        };
+        /** DocumentUploadResult */
+        DocumentUploadResult: {
+            /** Created */
+            created: boolean;
+            /** Deduplicated */
+            deduplicated: boolean;
+            document: components["schemas"]["DocumentRead"];
+            link?: components["schemas"]["DocumentLinkRead"] | null;
+        };
         /** EmptyBinRequest */
         EmptyBinRequest: {
             /**
@@ -2578,6 +3052,130 @@ export interface components {
          * @enum {string}
          */
         EntityType: "part" | "location" | "stock_lot" | "container_type" | "part_category" | "supplier_part" | "document" | "project" | "device";
+        /**
+         * ExtractionClaim
+         * @description One document leased to a worker.
+         *
+         *     Carries only what is needed to fetch and identify it. **No storage path and no
+         *     text**: the worker reads the bytes from `url`, over HTTP like any other client,
+         *     because ADR 0005 gives it neither the database nor the volume.
+         */
+        ExtractionClaim: {
+            /** Attempts */
+            attempts: number;
+            /** Byte Size */
+            byte_size: number;
+            /**
+             * Lease Expires At
+             * Format: date-time
+             */
+            lease_expires_at: string;
+            /** Media Type */
+            media_type: string;
+            /** Sha256 */
+            sha256: string;
+            /** Url */
+            url: string;
+        };
+        /** ExtractionClaimBatch */
+        ExtractionClaimBatch: {
+            /** Claims */
+            claims: components["schemas"]["ExtractionClaim"][];
+            /** Worker Id */
+            worker_id: string;
+        };
+        /** ExtractionClaimRequest */
+        ExtractionClaimRequest: {
+            /**
+             * Limit
+             * @default 1
+             */
+            limit?: number;
+            /** Worker Id */
+            worker_id: string;
+        };
+        /**
+         * ExtractionQueueStatus
+         * @description Queue depth by state, with every state present even at zero — a key that
+         *     disappears when it is zero cannot distinguish "nothing failed" from "the failure
+         *     count stopped being reported".
+         */
+        ExtractionQueueStatus: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Failed */
+            failed: number;
+            /** Lease Seconds */
+            lease_seconds: number;
+            /** Max Attempts */
+            max_attempts: number;
+            /** Pending */
+            pending: number;
+        };
+        /** ExtractionRequeueRequest */
+        ExtractionRequeueRequest: {
+            /** Sha256 */
+            sha256: string;
+        };
+        /** ExtractionRequeueResponse */
+        ExtractionRequeueResponse: {
+            document: components["schemas"]["DocumentTextRead"];
+            /** Had Text */
+            had_text: boolean;
+        };
+        /**
+         * ExtractionResultRequest
+         * @description One run's outcome: pages, or an error. Never both, always one.
+         *
+         *     **Success and failure come through the same door on purpose.** Both are outcomes
+         *     of a claim and both have to settle the same lease and the same attempt counter;
+         *     two routes would be two places to get that bookkeeping right, and the failure
+         *     path is the one that gets exercised least and would therefore be the one that
+         *     was wrong.
+         *
+         *     There is deliberately **no character-count or confidence field.** The API counts
+         *     the pages it is given and makes the judgement itself, so no bug and no client
+         *     can report a scanned datasheet as extracted-confident-and-empty. See
+         *     `app.services.document_text`.
+         */
+        ExtractionResultRequest: {
+            /** Error */
+            error?: string | null;
+            /** Extractor */
+            extractor: string;
+            /** Pages */
+            pages?: string[] | null;
+            /** Sha256 */
+            sha256: string;
+        };
+        /** ExtractionResultResponse */
+        ExtractionResultResponse: {
+            document: components["schemas"]["DocumentTextRead"];
+        };
+        /**
+         * ExtractionState
+         * @description Where one `documents` row stands in the text-extraction queue.
+         *
+         *     **The queue is this column plus an index — not a table** (ADR 0005). A work
+         *     queue as a separate table needs a row inserted for every document that might
+         *     ever need work, kept in step with `documents` by something, and swept when it
+         *     falls behind; a state on the row it describes cannot fall out of step with
+         *     itself.
+         *
+         *     `PENDING` is the state of a document whose PDF is stored, served and attached
+         *     and whose *text* has not been read yet. That is **normal, not broken** — the
+         *     ADR's load-bearing consequence — so nothing in the API may treat it as an
+         *     error, hide the document, or block on it. Only search over the contents waits.
+         *
+         *     Adding a state later (a second `claimed_by_ocr` stage, a `deferred`) is a
+         *     one-line change here precisely because there is no `CHECK` on the column. That
+         *     is what lets Phase 6's LLM stage ride the same queue rather than growing a
+         *     second one.
+         * @enum {string}
+         */
+        ExtractionState: "not_applicable" | "pending" | "claimed" | "extracted" | "failed";
         /**
          * FacetsRequest
          * @description The filters already applied, so counts describe what narrowing is left.
@@ -5482,6 +6080,115 @@ export interface operations {
             };
         };
     };
+    upload_document: {
+        parameters: {
+            query: {
+                /** @description IANA media type of the body: `application/pdf`, `image/png`, `image/jpeg`. */
+                media_type: string;
+                kind?: components["schemas"]["DocumentKind"];
+                /** @description Optional. The digest the client believes it is sending. Checked against the bytes and refused on mismatch; never trusted in place of hashing them. */
+                sha256?: string | null;
+                source_url?: string | null;
+                filename?: string | null;
+                /** @description Attach to this part in the same request. */
+                part_id?: number | null;
+                role?: components["schemas"]["DocumentRole"];
+                is_primary?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentUploadResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document itself, served inline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": unknown;
+                    "image/jpeg": unknown;
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_document_text: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentTextRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_enrichment_queue: {
         parameters: {
             query?: {
@@ -5641,6 +6348,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_extraction_work: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractionClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionClaimBatch"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    requeue_extraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractionRequeueRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionRequeueResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_extraction_result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractionResultRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_extraction_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractionQueueStatus"];
                 };
             };
         };
@@ -6463,6 +7289,133 @@ export interface operations {
             };
         };
     };
+    read_part_datasheet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            307: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_part_documents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentLinkList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attach_part_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentAttachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    detach_part_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+                sha256: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDetachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_projects: {
         parameters: {
             query?: {
@@ -6956,6 +7909,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScanResolveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_datasheets: {
+        parameters: {
+            query: {
+                /** @description Free text, matched against every PDF's extracted text. */
+                q: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasheetSearchResponse"];
                 };
             };
             /** @description Validation Error */

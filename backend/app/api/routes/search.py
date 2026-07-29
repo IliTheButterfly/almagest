@@ -1,22 +1,34 @@
-"""Parametric search endpoints.
+"""Parametric search over parts, and full-text search over datasheets.
 
-`POST` takes a structured filter list; `GET` takes a querystring and builds the
-identical `SearchQuery`. Both run the same executor and the same value parser,
-so a pasted URL and an API call can never disagree about what a query means —
-which is the only reason the GET alias is safe to offer at all.
+`POST /api/search/parts` takes a structured filter list; `GET` takes a
+querystring and builds the identical `SearchQuery`. Both run the same executor
+and the same value parser, so a pasted URL and an API call can never disagree
+about what a query means — which is the only reason the GET alias is safe to
+offer at all.
+
+`GET /api/search/datasheets` is a different, standalone feature —
+`docs/PLAN.md`'s "useful standalone: full-text search across every PDF you
+own" — and lives here rather than in `app.api.routes.documents` because it is
+search, not storage: see `app.services.search.datasheets` for the ranking and
+why it is not simply a datasheet-flavoured part search.
 """
 
 from __future__ import annotations
+
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.limits import ResultOffset
+from app.api.routes.documents import document_url
 from app.api.schemas import FilterIn, PartQueryRequest
 from app.db.session import get_db
 from app.models.stock import StockLot
-from app.services.search import query_builder
+from app.services.search import datasheets, query_builder
+from app.services.search.datasheets import DatasheetHit, SnippetSegment
 from app.services.search.query_builder import FilterError, Mode, UnknownTemplate
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -27,7 +39,9 @@ class SearchRequest(PartQueryRequest):
     describes the same set this returns. Only pagination is search's own."""
 
     limit: int = Field(default=50, ge=1, le=500)
-    offset: int = Field(default=0, ge=0)
+    #: `ResultOffset`, not a bare `int` with `ge=0`: an unbounded offset reaches
+    #: SQLite's parameter binding and 500s. See `app.api.limits`.
+    offset: ResultOffset = 0
 
 
 class PartSummary(BaseModel):
@@ -148,7 +162,7 @@ def search_parts_by_querystring(
     include_stubs: bool = True,
     mode: Mode = "search",
     limit: int = Query(default=50, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
+    offset: Annotated[ResultOffset, Query()] = 0,
 ) -> SearchResponse:
     filters = []
     for raw in f:
@@ -173,4 +187,91 @@ def search_parts_by_querystring(
             limit=limit,
             offset=offset,
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Datasheet full-text search — see `app.services.search.datasheets`
+# ---------------------------------------------------------------------------
+
+
+class DatasheetSnippetSegment(BaseModel):
+    """One run of a snippet. `highlighted` spans are the matched term(s);
+    everything else is surrounding context. Plain text on both sides — see
+    `app.services.search.datasheets`'s module docstring for why this is a list
+    of segments and not a string with embedded markup."""
+
+    text: str
+    highlighted: bool
+
+
+class DatasheetSearchHit(BaseModel):
+    """One matching document. Deliberately the same document shape a client
+    already knows from `app.api.routes.documents.DocumentRead` (sha256, url,
+    page_count, ...), so a search result and an attached-document row render
+    with the same component."""
+
+    sha256: str
+    kind: str
+    media_type: str
+    byte_size: int
+    page_count: int | None
+    original_filename: str | None
+    url: str
+    snippet: list[DatasheetSnippetSegment]
+
+
+class DatasheetSearchResponse(BaseModel):
+    #: Total matches ignoring pagination, mirroring `SearchResponse.total`.
+    total: int
+    results: list[DatasheetSearchHit]
+
+
+def _snippet_read(segments: tuple[SnippetSegment, ...]) -> list[DatasheetSnippetSegment]:
+    return [DatasheetSnippetSegment(text=s.text, highlighted=s.highlighted) for s in segments]
+
+
+def _hit_read(hit: DatasheetHit) -> DatasheetSearchHit:
+    document = hit.document
+    return DatasheetSearchHit(
+        sha256=document.sha256,
+        kind=document.kind,
+        media_type=document.media_type,
+        byte_size=document.byte_size,
+        page_count=document.page_count,
+        original_filename=document.original_filename,
+        url=document_url(document.sha256),
+        snippet=_snippet_read(hit.snippet),
+    )
+
+
+@router.get("/datasheets", response_model=DatasheetSearchResponse)
+def search_datasheets(
+    q: Annotated[
+        str,
+        Query(
+            min_length=1,
+            max_length=datasheets.MAX_QUERY_LENGTH,
+            description="Free text, matched against every PDF's extracted text.",
+        ),
+    ],
+    db: Session = Depends(get_db),
+    limit: int = Query(default=datasheets.DEFAULT_LIMIT, ge=1, le=datasheets.MAX_LIMIT),
+    offset: Annotated[ResultOffset, Query()] = 0,
+) -> DatasheetSearchResponse:
+    """Full-text search across every stored PDF's extracted text.
+
+    **Never errors on hostile input.** `q` reaches `build_match_query`, which
+    allowlists tokens rather than escaping FTS5 syntax — see
+    `app.services.search.fts`'s module docstring — so a stray `"`, `*` or `NEAR`
+    in the box narrows to nothing (or to a literal word) instead of a 500.
+
+    A document nobody has extracted yet — the normal state of a freshly
+    uploaded PDF per ADR 0005 — is absent from `results` and does not affect
+    `total`. That is not a bug to route around; it is search over the text that
+    exists, honestly reporting that some of it does not exist yet.
+    """
+    return DatasheetSearchResponse(
+        total=datasheets.count(db, q),
+        results=[_hit_read(hit) for hit in datasheets.search(db, q, limit=limit, offset=offset)],
     )

@@ -1316,6 +1316,29 @@ button.tall {
   gap: 0.5rem;
 }
 
+/* ------------------------------------------------ search: datasheet text --- */
+
+/*
+ * The snippet is why a hit matched, not just that it did. `mark` carries the
+ * fill *and* the weight, matching `.rail button[aria-pressed="true"]` above:
+ * the same rule that a selected filter must not lean on hue alone applies to
+ * a highlighted term, since the browser's own `mark` default (a hardcoded
+ * yellow) would neither theme nor pass contrast in dark mode.
+ */
+.snippet {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.snippet mark {
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 0 0.1em;
+}
+
 /* -------------------------------------------------- take / return screen --- */
 
 .keypad {

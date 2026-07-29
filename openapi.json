@@ -2690,6 +2690,482 @@
         "title": "ContainerTypeUpdate",
         "type": "object"
       },
+      "DatasheetSearchHit": {
+        "description": "One matching document. Deliberately the same document shape a client\nalready knows from `app.api.routes.documents.DocumentRead` (sha256, url,\npage_count, ...), so a search result and an attached-document row render\nwith the same component.",
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "original_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Filename"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "snippet": {
+            "items": {
+              "$ref": "#/components/schemas/DatasheetSnippetSegment"
+            },
+            "title": "Snippet",
+            "type": "array"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "kind",
+          "media_type",
+          "byte_size",
+          "page_count",
+          "original_filename",
+          "url",
+          "snippet"
+        ],
+        "title": "DatasheetSearchHit",
+        "type": "object"
+      },
+      "DatasheetSearchResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/DatasheetSearchHit"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "results"
+        ],
+        "title": "DatasheetSearchResponse",
+        "type": "object"
+      },
+      "DatasheetSnippetSegment": {
+        "description": "One run of a snippet. `highlighted` spans are the matched term(s);\neverything else is surrounding context. Plain text on both sides \u2014 see\n`app.services.search.datasheets`'s module docstring for why this is a list\nof segments and not a string with embedded markup.",
+        "properties": {
+          "highlighted": {
+            "title": "Highlighted",
+            "type": "boolean"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "highlighted"
+        ],
+        "title": "DatasheetSnippetSegment",
+        "type": "object"
+      },
+      "DocumentAttachRequest": {
+        "properties": {
+          "is_primary": {
+            "default": true,
+            "description": "Make this the link the role resolves to. Ignored when it would leave the role with no primary: the first document attached in a role is always primary.",
+            "title": "Is Primary",
+            "type": "boolean"
+          },
+          "role": {
+            "$ref": "#/components/schemas/DocumentRole",
+            "default": "datasheet"
+          },
+          "sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256"
+        ],
+        "title": "DocumentAttachRequest",
+        "type": "object"
+      },
+      "DocumentAttachResult": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "link": {
+            "$ref": "#/components/schemas/DocumentLinkRead"
+          }
+        },
+        "required": [
+          "link",
+          "created"
+        ],
+        "title": "DocumentAttachResult",
+        "type": "object"
+      },
+      "DocumentDetachResult": {
+        "properties": {
+          "detached": {
+            "title": "Detached",
+            "type": "integer"
+          },
+          "promoted": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentLinkRead"
+            },
+            "title": "Promoted",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detached",
+          "promoted"
+        ],
+        "title": "DocumentDetachResult",
+        "type": "object"
+      },
+      "DocumentKind": {
+        "description": "What a stored file **is**, independent of who points at it.\n\nOne row per file, so this is a property of the bytes: the same PDF cannot be\na datasheet and an errata sheet at once. What it is *to* a particular part is\n`DocumentRole` on the link, and the two are genuinely different questions \u2014\na family datasheet is a `DATASHEET` here whether a given part treats it as\nits authoritative sheet or merely as a reference.\n\nNot PDF-only, and that is the point: `docs/PLAN.md`'s `count_sessions` sketch\nalready puts tray images in `documents(id)`, so a store that could only hold\ndatasheets would need a second one for Phase 3 to land.",
+        "enum": [
+          "datasheet",
+          "app_note",
+          "errata",
+          "drawing",
+          "photo",
+          "other"
+        ],
+        "title": "DocumentKind",
+        "type": "string"
+      },
+      "DocumentLinkList": {
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentLinkRead"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "links"
+        ],
+        "title": "DocumentLinkList",
+        "type": "object"
+      },
+      "DocumentLinkRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/DocumentRead"
+          },
+          "is_primary": {
+            "title": "Is Primary",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "is_primary",
+          "created_at",
+          "document"
+        ],
+        "title": "DocumentLinkRead",
+        "type": "object"
+      },
+      "DocumentRead": {
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "original_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Filename"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sha256",
+          "kind",
+          "media_type",
+          "byte_size",
+          "page_count",
+          "source_url",
+          "original_filename",
+          "created_at",
+          "url"
+        ],
+        "title": "DocumentRead",
+        "type": "object"
+      },
+      "DocumentRole": {
+        "description": "Why **this** entity points at that document.\n\nSeparate from `DocumentKind` because the relationship is many-to-many and the\nkind is not: one family PDF covers a hundred MPNs, and it can be the\nauthoritative `DATASHEET` for the twelve parts it actually specifies while\nbeing a `REFERENCE` for the pin-compatible one that only appears in its\ncomparison table. There is one `documents` row for that file, so no column on\nit could express both.\n\nExactly one link per (entity, role) is `is_primary` \u2014 see\n`app.services.documents.attach`. That is what `GET /api/parts/{id}/datasheet`\nredirects to.",
+        "enum": [
+          "datasheet",
+          "reference",
+          "photo",
+          "count_evidence",
+          "marking",
+          "other"
+        ],
+        "title": "DocumentRole",
+        "type": "string"
+      },
+      "DocumentTextRead": {
+        "description": "One document's text and the judgement about it. Every field but `state` and\n`attempts` may be null, and null is the ordinary case for a fresh upload.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "char_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Char Count"
+          },
+          "chars_per_page": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chars Per Page"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "extracted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extracted At"
+          },
+          "extractor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractor"
+          },
+          "low_confidence": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Confidence"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ExtractionState"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "required": [
+          "sha256",
+          "state",
+          "text",
+          "page_count",
+          "char_count",
+          "chars_per_page",
+          "low_confidence",
+          "extractor",
+          "extracted_at",
+          "attempts",
+          "error"
+        ],
+        "title": "DocumentTextRead",
+        "type": "object"
+      },
+      "DocumentUploadResult": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "deduplicated": {
+            "title": "Deduplicated",
+            "type": "boolean"
+          },
+          "document": {
+            "$ref": "#/components/schemas/DocumentRead"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentLinkRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "document",
+          "created",
+          "deduplicated"
+        ],
+        "title": "DocumentUploadResult",
+        "type": "object"
+      },
       "EmptyBinRequest": {
         "properties": {
           "client_op_id": {
@@ -3131,6 +3607,237 @@
           "device"
         ],
         "title": "EntityType",
+        "type": "string"
+      },
+      "ExtractionClaim": {
+        "description": "One document leased to a worker.\n\nCarries only what is needed to fetch and identify it. **No storage path and no\ntext**: the worker reads the bytes from `url`, over HTTP like any other client,\nbecause ADR 0005 gives it neither the database nor the volume.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "title": "Lease Expires At",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "media_type",
+          "byte_size",
+          "url",
+          "attempts",
+          "lease_expires_at"
+        ],
+        "title": "ExtractionClaim",
+        "type": "object"
+      },
+      "ExtractionClaimBatch": {
+        "properties": {
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionClaim"
+            },
+            "title": "Claims",
+            "type": "array"
+          },
+          "worker_id": {
+            "title": "Worker Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id",
+          "claims"
+        ],
+        "title": "ExtractionClaimBatch",
+        "type": "object"
+      },
+      "ExtractionClaimRequest": {
+        "properties": {
+          "limit": {
+            "default": 1,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "worker_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Worker Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id"
+        ],
+        "title": "ExtractionClaimRequest",
+        "type": "object"
+      },
+      "ExtractionQueueStatus": {
+        "description": "Queue depth by state, with every state present even at zero \u2014 a key that\ndisappears when it is zero cannot distinguish \"nothing failed\" from \"the failure\ncount stopped being reported\".",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ExtractionState"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "lease_seconds": {
+            "title": "Lease Seconds",
+            "type": "integer"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "counts",
+          "pending",
+          "failed",
+          "lease_seconds",
+          "max_attempts"
+        ],
+        "title": "ExtractionQueueStatus",
+        "type": "object"
+      },
+      "ExtractionRequeueRequest": {
+        "properties": {
+          "sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256"
+        ],
+        "title": "ExtractionRequeueRequest",
+        "type": "object"
+      },
+      "ExtractionRequeueResponse": {
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/DocumentTextRead"
+          },
+          "had_text": {
+            "title": "Had Text",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "document",
+          "had_text"
+        ],
+        "title": "ExtractionRequeueResponse",
+        "type": "object"
+      },
+      "ExtractionResultRequest": {
+        "description": "One run's outcome: pages, or an error. Never both, always one.\n\n**Success and failure come through the same door on purpose.** Both are outcomes\nof a claim and both have to settle the same lease and the same attempt counter;\ntwo routes would be two places to get that bookkeeping right, and the failure\npath is the one that gets exercised least and would therefore be the one that\nwas wrong.\n\nThere is deliberately **no character-count or confidence field.** The API counts\nthe pages it is given and makes the judgement itself, so no bug and no client\ncan report a scanned datasheet as extracted-confident-and-empty. See\n`app.services.document_text`.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "extractor": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Extractor",
+            "type": "string"
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 200000,
+                  "type": "string"
+                },
+                "maxItems": 5000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages"
+          },
+          "sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "extractor"
+        ],
+        "title": "ExtractionResultRequest",
+        "type": "object"
+      },
+      "ExtractionResultResponse": {
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/DocumentTextRead"
+          }
+        },
+        "required": [
+          "document"
+        ],
+        "title": "ExtractionResultResponse",
+        "type": "object"
+      },
+      "ExtractionState": {
+        "description": "Where one `documents` row stands in the text-extraction queue.\n\n**The queue is this column plus an index \u2014 not a table** (ADR 0005). A work\nqueue as a separate table needs a row inserted for every document that might\never need work, kept in step with `documents` by something, and swept when it\nfalls behind; a state on the row it describes cannot fall out of step with\nitself.\n\n`PENDING` is the state of a document whose PDF is stored, served and attached\nand whose *text* has not been read yet. That is **normal, not broken** \u2014 the\nADR's load-bearing consequence \u2014 so nothing in the API may treat it as an\nerror, hide the document, or block on it. Only search over the contents waits.\n\nAdding a state later (a second `claimed_by_ocr` stage, a `deferred`) is a\none-line change here precisely because there is no `CHECK` on the column. That\nis what lets Phase 6's LLM stage ride the same queue rather than growing a\nsecond one.",
+        "enum": [
+          "not_applicable",
+          "pending",
+          "claimed",
+          "extracted",
+          "failed"
+        ],
+        "title": "ExtractionState",
         "type": "string"
       },
       "FacetsRequest": {
@@ -8568,6 +9275,7 @@
           },
           "offset": {
             "default": 0,
+            "maximum": 1000000.0,
             "minimum": 0.0,
             "title": "Offset",
             "type": "integer"
@@ -11332,6 +12040,249 @@
         ]
       }
     },
+    "/api/documents": {
+      "post": {
+        "description": "Store a file under the sha256 of its bytes, and optionally attach it.\n\n**200, not 201, always.** A content-addressed store cannot promise it created\nanything \u2014 the honest answer to \"did this upload produce a new document\" is in\n`created`, and encoding it in the status code instead would mean one of the two\noutcomes going undeclared in the OpenAPI document that every client is\ngenerated from.",
+        "operationId": "upload_document",
+        "parameters": [
+          {
+            "description": "IANA media type of the body: `application/pdf`, `image/png`, `image/jpeg`.",
+            "in": "query",
+            "name": "media_type",
+            "required": true,
+            "schema": {
+              "description": "IANA media type of the body: `application/pdf`, `image/png`, `image/jpeg`.",
+              "maxLength": 128,
+              "title": "Media Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/DocumentKind",
+              "default": "datasheet"
+            }
+          },
+          {
+            "description": "Optional. The digest the client believes it is sending. Checked against the bytes and refused on mismatch; never trusted in place of hashing them.",
+            "in": "query",
+            "name": "sha256",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional. The digest the client believes it is sending. Checked against the bytes and refused on mismatch; never trusted in place of hashing them.",
+              "title": "Sha256"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_url",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Url"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filename",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filename"
+            }
+          },
+          {
+            "description": "Attach to this part in the same request.",
+            "in": "query",
+            "name": "part_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Attach to this part in the same request.",
+              "title": "Part Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/DocumentRole",
+              "default": "datasheet"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_primary",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Is Primary",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "title": "Data",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentUploadResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/documents/{sha256}": {
+      "get": {
+        "description": "Stream one document inline, by address.\n\n`sha256` is annotated as a plain `str` and validated in\n`app.services.blobstore.validate_sha256` rather than by a Pydantic `pattern`,\nso the refusal carries this module's own `reason` vocabulary and \u2014 more to the\npoint \u2014 so the test for it exercises the defence that actually protects the\nfilesystem instead of a duplicate of it in the validation layer.",
+        "operationId": "read_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {},
+              "image/jpeg": {},
+              "image/png": {}
+            },
+            "description": "The document itself, served inline."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/documents/{sha256}/text": {
+      "get": {
+        "description": "The extracted text of one document, or the honest absence of it.\n\n**200 with `text: null` for a document nobody has extracted yet**, which is the\nnormal state of every PDF the moment it is uploaded. 404 only when the\n*document* is unknown \u2014 the thing that really is missing.",
+        "operationId": "read_document_text",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentTextRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Document Text",
+        "tags": [
+          "extraction"
+        ]
+      }
+    },
     "/api/enrichment/candidates": {
       "get": {
         "description": "The review queue, grouped by part then by field.\n\nGrouping is free: `candidate_rules.pending()` already sorts\n`(part_id, template_id, -priority, -confidence, id)`, so bucketing the\nalready-ordered list preserves the \"obvious click is the top of the list\"\nproperty within each field without a second sort here.",
@@ -11585,6 +12536,154 @@
         ]
       }
     },
+    "/api/extraction/claims": {
+      "post": {
+        "description": "Lease up to `limit` documents that need text.\n\nA POST rather than a GET despite reading like a query, because it **writes**: it\ntakes a lease and burns an attempt. A GET that mutated the queue would be\nretried by every proxy and prefetched by every crawler.\n\nAn empty `claims` list is the ordinary answer and is not an error \u2014 it means the\nqueue is drained, which is where a healthy install spends most of its life. The\nworker sleeps on it.",
+        "operationId": "claim_extraction_work",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionClaimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionClaimBatch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Extraction Work",
+        "tags": [
+          "extraction"
+        ]
+      }
+    },
+    "/api/extraction/requeue": {
+      "post": {
+        "description": "Offer a document to the queue again, from zero attempts.\n\nTwo uses, one operation: retry a `failed` document once its cause is fixed, and\n**re-read an extracted one with a better extractor**. The second is ADR 0005's\nwhole upgrade path, and it needs no new machinery because it is this.",
+        "operationId": "requeue_extraction",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionRequeueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionRequeueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Requeue Extraction",
+        "tags": [
+          "extraction"
+        ]
+      }
+    },
+    "/api/extraction/results": {
+      "post": {
+        "description": "Record one run's outcome \u2014 text, or a failure.\n\nIdempotent by content address: submitting the same pages twice lands the same\nrow and the same index entry, and submitting *different* pages replaces them,\nwhich is exactly what re-reading with a better extractor has to do.",
+        "operationId": "submit_extraction_result",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractionResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Extraction Result",
+        "tags": [
+          "extraction"
+        ]
+      }
+    },
+    "/api/extraction/status": {
+      "get": {
+        "description": "Queue depth. One grouped count over an indexed column, cheap enough to poll.",
+        "operationId": "read_extraction_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractionQueueStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Extraction Status",
+        "tags": [
+          "extraction"
+        ]
+      }
+    },
     "/api/intake/pending": {
       "get": {
         "description": "The worklist, **oldest first** \u2014 a box of reels is walked in scan order.\n\nOrdered by `id`, not `queued_at`: `id` is server-assigned and monotonic, and a\nclient syncing a batch posts it in scan order, so this is both the order the\nuser experienced and immune to a device clock that is wrong.",
@@ -11642,6 +12741,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 1000000,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -12807,6 +13907,196 @@
         ]
       }
     },
+    "/api/parts/{part_id}/datasheet": {
+      "get": {
+        "description": "Redirect to the part's primary datasheet \u2014 `docs/PLAN.md`'s route.\n\nA redirect rather than a proxy, so the PDF is served from its own cacheable,\ncontent-addressed URL and two parts sharing a family sheet share the cache\nentry. 307 rather than 301/308 because which document this resolves to is\n**mutable** \u2014 attaching a better datasheet re-points it \u2014 and a permanent\nredirect is cached by browsers essentially forever. 307 over 302 for\nmethod preservation, which costs nothing here and is the correct default;\nnothing in this app answers `HEAD` (an app-wide 405), so this says nothing\nabout that.\n\n404 when the part has no datasheet, which is an ordinary state: a part created\nfrom a scan in one tap has none, and that is the whole intake design.",
+        "operationId": "read_part_datasheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Part Datasheet",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/parts/{part_id}/documents": {
+      "get": {
+        "description": "Every document attached to a part, primary first within each role.",
+        "operationId": "read_part_documents",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentLinkList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Part Documents",
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "description": "Attach an already-stored document to a part, or promote its existing link.\n\nAn upsert, so this is also the \"make this the primary datasheet\" operation and\nthere is no second route for it. One family PDF covering twelve MPNs is\ntwelve calls here and one blob on disk.",
+        "operationId": "attach_part_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentAttachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentAttachResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attach Part Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/parts/{part_id}/documents/{sha256}": {
+      "delete": {
+        "description": "Unlink a document from a part. Neither the row nor the blob is deleted.\n\nA part dropping its link says nothing about whether the file is still wanted \u2014\none sheet serves a whole family \u2014 so reclaiming unreferenced blobs is a sweep\nsomebody runs, never a side effect of a click. 404 when there was no link, so\na client that thinks it removed something is right.",
+        "operationId": "detach_part_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetachResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detach Part Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/api/projects": {
       "get": {
         "description": "Projects, newest first. `status` is repeatable and unset means \"all\" \u2014\nunlike `intake.list_pending`'s worklist, there is no single default status\na project view should hide, since `ARCHIVED` is still a real board someone\nmay re-plan a build against.",
@@ -12849,6 +14139,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 1000000,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -13108,6 +14399,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 1000000,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -13597,6 +14889,77 @@
         ]
       }
     },
+    "/api/search/datasheets": {
+      "get": {
+        "description": "Full-text search across every stored PDF's extracted text.\n\n**Never errors on hostile input.** `q` reaches `build_match_query`, which\nallowlists tokens rather than escaping FTS5 syntax \u2014 see\n`app.services.search.fts`'s module docstring \u2014 so a stray `\"`, `*` or `NEAR`\nin the box narrows to nothing (or to a literal word) instead of a 500.\n\nA document nobody has extracted yet \u2014 the normal state of a freshly\nuploaded PDF per ADR 0005 \u2014 is absent from `results` and does not affect\n`total`. That is not a bug to route around; it is search over the text that\nexists, honestly reporting that some of it does not exist yet.",
+        "operationId": "search_datasheets",
+        "parameters": [
+          {
+            "description": "Free text, matched against every PDF's extracted text.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "Free text, matched against every PDF's extracted text.",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasheetSearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Datasheets",
+        "tags": [
+          "search"
+        ]
+      }
+    },
     "/api/search/parts": {
       "get": {
         "operationId": "search_parts_by_querystring",
@@ -13715,6 +15078,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 1000000,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
