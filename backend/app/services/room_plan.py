@@ -67,6 +67,14 @@ class Placement:
     #: "draw a nominal box", not "zero size".
     width_mm: int | None
     depth_mm: int | None
+    #: What was actually *authored* on this placement, or `None` for "take the
+    #: container type's size". Reported alongside the resolved pair for ADR
+    #: 0006's reason: an editor that only ever sees the resolved number cannot
+    #: tell a size somebody typed from one that happens to match the type, so it
+    #: sends the type's own size back as an override and freezes it — after which
+    #: correcting the container type no longer moves the box.
+    own_width_mm: int | None
+    own_depth_mm: int | None
 
 
 @dataclass(frozen=True)
@@ -157,6 +165,8 @@ def placement_of(session: Session, location: Location) -> Placement | None:
         rotation_deg=location.plan_rotation_deg or 0,
         width_mm=location.plan_width_mm if location.plan_width_mm is not None else type_width,
         depth_mm=location.plan_depth_mm if location.plan_depth_mm is not None else type_depth,
+        own_width_mm=location.plan_width_mm,
+        own_depth_mm=location.plan_depth_mm,
     )
 
 

@@ -5332,6 +5332,10 @@ export interface components {
             depth_mm: number | null;
             /** Location Id */
             location_id: number;
+            /** Own Depth Mm */
+            own_depth_mm: number | null;
+            /** Own Width Mm */
+            own_width_mm: number | null;
             /** Parent Id */
             parent_id: number;
             /** Rotation Deg */

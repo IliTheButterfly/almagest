@@ -32,13 +32,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.enums import EntityType, LedgerKind
+from app.models.documents import Document, DocumentLink
+from app.models.enums import DocumentKind, DocumentRole, EntityType, LedgerKind
 from app.models.identity import ObjectId
+from app.models.scanning import BarcodeAlias
 from app.models.stock import StockLedger
 from app.models.storage import Location, LocationTag
 from app.services import shortid
 from app.services.tree import location_tree
-from tests.factories import make_location, make_lot, make_part, post
+from tests.factories import make_container_type, make_location, make_lot, make_part, post
 
 
 def _tree(db: Session, *names: str) -> list[Location]:
@@ -439,3 +441,186 @@ def test_a_printed_label_keeps_the_row_but_an_unprinted_code_does_not(
     assert client.get(f"/api/resolve/{unprinted_code}").json()["status"] == "unknown"
     # The printed one still resolves, and says it is gone.
     assert client.get(f"/api/resolve/{printed_code}").json()["target"]["retired"] is True
+
+
+def test_a_deleted_container_takes_its_photo_and_its_taught_codes_with_it(
+    client: TestClient, db: Session
+) -> None:
+    """The two other polymorphic tables, and why an orphan here is not cosmetic.
+
+    `document_links` and `barcode_aliases` both name a location by
+    (`entity_type`, `entity_pk`) with no foreign key, exactly as `object_ids`
+    does. `locations.id` is a bare `INTEGER PRIMARY KEY` with no `AUTOINCREMENT`
+    and `sqlite_sequence` is empty for it, so SQLite hands the freed rowid to the
+    **next** container created — which is precisely the loop this whole change
+    exists to enable ("I created that by mistake, delete it", then add another).
+
+    So an orphan is not a dangling row nobody reads: it is the deleted drawer's
+    photograph presented as the new drawer's own, and a barcode that resolves to
+    the wrong bin. A scan landing on the wrong container is worse than one landing
+    on nothing.
+    """
+    doomed = make_location(db, name="Drawer A")
+    location_tree(db).rebuild_paths()
+    db.flush()
+    document = Document(
+        sha256="a" * 64,
+        kind=DocumentKind.PHOTO,
+        media_type="image/jpeg",
+        byte_size=12,
+        storage_path="aa/a" * 4,
+    )
+    db.add(document)
+    db.flush()
+    db.add(
+        DocumentLink(
+            document_id=document.id,
+            entity_type=EntityType.LOCATION,
+            entity_pk=doomed.id,
+            role=DocumentRole.PHOTO,
+            is_primary=True,
+        )
+    )
+    db.add(
+        BarcodeAlias(
+            code_norm="DRAWERA123",
+            symbology="code128",
+            entity_type=EntityType.LOCATION,
+            entity_pk=doomed.id,
+        )
+    )
+    db.commit()
+    doomed_id = doomed.id
+
+    assert client.delete(f"/api/locations/{doomed_id}").status_code == 200
+    db.expunge_all()
+
+    links = db.execute(
+        select(func.count())
+        .select_from(DocumentLink)
+        .where(
+            DocumentLink.entity_type == EntityType.LOCATION,
+            DocumentLink.entity_pk == doomed_id,
+        )
+    ).scalar_one()
+    aliases = db.execute(
+        select(func.count())
+        .select_from(BarcodeAlias)
+        .where(
+            BarcodeAlias.entity_type == EntityType.LOCATION,
+            BarcodeAlias.entity_pk == doomed_id,
+        )
+    ).scalar_one()
+    assert (links, aliases) == (0, 0)
+
+    # The rowid really is reused, which is what makes the assertion above matter
+    # rather than being tidiness: this new, unrelated drawer is the old id.
+    reused = make_location(db, name="Drawer B (brand new, unrelated)")
+    location_tree(db).rebuild_paths()
+    db.commit()
+    assert reused.id == doomed_id
+    fresh = client.get(f"/api/locations/{reused.id}").json()
+    assert fresh["photo"] is None and fresh["effective_photo"] is None
+    assert client.post("/api/scan/resolve", json={"code": "DRAWERA123"}).json()["status"] != (
+        "resolved"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5. A retired container is out of the tree — on the write side too
+# ---------------------------------------------------------------------------
+
+
+def test_stock_cannot_be_put_into_a_retired_container(client: TestClient, db: Session) -> None:
+    """Retirement hides a container from every read, so a write into one strands
+    stock where no screen can show it.
+
+    `retire` takes the container out of the tree, its parent's canvas, the room
+    plan and auto-assignment — so a lot received into it afterwards has a non-zero
+    balance at a location that appears nowhere, cannot be found except by the tag
+    still stuck to its front, and cannot be removed either, because `plan_removal`
+    refuses on `holds_stock`. The station commits through these same routes and
+    knows nothing about retirement, which is why the refusal is the server's job.
+
+    Taking stock *out* keeps working: that is how somebody empties a drawer they
+    have just removed.
+    """
+    part = make_part(db, name="Resistor", mpn="RC0603FR-071KL")
+    live = make_location(db, name="Live drawer")
+    retired = make_location(db, name="Retired drawer")
+    lot = make_lot(db, part, retired, qty_milli=5_000)
+    location_tree(db).rebuild_paths()
+    db.commit()
+
+    # It has history, so removal retires rather than deletes it. Emptying it first
+    # is what makes it removable at all.
+    moved = client.post(f"/api/stock/lots/{lot.id}/move", json={"to_location_id": live.id})
+    assert moved.status_code == 200, moved.text
+    assert client.delete(f"/api/locations/{retired.id}").json()["retired_location_ids"] == [
+        retired.id
+    ]
+
+    refused = client.post(
+        "/api/stock/receive",
+        json={"part_id": part.id, "location_id": retired.id, "qty_milli": 500_000},
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["reason"] == "location_retired"
+
+    refused_move = client.post(
+        f"/api/stock/lots/{lot.id}/move", json={"to_location_id": retired.id}
+    )
+    assert refused_move.status_code == 409, refused_move.text
+    assert refused_move.json()["detail"]["reason"] == "location_retired"
+
+    refused_empty = client.post(
+        f"/api/stock/locations/{live.id}/empty", json={"to_location_id": retired.id}
+    )
+    assert refused_empty.status_code == 409, refused_empty.text
+    assert refused_empty.json()["detail"]["reason"] == "location_retired"
+
+    # Out of it still works — the drawer is removed, not sealed.
+    out = client.post(f"/api/stock/locations/{retired.id}/empty", json={"to_location_id": live.id})
+    assert out.status_code == 200, out.text
+
+
+def test_nothing_can_be_created_inside_a_retired_container(client: TestClient, db: Session) -> None:
+    """A live child under a retired parent is the one shape the tree read cannot
+    draw.
+
+    `read_location_tree` filters retired nodes row by row, on the stated grounds
+    that a retired node's descendants are retired too — which `removal.restore`
+    enforces from the other end. A live child of a retired parent breaks it: the
+    child comes back from `/tree` and its parent does not, so the client re-roots
+    it and it renders as a **top-level** container whose `label_path` still names
+    the cabinet somebody removed. Auto-assignment would then offer it as somewhere
+    to put stock.
+    """
+    part = make_part(db, name="Diode", mpn="1N4148")
+    cabinet = make_location(db, name="Cabinet C")
+    lot = make_lot(db, part, cabinet, qty_milli=0)
+    assert lot.qty_milli_cached == 0
+    location_tree(db).rebuild_paths()
+    db.commit()
+
+    assert client.delete(f"/api/locations/{cabinet.id}").json()["retired_location_ids"] == [
+        cabinet.id
+    ]
+
+    refused = client.post("/api/locations", json={"name": "Drawer D", "parent_id": cabinet.id})
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["reason"] == "parent_retired"
+
+    container_type = make_container_type(db, slug="raaco-12")
+    db.commit()
+    refused_stamp = client.post(
+        f"/api/locations/{cabinet.id}/instantiate",
+        json={"container_type_id": container_type.id, "count": 1, "naming_pattern": "D{n}"},
+    )
+    assert refused_stamp.status_code == 409, refused_stamp.text
+    assert refused_stamp.json()["detail"]["reason"] == "parent_retired"
+
+    # Restored, it takes children again — the refusal is about state, not identity.
+    assert client.post(f"/api/locations/{cabinet.id}/restore").status_code == 200
+    again = client.post("/api/locations", json={"name": "Drawer D", "parent_id": cabinet.id})
+    assert again.status_code == 201, again.text

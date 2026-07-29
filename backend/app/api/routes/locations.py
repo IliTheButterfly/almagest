@@ -159,9 +159,18 @@ class PlacementRead(BaseModel):
     y_mm: int
     rotation_deg: int
     #: The drawn footprint, else the container type's, else null. Null means
-    #: "draw a nominal box" — **never zero**, which would draw nothing.
+    #: "draw a nominal box" — **never zero**, which would draw nothing. This is
+    #: the pair to *draw*; it is not the pair to send back.
     width_mm: int | None
     depth_mm: int | None
+    #: What this placement itself says, with no fallback — null for "use the
+    #: container type's size". Reported beside the resolved pair for the same
+    #: reason ADR 0006 reports `child_view` beside `effective_child_view`: an
+    #: editor handed only the resolved number cannot tell an authored size from
+    #: an inherited one, so it sends the type's size back as an override and
+    #: silently freezes it. **This is the pair an editor round-trips.**
+    own_width_mm: int | None
+    own_depth_mm: int | None
 
 
 class PlanExtentRead(BaseModel):
@@ -820,6 +829,33 @@ def _require_location(db: Session, location_id: RowId, *, label: str = "location
     return location
 
 
+def _require_live_parent(db: Session, location_id: RowId, *, label: str = "parent") -> Location:
+    """A container something may be created *inside*.
+
+    A retired parent is refused, because the tree read's own filter depends on it
+    never happening: `read_location_tree` drops a retired node per row and says
+    so on the grounds that "a retired node's descendants are retired too", which
+    `removal.restore` enforces from the other end. A live child under a retired
+    parent breaks that — the child comes back from `/tree` while its parent does
+    not, so `indexTree` re-roots it and it renders as a top-level container whose
+    `label_path` still names the cabinet somebody removed. Auto-assignment would
+    then propose it as somewhere to put stock.
+    """
+    parent = _require_location(db, location_id, label=label)
+    if parent.retired_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "parent_retired",
+                "message": (
+                    f"{parent.name} was removed from the storage tree, so nothing can be added"
+                    " inside it. Bring it back first."
+                ),
+            },
+        )
+    return parent
+
+
 def _check_grid_compatibility(
     db: Session, parent: Location | None, child_type: ContainerType | None
 ) -> None:
@@ -882,6 +918,8 @@ def _placement_read(placement: room_plan.Placement) -> PlacementRead:
         rotation_deg=placement.rotation_deg,
         width_mm=placement.width_mm,
         depth_mm=placement.depth_mm,
+        own_width_mm=placement.own_width_mm,
+        own_depth_mm=placement.own_depth_mm,
     )
 
 
@@ -1312,7 +1350,7 @@ def create_location(request: LocationCreate, db: Session = Depends(get_db)) -> L
     the new row comes back with a correct `label_path` rather than one that is
     right after the next nightly job.
     """
-    parent = _require_location(db, request.parent_id, label="parent") if request.parent_id else None
+    parent = _require_live_parent(db, request.parent_id) if request.parent_id else None
     child_type = None
     if request.container_type_id is not None:
         child_type = db.get(ContainerType, request.container_type_id)
@@ -1537,7 +1575,7 @@ def instantiate_containers(
     `locations` — never a live link back to the type, which is what keeps
     editing the type afterwards from touching anything created here.
     """
-    parent = _require_location(db, location_id)
+    parent = _require_live_parent(db, location_id, label="location")
     container_type = db.get(ContainerType, request.container_type_id)
     if container_type is None:
         raise HTTPException(

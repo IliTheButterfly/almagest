@@ -60,9 +60,11 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.catalog import Part
+from app.models.documents import DocumentLink
 from app.models.enums import EntityType
 from app.models.identity import ObjectId
 from app.models.layout_authoring import LabelPrint
+from app.models.scanning import BarcodeAlias
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import Location, LocationTag
 from app.services import room_plan
@@ -426,10 +428,23 @@ def retire(location: Location, *, at: datetime | None = None) -> None:
 def _delete(session: Session, location: Location) -> None:
     """Delete one location row, having established that nothing names it.
 
-    Two tables reference a location by `(entity_type, entity_pk)` with **no
-    foreign key**, so nothing at the database layer stops them being orphaned:
-    `object_ids` — where an orphan is the bad case, a code that still resolves to
-    a row that is gone — and `label_prints`. Both are reaped here explicitly.
+    **Four** tables reference a location by `(entity_type, entity_pk)` with **no
+    foreign key**, so nothing at the database layer stops them being orphaned,
+    and all four are reaped here explicitly:
+
+    * `object_ids` — an orphan is a printed code that still resolves to a row
+      that is gone.
+    * `label_prints` — history of a card that was produced for it.
+    * `document_links` — the container's photo. `locations.id` is a bare
+      `INTEGER PRIMARY KEY` with no `AUTOINCREMENT`, so SQLite reuses a freed
+      rowid: an orphaned link makes the *next* container created show the
+      deleted one's photograph as its own.
+    * `barcode_aliases` — a code somebody taught to mean this drawer. Left
+      behind, it resolves to the dead pk and then, after rowid reuse, to a
+      different bin. A scan that lands on the wrong container is worse than a
+      scan that lands on nothing, so the alias goes with the container that gave
+      it its meaning.
+
     Everything else referencing `locations.id` is either `CASCADE`
     (`location_tags`, `location_occupancy`, provisioning and verification rows,
     label sheet jobs, layout suggestions), `SET NULL` (`projects.
@@ -453,6 +468,18 @@ def _delete(session: Session, location: Location) -> None:
     session.execute(
         delete(LabelPrint).where(
             LabelPrint.entity_type == EntityType.LOCATION, LabelPrint.entity_pk == location.id
+        )
+    )
+    session.execute(
+        delete(DocumentLink).where(
+            DocumentLink.entity_type == EntityType.LOCATION,
+            DocumentLink.entity_pk == location.id,
+        )
+    )
+    session.execute(
+        delete(BarcodeAlias).where(
+            BarcodeAlias.entity_type == EntityType.LOCATION,
+            BarcodeAlias.entity_pk == location.id,
         )
     )
     session.delete(location)

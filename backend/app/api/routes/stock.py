@@ -290,6 +290,37 @@ def _require_location(db: Session, location_id: RowId) -> Location:
     return location
 
 
+def _require_destination(db: Session, location_id: RowId) -> Location:
+    """A location stock may be put *into*.
+
+    A removed (retired) container is refused here and nowhere else on the read
+    side, because the two directions are genuinely different. Its tag still
+    resolves and it is still a real row, so **taking stock out of it must keep
+    working** — that is how somebody empties a drawer they have just removed. But
+    it is in no tree read, no parent's `child_count`, no room plan and no
+    auto-assignment proposal (`app.services.removal.retire`), so stock received
+    into it would be a non-zero balance in a container no screen can show. The
+    only way back to it would be the tag still stuck to its front.
+
+    The station commits through these same routes and knows nothing about
+    retirement (`deviceagent`), which is exactly why the refusal lives on the
+    server.
+    """
+    location = _require_location(db, location_id)
+    if location.retired_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "location_retired",
+                "message": (
+                    f"{location.name} was removed from the storage tree, so stock cannot be"
+                    " put into it. Restore it first, or choose somewhere else."
+                ),
+            },
+        )
+    return location
+
+
 def _ledger_error(error: LedgerError) -> HTTPException:
     """Map a refusal onto 409, carrying the reason code.
 
@@ -318,7 +349,7 @@ def receive_stock(request: ReceiveRequest, db: Session = Depends(get_db)) -> Mov
     """
     if db.get(Part, request.part_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"no part with id {request.part_id}")
-    location = _require_location(db, request.location_id)
+    location = _require_destination(db, request.location_id)
 
     def work() -> MovementResponse:
         lot, _ = ledger.find_or_create_lot(
@@ -473,7 +504,7 @@ def move_stock(
     conservative.
     """
     lot = _require_lot(db, lot_id)
-    destination = _require_location(db, request.to_location_id)
+    destination = _require_destination(db, request.to_location_id)
 
     def work() -> MovementResponse:
         try:
@@ -540,7 +571,7 @@ def empty_bin(
     longer exists.
     """
     source = _require_location(db, location_id)
-    destination = _require_location(db, request.to_location_id)
+    destination = _require_destination(db, request.to_location_id)
     if source.id == destination.id:
         raise HTTPException(
             status.HTTP_409_CONFLICT,

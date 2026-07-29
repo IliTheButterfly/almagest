@@ -125,6 +125,59 @@ def test_a_footprint_falls_back_to_the_container_type(client: TestClient, db: Se
     ).raise_for_status()
     placement = client.get(f"/api/locations/{room.id}/plan").json()["placements"][0]
     assert (placement["width_mm"], placement["depth_mm"]) == (306, 150)
+    # And the wire says *where the number came from*. Without this pair an editor
+    # cannot tell a size somebody typed from the type's own, so it sends 306 back
+    # as an override on the next save and freezes it — after which correcting the
+    # container type stops moving the box. Same shape as ADR 0006's `child_view`
+    # beside `effective_child_view`.
+    assert (placement["own_width_mm"], placement["own_depth_mm"]) == (None, None)
+
+
+def test_an_inherited_footprint_survives_a_move_that_does_not_touch_it(
+    client: TestClient, db: Session
+) -> None:
+    """Nudging a box must not silently author its footprint.
+
+    The editor round-trips `own_width_mm`/`own_depth_mm` — the pair the placement
+    itself states — so a rearrangement of a cabinet whose size comes from its type
+    leaves `plan_width_mm` null and the type still in charge. Widening the type
+    afterwards widens the drawn box, which is the whole point of inheriting it.
+    """
+    room = _room(db)
+    cabinet_type = make_container_type(
+        db, slug="raaco-150-31", front_width_mm=306.0, inner_length_mm=150.0
+    )
+    cabinet = _child(db, room, "Raaco", container_type_id=cabinet_type.id)
+    db.commit()
+
+    client.put(
+        f"/api/locations/{room.id}/plan/placements",
+        json={"placements": [{"location_id": cabinet.id, "x_mm": 0, "y_mm": 0}]},
+    ).raise_for_status()
+    placement = client.get(f"/api/locations/{room.id}/plan").json()["placements"][0]
+
+    # One grid step across, sending back exactly what the read reported as *own*.
+    client.put(
+        f"/api/locations/{room.id}/plan/placements",
+        json={
+            "placements": [
+                {
+                    "location_id": cabinet.id,
+                    "x_mm": 100,
+                    "y_mm": 0,
+                    "width_mm": placement["own_width_mm"],
+                    "depth_mm": placement["own_depth_mm"],
+                }
+            ]
+        },
+    ).raise_for_status()
+
+    cabinet_type.front_width_mm = 400.0
+    db.commit()
+    moved = client.get(f"/api/locations/{room.id}/plan").json()["placements"][0]
+    assert moved["x_mm"] == 100
+    assert moved["own_width_mm"] is None
+    assert moved["width_mm"] == 400
 
 
 def test_an_unplaced_child_is_reported_as_unplaced(client: TestClient, db: Session) -> None:

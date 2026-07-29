@@ -8736,6 +8736,28 @@
             "title": "Location Id",
             "type": "integer"
           },
+          "own_depth_mm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Depth Mm"
+          },
+          "own_width_mm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Width Mm"
+          },
           "parent_id": {
             "title": "Parent Id",
             "type": "integer"
@@ -8771,7 +8793,9 @@
           "y_mm",
           "rotation_deg",
           "width_mm",
-          "depth_mm"
+          "depth_mm",
+          "own_width_mm",
+          "own_depth_mm"
         ],
         "title": "PlacementRead",
         "type": "object"
