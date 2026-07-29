@@ -31,23 +31,37 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+#: Plain `op.add_column`/`op.drop_column`, **not** `op.batch_alter_table`, and the
+#: reason is `locations` specifically.
+#:
+#: Batch mode implements an unsupported ALTER by building `_alembic_tmp_locations`,
+#: copying rows across, dropping the original and renaming the copy into place. That
+#: last rename is where it dies here: SQLite re-checks every existing trigger body
+#: when a table is renamed, and `trg_stock_ledger_dirty_occupancy` (created one
+#: revision earlier, in `b8c9d4009bdd`) names `main.locations` — which does not exist
+#: at that instant, because the real table has just been dropped. The rename fails
+#: with `error in trigger trg_stock_ledger_dirty_occupancy: no such table:
+#: main.locations`, and the downgrade leaves the schema wedged mid-rebuild.
+#:
+#: Nothing here needs a rebuild anyway. SQLite has had native `ADD COLUMN` forever
+#: and native `DROP COLUMN` since 3.35 (2021), so both directions are one statement
+#: each — which is also what the later `child_view` and `glyph` migrations do, so
+#: this is now the one convention rather than two. The rule to carry forward: a
+#: migration that genuinely needs a table rebuild on a trigger-referenced table has
+#: to drop those triggers first and recreate them after.
+
+
 def upgrade() -> None:
     """Upgrade schema."""
-    with op.batch_alter_table("locations", schema=None) as batch_op:
-        batch_op.add_column(
-            sa.Column("row_span", sa.Integer(), server_default="1", nullable=False)
-        )
-        batch_op.add_column(
-            sa.Column("col_span", sa.Integer(), server_default="1", nullable=False)
-        )
-        batch_op.add_column(sa.Column("size_class", sa.String(length=32), nullable=True))
-        batch_op.add_column(sa.Column("inner_volume_mm3", sa.Float(), nullable=True))
+    op.add_column("locations", sa.Column("row_span", sa.Integer(), server_default="1", nullable=False))
+    op.add_column("locations", sa.Column("col_span", sa.Integer(), server_default="1", nullable=False))
+    op.add_column("locations", sa.Column("size_class", sa.String(length=32), nullable=True))
+    op.add_column("locations", sa.Column("inner_volume_mm3", sa.Float(), nullable=True))
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    with op.batch_alter_table("locations", schema=None) as batch_op:
-        batch_op.drop_column("inner_volume_mm3")
-        batch_op.drop_column("size_class")
-        batch_op.drop_column("col_span")
-        batch_op.drop_column("row_span")
+    op.drop_column("locations", "inner_volume_mm3")
+    op.drop_column("locations", "size_class")
+    op.drop_column("locations", "col_span")
+    op.drop_column("locations", "row_span")
