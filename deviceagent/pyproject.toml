@@ -26,7 +26,13 @@ dependencies = [
     # dependency-free module that `app.services.provisioning` re-exports and the
     # agent depends on alone. The fix is never to copy them.
     #
-    # Note the *backend's* `[tool.uv.sources]` entries for the two submodule
+    # Note the *backend's* `# NOTE: because the backend is a path dependency below, **changing
+# `backend/pyproject.toml` invalidates this lockfile** — adding an optional-
+# dependency group there is enough. CI runs `uv sync --locked` and fails; a local
+# `make check` syncs without `--locked`, relocks silently, and passes. So after
+# touching the backend's dependencies, run `uv lock` here and commit the result.
+# Phase 4 adding a `datasheets` extra is what surfaced this.
+[tool.uv.sources]` entries for the two submodule
     # libraries are honoured through this path source, so they need no repeat
     # here — verified, because neither library is published to PyPI and
     # resolution would fail loudly if they were ignored.
@@ -45,6 +51,12 @@ pi = [
 [project.scripts]
 almagest-deviceagent = "agent.main:main"
 
+# NOTE: because the backend is a path dependency below, **changing
+# `backend/pyproject.toml` invalidates this lockfile** — adding an optional-
+# dependency group there is enough. CI runs `uv sync --locked` and fails; a local
+# `make check` syncs without `--locked`, relocks silently, and passes. So after
+# touching the backend's dependencies, run `uv lock` here and commit the result.
+# Phase 4 adding a `datasheets` extra is what surfaced this.
 [tool.uv.sources]
 almagest-backend = { path = "../backend", editable = true }
 
