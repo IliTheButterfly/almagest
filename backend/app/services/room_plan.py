@@ -196,10 +196,18 @@ def place(
 
 
 def children_of(session: Session, parent: Location) -> list[Location]:
+    """What stands in this room, placed or not.
+
+    Retired containers are excluded (`app.services.removal`): a removed cabinet
+    must not still be drawn standing in the room, and it must not appear in the
+    "not placed yet" list either, which would read as an invitation to drag it
+    somewhere. Its coordinates are cleared on retirement as well — belt to these
+    braces, and for the same reason `TreeRepository.move` clears them.
+    """
     return list(
         session.execute(
             select(Location)
-            .where(Location.parent_id == parent.id)
+            .where(Location.parent_id == parent.id, Location.retired_at.is_(None))
             .order_by(Location.sort_order, Location.id)
         )
         .scalars()

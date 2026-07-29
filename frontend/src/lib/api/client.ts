@@ -90,6 +90,13 @@ export type SuggestResponse = Schemas["SuggestResponse"];
 export type ShortIdRequest = Schemas["ShortIdRequest"];
 export type ShortIdResponse = Schemas["ShortIdResponse"];
 
+// --- removing a container (backend `app/services/removal.py`) --------------
+export type RemovalPreview = Schemas["RemovalPreview"];
+export type RemovalBlockerRead = Schemas["RemovalBlockerRead"];
+export type RemovalNodeRead = Schemas["RemovalNodeRead"];
+export type LocationRemoved = Schemas["LocationRemoved"];
+export type LocationRestored = Schemas["LocationRestored"];
+
 // --- ADR 0006: how each layer of the tree is drawn ------------------------
 export type ChildView = Schemas["ChildView"];
 export type LocationChildViewUpdate = Schemas["LocationChildViewUpdate"];
@@ -524,6 +531,63 @@ export async function createLocation(request: LocationCreate): Promise<LocationC
   const { data, error, response } = await api.POST("/api/locations", { body: request });
   if (error !== undefined) {
     fail("could not create that container", error, response);
+  }
+  return data;
+}
+
+// --- removing a container -------------------------------------------------
+//
+// Three calls rather than one, because the interesting part of removing a
+// container is finding out what would happen. The backend decides per node
+// between deleting the row, retiring it (the ledger names it, so the row and its
+// history stay while the container leaves the tree) and refusing outright
+// because stock is inside — see `app/services/removal.py`. The preview returns
+// that same decision without writing anything, so the confirm panel states the
+// real consequence instead of a generic warning it might be wrong about.
+
+/**
+ * What removing this container *would* do. Writes nothing.
+ *
+ * A refusal is a 200 with `removable: false` and a `blockers` list naming the
+ * contents, not an error — the caller asked a question and this is the answer.
+ */
+export async function previewLocationRemoval(
+  locationId: number,
+  recursive = false,
+): Promise<RemovalPreview> {
+  const { data, error, response } = await api.GET("/api/locations/{location_id}/removal", {
+    params: { path: { location_id: locationId }, query: { recursive } },
+  });
+  if (error !== undefined) {
+    fail("could not work out what removing this would do", error, response);
+  }
+  return data;
+}
+
+/**
+ * Remove it. `recursive` is required for a container with anything inside it,
+ * and the server refuses rather than recursing silently.
+ */
+export async function removeLocation(
+  locationId: number,
+  recursive = false,
+): Promise<LocationRemoved> {
+  const { data, error, response } = await api.DELETE("/api/locations/{location_id}", {
+    params: { path: { location_id: locationId }, query: { recursive } },
+  });
+  if (error !== undefined) {
+    fail("could not remove that container", error, response);
+  }
+  return data;
+}
+
+/** Undo a retirement — this container and everything retired under it. */
+export async function restoreLocation(locationId: number): Promise<LocationRestored> {
+  const { data, error, response } = await api.POST("/api/locations/{location_id}/restore", {
+    params: { path: { location_id: locationId } },
+  });
+  if (error !== undefined) {
+    fail("could not bring that container back", error, response);
   }
   return data;
 }

@@ -50,7 +50,7 @@ from app.models.enums import (
 from app.models.identity import ObjectId
 from app.models.stock import StockLot
 from app.models.storage import ContainerType, Location, LocationOccupancy, LocationTag
-from app.services import assignment, capacity, glyphs, room_plan, shortid, views
+from app.services import assignment, capacity, glyphs, removal, room_plan, shortid, views
 from app.services import layout_authoring as layout
 from app.services.assignment import AssignmentResult
 from app.services.capacity import DefragPlan
@@ -350,6 +350,13 @@ class LocationRead(BaseModel):
     #: to the layout"). Set by `POST /api/labels/sheets`, never by anything in
     #: this module — a location cannot claim to be printed on its own say-so.
     last_printed_at: datetime | None
+    #: Set when this container was **removed but could not be deleted** — the
+    #: ledger, a printed label or a stuck-on tag names it, so the row and its
+    #: history stay while the container leaves the tree (`app.services.removal`).
+    #: Reported on the detail screen rather than hidden, because this screen is
+    #: where a tapped tag on a removed drawer lands, and "this is gone" has to be
+    #: something it can actually say. Null for every live container.
+    retired_at: datetime | None
 
 
 class LocationCreated(ReplayableResponse):
@@ -421,6 +428,11 @@ class LocationNode(BaseModel):
     fill_ratio: float | None
     lot_count: int
     qty_milli: int
+    #: Set for a container that was removed but could not be deleted — see
+    #: `LocationRead.retired_at`. **Always null unless `include_retired=true`**,
+    #: because a retired container is not part of the tree; the field exists so
+    #: the one view that asks for them can tell them apart from the living.
+    retired_at: datetime | None
 
 
 class LocationTree(BaseModel):
@@ -523,6 +535,89 @@ class AffectedSlotRead(BaseModel):
     location_id: RowId
     slot_label: str
     reasons: list[str]
+
+
+# --- removing a container (app.services.removal) ---------------------------
+
+
+class RemovalBlockerRead(BaseModel):
+    """One thing standing in the way, and **what is inside it**.
+
+    `detail` carries the actual contents — "470 x C0603C104K (lot 12)" — because
+    a refusal that does not name what is in the drawer tells the user nothing
+    they can act on, and "constraint failed" is not an answer.
+    """
+
+    reason: str
+    location_id: RowId
+    label: str
+    label_path: str
+    detail: str
+
+
+class RemovalNodeRead(BaseModel):
+    """What removing this container would do to one node of its subtree."""
+
+    location_id: RowId
+    label: str
+    label_path: str
+    #: `delete` — the row goes — or `retire`: the row and its history stay, and
+    #: the container leaves the tree. Never anything else, and never guessed.
+    action: str
+    #: Why it cannot simply be deleted: `has_lots`, `in_ledger`, `printed`,
+    #: `bound_tag`, `pinned_by_child`. Empty exactly when `action == "delete"`.
+    pins: list[str]
+
+
+class RemovalPreview(BaseModel):
+    """A dry run of `DELETE /api/locations/{id}`, derived from the same plan.
+
+    The confirm dialog reads this rather than deciding for itself, so it cannot
+    promise an outcome the delete then refuses — and so the words "this cannot be
+    undone" are only ever shown when they are true.
+    """
+
+    location_id: RowId
+    removable: bool
+    #: Non-empty exactly when `removable` is false.
+    blockers: list[RemovalBlockerRead]
+    reason: str | None
+    message: str | None
+    nodes: list[RemovalNodeRead]
+    #: How many containers sit inside this one. Non-zero means `recursive` is
+    #: required, and the preview says which ones would go with it.
+    descendant_count: int
+
+
+class LocationRemoved(BaseModel):
+    """What actually happened, split by outcome rather than summarised.
+
+    Two lists rather than one count, because the two are different promises: a
+    deleted id is gone and a retired one is recoverable, and the UI has to be
+    able to say which without asking again.
+    """
+
+    location_id: RowId
+    deleted_location_ids: list[int]
+    retired_location_ids: list[int]
+    nodes: list[RemovalNodeRead]
+
+
+class LocationRestored(BaseModel):
+    """A retirement undone.
+
+    `restored_location_ids` covers the whole retired subtree: retiring a cabinet
+    retired its drawers, so restoring the cabinet alone would leave them
+    stranded, invisible, inside a visible container.
+    """
+
+    location_id: RowId
+    restored_location_ids: list[int]
+    #: True when the container came back without a position, which is the normal
+    #: outcome: retiring cleared its slot cell and its floor-plan coordinate, and
+    #: silently reclaiming a cell somebody has laid out since is exactly the
+    #: "redefine what a label already means" failure the layout guard prevents.
+    unplaced: bool
 
 
 class ReapplyLayoutRequest(BaseModel):
@@ -810,8 +905,13 @@ def _read(db: Session, location: Location) -> LocationRead:
         .scalars()
         .all()
     )
+    # Retired children are excluded: `child_count` drives "N slot(s) laid out
+    # here" and whether the client fetches a subtree at all, and a container that
+    # has left the tree must not keep its parent claiming to hold something.
     child_count = db.execute(
-        select(func.count()).select_from(Location).where(Location.parent_id == location.id)
+        select(func.count())
+        .select_from(Location)
+        .where(Location.parent_id == location.id, Location.retired_at.is_(None))
     ).scalar_one()
     own_photo = primary_photo(db, entity_type=EntityType.LOCATION, entity_pk=location.id)
     type_photo = (
@@ -853,6 +953,7 @@ def _read(db: Session, location: Location) -> LocationRead:
         capacity=_capacity_read(db, location),
         lots=[lot_read(db, lot) for lot in lots],
         last_printed_at=location.last_printed_at,
+        retired_at=location.retired_at,
     )
 
 
@@ -1040,17 +1141,27 @@ def _guarded_change_error(guard: GuardedLayoutChange) -> HTTPException:
 def read_location_tree(
     db: Session = Depends(get_db),
     root_id: int | None = None,
+    include_retired: bool = False,
 ) -> LocationTree:
     """The whole tree, or one subtree.
 
     Subtree filtering is `id_path LIKE :prefix || '%'` — left-anchored, so the
     index on `id_path` serves it, and no recursion is involved at read time.
+
+    **Retired containers are excluded by default** (`app.services.removal`): a
+    container whose row the ledger pins but which the user has removed is not part
+    of the storage tree any more, and leaving it in would make "remove" mean
+    nothing. `include_retired=true` is for the one screen that offers to restore
+    them; a retired node's descendants are retired too, so the filter is per node
+    and needs no subtree arithmetic.
     """
     tree = location_tree(db)
     if root_id is None:
         nodes = sorted(tree.subtree_all(), key=lambda node: node.id_path)
     else:
         nodes = tree.subtree(_require_location(db, root_id))
+    if not include_retired:
+        nodes = [node for node in nodes if node.retired_at is None]
 
     # One aggregate query for the whole tree rather than one per node: the totals
     # come from `stock_lots.qty_milli_cached`, so this is a sum over the cache.
@@ -1100,6 +1211,7 @@ def read_location_tree(
                 fill_ratio=fill.get(node.id),
                 lot_count=totals.get(node.id, (0, 0))[0],
                 qty_milli=totals.get(node.id, (0, 0))[1],
+                retired_at=node.retired_at,
             )
             for node in nodes
         ]
@@ -1220,6 +1332,155 @@ def read_location(location_id: RowId, db: Session = Depends(get_db)) -> Location
     starts from — hence the lots, and hence the capacity block alongside them.
     """
     return _read(db, _require_location(db, location_id))
+
+
+# ---------------------------------------------------------------------------
+# Removing a container
+# ---------------------------------------------------------------------------
+
+
+def _blocker_read(blocker: removal.Blocker) -> RemovalBlockerRead:
+    return RemovalBlockerRead(
+        reason=blocker.reason,
+        location_id=blocker.location_id,
+        label=blocker.label,
+        label_path=blocker.label_path,
+        detail=blocker.detail,
+    )
+
+
+def _node_read(node: removal.NodePlan) -> RemovalNodeRead:
+    return RemovalNodeRead(
+        location_id=node.location_id,
+        label=node.label,
+        label_path=node.label_path,
+        action=node.action,
+        pins=list(node.pins),
+    )
+
+
+def _removal_conflict(error: removal.RemovalRefused) -> HTTPException:
+    """A refusal, carrying the list of what is in the way.
+
+    409 rather than 422 for both reasons this can fire: neither is a malformed
+    request. The drawer really does hold stock, or really does have containers in
+    it, and the fix is out here in the workshop.
+    """
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={
+            "reason": error.reason,
+            "message": error.message,
+            "blockers": [_blocker_read(blocker).model_dump() for blocker in error.blockers],
+        },
+    )
+
+
+@router.get("/{location_id}/removal", response_model=RemovalPreview)
+def preview_location_removal(
+    location_id: RowId,
+    recursive: bool = False,
+    db: Session = Depends(get_db),
+) -> RemovalPreview:
+    """What removing this container would do — a dry run, writing nothing.
+
+    The confirm dialog reads this so that it and the delete derive their answer
+    from one function (`app.services.removal.plan_removal`). Without it the dialog
+    would have to guess between "this is permanent" and "this can be undone", and
+    it would guess wrong for exactly the drawers where being wrong matters: the
+    ones with history behind them.
+
+    A refusal comes back as a 200 with `removable: false`, not a 409 — nothing was
+    attempted, so there is nothing to refuse; the caller asked a question and this
+    is the answer.
+    """
+    location = _require_location(db, location_id)
+    descendants = len(location_tree(db).subtree(location, include_self=False))
+    try:
+        plan = removal.plan_removal(db, location, recursive=recursive)
+    except removal.RemovalRefused as error:
+        return RemovalPreview(
+            location_id=location.id,
+            removable=False,
+            blockers=[_blocker_read(blocker) for blocker in error.blockers],
+            reason=error.reason,
+            message=error.message,
+            nodes=[],
+            descendant_count=descendants,
+        )
+    return RemovalPreview(
+        location_id=location.id,
+        removable=True,
+        blockers=[],
+        reason=None,
+        message=None,
+        nodes=[_node_read(node) for node in plan.nodes],
+        descendant_count=descendants,
+    )
+
+
+@router.delete("/{location_id}", response_model=LocationRemoved)
+def remove_location(
+    location_id: RowId,
+    recursive: bool = False,
+    db: Session = Depends(get_db),
+) -> LocationRemoved:
+    """Remove a container. **Deletes it if nothing names it, retires it if
+    something does, and refuses if stock is inside.**
+
+    Which of the three happens per node is decided by
+    `app.services.removal.plan_removal` and reported back rather than summarised,
+    because the three are different promises and the UI has to be able to say
+    which one it got. The full reasoning lives in that module; the short version:
+
+    * `stock_lots.location_id` and `stock_ledger.{from,to}_location_id` are
+      `RESTRICT` against tables nothing deletes from, so a drawer that ever held
+      anything cannot be deleted, ever. It is retired instead: the row and every
+      ledger entry naming it stay untouched, and the container leaves the tree,
+      the room plan, its parent's slot canvas and auto-assignment.
+    * A container holding actual stock is refused, and the refusal names the
+      lots. Relocating them is a ledger movement and the user's decision, so
+      nothing here does it silently.
+    * `recursive=false` on a container with children is refused and names them.
+      Deleting a cabinet is never an accident of deleting a cabinet.
+    """
+    location = _require_location(db, location_id)
+    try:
+        plan = removal.apply_removal(
+            db, removal.plan_removal(db, location, recursive=recursive)
+        )
+    except removal.RemovalRefused as error:
+        raise _removal_conflict(error) from error
+    db.commit()
+    return LocationRemoved(
+        location_id=location_id,
+        deleted_location_ids=list(plan.deleted_ids),
+        retired_location_ids=list(plan.retired_ids),
+        nodes=[_node_read(node) for node in plan.nodes],
+    )
+
+
+@router.post("/{location_id}/restore", response_model=LocationRestored)
+def restore_location(location_id: RowId, db: Session = Depends(get_db)) -> LocationRestored:
+    """Undo a retirement — for this container and everything retired under it.
+
+    Only a retirement is undoable. A deleted container is gone, and the UI says
+    so plainly before it happens rather than offering an undo that cannot exist.
+    """
+    location = _require_location(db, location_id)
+    try:
+        restored = removal.restore(db, location)
+    except removal.RestoreRefused as error:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"reason": error.reason, "message": error.message},
+        ) from error
+    db.commit()
+    return LocationRestored(
+        location_id=location_id,
+        restored_location_ids=[loc.id for loc in restored],
+        unplaced=room_plan.placement_of(db, location) is None and location.slot_label is None,
+    )
 
 
 @router.post(

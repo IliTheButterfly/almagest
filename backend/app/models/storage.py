@@ -303,6 +303,30 @@ class Location(Base, TreeMixin, TimestampMixin):
     last_verified_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
     last_printed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
 
+    #: **Removed from the storage tree, but still named by something.**
+    #:
+    #: A location the user asked to remove is *deleted* whenever nothing
+    #: physical or historical names it — no lot has ever sat in it, no ledger
+    #: row moved stock through it, no label was printed, no tag is stuck to it.
+    #: That is the ordinary case and the one Iliana hit: an empty cell stamped
+    #: out of a template.
+    #:
+    #: The rest cannot be deleted at all. `stock_lots.location_id` and
+    #: `stock_ledger.{from,to}_location_id` are `RESTRICT` against a table
+    #: nothing may delete from, so a drawer that ever held anything is pinned by
+    #: the ledger forever — and that is correct, because deleting history is the
+    #: one thing this system must never do. Refusing outright would then leave a
+    #: used drawer on screen forever with no way to get rid of it, so those rows
+    #: are retired instead: the row stays, the history stays, and the drawer
+    #: leaves the tree, the room, its parent's slot canvas and auto-assignment.
+    #:
+    #: NULL is the overwhelmingly common state, so this is a nullable timestamp
+    #: rather than a flag plus a date — the same shape `stock_lots.retired_at`
+    #: already uses for the same meaning, and a timestamp answers "when" for
+    #: free. Reversible: `POST /api/locations/{id}/restore` clears it. See
+    #: `app.services.removal`.
+    retired_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
     # --- ADR 0009: where this container stands in its parent's floor plan -----
     #
     # `row_idx`/`col_idx` above are cells on a parent's slot *canvas*. A room has
@@ -362,6 +386,11 @@ class Location(Base, TreeMixin, TimestampMixin):
             sqlite_where=slot_label.isnot(None),
         ),
         Index("ix_locations_parent_sort", "parent_id", "sort_order"),
+        # Every tree read and every assignment pass filters on this, and the
+        # answer is NULL for almost every row — so the index earns its keep by
+        # being tiny and by keeping "hide what was removed" off the hot path's
+        # conscience.
+        Index("ix_locations_retired_at", "retired_at"),
     )
 
 

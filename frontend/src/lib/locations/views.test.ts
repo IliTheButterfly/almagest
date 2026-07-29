@@ -33,6 +33,8 @@ function node(id: number, parentId: number | null, view: string): LocationNode {
     fill_ratio: null,
     lot_count: 0,
     qty_milli: 0,
+    // Every fixture here is a live node; a retired one never reaches a renderer.
+    retired_at: null,
   };
 }
 

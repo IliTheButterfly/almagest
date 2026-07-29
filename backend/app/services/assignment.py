@@ -448,7 +448,19 @@ def _evaluate_all_locations(
     derives its candidates from this same list, so a single evaluation always
     backs the whole ladder for one call."""
     tree = location_tree(session)
-    locations = session.execute(select(Location).order_by(Location.id)).scalars().all()
+    # Retired locations are excluded before any scoring happens rather than
+    # filtered out as a hard-filter reason (`app.services.removal`): a removed
+    # container is not a rejected candidate, it is not a candidate. Leaving it in
+    # the list would let the escalation ladder propose putting stock into
+    # something the user has taken out of the tree — including via the INBOX
+    # fallback, which never refuses anything.
+    locations = (
+        session.execute(
+            select(Location).where(Location.retired_at.is_(None)).order_by(Location.id)
+        )
+        .scalars()
+        .all()
+    )
     container_types = {ct.id: ct for ct in session.execute(select(ContainerType)).scalars()}
     occupants_by_location = capacity.load_all_occupants(session)
     parts_by_id = {p.id: p for p in session.execute(select(Part)).scalars()}

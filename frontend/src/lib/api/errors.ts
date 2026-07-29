@@ -147,6 +147,26 @@ export const REASON_HINTS: Readonly<Record<string, string>> = {
   code_too_long: "That payload is too long to use as a binding key.",
   unknown_target: "The thing you are binding this code to does not exist.",
 
+  // --- removing a container (app.services.removal) ------------------------
+  // The panel normally shows the *preview*, which carries the same reasons as
+  // structured data and names the contents. These cover the 409 the DELETE itself
+  // returns when the world changed between the preview and the confirmation —
+  // somebody put stock in the drawer while it was open — where the server's own
+  // message is the specific one and these say what kind of thing happened.
+  holds_stock:
+    "There is still stock in there. Move it somewhere else first: nothing here " +
+    "relocates stock on its own, because where it goes is a movement in the ledger " +
+    "and your decision.",
+  has_children:
+    "There are containers inside this one. Removing them too is a separate, " +
+    "explicit confirmation — a cabinet is never emptied as a side effect of " +
+    "removing the cabinet.",
+  ancestor_retired:
+    "The container this one sits in was removed as well, so restoring this alone " +
+    "would bring it back invisible inside something invisible. Restore that one " +
+    "first; it brings everything under it back with it.",
+  not_retired: "This container has not been removed, so there is nothing to bring back.",
+
   // --- layout authoring change guard (app.services.layout_authoring) ------
   // `slots_hold_content` is the "guarded" outcome: distinct from a plain
   // refusal because it names exactly what is in the way and is expected to

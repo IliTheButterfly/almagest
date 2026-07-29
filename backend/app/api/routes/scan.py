@@ -71,6 +71,11 @@ class ScanTarget(BaseModel):
     label_path: str | None = None
     short_id: str | None = None
     display: str | None = None
+    #: True when this is a container that was **removed** — the row survives
+    #: because history names it, and so does the tag on the drawer. The scanner
+    #: must say "this is gone" rather than land the user on a container that looks
+    #: live. See `app.services.removal`.
+    retired: bool = False
 
 
 class ScanCandidate(BaseModel):
@@ -199,6 +204,7 @@ def _target(entity: EntityDescription) -> ScanTarget:
         label_path=entity.label_path,
         short_id=entity.short_id,
         display=entity.display,
+        retired=entity.retired,
     )
 
 

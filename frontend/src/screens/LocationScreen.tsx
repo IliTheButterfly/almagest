@@ -16,6 +16,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ContainerPhotoPanel } from "../components/ContainerPhotoPanel";
+import { RemoveContainer } from "../components/RemoveContainer";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
 import {
@@ -132,6 +133,13 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
       </div>
 
       <PrintedId location={location} onDone={onChanged} />
+
+      {/* TEMPORARY HOST. This affordance belongs in the storage screen's edit
+          mode, which is being built alongside it — `RemoveContainer` needs only a
+          `LocationRead` and a reload callback, so moving it there is one line and
+          this block deletes cleanly. It is here rather than nowhere because
+          "there is no way to remove a container" is the bug being fixed. */}
+      <RemoveContainer location={location} onChanged={onChanged} />
 
       <div className="card">
         <div className="row">

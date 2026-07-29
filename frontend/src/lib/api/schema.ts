@@ -1010,6 +1010,13 @@ export interface paths {
          *
          *     Subtree filtering is `id_path LIKE :prefix || '%'` — left-anchored, so the
          *     index on `id_path` serves it, and no recursion is involved at read time.
+         *
+         *     **Retired containers are excluded by default** (`app.services.removal`): a
+         *     container whose row the ledger pins but which the user has removed is not part
+         *     of the storage tree any more, and leaving it in would make "remove" mean
+         *     nothing. `include_retired=true` is for the one screen that offers to restore
+         *     them; a retired node's descendants are retired too, so the filter is per node
+         *     and needs no subtree arithmetic.
          */
         get: operations["read_location_tree"];
         put?: never;
@@ -1037,7 +1044,28 @@ export interface paths {
         get: operations["read_location"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Remove Location
+         * @description Remove a container. **Deletes it if nothing names it, retires it if
+         *     something does, and refuses if stock is inside.**
+         *
+         *     Which of the three happens per node is decided by
+         *     `app.services.removal.plan_removal` and reported back rather than summarised,
+         *     because the three are different promises and the UI has to be able to say
+         *     which one it got. The full reasoning lives in that module; the short version:
+         *
+         *     * `stock_lots.location_id` and `stock_ledger.{from,to}_location_id` are
+         *       `RESTRICT` against tables nothing deletes from, so a drawer that ever held
+         *       anything cannot be deleted, ever. It is retired instead: the row and every
+         *       ledger entry naming it stay untouched, and the container leaves the tree,
+         *       the room plan, its parent's slot canvas and auto-assignment.
+         *     * A container holding actual stock is refused, and the refusal names the
+         *       lots. Relocating them is a ledger movement and the user's decision, so
+         *       nothing here does it silently.
+         *     * `recursive=false` on a container with children is refused and names them.
+         *       Deleting a cabinet is never an accident of deleting a cabinet.
+         */
+        delete: operations["remove_location"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1334,6 +1362,59 @@ export interface paths {
          *     `app.services.layout_authoring.diff_instance_layout`.
          */
         post: operations["reapply_layout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/removal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview Location Removal
+         * @description What removing this container would do — a dry run, writing nothing.
+         *
+         *     The confirm dialog reads this so that it and the delete derive their answer
+         *     from one function (`app.services.removal.plan_removal`). Without it the dialog
+         *     would have to guess between "this is permanent" and "this can be undone", and
+         *     it would guess wrong for exactly the drawers where being wrong matters: the
+         *     ones with history behind them.
+         *
+         *     A refusal comes back as a 200 with `removable: false`, not a 409 — nothing was
+         *     attempted, so there is nothing to refuse; the caller asked a question and this
+         *     is the answer.
+         */
+        get: operations["preview_location_removal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/locations/{location_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Location
+         * @description Undo a retirement — for this container and everything retired under it.
+         *
+         *     Only a retirement is undoable. A deleted container is gone, and the UI says
+         *     so plainly before it happens rather than offering an undo that cannot exist.
+         */
+        post: operations["restore_location"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4402,6 +4483,8 @@ export interface components {
             parent_id: number | null;
             /** Qty Milli */
             qty_milli: number;
+            /** Retired At */
+            retired_at: string | null;
             /** Slot Label */
             slot_label: string | null;
         };
@@ -4455,12 +4538,48 @@ export interface components {
             parent_id: number | null;
             photo: components["schemas"]["DocumentRead"] | null;
             placement: components["schemas"]["PlacementRead"] | null;
+            /** Retired At */
+            retired_at: string | null;
             /** Short Id */
             short_id: string | null;
             /** Slot Label */
             slot_label: string | null;
             /** Tare Mg */
             tare_mg: number | null;
+        };
+        /**
+         * LocationRemoved
+         * @description What actually happened, split by outcome rather than summarised.
+         *
+         *     Two lists rather than one count, because the two are different promises: a
+         *     deleted id is gone and a retired one is recoverable, and the UI has to be
+         *     able to say which without asking again.
+         */
+        LocationRemoved: {
+            /** Deleted Location Ids */
+            deleted_location_ids: number[];
+            /** Location Id */
+            location_id: number;
+            /** Nodes */
+            nodes: components["schemas"]["RemovalNodeRead"][];
+            /** Retired Location Ids */
+            retired_location_ids: number[];
+        };
+        /**
+         * LocationRestored
+         * @description A retirement undone.
+         *
+         *     `restored_location_ids` covers the whole retired subtree: retiring a cabinet
+         *     retired its drawers, so restoring the cabinet alone would leave them
+         *     stranded, invisible, inside a visible container.
+         */
+        LocationRestored: {
+            /** Location Id */
+            location_id: number;
+            /** Restored Location Ids */
+            restored_location_ids: number[];
+            /** Unplaced */
+            unplaced: boolean;
         };
         /** LocationTree */
         LocationTree: {
@@ -5568,6 +5687,66 @@ export interface components {
             replayed?: boolean;
         };
         /**
+         * RemovalBlockerRead
+         * @description One thing standing in the way, and **what is inside it**.
+         *
+         *     `detail` carries the actual contents — "470 x C0603C104K (lot 12)" — because
+         *     a refusal that does not name what is in the drawer tells the user nothing
+         *     they can act on, and "constraint failed" is not an answer.
+         */
+        RemovalBlockerRead: {
+            /** Detail */
+            detail: string;
+            /** Label */
+            label: string;
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * RemovalNodeRead
+         * @description What removing this container would do to one node of its subtree.
+         */
+        RemovalNodeRead: {
+            /** Action */
+            action: string;
+            /** Label */
+            label: string;
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Pins */
+            pins: string[];
+        };
+        /**
+         * RemovalPreview
+         * @description A dry run of `DELETE /api/locations/{id}`, derived from the same plan.
+         *
+         *     The confirm dialog reads this rather than deciding for itself, so it cannot
+         *     promise an outcome the delete then refuses — and so the words "this cannot be
+         *     undone" are only ever shown when they are true.
+         */
+        RemovalPreview: {
+            /** Blockers */
+            blockers: components["schemas"]["RemovalBlockerRead"][];
+            /** Descendant Count */
+            descendant_count: number;
+            /** Location Id */
+            location_id: number;
+            /** Message */
+            message: string | null;
+            /** Nodes */
+            nodes: components["schemas"]["RemovalNodeRead"][];
+            /** Reason */
+            reason: string | null;
+            /** Removable */
+            removable: boolean;
+        };
+        /**
          * RequirementFilterRead
          * @description One predicate the description was read as.
          */
@@ -5704,6 +5883,11 @@ export interface components {
             label: string;
             /** Label Path */
             label_path?: string | null;
+            /**
+             * Retired
+             * @default false
+             */
+            retired?: boolean;
             /** Short Id */
             short_id: string;
         };
@@ -6067,6 +6251,11 @@ export interface components {
             label: string;
             /** Label Path */
             label_path?: string | null;
+            /**
+             * Retired
+             * @default false
+             */
+            retired?: boolean;
             /** Short Id */
             short_id?: string | null;
         };
@@ -8329,6 +8518,7 @@ export interface operations {
         parameters: {
             query?: {
                 root_id?: number | null;
+                include_retired?: boolean;
             };
             header?: never;
             path?: never;
@@ -8374,6 +8564,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_location: {
+        parameters: {
+            query?: {
+                recursive?: boolean;
+            };
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationRemoved"];
                 };
             };
             /** @description Validation Error */
@@ -8810,6 +9033,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReapplyLayoutResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_location_removal: {
+        parameters: {
+            query?: {
+                recursive?: boolean;
+            };
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemovalPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_location: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                location_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationRestored"];
                 };
             };
             /** @description Validation Error */
