@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 
 import { App } from "./App";
+import { migrateLegacyCart } from "./lib/projectcontext/migrate";
 import { theme } from "./lib/theme";
 import "./styles.css";
 
@@ -18,6 +19,15 @@ if (root === null) {
  * cascade instead of being hardcoded a second time.
  */
 theme.apply();
+
+/*
+ * The v1 single-cart key, carried into the tab it was aimed at — before the first
+ * render, so nothing can read a half-migrated state. See
+ * `lib/projectcontext/migrate.ts`: those rows are a statement about parts that
+ * physically moved, so they are moved rather than dropped, and the tab they land in
+ * is opened so they are visible rather than merely stored.
+ */
+migrateLegacyCart();
 
 createRoot(root).render(
   <StrictMode>

@@ -10,6 +10,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { carts } from "../lib/cart/registry";
+import { openTargets } from "../lib/projectcontext/store";
 import { scanSession } from "../lib/scan/session";
 import { LotScreen } from "./LotScreen";
 
@@ -120,6 +122,12 @@ function callTo(pathname: string): Call | undefined {
 
 beforeEach(() => {
   calls.length = 0;
+  // No tab open: this file is the immediate-commit half of ADR 0010, which is
+  // still what a take does when nothing is being worked on. The record half lives
+  // in `LotScreen.record.test.tsx`.
+  globalThis.localStorage.clear();
+  carts.reset();
+  openTargets.reset();
   scanSession.clear();
 });
 

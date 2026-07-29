@@ -14,10 +14,12 @@ import { NavLink, Route, Routes } from "react-router-dom";
 
 import { Logo } from "./components/Logo";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { carts } from "./lib/cart/registry";
+import { describeTarget } from "./lib/cart/describe";
 import { useCartSize } from "./lib/cart/useCart";
 import { intakeQueue } from "./lib/intake/queue";
+import { useFocusedTarget } from "./lib/projectcontext/hooks";
 import { BomScreen } from "./screens/BomScreen";
-import { CartScreen } from "./screens/CartScreen";
 import { BuildScreen } from "./screens/BuildScreen";
 import { ContainerTypeScreen } from "./screens/ContainerTypeScreen";
 import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
@@ -36,7 +38,6 @@ import { ProvisionScreen } from "./screens/ProvisionScreen";
 import { ReviewScreen } from "./screens/ReviewScreen";
 import { ScanScreen } from "./screens/ScanScreen";
 import { SearchScreen } from "./screens/SearchScreen";
-import { ShopScreen } from "./screens/ShopScreen";
 import { TreeScreen } from "./screens/TreeScreen";
 
 function usePendingCount(): number {
@@ -47,18 +48,32 @@ function usePendingCount(): number {
   );
 }
 
+/**
+ * The focused target, named in the header, on every screen.
+ *
+ * ADR 0010's first mitigation for the risk it creates: the focused tab decides
+ * where a take is attributed, so a mode with no visible indicator is exactly the
+ * failure the panel exists to prevent. This is the always-visible half of that —
+ * the tab strip and the two collapsible sections are the panel's job; what belongs
+ * here is the one fact every screen has to be able to state, plus how many lines
+ * are waiting in it.
+ */
+function WorkingOn() {
+  const focused = useFocusedTarget();
+  const uncommitted = useCartSize(focused === null ? null : carts.for(focused));
+  if (focused === null) {
+    return null;
+  }
+  return (
+    <span className="badge" title="Takes are attributed to this until you close it">
+      {describeTarget(focused)}
+      {uncommitted > 0 ? ` · ${uncommitted} to commit` : ""}
+    </span>
+  );
+}
+
 export function App() {
   const pending = usePendingCount();
-  /**
-   * The cart's count, in the nav, on every screen.
-   *
-   * ADR 0007 names this as the mitigation for the failure it says the cart *moves*
-   * rather than avoids: a cart you forgot was full is the same invisible state as a
-   * mode you forgot was set. So the count is not on the cart screen — where it would
-   * only be visible to somebody who already remembered — but beside every screen
-   * that can add to it.
-   */
-  const inCart = useCartSize();
 
   return (
     <div className="app">
@@ -70,6 +85,7 @@ export function App() {
           <span>Almagest</span>
         </NavLink>
         <span className="spacer" />
+        <WorkingOn />
         <ThemeToggle />
       </header>
 
@@ -85,7 +101,6 @@ export function App() {
         <NavLink to="/container-types">Containers</NavLink>
         <NavLink to="/projects">Projects</NavLink>
         <NavLink to="/scan">Scan</NavLink>
-        <NavLink to="/cart">Cart{inCart > 0 ? ` (${inCart})` : ""}</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
         <NavLink to="/review">Review</NavLink>
       </nav>
@@ -98,13 +113,6 @@ export function App() {
               PDF's extracted text, not part fields — a different question
               from `/search`, not a mode of it. Not a scan target. */}
           <Route path="/datasheets" element={<DatasheetSearchScreen />} />
-          {/* The cart, and the cart's shopping view — which is `SearchScreen`
-              itself with one prop, not a second search screen. `/search` renders
-              exactly as it always did; ADR 0007's point is that choosing parts
-              needs the *whole* faceted view, so forking it would reintroduce the
-              cut-down picker it replaces. Neither is a scan target. */}
-          <Route path="/cart" element={<CartScreen />} />
-          <Route path="/cart/add" element={<ShopScreen />} />
           <Route path="/tree" element={<TreeScreen />} />
           <Route path="/scan" element={<ScanScreen />} />
           <Route path="/intake" element={<IntakeQueueScreen />} />

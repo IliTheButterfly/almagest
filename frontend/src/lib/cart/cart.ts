@@ -1,63 +1,51 @@
 /**
- * The cart — a staging area for parts chosen while browsing your own stock.
+ * The uncommitted lines of **one open target** — what ADR 0010 calls "currently
+ * adding", and what the panel shows under a tab.
  *
- * ADR 0007: there are two ways of choosing parts. One is a BOM that arrived from
- * somewhere else, which the import path already serves. The other is *"you are
- * making the project and need to look at what parts we already have"* — a
- * session, not a gesture, inherently multi-item and exploratory. The cart is
- * that second path, and it is populated from the **ordinary search screen**,
- * because when the question is *what do I have* the facet counts and the
- * stock-per-row are the answer.
+ * The machinery here is #40's, kept deliberately: a versioned `localStorage`
+ * shape, merge rules, captured-and-therefore-stale display text, a per-line
+ * idempotency key, and the rule that a row whose part has since been deleted is
+ * still a legible, removable row. What ADR 0010 changed is *whose* list it is.
  *
- * **Adding to the cart writes nothing.** Nothing touches the ledger until
- * checkout, which is precisely what makes it safe to browse with, and it is
- * `lib/cart/checkout.ts` that drains it — deliberately the same shape as
- * `lib/intake/queue.ts` + `sync.ts`, down to the versioned `localStorage` key
- * and the "a failed line stays put, with why" rule. A second persistence
- * convention would be a second set of bugs.
+ * **A cart belongs to a target and never changes target.** One shared cart with a
+ * settable destination — which is what #40 built — would mean that switching the
+ * focused tab silently re-aimed everything already gathered, and that
+ * misattribution is the exact failure this design exists to prevent. So the
+ * target is a constructor argument, it is part of the storage key, and there is no
+ * `setTarget`: re-aiming a gathered record is not an operation, opening a
+ * different tab is.
  *
  * Two consequences of persisting it are load-bearing rather than incidental:
  *
- * - **It must be explicitly clearable.** The ADR is blunt that choosing the cart
- *   over project-as-a-mode does not avoid the invisible-state failure, it *moves*
- *   it — from "a mode I forgot is set" to "a cart I forgot is full". A visible
- *   count and a clear action are the mitigation, so `clear()` is part of the core
- *   and not a UI afterthought.
- * - **Captured names and quantities go stale.** The cart shows what it captured
- *   at the moment of adding and reconciles at checkout; it never re-fetches to
- *   keep a row looking fresh, because the row's job is to record what the user
- *   chose, not to mirror the database. A row whose part has since been *deleted*
- *   therefore still renders — from its own captured text — and stays removable.
+ * - **Adding writes nothing.** Nothing touches the ledger until the tab is
+ *   committed, which is what makes it safe to gather with, and it is
+ *   `lib/cart/checkout.ts` that drains it — the same shape as
+ *   `lib/intake/queue.ts` + `sync.ts`, down to the "a failed line stays put, with
+ *   why" rule.
+ * - **Captured names and quantities go stale.** A row shows what it captured when
+ *   it was added and reconciles at commit; it never re-fetches to keep itself
+ *   looking fresh, because its job is to record what the user did, not to mirror
+ *   the database. Per-target carts multiply that exposure by however many tabs are
+ *   open (ADR 0010), which is why the reconcile-at-commit rule survives unchanged.
  *
  * `localStorage` does not cross devices, so gathering on a phone at the shelf and
- * checking out at the desktop will not work until the cart is server-side. Known
- * cliff, stated in the ADR; the intake queue hit the same wall.
+ * committing at the desktop will not work until this is server-side. Known cliff,
+ * stated in the ADR; the intake queue hit the same wall.
  */
 
+import { targetKey, type WorkTarget } from "../projectcontext/target";
 import { uuid4 } from "../scan/session";
 
-const STORAGE_KEY = "almagest.cart.v1";
-
 /**
- * Where a cart is headed, as a state rather than a nullable field.
+ * One key per target, and a new version prefix.
  *
- * A cart drains to exactly one of ADR 0007's three destinations, and *not having
- * chosen yet* is a legitimate, common state — you fill a cart while browsing and
- * decide what it was for afterwards. Modelling that as `null` scatters a
- * null-check through every caller and loses the distinction between "no target"
- * and "a target whose id we failed to read"; a discriminated union makes the
- * unchosen case something the type system forces you to handle exactly once.
- *
- * The label is captured, like everything else here: a project renamed after the
- * cart was filled shows the name that was on screen when the choice was made.
+ * `v1` was the single global cart; `lib/cart/legacy.ts` migrates it. The target
+ * key carries its kind, so a project 7 record and a build 7 record cannot land on
+ * the same key.
  */
-export type CartTarget =
-  | { readonly kind: "unset" }
-  | { readonly kind: "project"; readonly projectId: number; readonly label: string }
-  | { readonly kind: "build"; readonly buildId: number; readonly label: string }
-  | { readonly kind: "container"; readonly locationId: number; readonly label: string };
-
-export const NO_TARGET: CartTarget = { kind: "unset" };
+export function cartStorageKey(target: WorkTarget): string {
+  return `almagest.cart.v2.${targetKey(target)}`;
+}
 
 /** Which way a stock-movement line goes. Mirrors the API's `MovementDirection`. */
 export type CartDirection = "take" | "return";
@@ -141,7 +129,6 @@ export interface CartStorage {
 }
 
 interface StoredCart {
-  readonly target: CartTarget;
   readonly lines: readonly CartLine[];
 }
 
@@ -160,39 +147,6 @@ function isCartLine(value: unknown): value is CartLine {
 }
 
 /**
- * A stored target, or `unset`.
- *
- * An unrecognised `kind` — a cart written by a newer version of the app, or a
- * hand-edited key — degrades to "no target chosen" rather than being carried
- * forward, because a target this code cannot interpret is one it must not check
- * out to. Losing the choice costs one tap; guessing it wrong writes to the wrong
- * project.
- */
-function readTarget(value: unknown): CartTarget {
-  if (value === null || typeof value !== "object") {
-    return NO_TARGET;
-  }
-  const record = value as Record<string, unknown>;
-  const label = typeof record["label"] === "string" ? record["label"] : "";
-  switch (record["kind"]) {
-    case "project":
-      return typeof record["projectId"] === "number"
-        ? { kind: "project", projectId: record["projectId"], label }
-        : NO_TARGET;
-    case "build":
-      return typeof record["buildId"] === "number"
-        ? { kind: "build", buildId: record["buildId"], label }
-        : NO_TARGET;
-    case "container":
-      return typeof record["locationId"] === "number"
-        ? { kind: "container", locationId: record["locationId"], label }
-        : NO_TARGET;
-    default:
-      return NO_TARGET;
-  }
-}
-
-/**
  * Do these two lines describe the same choice?
  *
  * **Part plus lot plus designator.** The part-and-lot half is ADR 0007's rule:
@@ -204,27 +158,13 @@ function readTarget(value: unknown): CartTarget {
  * happen to share a part, and silently fusing them would destroy one of the two
  * designators the user typed.
  */
-/**
- * Do these two targets name the same destination?
- *
- * The *label* is deliberately not compared: it is a capture, so a project
- * renamed between two reads is still the same project, and treating it as a new
- * one would re-key rows for a cosmetic difference.
- */
-function sameTarget(a: CartTarget, b: CartTarget): boolean {
-  if (a.kind !== b.kind) {
-    return false;
-  }
-  switch (a.kind) {
-    case "unset":
-      return true;
-    case "project":
-      return b.kind === "project" && a.projectId === b.projectId;
-    case "build":
-      return b.kind === "build" && a.buildId === b.buildId;
-    case "container":
-      return b.kind === "container" && a.locationId === b.locationId;
-  }
+/** `return` is a negative contribution to the record; unset means `take`. */
+function sign(direction: CartDirection | null | undefined): 1 | -1 {
+  return direction === "return" ? -1 : 1;
+}
+
+function signedQty(line: CartLine): number {
+  return sign(line.direction) * line.qtyMilli;
 }
 
 function sameChoice(line: CartLine, draft: CartLineDraft): boolean {
@@ -246,15 +186,16 @@ function sameChoice(line: CartLine, draft: CartLineDraft): boolean {
  */
 export class ShoppingCart {
   readonly #storage: CartStorage | null;
+  readonly #key: string;
+  readonly #target: WorkTarget;
   readonly #listeners = new Set<() => void>();
   #lines: CartLine[];
-  #target: CartTarget;
 
-  constructor(storage: CartStorage | null = defaultStorage()) {
+  constructor(target: WorkTarget, storage: CartStorage | null = defaultStorage()) {
+    this.#target = target;
+    this.#key = cartStorageKey(target);
     this.#storage = storage;
-    const stored = this.#load();
-    this.#lines = [...stored.lines];
-    this.#target = stored.target;
+    this.#lines = [...this.#load().lines];
   }
 
   lines(): readonly CartLine[] {
@@ -266,44 +207,58 @@ export class ShoppingCart {
     return this.#lines.length;
   }
 
-  get target(): CartTarget {
+  /** Fixed for the cart's whole life; see the module comment. */
+  get target(): WorkTarget {
     return this.#target;
   }
 
   /**
-   * Add a chosen part, or bump the quantity of the row that already holds it.
+   * Add what was just picked up — or **net it against** the row that already
+   * holds it.
    *
-   * Returns the row as it now stands. Merging clears any refusal recorded on the
-   * row: the line has changed, so a reason describing the quantity it *used* to
-   * ask for no longer describes it, and leaving the stale text there would read
-   * as a fresh refusal of an attempt that never happened.
+   * Returns the row as it now stands, or `null` when the addition cancelled the
+   * row out exactly and it was removed.
+   *
+   * The netting is ADR 0010's "return is symmetric": *"I took four and put one
+   * back"* is **one activity** and has to read as one, so a `return` of a part
+   * already taken in this record subtracts rather than opening a second row that
+   * contradicts the first. If it nets past zero the row flips direction and keeps
+   * the magnitude; if it nets to exactly zero the row goes, because a row that
+   * says "nothing happened" is noise the user then has to interpret.
+   *
+   * Merging clears any refusal recorded on the row: the line has changed, so a
+   * reason describing the quantity it *used* to ask for no longer describes it,
+   * and leaving the stale text there would read as a fresh refusal of an attempt
+   * that never happened.
    *
    * It also mints a fresh `clientOpId`, for the reason `setQuantity` does: this
    * changes the quantity, the server keys a line replay on a digest of the line,
    * and the old key may already have been accepted for the old quantity after a
-   * checkout whose response was lost. Keeping it would make every later checkout
-   * of this row a `request_mismatch` refusal — a row that can never be checked
-   * out again, and whose only escapes are Remove or nudging the quantity field.
+   * commit whose response was lost. Keeping it would make every later commit of
+   * this row a `request_mismatch` refusal — a row that can never be committed
+   * again, and whose only escapes are Remove or nudging the quantity field.
    */
-  add(draft: CartLineDraft): CartLine {
+  add(draft: CartLineDraft): CartLine | null {
     const existing = this.#lines.find((line) => sameChoice(line, draft));
     if (existing !== undefined) {
+      const net = signedQty(existing) + sign(draft.direction) * draft.qtyMilli;
+      if (net === 0) {
+        this.remove(existing.id);
+        return null;
+      }
       const merged: CartLine = {
         ...existing,
-        qtyMilli: existing.qtyMilli + draft.qtyMilli,
+        qtyMilli: Math.abs(net),
+        direction: net < 0 ? "return" : "take",
         clientOpId: uuid4(),
         // The freshest capture wins for display: the user just saw this name.
         partName: draft.partName,
         mpn: draft.mpn ?? existing.mpn,
         locationId: draft.locationId ?? existing.locationId,
         locationLabel: draft.locationLabel ?? existing.locationLabel,
-        direction: draft.direction ?? existing.direction,
         failure: null,
       };
-      this.#write(
-        this.#lines.map((line) => (line.id === existing.id ? merged : line)),
-        this.#target,
-      );
+      this.#write(this.#lines.map((line) => (line.id === existing.id ? merged : line)));
       return merged;
     }
 
@@ -322,8 +277,26 @@ export class ShoppingCart {
       addedAt: Date.now(),
       failure: null,
     };
-    this.#write([...this.#lines, line], this.#target);
+    this.#write([...this.#lines, line]);
     return line;
+  }
+
+  /**
+   * Take on rows that already exist, keys and all.
+   *
+   * Only the v1 migration uses this, and it exists because `add` would re-key
+   * every row: those rows may already have been accepted by the server under
+   * their old key with the response lost, and a fresh key would apply them a
+   * second time rather than replaying. A row whose id is already here is skipped,
+   * so running the migration twice cannot duplicate anything.
+   */
+  adopt(lines: readonly CartLine[]): void {
+    const known = new Set(this.#lines.map((line) => line.id));
+    const adopted = lines.filter((line) => !known.has(line.id));
+    if (adopted.length === 0) {
+      return;
+    }
+    this.#write([...this.#lines, ...adopted]);
   }
 
   /**
@@ -339,7 +312,6 @@ export class ShoppingCart {
       this.#lines.map((line) =>
         line.id === id ? { ...line, qtyMilli, clientOpId: uuid4(), failure: null } : line,
       ),
-      this.#target,
     );
   }
 
@@ -369,7 +341,6 @@ export class ShoppingCart {
             }
           : line,
       ),
-      this.#target,
     );
   }
 
@@ -377,14 +348,12 @@ export class ShoppingCart {
   markFailed(id: string, failure: CartLineFailure): void {
     this.#write(
       this.#lines.map((line) => (line.id === id ? { ...line, failure } : line)),
-      this.#target,
     );
   }
 
   remove(id: string): void {
     this.#write(
       this.#lines.filter((line) => line.id !== id),
-      this.#target,
     );
   }
 
@@ -393,40 +362,18 @@ export class ShoppingCart {
     const dropping = new Set(ids);
     this.#write(
       this.#lines.filter((line) => !dropping.has(line.id)),
-      this.#target,
     );
   }
 
   /**
-   * Empty the cart, target and all.
+   * Drop every row.
    *
-   * The mitigation for the failure ADR 0007 says the cart *moves* rather than
-   * avoids: a forgotten full cart. Clearing the target too is the point — a
-   * leftover "you are shopping for project X" is the invisible mode all over
-   * again.
+   * The only place this is called from is closing a tab whose lines the user has
+   * explicitly agreed to discard (ADR 0010 forbids doing it silently). The
+   * target is not cleared because it cannot be: a cart *is* its target.
    */
   clear(): void {
-    this.#write([], NO_TARGET);
-  }
-
-  /**
-   * Aim the cart at one of the three destinations.
-   *
-   * Changing where the cart is going **re-keys every row**. A per-line key means
-   * "this operation", and the operation includes what it was applied *to*: a row
-   * whose movement landed against bin A but whose response was lost is still in
-   * the cart, and once the user retargets it at bin B it is a new statement about
-   * a different container, not a retry of the old one. The server agrees — its
-   * per-line records are filed per destination — so without re-keying here the
-   * retargeted row comes back refused as a mismatch. Re-aiming at the *same*
-   * destination changes nothing, so the ordinary retry stays idempotent.
-   */
-  setTarget(target: CartTarget): void {
-    this.#write(sameTarget(this.#target, target) ? this.#lines : this.#rekeyed(), target);
-  }
-
-  #rekeyed(): CartLine[] {
-    return this.#lines.map((line) => ({ ...line, clientOpId: uuid4() }));
+    this.#write([]);
   }
 
   subscribe(listener: () => void): () => void {
@@ -438,30 +385,30 @@ export class ShoppingCart {
 
   #load(): StoredCart {
     try {
-      const raw = this.#storage?.getItem(STORAGE_KEY);
+      const raw = this.#storage?.getItem(this.#key);
       if (raw === null || raw === undefined) {
-        return { target: NO_TARGET, lines: [] };
+        return { lines: [] };
       }
       const parsed: unknown = JSON.parse(raw);
       if (parsed === null || typeof parsed !== "object") {
-        return { target: NO_TARGET, lines: [] };
+        return { lines: [] };
       }
       const record = parsed as Record<string, unknown>;
-      const lines = Array.isArray(record["lines"]) ? record["lines"].filter(isCartLine) : [];
-      return { target: readTarget(record["target"]), lines };
+      return { lines: Array.isArray(record["lines"]) ? record["lines"].filter(isCartLine) : [] };
     } catch {
-      return { target: NO_TARGET, lines: [] };
+      return { lines: [] };
     }
   }
 
-  #write(lines: readonly CartLine[], target: CartTarget): void {
+  #write(lines: readonly CartLine[]): void {
     this.#lines = [...lines];
-    this.#target = target;
     try {
-      if (lines.length === 0 && target.kind === "unset") {
-        this.#storage?.removeItem(STORAGE_KEY);
+      if (lines.length === 0) {
+        // An empty record leaves no key behind, so a tab that was opened, used
+        // and emptied does not accumulate storage for the next reload to read.
+        this.#storage?.removeItem(this.#key);
       } else {
-        this.#storage?.setItem(STORAGE_KEY, JSON.stringify({ target, lines }));
+        this.#storage?.setItem(this.#key, JSON.stringify({ target: this.#target, lines }));
       }
     } catch {
       // In-memory only for the rest of the session.
@@ -480,5 +427,13 @@ function defaultStorage(): CartStorage | null {
   }
 }
 
-/** The one cart. A second would be a second thing to forget you had filled. */
-export const shoppingCart = new ShoppingCart();
+/**
+ * The **net** quantity a record holds for one part, signed: positive is stock
+ * leaving the shelf for the target, negative is stock going back.
+ *
+ * Exported because the take screen states it back to the user ("3 of this lot in
+ * this record now") and the panel totals it, and one arithmetic is one bug.
+ */
+export function netQtyMilli(lines: readonly CartLine[]): number {
+  return lines.reduce((total, line) => total + signedQty(line), 0);
+}

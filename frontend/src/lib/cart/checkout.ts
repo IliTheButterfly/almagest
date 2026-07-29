@@ -1,19 +1,20 @@
 /**
- * Draining the cart to whichever of the three destinations it was aimed at.
+ * Committing one tab's record against that tab's target.
  *
- * This is the cart's `lib/intake/sync.ts`, and it is the same shape on purpose
- * (ADR 0007). Three rules carry over unchanged, because they are what make a
+ * This is the cart's `lib/intake/sync.ts`, and #40's machinery survives ADR 0010
+ * intact — only the *choice* of destination is gone, because the destination is
+ * the tab. Three rules carry over unchanged, because they are what make a
  * gathered-then-committed list safe:
  *
- * - **A line is dropped from the cart only after the server says it applied.**
+ * - **A line is dropped from the record only after the server says it applied.**
  *   Dropping first would lose the user's statement about what they physically did
  *   on any failed request, which is the single outcome this feature exists to
  *   avoid.
- * - **A failed line does not block the rest.** All three batch endpoints report
- *   per line and never roll a good line back for a bad one, so a lot that
- *   somebody else emptied while the cart was being filled fails *that* line. The
- *   reason is attached to the surviving row, so the cart itself explains why it
- *   is not empty.
+ * - **A failed line does not block the rest.** Both batch endpoints report per
+ *   line and never roll a good line back for a bad one, so a lot that somebody
+ *   else emptied while the record was being gathered fails *that* line. The reason
+ *   is attached to the surviving row, so the record itself explains why it is not
+ *   empty.
  * - **It is safe to press twice.** Every line carries the `clientOpId` minted when
  *   it was *added*, so a resubmission — a double tap, a lost response, a retry
  *   after fixing one row — replays rather than doubles. On top of that a second
@@ -21,29 +22,29 @@
  *   of issuing a second request, because two concurrent requests would both be
  *   guarded per line but would still race on which one gets to remove the rows.
  *
- * What this does not do is reconcile before committing. The cart deliberately
- * shows what it captured (see `cart.ts`), and the server is the thing that knows
- * whether a captured lot still holds what it did — so the reconciliation *is*
- * the checkout, and a line whose part has since been deleted comes back refused
- * and stays as a named, removable row rather than being an error that blocks the
- * whole checkout.
+ * Committing one tab touches nothing in any other tab: each has its own cart, its
+ * own keys and its own target, and this function is handed one of them.
+ *
+ * What it does not do is reconcile before committing. The record deliberately shows
+ * what it captured (see `cart.ts`), and the server is the thing that knows whether
+ * a captured lot still holds what it did — so the reconciliation *is* the commit,
+ * and a line whose part has since been deleted comes back refused and stays as a
+ * named, removable row rather than being an error that blocks the whole batch.
  */
 
 import {
   allocateStockBatch,
   ApiError,
-  moveStockBatch,
   updateBomLines,
   type AllocateLine,
   type BomLineEdit,
-  type MovementLine,
 } from "../api/client";
 import { describeError } from "../api/errors";
 import { uuid4 } from "../scan/session";
-import { shoppingCart, type CartDirection, type CartLine, type ShoppingCart } from "./cart";
+import { type CartLine, type ShoppingCart } from "./cart";
 
-/** Which destination a checkout went to — ADR 0007's closed set of three. */
-export type CheckoutDestination = "project" | "build" | "container";
+/** What kind of target the record was applied to — ADR 0010's two tab kinds. */
+export type CheckoutDestination = "project" | "build";
 
 /** One row that is still in the cart, and why. */
 export interface CheckoutFailure {
@@ -62,15 +63,17 @@ export interface CheckoutOutcome {
   /** Rows kept, with why. */
   readonly failed: readonly CheckoutFailure[];
   /**
-   * The stock destination's handle for undoing the entire checkout in one call.
+   * The handle for undoing an entire batch of ledger rows in one call.
    *
-   * The batch shares one `group_uuid`, so "that was the wrong bin" is a single
-   * `undoMovement` rather than one per row. `null` for the other two
-   * destinations, which write no ledger rows.
+   * Always `null` as things stand: neither of ADR 0010's two destinations writes
+   * ledger rows — a project's BOM is a plan, and a build's allocations are holds.
+   * Kept because the shape is what the batch endpoints report and because the
+   * ledger-writing batch route still exists; a destination that does write rows
+   * would fill it in rather than inventing a second outcome type.
    */
   readonly groupUuid: string | null;
   /** Why nothing was even attempted, when that is the case. */
-  readonly notAttempted: "empty_cart" | "no_target" | null;
+  readonly notAttempted: "empty_cart" | null;
 }
 
 /** The per-line result shape all three endpoints share, narrowed to what we read. */
@@ -92,40 +95,26 @@ interface LineOutcome {
  */
 const inFlight = new WeakMap<ShoppingCart, Promise<CheckoutOutcome>>();
 
-export interface CheckoutOptions {
-  /**
-   * What a line means when it does not say — `take`, the overwhelming case.
-   *
-   * Only the stock destination reads this. Per-line `direction` still wins, so
-   * one cart can hold both "I took five of these" and "I put three of those
-   * back".
-   */
-  readonly defaultDirection?: CartDirection;
-}
-
 /**
- * Commit the cart. Idempotent, and safe to call again while it is running.
+ * Commit one tab's record. Idempotent, and safe to call again while it is running.
  *
  * Not `async`, deliberately: the in-flight promise has to be handed back
  * synchronously, and an `async` wrapper would return a *different* promise to the
  * second caller, which is exactly the double-press this guards.
  */
-export function checkoutCart(
-  cart: ShoppingCart = shoppingCart,
-  options: CheckoutOptions = {},
-): Promise<CheckoutOutcome> {
+export function checkoutCart(cart: ShoppingCart): Promise<CheckoutOutcome> {
   const running = inFlight.get(cart);
   if (running !== undefined) {
     return running;
   }
-  const attempt = run(cart, options).finally(() => {
+  const attempt = run(cart).finally(() => {
     inFlight.delete(cart);
   });
   inFlight.set(cart, attempt);
   return attempt;
 }
 
-function nothing(notAttempted: "empty_cart" | "no_target"): CheckoutOutcome {
+function nothing(notAttempted: "empty_cart"): CheckoutOutcome {
   return {
     destination: null,
     applied: 0,
@@ -136,29 +125,48 @@ function nothing(notAttempted: "empty_cart" | "no_target"): CheckoutOutcome {
   };
 }
 
-async function run(cart: ShoppingCart, options: CheckoutOptions): Promise<CheckoutOutcome> {
-  const lines = [...cart.lines()];
-  if (lines.length === 0) {
+async function run(cart: ShoppingCart): Promise<CheckoutOutcome> {
+  const all = [...cart.lines()];
+  if (all.length === 0) {
     return nothing("empty_cart");
   }
   const target = cart.target;
-  if (target.kind === "unset") {
-    // Refused locally rather than guessed. There is no default destination: the
-    // three write to entirely different things.
-    return nothing("no_target");
+
+  /*
+   * A row that nets to *putting stock back* cannot be applied by either endpoint:
+   * a BOM line asks for a quantity, and an allocation is a hold, so neither has a
+   * negative. It happens when a return is added to a record that never took the
+   * part in the first place — the ordinary "took four, put one back" nets to three
+   * and is a plain take. Refused locally, with the way out named, rather than
+   * relayed as a validation error about a field the user never saw.
+   */
+  const lines = all.filter((line) => line.direction !== "return");
+  const returns: CheckoutFailure[] = all
+    .filter((line) => line.direction === "return")
+    .map((line) => ({
+      id: line.id,
+      reason: "net_return",
+      message:
+        "This row nets to putting stock back, and a record can only take stock for " +
+        "its target. Record it on the lot itself with no tab open, which writes it " +
+        "to the ledger straight away.",
+    }));
+  const at = Date.now();
+  for (const failure of returns) {
+    cart.markFailed(failure.id, { reason: failure.reason, message: failure.message, at });
+  }
+  if (lines.length === 0) {
+    return { destination: target.kind, applied: 0, replayed: 0, failed: returns, groupUuid: null, notAttempted: null };
   }
 
-  switch (target.kind) {
-    case "project":
-      return await toProjectBom(cart, lines, target.projectId);
-    case "build":
-      return await toBuild(cart, lines, target.buildId);
-    case "container":
-      return await toContainer(cart, lines, target.locationId, options.defaultDirection ?? "take");
-  }
+  const outcome =
+    target.kind === "project"
+      ? await toProjectBom(cart, lines, target.projectId)
+      : await toBuild(cart, lines, target.buildId);
+  return { ...outcome, failed: [...returns, ...outcome.failed] };
 }
 
-// ------------------------------------------------------- the three doors ----
+// ------------------------------------------------------- the two doors ----
 
 /**
  * A project's BOM.
@@ -222,7 +230,7 @@ async function toBuild(
         reason: "no_lot",
         message:
           "Reserving stock needs a specific container, and this row does not name one. " +
-          "Choose which package it comes from, or send it to the project's BOM instead.",
+          "Choose which package it comes from.",
       });
       continue;
     }
@@ -262,41 +270,6 @@ async function toBuild(
   });
 
   return { ...outcome, failed: [...localFailures, ...outcome.failed] };
-}
-
-/**
- * Plain stock, against one container — "pick a container, scan it and say how
- * many parts you took or put back", and the reason the cart is not a projects
- * feature.
- *
- * A line names its stock by `lot_id` when the user chose a package, and otherwise
- * by `part_id` resolved inside the scanned container *now*. Exactly one of the
- * two, which is what the endpoint validates: the first is exact and can go stale,
- * the second cannot go stale but is ambiguous if the bin holds two lots of the
- * part — and the server refuses that line rather than guessing.
- */
-async function toContainer(
-  cart: ShoppingCart,
-  lines: readonly CartLine[],
-  locationId: number,
-  defaultDirection: CartDirection,
-): Promise<CheckoutOutcome> {
-  const movements: MovementLine[] = lines.map((line) => ({
-    client_line_id: line.id,
-    client_op_id: line.clientOpId,
-    direction: line.direction ?? defaultDirection,
-    qty_milli: line.qtyMilli,
-    ...(line.lotId === null ? { part_id: line.partId } : { lot_id: line.lotId }),
-  }));
-
-  return await attempt(cart, lines, "container", null, async () => {
-    const response = await moveStockBatch({
-      client_op_id: uuid4(),
-      location_id: locationId,
-      lines: movements,
-    });
-    return { results: response.results, groupUuid: response.group_uuid };
-  });
 }
 
 // ------------------------------------------------------------- plumbing ----

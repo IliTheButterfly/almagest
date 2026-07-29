@@ -1,16 +1,21 @@
 /**
- * Draining the cart.
+ * Committing a tab's record.
  *
- * As with `intake/sync.test.ts`, the failure paths are the subject: what the cart
- * looks like after a partial checkout, that a line whose part has been deleted
- * refuses *itself* rather than the batch, and that pressing the button twice —
- * concurrently or one after the other — cannot apply anything twice.
+ * As with `intake/sync.test.ts`, the failure paths are the subject: what a record
+ * looks like after a partial commit, that a line whose part has been deleted refuses
+ * *itself* rather than the batch, that pressing the button twice — concurrently or
+ * one after the other — cannot apply anything twice, and that committing one tab
+ * leaves another tab's lines exactly where they were.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { WorkTarget } from "../projectcontext/target";
 import { ShoppingCart, type CartLineDraft, type CartStorage } from "./cart";
 import { checkoutCart } from "./checkout";
+
+const PROJECT: WorkTarget = { kind: "project", projectId: 12, label: "Bench PSU" };
+const BUILD: WorkTarget = { kind: "build", buildId: 5, label: "rev B ×3" };
 
 function memory(): CartStorage {
   const map = new Map<string, string>();
@@ -19,6 +24,10 @@ function memory(): CartStorage {
     setItem: (key, value) => void map.set(key, value),
     removeItem: (key) => void map.delete(key),
   };
+}
+
+function cartFor(target: WorkTarget): ShoppingCart {
+  return new ShoppingCart(target, memory());
 }
 
 function draft(overrides: Partial<CartLineDraft> = {}): CartLineDraft {
@@ -66,7 +75,7 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** The batch's per-line verdicts, in the shape all three endpoints share. */
+/** The batch's per-line verdicts, in the shape both endpoints share. */
 function lineResults(body: Record<string, unknown>, key: "lines" | "edits"): unknown[] {
   const lines = body[key] as { client_line_id: string }[];
   return lines.map((line, index) => ({
@@ -76,11 +85,10 @@ function lineResults(body: Record<string, unknown>, key: "lines" | "edits"): unk
   }));
 }
 
-function movementsOk(request: Sent): Response {
+function holdsOk(request: Sent): Response {
   return json({
     applied_count: (request.body["lines"] as unknown[]).length,
     failed_count: 0,
-    group_uuid: "group-1",
     results: lineResults(request.body, "lines"),
   });
 }
@@ -93,53 +101,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("checking a cart out to a container", () => {
-  it("applies every line and empties the cart", async () => {
-    stubApi(movementsOk);
-    const cart = new ShoppingCart(memory());
+describe("committing a build's record", () => {
+  it("reserves every line and empties the record", async () => {
+    stubApi(holdsOk);
+    const cart = cartFor(BUILD);
     cart.add(draft({ lotId: 7 }));
     cart.add(draft({ lotId: 8 }));
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     const outcome = await checkoutCart(cart);
 
-    expect(outcome.destination).toBe("container");
+    expect(sent[0]?.url).toContain("/api/builds/5/allocate-batch");
+    expect((sent[0]?.body["lines"] as Record<string, unknown>[])[0]).toMatchObject({
+      lot_id: 7,
+      part_id: 42,
+      qty_milli: 10_000,
+    });
+    expect(outcome.destination).toBe("build");
     expect(outcome.applied).toBe(2);
     expect(outcome.failed).toEqual([]);
-    // The whole checkout shares one group, so undoing it is one call.
-    expect(outcome.groupUuid).toBe("group-1");
     expect(cart.size).toBe(0);
-  });
-
-  it("sends the lot when the row named one, and the part when it did not", async () => {
-    stubApi(movementsOk);
-    const cart = new ShoppingCart(memory());
-    cart.add(draft({ lotId: 7 }));
-    cart.add(draft({ partId: 43, lotId: null }));
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
-
-    await checkoutCart(cart);
-
-    const lines = sent[0]?.body["lines"] as Record<string, unknown>[];
-    expect(sent[0]?.url).toContain("/api/stock/movements");
-    expect(sent[0]?.body["location_id"]).toBe(3);
-    expect(lines[0]).toMatchObject({ lot_id: 7, direction: "take" });
-    expect(lines[0]).not.toHaveProperty("part_id");
-    expect(lines[1]).toMatchObject({ part_id: 43, direction: "take" });
-    expect(lines[1]).not.toHaveProperty("lot_id");
-  });
-
-  it("lets a line pin its own direction against the checkout default", async () => {
-    stubApi(movementsOk);
-    const cart = new ShoppingCart(memory());
-    cart.add(draft({ lotId: 7 }));
-    cart.add(draft({ lotId: 8, direction: "return" }));
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
-
-    await checkoutCart(cart, { defaultDirection: "take" });
-
-    const lines = sent[0]?.body["lines"] as Record<string, unknown>[];
-    expect(lines.map((line) => line["direction"])).toEqual(["take", "return"]);
   });
 
   it("keeps a refused line, with why, and drops the ones that applied", async () => {
@@ -148,35 +128,33 @@ describe("checking a cart out to a container", () => {
       return json({
         applied_count: 1,
         failed_count: 1,
-        group_uuid: "group-1",
         results: [
           { index: 0, client_line_id: lines[0]?.client_line_id, applied: true },
           {
             index: 1,
             client_line_id: lines[1]?.client_line_id,
             applied: false,
-            reason: "insufficient_stock",
+            reason: "insufficient_available",
             message: "lot 8 holds 3, not 10",
           },
         ],
       });
     });
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(BUILD);
     const good = cart.add(draft({ lotId: 7 }));
     const bad = cart.add(draft({ lotId: 8 }));
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     const outcome = await checkoutCart(cart);
 
     expect(outcome.applied).toBe(1);
     expect(outcome.failed).toEqual([
-      { id: bad.id, reason: "insufficient_stock", message: "lot 8 holds 3, not 10" },
+      { id: bad?.id, reason: "insufficient_available", message: "lot 8 holds 3, not 10" },
     ]);
-    // The reason lives on the surviving row: after a partial checkout it is all
-    // the user has to explain why the cart is not empty.
-    expect(cart.lines().map((line) => line.id)).toEqual([bad.id]);
-    expect(cart.lines()[0]?.failure?.reason).toBe("insufficient_stock");
-    expect(cart.lines().some((line) => line.id === good.id)).toBe(false);
+    // The reason lives on the surviving row: after a partial commit it is all
+    // the user has to explain why the record is not empty.
+    expect(cart.lines().map((line) => line.id)).toEqual([bad?.id]);
+    expect(cart.lines()[0]?.failure?.reason).toBe("insufficient_available");
+    expect(cart.lines().some((line) => line.id === good?.id)).toBe(false);
   });
 
   it("matches verdicts by client_line_id, not by position", async () => {
@@ -185,28 +163,26 @@ describe("checking a cart out to a container", () => {
       return json({
         applied_count: 1,
         failed_count: 1,
-        group_uuid: "group-1",
         // Deliberately out of order, and with indices that disagree.
         results: [
           {
             index: 0,
             client_line_id: lines[1]?.client_line_id,
             applied: false,
-            reason: "lot_moved",
-            message: "lot 8 is no longer in A1-04",
+            reason: "unknown_lot",
+            message: "lot 8 is gone",
           },
           { index: 1, client_line_id: lines[0]?.client_line_id, applied: true },
         ],
       });
     });
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(BUILD);
     cart.add(draft({ lotId: 7 }));
     const moved = cart.add(draft({ lotId: 8 }));
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     await checkoutCart(cart);
 
-    expect(cart.lines().map((line) => line.id)).toEqual([moved.id]);
+    expect(cart.lines().map((line) => line.id)).toEqual([moved?.id]);
   });
 
   it("counts a replayed line as applied and drops it", async () => {
@@ -217,7 +193,6 @@ describe("checking a cart out to a container", () => {
       return json({
         applied_count: 1,
         failed_count: 0,
-        group_uuid: "group-2",
         results: [
           {
             index: 0,
@@ -228,9 +203,8 @@ describe("checking a cart out to a container", () => {
         ],
       });
     });
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(BUILD);
     cart.add(draft());
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     const outcome = await checkoutCart(cart);
 
@@ -242,7 +216,7 @@ describe("checking a cart out to a container", () => {
   it("ignores a verdict about a line it never sent", async () => {
     // The bogus verdict carries `index: 0` deliberately. With an out-of-range
     // index it would be discarded by the position lookup finding nothing, and the
-    // id-first matching this is really about — the protection against a cart
+    // id-first matching this is really about — the protection against a record
     // reordered between building the request and reading the answer — would go
     // unasserted. As written, only an unrecognised `client_line_id` keeps the
     // refusal off the row that actually applied.
@@ -251,16 +225,14 @@ describe("checking a cart out to a container", () => {
       return json({
         applied_count: 1,
         failed_count: 0,
-        group_uuid: "group-1",
         results: [
           { index: 0, client_line_id: lines[0]?.client_line_id, applied: true },
           { index: 0, client_line_id: "someone-elses-row", applied: false, reason: "nope" },
         ],
       });
     });
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(BUILD);
     cart.add(draft());
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     const outcome = await checkoutCart(cart);
 
@@ -268,16 +240,64 @@ describe("checking a cart out to a container", () => {
     expect(outcome.failed).toEqual([]);
     expect(cart.size).toBe(0);
   });
+
+  it("refuses a lotless row locally, without sending it", async () => {
+    // A hold is a hold on a lot. Saying so here beats relaying a validation
+    // error about a field the user has never seen.
+    stubApi(holdsOk);
+    const cart = cartFor(BUILD);
+    const lotless = cart.add(draft({ lotId: null }));
+    cart.add(draft({ lotId: 7 }));
+
+    const outcome = await checkoutCart(cart);
+
+    expect((sent[0]?.body["lines"] as unknown[]).length).toBe(1);
+    expect(outcome.applied).toBe(1);
+    expect(outcome.failed.map((failure) => failure.reason)).toEqual(["no_lot"]);
+    expect(cart.lines().map((line) => line.id)).toEqual([lotless?.id]);
+    expect(cart.lines()[0]?.failure?.reason).toBe("no_lot");
+  });
+
+  it("sends nothing at all when no row names a lot", async () => {
+    stubApi(() => json({ applied_count: 0, failed_count: 0, results: [] }));
+    const cart = cartFor(BUILD);
+    cart.add(draft({ lotId: null }));
+
+    const outcome = await checkoutCart(cart);
+
+    expect(sent).toEqual([]);
+    expect(outcome.failed).toHaveLength(1);
+    expect(cart.size).toBe(1);
+  });
 });
 
-describe("a cart line whose part has been deleted", () => {
-  it("refuses itself and does not block the rest of the checkout", async () => {
+describe("a line that nets to putting stock back", () => {
+  it("is refused locally, with the way out named, and does not block the rest", async () => {
+    // Neither endpoint has a negative: a BOM line asks for a quantity and an
+    // allocation is a hold. The ordinary "took four, put one back" nets to a take
+    // and never reaches this; a return of something this record never took does.
+    stubApi(holdsOk);
+    const cart = cartFor(BUILD);
+    const back = cart.add(draft({ lotId: 8, qtyMilli: 2_000, direction: "return" }));
+    cart.add(draft({ lotId: 7 }));
+
+    const outcome = await checkoutCart(cart);
+
+    expect((sent[0]?.body["lines"] as unknown[]).length).toBe(1);
+    expect(outcome.applied).toBe(1);
+    expect(outcome.failed.map((failure) => failure.reason)).toEqual(["net_return"]);
+    expect(cart.lines().map((line) => line.id)).toEqual([back?.id]);
+    expect(cart.lines()[0]?.failure?.message).toContain("with no tab open");
+  });
+});
+
+describe("a line whose part has been deleted", () => {
+  it("refuses itself and does not block the rest of the commit", async () => {
     stubApi((request) => {
       const lines = request.body["lines"] as { client_line_id: string; part_id?: number }[];
       return json({
         applied_count: 1,
         failed_count: 1,
-        group_uuid: "group-1",
         results: lines.map((line, index) => ({
           index,
           client_line_id: line.client_line_id,
@@ -287,30 +307,29 @@ describe("a cart line whose part has been deleted", () => {
         })),
       });
     });
-    const cart = new ShoppingCart(memory());
-    const gone = cart.add(draft({ partId: 999, partName: "TL072CP", lotId: null }));
-    const fine = cart.add(draft({ partId: 43, lotId: null }));
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
+    const cart = cartFor(BUILD);
+    const gone = cart.add(draft({ partId: 999, partName: "TL072CP", lotId: 11 }));
+    const fine = cart.add(draft({ partId: 43, lotId: 12 }));
 
     // Not a throw, and not zero applied: the good line went through.
     const outcome = await checkoutCart(cart);
     expect(outcome.applied).toBe(1);
     expect(outcome.failed.map((failure) => failure.reason)).toEqual(["unknown_part"]);
-    expect(cart.lines().some((line) => line.id === fine.id)).toBe(false);
+    expect(cart.lines().some((line) => line.id === fine?.id)).toBe(false);
 
     // And the row that is left is still a named row a human can act on — the
     // captured name is all the UI needs, since the part it referred to is gone.
     const row = cart.lines()[0];
-    expect(row?.id).toBe(gone.id);
+    expect(row?.id).toBe(gone?.id);
     expect(row?.partName).toBe("TL072CP");
     expect(row?.failure?.message).toBe("there is no part with id 999");
 
-    cart.remove(gone.id);
+    cart.remove(gone?.id ?? "");
     expect(cart.size).toBe(0);
   });
 });
 
-describe("checking a cart out twice", () => {
+describe("committing twice", () => {
   it("issues one request when the button is pressed twice before it answers", async () => {
     let release: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {
@@ -318,11 +337,10 @@ describe("checking a cart out twice", () => {
     });
     stubApi(async (request) => {
       await held;
-      return movementsOk(request);
+      return holdsOk(request);
     });
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(BUILD);
     cart.add(draft());
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     const first = checkoutCart(cart);
     const second = checkoutCart(cart);
@@ -334,11 +352,10 @@ describe("checking a cart out twice", () => {
     expect(cart.size).toBe(0);
   });
 
-  it("does nothing the second time, because the cart is now empty", async () => {
-    stubApi(movementsOk);
-    const cart = new ShoppingCart(memory());
+  it("does nothing the second time, because the record is now empty", async () => {
+    stubApi(holdsOk);
+    const cart = cartFor(BUILD);
     cart.add(draft());
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     await checkoutCart(cart);
     const again = await checkoutCart(cart);
@@ -354,25 +371,19 @@ describe("checking a cart out twice", () => {
       return json({
         applied_count: 0,
         failed_count: 1,
-        group_uuid: "group-1",
         results: [
           {
             index: 0,
             client_line_id: lines[0]?.client_line_id,
             applied: false,
-            reason: "insufficient_stock",
+            reason: "insufficient_available",
             message: "not enough",
           },
         ],
       });
     });
-    const cart = new ShoppingCart(memory());
-    cart.add(draft());
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
-    // Read after the destination is set, which re-keys the rows: aiming the cart
-    // somewhere new is a new operation. Two checkouts at the *same* destination
-    // must still carry the same key, which is what this is about.
-    const key = cart.lines()[0]?.clientOpId;
+    const cart = cartFor(BUILD);
+    const line = cart.add(draft());
 
     await checkoutCart(cart);
     await checkoutCart(cart);
@@ -381,21 +392,44 @@ describe("checking a cart out twice", () => {
     const keys = sent.map(
       (request) => (request.body["lines"] as { client_op_id: string }[])[0]?.client_op_id,
     );
-    expect(keys[0]).toBe(key);
-    expect(keys[1]).toBe(key);
+    expect(keys[0]).toBe(line?.clientOpId);
+    expect(keys[1]).toBe(line?.clientOpId);
     // The batch's own key is fresh — the body is a different statement now.
     expect(sent[0]?.body["client_op_id"]).not.toBe(sent[1]?.body["client_op_id"]);
   });
 });
 
-describe("checking a cart out to a project's BOM", () => {
+describe("committing one tab", () => {
+  it("leaves every other tab's lines exactly where they were", async () => {
+    // The whole point of per-target records: two jobs, one walk to the shelf, and
+    // finishing one of them must not touch the other.
+    stubApi((request) =>
+      request.url.includes("/bom")
+        ? json({ lines: [], deleted_ids: [], results: lineResults(request.body, "edits") })
+        : holdsOk(request),
+    );
+    const build = cartFor(BUILD);
+    const project = cartFor(PROJECT);
+    build.add(draft({ lotId: 7 }));
+    const untouched = project.add(draft({ lotId: 8 }));
+
+    await checkoutCart(build);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.url).toContain("/api/builds/5/allocate-batch");
+    expect(build.size).toBe(0);
+    expect(project.lines().map((line) => line.id)).toEqual([untouched?.id]);
+    expect(project.lines()[0]?.failure).toBeNull();
+  });
+});
+
+describe("committing a project's record", () => {
   it("adds one line per row, partially, with the match confirmed", async () => {
     stubApi((request) =>
       json({ lines: [], deleted_ids: [], results: lineResults(request.body, "edits") }),
     );
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(PROJECT);
     cart.add(draft({ designator: "C7" }));
-    cart.setTarget({ kind: "project", projectId: 12, label: "Bench PSU" });
 
     const outcome = await checkoutCart(cart);
 
@@ -420,9 +454,8 @@ describe("checking a cart out to a project's BOM", () => {
   it("treats a 2xx with no per-line results as everything applied", async () => {
     // The route's non-partial contract: it either applied whole or 4xx'd.
     stubApi(() => json({ lines: [], deleted_ids: [] }));
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(PROJECT);
     cart.add(draft());
-    cart.setTarget({ kind: "project", projectId: 12, label: "Bench PSU" });
 
     const outcome = await checkoutCart(cart);
 
@@ -431,92 +464,15 @@ describe("checking a cart out to a project's BOM", () => {
   });
 });
 
-describe("checking a cart out to a build", () => {
-  it("reserves the rows that name a lot", async () => {
-    stubApi((request) =>
-      json({
-        applied_count: 1,
-        failed_count: 0,
-        results: lineResults(request.body, "lines"),
-      }),
-    );
-    const cart = new ShoppingCart(memory());
-    cart.add(draft({ lotId: 7 }));
-    cart.setTarget({ kind: "build", buildId: 5, label: "rev B ×3" });
-
-    const outcome = await checkoutCart(cart);
-
-    expect(sent[0]?.url).toContain("/api/builds/5/allocate-batch");
-    expect((sent[0]?.body["lines"] as Record<string, unknown>[])[0]).toMatchObject({
-      lot_id: 7,
-      part_id: 42,
-      qty_milli: 10_000,
-    });
-    expect(outcome.applied).toBe(1);
-    expect(cart.size).toBe(0);
-  });
-
-  it("refuses a lotless row locally, without sending it", async () => {
-    // A hold is a hold on a lot. Saying so here beats relaying a validation
-    // error about a field the user has never seen.
-    stubApi((request) =>
-      json({
-        applied_count: 1,
-        failed_count: 0,
-        results: lineResults(request.body, "lines"),
-      }),
-    );
-    const cart = new ShoppingCart(memory());
-    const lotless = cart.add(draft({ lotId: null }));
-    cart.add(draft({ lotId: 7 }));
-    cart.setTarget({ kind: "build", buildId: 5, label: "rev B ×3" });
-
-    const outcome = await checkoutCart(cart);
-
-    expect((sent[0]?.body["lines"] as unknown[]).length).toBe(1);
-    expect(outcome.applied).toBe(1);
-    expect(outcome.failed.map((failure) => failure.reason)).toEqual(["no_lot"]);
-    expect(cart.lines().map((line) => line.id)).toEqual([lotless.id]);
-    expect(cart.lines()[0]?.failure?.reason).toBe("no_lot");
-  });
-
-  it("sends nothing at all when no row names a lot", async () => {
-    stubApi(() => json({ applied_count: 0, failed_count: 0, results: [] }));
-    const cart = new ShoppingCart(memory());
-    cart.add(draft({ lotId: null }));
-    cart.setTarget({ kind: "build", buildId: 5, label: "rev B ×3" });
-
-    const outcome = await checkoutCart(cart);
-
-    expect(sent).toEqual([]);
-    expect(outcome.failed).toHaveLength(1);
-    expect(cart.size).toBe(1);
-  });
-});
-
-describe("a checkout that never lands", () => {
-  it("refuses to guess a destination when none was chosen", async () => {
-    stubApi(movementsOk);
-    const cart = new ShoppingCart(memory());
-    cart.add(draft());
-
-    const outcome = await checkoutCart(cart);
-
-    expect(sent).toEqual([]);
-    expect(outcome.notAttempted).toBe("no_target");
-    expect(outcome.destination).toBeNull();
-    expect(cart.size).toBe(1);
-  });
-
+describe("a commit that never lands", () => {
   it("keeps every row and says it is a connection problem when offline", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
     );
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(BUILD);
     cart.add(draft({ lotId: 7 }));
     cart.add(draft({ lotId: 8 }));
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     const outcome = await checkoutCart(cart);
 
@@ -525,15 +481,14 @@ describe("a checkout that never lands", () => {
     expect(outcome.failed[0]?.message).toContain("No connection");
     expect(cart.size).toBe(2);
     // On the rows, not just in the outcome — a banner is gone after one
-    // navigation and the cart is not.
+    // navigation and the record is not.
     expect(cart.lines().every((line) => line.failure !== null)).toBe(true);
   });
 
   it("distinguishes a refusal that will never work from one that might", async () => {
     stubApi(() => json({ detail: { reason: "unknown_project", message: "no such project" } }, 404));
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(PROJECT);
     cart.add(draft());
-    cart.setTarget({ kind: "project", projectId: 12, label: "gone" });
 
     const outcome = await checkoutCart(cart);
 
@@ -544,9 +499,8 @@ describe("a checkout that never lands", () => {
 
   it("says a server error is worth retrying", async () => {
     stubApi(() => json({ detail: { reason: null, message: "boom" } }, 503));
-    const cart = new ShoppingCart(memory());
+    const cart = cartFor(BUILD);
     cart.add(draft());
-    cart.setTarget({ kind: "container", locationId: 3, label: "A1-04" });
 
     const outcome = await checkoutCart(cart);
 
