@@ -59,6 +59,51 @@ jobs:
           uv run python -m app.scripts.export_openapi ../openapi.json
           git diff --exit-code ../openapi.json
 
+  # A separate job rather than another step in `backend`, even though `make check`
+  # folds `agent-check` in locally: it is a second venv with its own lock file, so
+  # it caches and runs in parallel, and a red X here names the component that
+  # broke instead of a "backend" failure that is really a Pi-side one.
+  deviceagent:
+    name: deviceagent
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deviceagent
+    steps:
+      # `submodules: recursive` because the agent depends on the backend package
+      # for the tag payload rules, and the backend depends on the two submodule
+      # libraries. Without them the install fails at resolution.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: deviceagent/uv.lock
+
+      # No `--all-extras`: the `pi` extra is the CircuitPython stack, and there is
+      # no PN532 on a GitHub runner to talk to. It stays in the lock file so a
+      # broken pin is still caught by `uv lock --check`-style drift, but building
+      # it here would compile sysv-ipc for nothing.
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy agent
+
+      # The `live` tests need a real reader and are skipped by a conftest hook,
+      # which is deliberate: they stay visible in the summary as an unexercised
+      # contract rather than silently vanishing from collection.
+      - name: pytest
+        run: uv run pytest -q
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest

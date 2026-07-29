@@ -14,10 +14,27 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 - `services/search/` — the value-parser adapter and the parametric filter executor
 - `/api/search/parts`, `/api/resolve/{short_id}`, `/s/{short_id}`, `/api/system/health`
 - both submodule libraries (`elec-value-parser`, `ecia-barcode`), tagged and pinned
+- `deviceagent/` — the `TagSource` protocol, the fake that replays a scripted
+  session, NDEF decoding, NDEF-first/UID-fallback resolution, tag presence, the
+  **station session** (PLAN.md workflow 5: identify → ready → propose → confirm →
+  commit, looping while the tag stays put), the API client, and the loopback
+  WebSocket. `Pn532TagSource` is written but **has never run**: no reader exists,
+  so its contract test is `live`-marked
 
-**Not built yet:** `frontend/`, `deviceagent/`, the scan resolver chain and alias
-learning, layout authoring, tag provisioning, label sheets, FTS5. Everything from
-Phase 2 on is untouched.
+**Not built yet:** `frontend/`, the scan resolver chain and alias learning, layout
+authoring, tag provisioning, label sheets, FTS5. The station's **scale half is
+deferred, not pending** — see `docs/adr/0003`, which supersedes PLAN.md's
+weight-triggered state machine: continuous PN532 polling is the trigger, and
+nothing weight-related exists (no `weighings`, no `WeightSource`, no `weight.*`
+event, and deliberately no feature flag for their absence). Workflow 5's
+`CONTAINER_DETECTED` and `WEIGHED` states are **gone rather than stubbed** — see
+`deviceagent/README.md` for the diagram as built and what each PLAN.md state
+became.
+
+The station **commits over HTTP through the existing `/api/stock/...` routes** and
+mints its idempotency key when the container is identified, not at commit. Removing
+a container before COMMIT aborts and writes nothing; `deviceagent/tests/
+test_session_ledger.py` asserts that against real migrations and real rows.
 
 The commands below **work**. If one fails, that is a real failure — do not
 attribute it to the project being unbuilt.
@@ -38,7 +55,7 @@ backend command runs through `uv run`; there is no venv to activate.
 make bootstrap        # submodules, venv, deps, .env from .env.example
 make migrate          # alembic upgrade head
 make run              # API with autoreload on :8000
-make check            # everything CI runs: lint, mypy --strict, pytest
+make check            # everything CI runs: lint, mypy --strict, pytest (backend + deviceagent)
 make help             # all targets
 
 # Backend, directly
@@ -47,6 +64,12 @@ cd backend && uv run pytest tests/unit/test_shortid.py -q        # single file
 cd backend && uv run pytest -k "worked_example" -q               # single test
 cd backend && uv run pytest -m live                              # network; skipped by default
 cd backend && uv run alembic revision --autogenerate -m "description"
+
+# Device agent (its own venv and lock — the API image must not grow a serial library)
+make agent-check      # ruff, mypy --strict, pytest; folded into `make check`
+make agent-run        # the agent against the fake reader, no hardware needed
+cd deviceagent && uv run pytest -q
+cd deviceagent && uv run pytest -m live      # needs a real PN532; skipped by default
 
 make check-migrations # applies migrations, then `alembic check` for model drift
 make openapi          # regenerate openapi.json — CI fails if it is stale
