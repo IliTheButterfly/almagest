@@ -455,9 +455,7 @@ def _evaluate_all_locations(
     # something the user has taken out of the tree — including via the INBOX
     # fallback, which never refuses anything.
     locations = (
-        session.execute(
-            select(Location).where(Location.retired_at.is_(None)).order_by(Location.id)
-        )
+        session.execute(select(Location).where(Location.retired_at.is_(None)).order_by(Location.id))
         .scalars()
         .all()
     )

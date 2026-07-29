@@ -38,7 +38,7 @@ from app.models.stock import StockLedger
 from app.models.storage import Location, LocationTag
 from app.services import shortid
 from app.services.tree import location_tree
-from tests.factories import make_lot, make_location, make_part, post
+from tests.factories import make_location, make_lot, make_part, post
 
 
 def _tree(db: Session, *names: str) -> list[Location]:
@@ -95,9 +95,7 @@ def test_removing_a_slot_from_a_layout_is_ordinary(client: TestClient, db: Sessi
     block ever laying out a `B3` there again.
     """
     cabinet, _ = _tree(db, "Cabinet", "placeholder")
-    slot = make_location(
-        db, name="B3", parent_id=cabinet.id, slot_label="B3", row_idx=1, col_idx=2
-    )
+    slot = make_location(db, name="B3", parent_id=cabinet.id, slot_label="B3", row_idx=1, col_idx=2)
     location_tree(db).rebuild_paths()
     db.commit()
 
@@ -201,9 +199,7 @@ def test_an_emptied_lot_does_not_block_but_does_keep_the_row(
 # ---------------------------------------------------------------------------
 
 
-def test_a_used_drawer_is_retired_and_its_ledger_survives(
-    client: TestClient, db: Session
-) -> None:
+def test_a_used_drawer_is_retired_and_its_ledger_survives(client: TestClient, db: Session) -> None:
     """The load-bearing one. Deleting a location must never delete history, and
     being unable to delete must never mean being unable to remove."""
     (bin_,) = _tree(db, "Old home")
@@ -211,7 +207,14 @@ def test_a_used_drawer_is_retired_and_its_ledger_survives(
     location_tree(db).rebuild_paths()
     part = make_part(db, name="Regulator", mpn="LM317")
     lot = make_lot(db, part, elsewhere, qty_milli=10_000)
-    post(db, lot, 10_000, kind=LedgerKind.MOVE, from_location_id=bin_.id, to_location_id=elsewhere.id)
+    post(
+        db,
+        lot,
+        10_000,
+        kind=LedgerKind.MOVE,
+        from_location_id=bin_.id,
+        to_location_id=elsewhere.id,
+    )
     db.commit()
 
     before = db.execute(select(func.count()).select_from(StockLedger)).scalar_one()
@@ -223,7 +226,9 @@ def test_a_used_drawer_is_retired_and_its_ledger_survives(
 
     db.expire_all()
     assert db.execute(select(func.count()).select_from(StockLedger)).scalar_one() == before
-    row = db.execute(select(StockLedger).where(StockLedger.from_location_id == bin_.id)).scalar_one()
+    row = db.execute(
+        select(StockLedger).where(StockLedger.from_location_id == bin_.id)
+    ).scalar_one()
     assert row.from_location_id == bin_.id
 
 
@@ -331,9 +336,7 @@ def test_a_kept_child_keeps_its_parent(client: TestClient, db: Session) -> None:
     assert db.get(Location, drawer.id) is not None
 
 
-def test_restoring_a_child_of_a_retired_parent_is_refused(
-    client: TestClient, db: Session
-) -> None:
+def test_restoring_a_child_of_a_retired_parent_is_refused(client: TestClient, db: Session) -> None:
     """It would come back invisible, inside something invisible."""
     cabinet, drawer = _tree(db, "Cabinet D", "Drawer 4")
     part = make_part(db, name="Diode", mpn="1N4148")

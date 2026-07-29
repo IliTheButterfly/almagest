@@ -1446,9 +1446,7 @@ def remove_location(
     """
     location = _require_location(db, location_id)
     try:
-        plan = removal.apply_removal(
-            db, removal.plan_removal(db, location, recursive=recursive)
-        )
+        plan = removal.apply_removal(db, removal.plan_removal(db, location, recursive=recursive))
     except removal.RemovalRefused as error:
         raise _removal_conflict(error) from error
     db.commit()

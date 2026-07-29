@@ -352,9 +352,7 @@ def _stock_message(root: Location, blockers: list[Blocker]) -> str:
         return f"{root.name} still holds {blockers[0].detail}"
     named = "; ".join(f"{b.label_path} holds {b.detail}" for b in blockers[:_MAX_NAMED])
     more = (
-        f"; and {len(blockers) - _MAX_NAMED} more location(s)"
-        if len(blockers) > _MAX_NAMED
-        else ""
+        f"; and {len(blockers) - _MAX_NAMED} more location(s)" if len(blockers) > _MAX_NAMED else ""
     )
     return (
         f"{root.name} cannot be removed because stock is still inside it: {named}{more}."

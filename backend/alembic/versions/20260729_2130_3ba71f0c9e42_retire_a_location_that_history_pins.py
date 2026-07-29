@@ -52,7 +52,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.add_column("locations", sa.Column("retired_at", sa.DateTime(timezone=True), nullable=True))
+    # `sa.String(length=27)`, not `sa.DateTime` — `UtcDateTime` stores an ISO-8601
+    # UTC string, because SQLite has no date type and the design fixes the on-disk
+    # representation. `alembic/env.py` renders every custom `TypeDecorator` as the
+    # plain type it stores, so that a migration never imports from `app`; writing
+    # `DateTime` here instead is drift `make check-migrations` catches.
+    op.add_column("locations", sa.Column("retired_at", sa.String(length=27), nullable=True))
     op.create_index("ix_locations_retired_at", "locations", ["retired_at"])
 
 
