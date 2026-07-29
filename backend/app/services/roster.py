@@ -129,6 +129,25 @@ class RosterLine:
         """ADR 0004's `accounted`: what this line has laid hands on."""
         return self.reserved_milli + self.staged_milli + self.consumed_milli
 
+    @property
+    def needed_milli(self) -> int:
+        """ADR 0004's `needed`: `max(0, demand - accounted)`.
+
+        Derived here, and on the wire, rather than left to the client — ADR 0007
+        names *per build* and *in use* as the two numbers the UI must show, and a
+        screen doing this subtraction itself is a second definition of demand that
+        can disagree with `reservations.shortage_for_build`'s. It is a property
+        rather than a field for the same reason `required_milli` is multiplied on
+        every read: nothing about it is stored, so raising `assembly_count`
+        changes it with nothing backfilled.
+
+        Not identical to `LineShortage.needed_milli`, which additionally subtracts
+        the part of a hold its lot can no longer deliver. The roster is a record
+        of what was really done; whether a hold is still fillable is a question
+        about *free stock now*, which is the shortage report's job.
+        """
+        return max(0, self.required_milli - self.accounted_milli)
+
 
 @dataclass(frozen=True)
 class BuildRoster:
