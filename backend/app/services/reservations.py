@@ -1113,7 +1113,7 @@ class LineShortage:
     #: not — the board needs three of *something*.
     required_milli: int
     #: The BOM line's own per-assembly quantity, reported rather than left to be
-    #: divided back out of `required_milli`. A UI has to be able to say "3 each ×
+    #: divided back out of `required_milli`. A UI has to be able to say "3 each for
     #: 5 boards = 15", and the division is not available to it: a DNP line
     #: reports `required_milli == 0` on purpose, so `required / assembly_count`
     #: is 0 there and the per-assembly figure would silently disappear from the

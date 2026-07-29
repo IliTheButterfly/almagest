@@ -639,7 +639,7 @@ class LineShortageRead(BaseModel):
     kind: str
     required_milli: int
     #: The line's per-assembly quantity, so a client can render the arithmetic
-    #: — `qty_per_assembly × assembly_count = required` — rather than assert a
+    #: — `qty_per_assembly * assembly_count = required` — rather than assert a
     #: total it cannot explain. Not derivable client-side: a DNP line reports
     #: `required_milli == 0`.
     qty_per_assembly_milli: int
