@@ -22,6 +22,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "almagest-idcodec" },
     { name = "ecia-barcode" },
     { name = "elec-value-parser" },
     { name = "fastapi" },
@@ -54,6 +55,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
+    { name = "almagest-idcodec", editable = "../idcodec" },
     { name = "ecia-barcode", editable = "../ecia-barcode" },
     { name = "elec-value-parser", editable = "../elec-value-parser" },
     { name = "fastapi", specifier = ">=0.115" },
@@ -75,6 +77,20 @@ dev = [
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "almagest-idcodec"
+version = "0.1.0"
+source = { editable = "../idcodec" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.8" },
 ]
 

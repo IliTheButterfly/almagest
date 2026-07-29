@@ -11,8 +11,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from app.services.provisioning import parse_ndef_url
-from app.services.shortid import generate
+from idcodec.shortid import generate
+from idcodec.tagpayload import parse_ndef_url
 
 from agent import ndef
 

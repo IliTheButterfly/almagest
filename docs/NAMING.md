@@ -37,8 +37,10 @@ audience that is not us. Do not rename them.
 ## What is *not* named
 
 Only repos get constellation names. Everything inside one keeps its plain
-descriptive name: `backend/`, `frontend/`, `deviceagent/`, `services/search/`,
-`counting/`, and so on. Subsystems — the scale, the vision counter, the colour-
+descriptive name: `backend/`, `frontend/`, `deviceagent/`, `idcodec/`,
+`services/search/`, `counting/`, and so on. `idcodec/` is a *distribution* —
+`almagest-idcodec` — and still not a repo, so it stays descriptive too: it is the
+identity codec, and that is what it is called. Subsystems — the scale, the vision counter, the colour-
 band checker, the enrichment pipeline — are called what they are.
 
 This boundary is the whole point. A codename is worth learning once per repo,

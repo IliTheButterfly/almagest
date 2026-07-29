@@ -13,6 +13,43 @@ permissions:
   contents: read
 
 jobs:
+  # First, and its own job, because it is the one component whose defining
+  # property is what it does *not* install. Running it in a venv that also holds
+  # the backend would make `tests/test_stdlib_only.py` pass for the wrong reason
+  # — the subprocess it spawns would find sqlalchemy importable. Its own venv is
+  # the environment the assertion is actually about, and it installs in seconds.
+  idcodec:
+    name: idcodec
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: idcodec
+    steps:
+      # No `submodules: recursive`: this package depends on nothing, which is the
+      # point of it. If this checkout ever needs them, something has been added
+      # that should not have been.
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: idcodec/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy idcodec
+
+      - name: pytest
+        run: uv run pytest -q
+
   backend:
     name: backend
     runs-on: ubuntu-latest
@@ -70,9 +107,12 @@ jobs:
       run:
         working-directory: deviceagent
     steps:
-      # `submodules: recursive` because the agent depends on the backend package
-      # for the tag payload rules, and the backend depends on the two submodule
-      # libraries. Without them the install fails at resolution.
+      # `submodules: recursive` because `almagest-backend` is still a *dev*
+      # dependency here — `tests/test_session_ledger.py` runs the real migrations
+      # — and the backend depends on the two submodule libraries. Without them
+      # `uv sync --dev` fails at resolution. The agent's runtime dependencies
+      # (`almagest-idcodec`, websockets, pydantic-settings) need none of this,
+      # which is what the Pi installs.
       - uses: actions/checkout@v4
         with:
           submodules: recursive

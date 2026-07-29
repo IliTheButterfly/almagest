@@ -1,12 +1,16 @@
 """NDEF-first resolution with a UID fallback, done once and locally.
 
-Both rules come from `app.services.provisioning`, imported rather than
-reimplemented. That is not tidiness: `normalize_tag_uid` produces the key that
+Both rules come from `idcodec.tagpayload`, imported rather than reimplemented.
+That is not tidiness: `normalize_tag_uid` produces the key that
 `location_tags.tag_uid` is written with, so a UID folded by a *different* rule
 here is invisible to the binding it should match while looking perfectly correct
 in the event payload — and `parse_ndef_url` verifies the mod-37 check symbol, so
-a second copy that skipped it would forward a mis-read short id as fact. See
-`deviceagent/pyproject.toml` for why that costs a dependency.
+a second copy that skipped it would forward a mis-read short id as fact.
+
+`idcodec` is the same code the API runs, and it is standard-library-only, so
+sharing it costs this process nothing: importing it does not put FastAPI or
+SQLAlchemy on the Pi. The API reaches the identical functions through
+`app.services.provisioning`, which re-exports them.
 
 **Why the agent parses at all, given the backend already has
 `POST /api/location-tags/resolve`.** Two reasons, both narrow:
@@ -32,7 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from app.services.provisioning import ProvisioningError, normalize_tag_uid, parse_ndef_url
+from idcodec.tagpayload import InvalidTagUid, normalize_tag_uid, parse_ndef_url
 
 from agent.tags import TagRead
 
@@ -52,8 +56,9 @@ class TagIdentity:
     #: `location_tags` and resolves server-side.
     short_id: str | None
 
-    #: Normalised to bare upper-case hex by the backend's rule, so it is
-    #: directly comparable with `location_tags.tag_uid`. `None` if the reader
+    #: Normalised to bare upper-case hex by the shared `idcodec` rule — the same
+    #: one the API writes with — so it is directly comparable with
+    #: `location_tags.tag_uid`. `None` if the reader
     #: gave no UID, or gave something that is not one.
     tag_uid: str | None
 
@@ -108,7 +113,7 @@ def identify(read: TagRead | None) -> TagIdentity:
     if read.uid:
         try:
             tag_uid = normalize_tag_uid(read.uid)
-        except ProvisioningError:
+        except InvalidTagUid:
             tag_uid = None
 
     via: str | None = None

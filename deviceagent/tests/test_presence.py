@@ -10,7 +10,7 @@ spurious ledger rows against a real bin. Silence is the feature.
 from __future__ import annotations
 
 import pytest
-from app.services import shortid
+from idcodec import shortid
 
 from agent import events
 from agent.events import Event

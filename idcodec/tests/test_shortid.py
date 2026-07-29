@@ -12,8 +12,8 @@ import random
 
 import pytest
 
-from app.services import shortid
-from app.services.shortid import ALPHABET, DATA_SYMBOLS, InvalidShortId
+from idcodec import shortid
+from idcodec.shortid import ALPHABET, DATA_SYMBOLS, InvalidShortId
 
 
 def _rng(seed: int = 20260727) -> random.Random:

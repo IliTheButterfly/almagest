@@ -126,6 +126,7 @@ version = "0.1.0"
 source = { editable = "../backend" }
 dependencies = [
     { name = "alembic" },
+    { name = "almagest-idcodec" },
     { name = "ecia-barcode" },
     { name = "elec-value-parser" },
     { name = "fastapi" },
@@ -139,6 +140,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
+    { name = "almagest-idcodec", editable = "../idcodec" },
     { name = "ecia-barcode", editable = "../ecia-barcode" },
     { name = "elec-value-parser", editable = "../elec-value-parser" },
     { name = "fastapi", specifier = ">=0.115" },
@@ -168,7 +170,7 @@ name = "almagest-deviceagent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "almagest-backend" },
+    { name = "almagest-idcodec" },
     { name = "pydantic-settings" },
     { name = "websockets" },
 ]
@@ -181,6 +183,7 @@ pi = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "almagest-backend" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
@@ -189,12 +192,27 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "adafruit-circuitpython-pn532", marker = "extra == 'pi'", specifier = ">=2.4" },
-    { name = "almagest-backend", editable = "../backend" },
+    { name = "almagest-idcodec", editable = "../idcodec" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "pyserial", marker = "extra == 'pi'", specifier = ">=3.5" },
     { name = "websockets", specifier = ">=14" },
 ]
 provides-extras = ["pi"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "almagest-backend", editable = "../backend" },
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
+name = "almagest-idcodec"
+version = "0.1.0"
+source = { editable = "../idcodec" }
+
+[package.metadata]
 
 [package.metadata.requires-dev]
 dev = [

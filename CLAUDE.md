@@ -10,7 +10,8 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 
 - `backend/` scaffolding, Alembic, CI, Docker build
 - the core schema — 23 tables, append-only ledger enforced by DB triggers
-- `services/shortid.py`, `services/tree.py`, `services/parameters.py`
+- `idcodec/` — the short-ID codec and tag payload rules, standard library only
+- `services/shortid.py` (the session-taking half), `services/tree.py`, `services/parameters.py`
 - `services/search/` — the value-parser adapter and the parametric filter executor
 - `/api/search/parts`, `/api/resolve/{short_id}`, `/s/{short_id}`, `/api/system/health`
 - both submodule libraries (`elec-value-parser`, `ecia-barcode`), tagged and pinned
@@ -55,12 +56,12 @@ backend command runs through `uv run`; there is no venv to activate.
 make bootstrap        # submodules, venv, deps, .env from .env.example
 make migrate          # alembic upgrade head
 make run              # API with autoreload on :8000
-make check            # everything CI runs: lint, mypy --strict, pytest (backend + deviceagent)
+make check            # everything CI runs: lint, mypy --strict, pytest (idcodec + backend + deviceagent)
 make help             # all targets
 
 # Backend, directly
 cd backend && uv run pytest -q
-cd backend && uv run pytest tests/unit/test_shortid.py -q        # single file
+cd backend && uv run pytest tests/unit/test_scan_codes.py -q     # single file
 cd backend && uv run pytest -k "worked_example" -q               # single test
 cd backend && uv run pytest -m live                              # network; skipped by default
 cd backend && uv run alembic revision --autogenerate -m "description"
@@ -70,6 +71,10 @@ make agent-check      # ruff, mypy --strict, pytest; folded into `make check`
 make agent-run        # the agent against the fake reader, no hardware needed
 cd deviceagent && uv run pytest -q
 cd deviceagent && uv run pytest -m live      # needs a real PN532; skipped by default
+
+# idcodec — no dependencies at all, so its own venv is the point
+make idcodec-check    # ruff, mypy --strict, pytest; folded into `make check`
+cd idcodec && uv run pytest -q
 
 make check-migrations # applies migrations, then `alembic check` for model drift
 make openapi          # regenerate openapi.json — CI fails if it is stale
@@ -114,6 +119,7 @@ Highest-value test suite is `backend/tests/unit/test_value_parser.py` — the el
 Master repo (**Almagest**) plus submodules, split only where coupling is genuinely absent:
 
 - `backend/`, `frontend/`, `deviceagent/` — **one repo, kept together.** All three are bound by the API contract; a route signature change touches all of them and must be one atomic commit.
+- `idcodec/` — same repo, its own distribution (`almagest-idcodec`) and its own venv. The short-ID codec and the tag payload rules, **standard library only**. Both the API and the agent depend on it by path and re-export it, so the two can never fold a tag UID differently. It exists because the agent runs on a Pi 4 and used to pull the whole API runtime in for two pure functions. Nothing that needs a `Session`, `app.models` or `app.config` may go in it; `idcodec/tests/test_stdlib_only.py` fails if anything non-stdlib is imported.
 - `mensa/` — submodule. The bench station firmware: ESP-IDF, separate toolchain.
 - `circinus/` — submodule. OpenSCAD/CAD; binary-ish files that would bloat every clone forever.
 - `ecia-barcode/`, `elec-value-parser/` — submodules, PyPI-publishable. Names stay descriptive, not thematic — they are the only artifacts aimed at strangers. Extract via `git subtree split` (preserves history) once their tests are green; not before.

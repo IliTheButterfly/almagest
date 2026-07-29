@@ -37,10 +37,15 @@ otherwise invisible until it causes a wrong put-away.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
+from idcodec.tagpayload import InvalidTagUid
+from idcodec.tagpayload import normalize_tag_uid as _normalize_tag_uid
+
+# `as` is what makes this a re-export under `mypy --strict`, which disables
+# implicit re-export. The module has no `__all__` to add a name to.
+from idcodec.tagpayload import parse_ndef_url as parse_ndef_url
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
@@ -59,7 +64,6 @@ from app.models.layout_authoring import (
 from app.models.storage import Location, LocationTag
 from app.models.types import utcnow
 from app.services import shortid
-from app.services.shortid import InvalidShortId
 
 #: How far back the always-visible Undo button reaches. Five is the design's
 #: number; the depth is enforced against the *whole* action log rather than the
@@ -84,46 +88,30 @@ class ProvisioningError(ValueError):
 
 # ---------------------------------------------------------------------------
 # Tag payloads: one payload, two carriers
+#
+# Both rules live in the dependency-free `idcodec.tagpayload`, because the
+# station agent on the Pi folds a UID several times a second and must fold it
+# *identically* — a UID folded by a different rule is invisible to the
+# `location_tags` binding it should match while looking perfectly correct in both
+# places. They are re-exported here so every existing call site is unchanged.
+#
+# `parse_ndef_url` is re-exported verbatim. `normalize_tag_uid` is wrapped rather
+# than re-exported, for one reason only: it is the one of the two that raises,
+# and four routes catch `ProvisioningError` to turn a bad UID into a 422. The
+# codec cannot raise `ProvisioningError` — that class is defined above, in a
+# module full of SQLAlchemy — so it raises `InvalidTagUid` and this translates,
+# carrying the `reason` across rather than restating the string. The wire
+# contract (`reason="invalid_tag_uid"`) is therefore unchanged and is pinned by
+# `tests/unit/test_provisioning_payloads.py`.
 # ---------------------------------------------------------------------------
-
-#: The UID lives in factory-locked pages, so it is fixed-alphabet hex however it
-#: is presented. Separators are cosmetic — a PN532 library prints `04:1A:2B` and
-#: Web NFC hands over `041a2b` — and folding them here is what stops the same
-#: physical tag being recorded as two different tags by two readers.
-_UID_SEPARATORS = re.compile(r"[\s:.\-_]+")
-_UID = re.compile(r"\A[0-9A-F]{4,32}\Z")
-
-#: `{base_url}/s/{short_id}`, matched **host-agnostically**. The host may
-#: legitimately change (a rename, a reverse proxy, a lab hostname) while every
-#: tag already written keeps the old one, and the meaning of the payload was
-#: never the host — it is the short id. Refusing a tag because it names the
-#: previous hostname would be refusing a tag that is perfectly correct.
-_NDEF_PATH = re.compile(r"/s/(?P<code>[^/?#]+)/?\Z")
 
 
 def normalize_tag_uid(raw: str) -> str:
     """Canonicalise a UID to bare upper-case hex."""
-    text = _UID_SEPARATORS.sub("", raw).upper()
-    if not _UID.fullmatch(text):
-        raise ProvisioningError(
-            f"{raw!r} is not a tag UID: expected 4-32 hex digits", reason="invalid_tag_uid"
-        )
-    return text
-
-
-def parse_ndef_url(url: str) -> str | None:
-    """The short id carried by an NDEF URI record, or None if it carries none.
-
-    Returns the canonical short id, check symbol verified — the payload is
-    trusted no further than a scanned label is.
-    """
-    match = _NDEF_PATH.search(url.strip())
-    if match is None:
-        return None
     try:
-        return shortid.validate(match.group("code"))
-    except InvalidShortId:
-        return None
+        return _normalize_tag_uid(raw)
+    except InvalidTagUid as error:
+        raise ProvisioningError(str(error), reason=error.reason) from error
 
 
 def printed_short_id(session: Session, location_id: int) -> str | None:

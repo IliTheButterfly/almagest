@@ -1,0 +1,86 @@
+[project]
+name = "almagest-idcodec"
+version = "0.1.0"
+description = "Almagest — short-ID codec and tag payload rules. Standard library only."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+# **This list stays empty. That is the entire point of the package.**
+#
+# Both the API and the station agent need these rules, and they must agree
+# byte-for-byte or a provisioning walk silently reports a cabinet as swapped.
+# Before this package existed the agent got agreement by depending on
+# `almagest-backend`, which dragged fastapi, sqlalchemy, alembic and pint onto a
+# Raspberry Pi 4 that imports none of them.
+#
+# `tests/test_stdlib_only.py` fails if anything here imports outside the standard
+# library, because a dependency added quietly here reappears on the Pi.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# `idcodec/py.typed` ships with it. Without that marker mypy treats an installed
+# package as untyped and every re-export in `app.services.shortid` becomes `Any`
+# — which would pass `--strict` while checking nothing.
+packages = ["idcodec"]
+
+# ---------------------------------------------------------------------------
+# ruff — same settings as backend/pyproject.toml and deviceagent/pyproject.toml.
+# Three Python components in one repo formatted by three rulesets is a diff-noise
+# generator.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "ARG",  # unused arguments
+    "PTH",  # use pathlib
+    "RUF",
+]
+ignore = [
+    # See backend/pyproject.toml: RUF002 only ever objects to deliberate
+    # typography (en dashes, µ, Ω) in prose. RUF001 and RUF003 stay on.
+    "RUF002",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG001", "ARG002"]  # pytest fixtures are injected, not called
+
+[tool.ruff.lint.isort]
+known-first-party = ["idcodec"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["idcodec"]
+strict = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = ["error"]

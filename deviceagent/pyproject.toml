@@ -11,7 +11,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "websockets>=14",
     "pydantic-settings>=2.6",
-    # For exactly two functions: `parse_ndef_url` and `normalize_tag_uid`.
+    # `parse_ndef_url`, `normalize_tag_uid`, and the short-ID codec the first of
+    # those verifies its check symbol with.
     #
     # WHY a dependency rather than a copy: a UID normalised by a different rule
     # is invisible to the `location_tags` binding it should match *while looking
@@ -19,18 +20,13 @@ dependencies = [
     # or a provisioning walk silently reports a whole cabinet as swapped, and
     # the only way to guarantee agreement is one implementation.
     #
-    # HONEST COST: this pulls the API's runtime deps (fastapi, sqlalchemy,
-    # alembic, pint — ~25 wheels, all with aarch64 builds) into the agent's
-    # venv. The agent imports none of them; they are along for the ride. If that
-    # ever hurts, the fix is to promote those two pure functions into a
-    # dependency-free module that `app.services.provisioning` re-exports and the
-    # agent depends on alone. The fix is never to copy them.
-    #
-    # Note the *backend's* `[tool.uv.sources]` entries for the two submodule
-    # libraries are honoured through this path source, so they need no repeat
-    # here — verified, because neither library is published to PyPI and
-    # resolution would fail loudly if they were ignored.
-    "almagest-backend",
+    # This used to be `almagest-backend`, which was the same guarantee at the
+    # price of fastapi, sqlalchemy, alembic and pint — ~25 wheels the agent
+    # never imports — on a Pi 4 running kiosk Chromium. `almagest-idcodec`
+    # declares no dependencies at all and `idcodec/tests/test_stdlib_only.py`
+    # keeps it that way, so the guarantee now costs nothing. The API reaches the
+    # identical functions by re-exporting them from `app.services.provisioning`.
+    "almagest-idcodec",
 ]
 
 [project.optional-dependencies]
@@ -45,26 +41,39 @@ pi = [
 [project.scripts]
 almagest-deviceagent = "agent.main:main"
 
-# NOTE: because the backend is a path dependency below, **changing
-# `backend/pyproject.toml` invalidates this lockfile** — adding an optional-
-# dependency group there is enough. CI runs `uv sync --locked` and fails; a local
-# `make check` syncs without `--locked`, relocks silently, and passes. So after
-# touching the backend's dependencies, run `uv lock` here and commit the result.
-# Phase 4 adding a `datasheets` extra is what surfaced this.
-# Because the backend is a path dependency here, **changing
-# `backend/pyproject.toml` invalidates this lockfile** — adding an
-# optional-dependency group is enough to do it. CI runs `uv sync --locked` and
-# fails in seconds; a local `make check` syncs *without* `--locked`, relocks
-# silently, and passes. So after touching the backend's dependencies, run
-# `uv lock` here and commit the result. Phase 4's `datasheets` extra surfaced this.
+# NOTE: **a path dependency's `pyproject.toml` is part of this lockfile's
+# input.** Editing `idcodec/pyproject.toml` — or `backend/pyproject.toml`, which
+# is still a path dependency of the `dev` group below — invalidates the lock, and
+# adding an optional-dependency group is enough to do it. CI runs
+# `uv sync --locked` and fails in seconds; a local `make check` syncs *without*
+# `--locked`, relocks silently, and passes. So a stale lock is invisible until
+# the PR goes red: after touching either of those files, run `uv lock` here and
+# commit the result.
+#
+# The exposure is much smaller than it was. Phase 4's `datasheets` extra surfaced
+# this precisely because the *backend* was the runtime dependency, so every API
+# dependency change reached here; `almagest-idcodec` declares nothing and changes
+# almost never.
 [tool.uv.sources]
+almagest-idcodec = { path = "../idcodec", editable = true }
 almagest-backend = { path = "../backend", editable = true }
 
 [dependency-groups]
+# `almagest-backend` is a **test-only** dependency, and it is the one thing that
+# keeps sqlalchemy in the *development* venv. `tests/test_session_ledger.py`
+# asserts what the station actually writes to the ledger against real Alembic
+# migrations and real rows — nothing weaker proves that aborting a session writes
+# nothing — and that needs the models and the routes, not a mock of them.
+#
+# It stays out of `[project.dependencies]` so it stays off the Pi: `uv sync
+# --extra pi --no-dev` there installs websockets, pydantic-settings, idcodec and
+# the CircuitPython stack, and no web framework. Verify with `uv pip list`, not
+# by reading this comment.
 dev = [
     "pytest>=8.3",
     "ruff>=0.8",
     "mypy>=1.13",
+    "almagest-backend",
 ]
 
 [build-system]
