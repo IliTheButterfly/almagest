@@ -60,6 +60,7 @@ function line(
     part_id: 42,
     kind: "short",
     required_milli: 9_000,
+    qty_per_assembly_milli: 3_000,
     allocated_milli: 3_000,
     reserved_milli: split.reserved,
     staged_milli: split.staged,
@@ -344,10 +345,11 @@ describe("a shortage line's three quantities", () => {
     expect(screen.getByText(/3 built in/)).toBeTruthy();
 
     // The defect, stated as an assertion: identical `allocated_milli` across the
-    // three lines must not produce identical text.
-    const texts = screen
-      .getAllByText(/required/)
-      .map((node) => node.parentElement?.textContent ?? "");
+    // three lines must not produce identical text. Read off the "in use" line
+    // rather than the demand line, which is identical across all three by
+    // construction — that is what makes the split the only thing distinguishing
+    // them.
+    const texts = screen.getAllByText(/In use/).map((node) => node.textContent ?? "");
     expect(new Set(texts).size).toBe(3);
   });
 

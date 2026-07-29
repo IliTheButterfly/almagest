@@ -407,13 +407,28 @@ function ShortageLine({
           </span>
           <KindBadge line={line} />
         </div>
+        {/* **The arithmetic, not just its answer.** ADR 0007 names two numbers
+            the UI was not making legible: "how many is needed per build and how
+            many are being used". Both are already derived (ADR 0004) — what was
+            missing is that a bare "15 required" asserts a product without its
+            factors, so raising the assembly count moved a number with no visible
+            cause. Written out, the same reload that changes ×3 to ×5 visibly
+            changes the demand and the shortfall together. */}
+        <DemandLine line={line} assemblyCount={assemblyCount} />
         <div className="sub">
-          {formatQty(line.required_milli)} required
-          {line.needed_milli > 0 && ` · ${formatQty(line.needed_milli)} still to get`}
-          {line.available_milli !== null && ` · ${formatQty(line.available_milli)} free`}
-          {line.shortfall_milli !== null &&
-            line.shortfall_milli > 0 &&
-            ` · short ${formatQty(line.shortfall_milli)}`}
+          {line.needed_milli > 0
+            ? `${formatQty(line.needed_milli)} still to get`
+            : "nothing left to get"}
+          {line.available_milli !== null && ` · ${formatQty(line.available_milli)} free in stock`}
+          {line.shortfall_milli !== null && line.shortfall_milli > 0 && (
+            <>
+              {" · "}
+              {/* A word and a symbol, not only a colour: `KindBadge` says
+                  "short" in text and this repeats the number in the same breath,
+                  so the one state that stops a build never depends on hue. */}
+              <strong>▲ {formatQty(line.shortfall_milli)} not in stock anywhere</strong>
+            </>
+          )}
         </div>
         {/* **The split, not the sum.** This line used to render `allocated_milli`
             alone — the merge of all three — so three units held in a drawer, three
@@ -425,6 +440,7 @@ function ShortageLine({
             than printed, so an ordinary line stays one short phrase. */}
         {line.allocated_milli > 0 && (
           <div className="sub">
+            {"In use — "}
             {[
               line.reserved_milli > 0 && `${formatQty(line.reserved_milli)} held in a bin`,
               line.staged_milli > 0 && `${formatQty(line.staged_milli)} set aside for this project`,
@@ -520,6 +536,50 @@ function ShortageLine({
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * `per assembly × assemblies = needed for this build`, and what is already in use.
+ *
+ * Two phrases, because they answer the two different questions Iliana asked in
+ * one breath — *how many does this build need* and *how many are being used*. The
+ * per-assembly figure comes off the wire rather than being divided back out of
+ * `required_milli`: a DNP line reports zero required on purpose, and the division
+ * would erase the only quantity such a line has.
+ *
+ * The "in use" half is deliberately the three states spelled out and not their
+ * sum. ADR 0004 is explicit that merging them lets a BOM look covered off parts
+ * already soldered into last week's board, and each has a different next action:
+ * a hold can be released, a staged part is in a box on a shelf, a consumed one is
+ * gone.
+ */
+function DemandLine({
+  line,
+  assemblyCount,
+}: {
+  line: LineShortageRead;
+  assemblyCount: number;
+}) {
+  const inUse = [
+    line.reserved_milli > 0 ? `${formatQty(line.reserved_milli)} held` : null,
+    line.staged_milli > 0 ? `${formatQty(line.staged_milli)} set aside` : null,
+    line.consumed_milli > 0 ? `${formatQty(line.consumed_milli)} built in` : null,
+  ].filter((piece) => piece !== null);
+
+  return (
+    <div className="sub">
+      {line.kind === "not_fitted" ? (
+        <>{formatQty(line.qty_per_assembly_milli)} per assembly, not fitted — 0 required</>
+      ) : (
+        <>
+          <strong>{formatQty(line.qty_per_assembly_milli)}</strong> per assembly × {assemblyCount}{" "}
+          {assemblyCount === 1 ? "assembly" : "assemblies"} ={" "}
+          <strong>{formatQty(line.required_milli)} required</strong> for this build
+        </>
+      )}
+      {inUse.length === 0 && line.kind !== "not_fitted" && " · none of it in use yet"}
+    </div>
   );
 }
 

@@ -35,6 +35,7 @@ const SHORT_LINE = {
   part_id: 42,
   kind: "short",
   required_milli: 30_000,
+  qty_per_assembly_milli: 10_000,
   allocated_milli: 10_000,
   available_milli: 5_000,
   shortfall_milli: 15_000,
@@ -49,6 +50,7 @@ const UNIDENTIFIED_LINE = {
   part_id: null,
   kind: "unidentified",
   required_milli: 3_000,
+  qty_per_assembly_milli: 1_000,
   allocated_milli: 0,
   available_milli: null,
   shortfall_milli: null,
@@ -63,6 +65,7 @@ const SATISFIED_LINE = {
   part_id: 43,
   kind: "satisfied",
   required_milli: 3_000,
+  qty_per_assembly_milli: 1_000,
   allocated_milli: 3_000,
   available_milli: 100_000,
   shortfall_milli: 0,
@@ -215,12 +218,13 @@ describe("the two shortage kinds", () => {
     renderScreen();
 
     await screen.findByText("short");
-    // The known deficit is stated…
-    expect(screen.getByText(/short 15/)).toBeTruthy();
+    // The known deficit is stated, in words and with a glyph rather than only a
+    // colour…
+    expect(screen.getByText(/15 not in stock anywhere/)).toBeTruthy();
     // …and the unidentified line offers no quantity of any kind — `null`
     // fields must not render as "0 short", which would read as buildable.
     expect(screen.queryByText(/0 free/)).toBeNull();
-    expect(screen.queryByText(/short 0/)).toBeNull();
+    expect(screen.queryByText(/0 not in stock anywhere/)).toBeNull();
   });
 
   it("marks the whole build not buildable when anything is unidentified, even satisfied lines present", async () => {
@@ -261,6 +265,9 @@ describe("a hold its lot can no longer fill", () => {
   const STRANDED_LINE = {
     ...SHORT_LINE,
     required_milli: 100_000,
+    // Rounded rather than exact: this fixture's round `required_milli` is not
+    // divisible by the build's three assemblies, and only the total is asserted.
+    qty_per_assembly_milli: Math.round(100_000 / 3),
     allocated_milli: 100_000,
     undeliverable_milli: 100_000,
     available_milli: 0,
@@ -407,6 +414,7 @@ describe("changing the assembly count", () => {
                 bom_line_id: 20,
                 line_no: 1,
                 required_milli: required,
+                qty_per_assembly_milli: PER_ASSEMBLY_MILLI,
                 allocated_milli: PER_ASSEMBLY_MILLI,
                 shortfall_milli: Math.max(0, required - PER_ASSEMBLY_MILLI),
                 kind: required > PER_ASSEMBLY_MILLI ? "short" : "satisfied",
@@ -436,7 +444,10 @@ describe("changing the assembly count", () => {
     // The same held unit no longer covers triple the demand — the shortfall
     // moved on screen with no second "recompute" request of any kind.
     expect(await screen.findByText(/3 required/)).toBeTruthy();
-    expect(await screen.findByText(/short 2/)).toBeTruthy();
+    // …and the multiplication that produced it is on screen, so the number did
+    // not simply change on its own.
+    expect(await screen.findByText(/per assembly × 3 assemblies/)).toBeTruthy();
+    expect(await screen.findByText(/2 not in stock anywhere/)).toBeTruthy();
     expect(
       calls.filter((call) => call.method === "PATCH" || call.method === "POST"),
     ).toHaveLength(1);
