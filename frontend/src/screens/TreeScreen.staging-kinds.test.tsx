@@ -46,6 +46,10 @@ function node(spec: NodeSpec): Record<string, unknown> {
     is_overfull: false,
     is_staging: spec.is_staging ?? false,
     is_placeable: spec.is_placeable ?? null,
+    // Always resolved by the API (ADR 0006). Nothing here turns on it — these
+    // are staging *kinds* — but the shape has to stay the wire shape.
+    effective_child_view: "floor_plan",
+    effective_glyph: null,
     fill_ratio: null,
     lot_count: 1,
     qty_milli: 3_000,
@@ -84,6 +88,12 @@ function locationRead(overrides: Record<string, unknown>): Record<string, unknow
     esd_safe: null,
     effective_esd_safe: null,
     is_placeable: false,
+    child_view: null,
+    effective_child_view: "floor_plan",
+    glyph: null,
+    effective_glyph: null,
+    photo: null,
+    effective_photo: null,
     is_overfull: false,
     is_staging: true,
     access_score: 0.5,

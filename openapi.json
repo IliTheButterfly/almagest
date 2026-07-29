@@ -1433,12 +1433,25 @@
         "type": "object"
       },
       "ChildLayout": {
+        "description": "**What geometry this container offers its children.**\n\nOne of ADR 0002's two questions (the other being `footprint_*`, what this\ntype occupies in *its* parent). It is a statement about slots, not about\npixels: `GRID` means there are addressable `(row, col)` positions, which is\nwhat `app.services.assignment` needs in order to materialise a free cell for\na scan that would otherwise have nowhere to land.\n\n**Deliberately still exactly three members.** How a level is *drawn* is a\nthird, independent question and lives in `ChildView` \u2014 see that docstring for\nwhy growing this enum instead would have been a bug rather than a shortcut.\n`tests/integration/test_child_view.py` pins the membership.",
         "enum": [
           "grid",
           "list",
           "none"
         ],
         "title": "ChildLayout",
+        "type": "string"
+      },
+      "ChildView": {
+        "description": "**How this container's children are drawn** \u2014 ADR 0006.\n\nThe third question a container type answers, and the one ADR 0002 did not\nask. Its two were about geometry: what grid do I present (`ChildLayout` plus\n`grid_rows/cols/pitch`), and what footprint do I occupy in my parent\n(`footprint_*`). Neither says how to *render* a level, and the answer is not\na function of either \u2014 a Raaco cabinet and a Gridfinity baseplate both\npresent a grid and want completely different pictures, drawer fronts in a\nvertical face versus square cells seen from above.\n\nKept out of `ChildLayout` rather than added to it, for a reason that is\nmechanical rather than aesthetic: `app.services.assignment` selects\ncontainers with `ContainerType.child_layout == ChildLayout.GRID` in order to\nmaterialise a free cell. Every drawing kind added to that enum would\nsilently fall out of that predicate, so a cabinet declared\n`child_layout='cabinet_face'` would stop being a place auto-assignment can\nput anything \u2014 a scan quietly escalating to the INBOX because somebody chose\na skin. Two axes cannot go wrong that way: a cabinet still presents a grid\nwhatever it looks like.\n\n**Adding a member here is one line and nothing else**, because neither\n`container_types.child_view` nor `locations.child_view` carries a `CHECK`.\nThat is the no-`CHECK` rule paying for itself for the fourth time \u2014 after\n`CapacityModel.GRID_UNITS` (ADR 0002), the scanning enums grown after\n`scan_events` was populated, and `AllocationState.STAGED` (ADR 0004). A new\nway to draw a level is a member here plus a branch in the renderer, on two\ntables that are already holding every container in the building.\n\nNothing here is ever encoded in a printed or tag payload: a view kind is a\nproperty of a level, and levels move.",
+        "enum": [
+          "floor_plan",
+          "shelf_run",
+          "cabinet_face",
+          "grid_cells",
+          "list"
+        ],
+        "title": "ChildView",
         "type": "string"
       },
       "ChoiceFacet": {
@@ -1661,6 +1674,23 @@
         "title": "ConsumeStagedResponse",
         "type": "object"
       },
+      "ContainerGlyph": {
+        "description": "**A small pictogram for this container** \u2014 chosen from a fixed set, not a\nphotograph.\n\nThis is the *other* answer to \"what does this container look like\",\ndeliberately kept apart from the photo a phone takes standing in front of a\ndrawer (`DocumentRole.PHOTO` on a `document_links` row). The two serve\ndifferent scales: a photograph is one real image, expensive to fetch and\ndecode, and worth showing exactly once \u2014 on the screen for *this specific*\ncontainer. A glyph is a single character, cheap enough to render at every\nnode of a tree where loading ninety-six photographs to draw a 12x8 grid\nwould be absurd. `frontend/src/components/ContainerLayout.tsx`'s dense\nrecursive view therefore draws `effective_glyph` at every cell it lays out,\nand never a photo; a photo is drawn once, on that one container's own detail\nscreen.\n\n**Not derived, unlike `ChildView`.** There is no geometric fact that implies\n\"this looks like a bag\" the way a 42 mm pitch implies \"this is a tray\", so\nthe fallback when neither an instance nor its type has chosen one is simply\n\"no glyph\" \u2014 the caller renders a neutral placeholder, not a guess.\n\n**Adding a member is one line here and one line in the client's rendering\nmap** (`frontend/src/lib/locations/glyphs.ts`), because \u2014 as with every other\nenum in this file \u2014 neither `container_types.glyph` nor `locations.glyph`\ncarries a `CHECK`. A row naming a glyph this build has never heard of is\ndrawn as the same neutral placeholder rather than raising, which is the other\nhalf of that promise.",
+        "enum": [
+          "box",
+          "bin",
+          "drawer",
+          "cabinet",
+          "shelf",
+          "tray",
+          "bag",
+          "reel",
+          "room",
+          "rack"
+        ],
+        "title": "ContainerGlyph",
+        "type": "string"
+      },
       "ContainerTypeCreate": {
         "properties": {
           "allowed_part_kinds": {
@@ -1709,6 +1739,17 @@
                 "type": "null"
               }
             ]
+          },
+          "child_view": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChildView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How every instance of this type draws its children (ADR 0006). Send it explicitly as null to go back to being derived from this type's declared geometry, which is what an unset value means \u2014 not 'unknown'. Independent of `child_layout`: that says whether there are addressable slots, this says what the picture looks like, and a cabinet and a Gridfinity baseplate answer the first identically and the second differently."
           },
           "client_op_id": {
             "anyOf": [
@@ -1850,6 +1891,17 @@
               }
             ],
             "title": "Full Threshold"
+          },
+          "glyph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContainerGlyph"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The pictogram every instance of this type draws in the dense tree view (see `ContainerGlyph`). Send it explicitly as null to clear a pin, which is what an unset value means here too \u2014 there is no derivation to fall back to, unlike `child_view`, so both this and an instance's own override being unset is 'no glyph', a real state a renderer draws as a neutral placeholder."
           },
           "grid_cols": {
             "anyOf": [
@@ -2027,6 +2079,56 @@
         "title": "ContainerTypeCreated",
         "type": "object"
       },
+      "ContainerTypeDocumentAttached": {
+        "description": "`DocumentAttachResult` plus *which type it landed on*.\n\nIts own model rather than the shared one because a container type is the only\nattachment target that can be read-only: a seed is cloned on write\n(`layout_authoring.ensure_editable`), so the answer to \"where is this photo\nnow\" is not the id in the path. Parts and locations cannot do that, and\nwidening `DocumentAttachResult` with a field that is always null for two of\nits three callers would document a possibility that does not exist for them.",
+        "properties": {
+          "cloned": {
+            "title": "Cloned",
+            "type": "boolean"
+          },
+          "container_type_id": {
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "link": {
+            "$ref": "#/components/schemas/DocumentLinkRead"
+          }
+        },
+        "required": [
+          "container_type_id",
+          "cloned",
+          "link",
+          "created"
+        ],
+        "title": "ContainerTypeDocumentAttached",
+        "type": "object"
+      },
+      "ContainerTypeDocumentLinkList": {
+        "description": "Same shape as `DocumentLinkList`, one field renamed. Kept as its own model\nrather than a shared one with a generic `entity_pk` \u2014 the field name is part\nof what a hand-written client reads, and `part_id`/`container_type_id`/\n`location_id` say what is actually being listed without a lookup table.",
+        "properties": {
+          "container_type_id": {
+            "title": "Container Type Id",
+            "type": "integer"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentLinkRead"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "container_type_id",
+          "links"
+        ],
+        "title": "ContainerTypeDocumentLinkList",
+        "type": "object"
+      },
       "ContainerTypeEdited": {
         "properties": {
           "cloned": {
@@ -2085,6 +2187,17 @@
             "title": "Child Layout",
             "type": "string"
           },
+          "child_view": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child View"
+          },
           "default_fill_factor": {
             "title": "Default Fill Factor",
             "type": "number"
@@ -2102,6 +2215,10 @@
           },
           "display_name": {
             "title": "Display Name",
+            "type": "string"
+          },
+          "effective_child_view": {
+            "title": "Effective Child View",
             "type": "string"
           },
           "esd_safe": {
@@ -2173,6 +2290,17 @@
           "full_threshold": {
             "title": "Full Threshold",
             "type": "number"
+          },
+          "glyph": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glyph"
           },
           "grid_cols": {
             "anyOf": [
@@ -2289,6 +2417,16 @@
             ],
             "title": "Max Parts Per Slot"
           },
+          "photo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "slot_label_params": {
             "anyOf": [
               {
@@ -2316,6 +2454,10 @@
           "display_name",
           "description",
           "child_layout",
+          "child_view",
+          "effective_child_view",
+          "glyph",
+          "photo",
           "grid_rows",
           "grid_cols",
           "grid_pitch_mm",
@@ -2393,6 +2535,17 @@
                 "type": "null"
               }
             ]
+          },
+          "child_view": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChildView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How every instance of this type draws its children (ADR 0006). Send it explicitly as null to go back to being derived from this type's declared geometry, which is what an unset value means \u2014 not 'unknown'. Independent of `child_layout`: that says whether there are addressable slots, this says what the picture looks like, and a cabinet and a Gridfinity baseplate answer the first identically and the second differently."
           },
           "client_op_id": {
             "anyOf": [
@@ -2541,6 +2694,17 @@
               }
             ],
             "title": "Full Threshold"
+          },
+          "glyph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContainerGlyph"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The pictogram every instance of this type draws in the dense tree view (see `ContainerGlyph`). Send it explicitly as null to clear a pin, which is what an unset value means here too \u2014 there is no derivation to fall back to, unlike `child_view`, so both this and an instance's own override being unset is 'no glyph', a real state a renderer draws as a neutral placeholder."
           },
           "grid_cols": {
             "anyOf": [
@@ -3136,6 +3300,22 @@
       },
       "DocumentUploadResult": {
         "properties": {
+          "cloned_container_type": {
+            "default": false,
+            "title": "Cloned Container Type",
+            "type": "boolean"
+          },
+          "container_type_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Type Id"
+          },
           "created": {
             "title": "Created",
             "type": "boolean"
@@ -4612,6 +4792,86 @@
         "title": "LineShortageRead",
         "type": "object"
       },
+      "LocationChildViewResponse": {
+        "properties": {
+          "child_view": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child View"
+          },
+          "effective_child_view": {
+            "title": "Effective Child View",
+            "type": "string"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "location_id",
+          "child_view",
+          "effective_child_view"
+        ],
+        "title": "LocationChildViewResponse",
+        "type": "object"
+      },
+      "LocationChildViewUpdate": {
+        "description": "Pin, or stop pinning, how this one container draws its children.\n\nThe instance half of ADR 0006's override. There is no `PATCH /api/locations`\nto fold this into, and inventing one to carry a single field would put every\nother column of `locations` on the wire as writable \u2014 so this is its own\nnarrow route, the same shape as `.../short-id` beside it.",
+        "properties": {
+          "child_view": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChildView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null clears the override, handing the drawing back to the container type (and through it to the derivation). Sending null is therefore a real edit, not an omission."
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          }
+        },
+        "title": "LocationChildViewUpdate",
+        "type": "object"
+      },
       "LocationCreate": {
         "properties": {
           "access_score": {
@@ -4626,6 +4886,17 @@
               }
             ],
             "title": "Access Score"
+          },
+          "child_view": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChildView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How this one container draws its children, overriding the container type's answer (ADR 0006). Null takes the type's, which in turn falls back to deriving it from the type's declared geometry."
           },
           "client_op_id": {
             "anyOf": [
@@ -4710,6 +4981,17 @@
               }
             ],
             "title": "Fill Factor"
+          },
+          "glyph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContainerGlyph"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This one container's own pictogram, overriding the container type's (see `ContainerGlyph`). Null takes the type's; if the type has none either, that is 'no glyph', drawn as a neutral placeholder rather than guessed at."
           },
           "is_placeable": {
             "anyOf": [
@@ -4827,9 +5109,139 @@
         "title": "LocationCreated",
         "type": "object"
       },
+      "LocationDocumentLinkList": {
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentLinkRead"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "location_id": {
+            "title": "Location Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "links"
+        ],
+        "title": "LocationDocumentLinkList",
+        "type": "object"
+      },
+      "LocationGlyphResponse": {
+        "properties": {
+          "effective_glyph": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Glyph"
+          },
+          "glyph": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glyph"
+          },
+          "location_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "location_id",
+          "glyph",
+          "effective_glyph"
+        ],
+        "title": "LocationGlyphResponse",
+        "type": "object"
+      },
+      "LocationGlyphUpdate": {
+        "description": "Pin, or stop pinning, this one container's own pictogram. The instance\nhalf of the type/instance override \u2014 same shape and same reasoning as\n`LocationChildViewUpdate` beside it, one field over.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "glyph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContainerGlyph"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null clears the override, handing the glyph back to the container type. Unlike `child_view` there is no derivation underneath it, so clearing both this and the type's own glyph is 'no glyph', drawn as a neutral placeholder rather than guessed at."
+          }
+        },
+        "title": "LocationGlyphUpdate",
+        "type": "object"
+      },
       "LocationNode": {
         "description": "One row of the flat tree. Cheaper than `LocationRead` by design: a tree\nrender needs structure and fill state, not every lot in the warehouse.",
         "properties": {
+          "child_grid_cols": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child Grid Cols"
+          },
+          "child_grid_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child Grid Rows"
+          },
           "container_type_id": {
             "anyOf": [
               {
@@ -4844,6 +5256,21 @@
           "depth": {
             "title": "Depth",
             "type": "integer"
+          },
+          "effective_child_view": {
+            "title": "Effective Child View",
+            "type": "string"
+          },
+          "effective_glyph": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Glyph"
           },
           "fill_ratio": {
             "anyOf": [
@@ -4934,6 +5361,10 @@
           "is_overfull",
           "is_staging",
           "is_placeable",
+          "effective_child_view",
+          "child_grid_rows",
+          "child_grid_cols",
+          "effective_glyph",
           "fill_ratio",
           "lot_count",
           "qty_milli"
@@ -4953,6 +5384,17 @@
           "child_count": {
             "title": "Child Count",
             "type": "integer"
+          },
+          "child_view": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child View"
           },
           "container_type_id": {
             "anyOf": [
@@ -4991,6 +5433,10 @@
             ],
             "title": "Display"
           },
+          "effective_child_view": {
+            "title": "Effective Child View",
+            "type": "string"
+          },
           "effective_esd_safe": {
             "anyOf": [
               {
@@ -5002,6 +5448,27 @@
             ],
             "title": "Effective Esd Safe"
           },
+          "effective_glyph": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Glyph"
+          },
+          "effective_photo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "esd_safe": {
             "anyOf": [
               {
@@ -5012,6 +5479,17 @@
               }
             ],
             "title": "Esd Safe"
+          },
+          "glyph": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Glyph"
           },
           "id": {
             "title": "Id",
@@ -5078,6 +5556,16 @@
             ],
             "title": "Parent Id"
           },
+          "photo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "short_id": {
             "anyOf": [
               {
@@ -5125,6 +5613,12 @@
           "esd_safe",
           "effective_esd_safe",
           "is_placeable",
+          "child_view",
+          "effective_child_view",
+          "glyph",
+          "effective_glyph",
+          "photo",
+          "effective_photo",
           "is_overfull",
           "is_staging",
           "access_score",
@@ -11942,6 +12436,157 @@
         ]
       }
     },
+    "/api/container-types/{container_type_id}/documents": {
+      "get": {
+        "operationId": "read_container_type_documents",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeDocumentLinkList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Container Type Documents",
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "description": "Attach an already-stored document to a container type, or promote its\nexisting link \u2014 \"every instance of this type looks like this\" for\n`role=photo`.\n\n**A seed clones first**, as every other write to a container type does\n(`layout_authoring.ensure_editable`), and the response says so: the id a\nclient should be looking at afterwards is `container_type_id`, not the one it\nput in the path.",
+        "operationId": "attach_container_type_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentAttachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerTypeDocumentAttached"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attach Container Type Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/container-types/{container_type_id}/documents/{sha256}": {
+      "delete": {
+        "description": "**No `ensure_editable` here, deliberately.** This route only ever deletes\n`document_links` rows whose `entity_pk` is this type's id, and with both attach\ndoors above cloning, a seed can never hold one \u2014 so the only answer it can\ngive for a seed is the 404 below. Cloning a seed in order to delete something\nfrom the copy that the copy never had would mint a type per click.\n\n`tests/integration/test_container_authoring_findings.py::\ntest_a_seed_can_therefore_never_reach_the_detach_route_with_a_photo` pins that\nreasoning, so adding a third writer of `CONTAINER_TYPE` links without the\nguard turns it red \u2014 which is the point at which this route would need one too.",
+        "operationId": "detach_container_type_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "container_type_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Container Type Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetachResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detach Container Type Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/api/container-types/{container_type_id}/slot-template": {
       "get": {
         "description": "The type's effective layout \u2014 generated or materialised, indistinguishably.",
@@ -12042,7 +12687,7 @@
     },
     "/api/documents": {
       "post": {
-        "description": "Store a file under the sha256 of its bytes, and optionally attach it.\n\n**200, not 201, always.** A content-addressed store cannot promise it created\nanything \u2014 the honest answer to \"did this upload produce a new document\" is in\n`created`, and encoding it in the status code instead would mean one of the two\noutcomes going undeclared in the OpenAPI document that every client is\ngenerated from.",
+        "description": "Store a file under the sha256 of its bytes, and optionally attach it.\n\n**200, not 201, always.** A content-addressed store cannot promise it created\nanything \u2014 the honest answer to \"did this upload produce a new document\" is in\n`created`, and encoding it in the status code instead would mean one of the two\noutcomes going undeclared in the OpenAPI document that every client is\ngenerated from.\n\n**At most one of `part_id`, `container_type_id`, `location_id`.** Each names a\ndifferent `entity_type` in the same polymorphic `document_links` table, and a\nsingle upload is one file attached in one role to one thing \u2014 sending two\nwould silently pick one, which is worse than refusing the ambiguous request.",
         "operationId": "upload_document",
         "parameters": [
           {
@@ -12137,6 +12782,46 @@
               ],
               "description": "Attach to this part in the same request.",
               "title": "Part Id"
+            }
+          },
+          {
+            "description": "Attach to this container type in the same request \u2014 the phone-in-hand path for setting a type's default photo (`role=photo`).",
+            "in": "query",
+            "name": "container_type_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Attach to this container type in the same request \u2014 the phone-in-hand path for setting a type's default photo (`role=photo`).",
+              "title": "Container Type Id"
+            }
+          },
+          {
+            "description": "Attach to this one location in the same request, overriding its container type's photo (`role=photo`).",
+            "in": "query",
+            "name": "location_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Attach to this one location in the same request, overriding its container type's photo (`role=photo`).",
+              "title": "Location Id"
             }
           },
           {
@@ -13329,6 +14014,265 @@
           }
         },
         "summary": "Read Location",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/child-view": {
+      "put": {
+        "description": "Override how this container draws its children, or clear the override.\n\nNothing about the tree's *shape* changes here and nothing is validated\nagainst the geometry on purpose: a drawing is a preference, and refusing to\ndraw a cabinet as a floor plan because its type declares a grid would be the\neditor overruling the person holding the cabinet. The grid machinery still\nknows where each slot is either way \u2014 only the picture changes.",
+        "operationId": "set_location_child_view",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationChildViewUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationChildViewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Location Child View",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/documents": {
+      "get": {
+        "operationId": "read_location_documents",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationDocumentLinkList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Location Documents",
+        "tags": [
+          "documents"
+        ]
+      },
+      "post": {
+        "operationId": "attach_location_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentAttachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentAttachResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attach Location Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/documents/{sha256}": {
+      "delete": {
+        "operationId": "detach_location_document",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDetachResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detach Location Document",
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/api/locations/{location_id}/glyph": {
+      "put": {
+        "description": "Override this container's pictogram, or clear the override.\n\nIts own narrow route rather than a field on `.../child-view`, for the same\nreason that one is its own route rather than a general `PATCH /api/locations`\n\u2014 see `LocationChildViewUpdate`'s docstring.",
+        "operationId": "set_location_glyph",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Location Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationGlyphUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationGlyphResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Location Glyph",
         "tags": [
           "locations"
         ]

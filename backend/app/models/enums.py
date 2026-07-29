@@ -134,9 +134,126 @@ class CapacityModel(StrEnum):
 
 
 class ChildLayout(StrEnum):
+    """**What geometry this container offers its children.**
+
+    One of ADR 0002's two questions (the other being `footprint_*`, what this
+    type occupies in *its* parent). It is a statement about slots, not about
+    pixels: `GRID` means there are addressable `(row, col)` positions, which is
+    what `app.services.assignment` needs in order to materialise a free cell for
+    a scan that would otherwise have nowhere to land.
+
+    **Deliberately still exactly three members.** How a level is *drawn* is a
+    third, independent question and lives in `ChildView` — see that docstring for
+    why growing this enum instead would have been a bug rather than a shortcut.
+    `tests/integration/test_child_view.py` pins the membership.
+    """
+
     GRID = "grid"
     LIST = "list"
     NONE = "none"
+
+
+class ChildView(StrEnum):
+    """**How this container's children are drawn** — ADR 0006.
+
+    The third question a container type answers, and the one ADR 0002 did not
+    ask. Its two were about geometry: what grid do I present (`ChildLayout` plus
+    `grid_rows/cols/pitch`), and what footprint do I occupy in my parent
+    (`footprint_*`). Neither says how to *render* a level, and the answer is not
+    a function of either — a Raaco cabinet and a Gridfinity baseplate both
+    present a grid and want completely different pictures, drawer fronts in a
+    vertical face versus square cells seen from above.
+
+    Kept out of `ChildLayout` rather than added to it, for a reason that is
+    mechanical rather than aesthetic: `app.services.assignment` selects
+    containers with `ContainerType.child_layout == ChildLayout.GRID` in order to
+    materialise a free cell. Every drawing kind added to that enum would
+    silently fall out of that predicate, so a cabinet declared
+    `child_layout='cabinet_face'` would stop being a place auto-assignment can
+    put anything — a scan quietly escalating to the INBOX because somebody chose
+    a skin. Two axes cannot go wrong that way: a cabinet still presents a grid
+    whatever it looks like.
+
+    **Adding a member here is one line and nothing else**, because neither
+    `container_types.child_view` nor `locations.child_view` carries a `CHECK`.
+    That is the no-`CHECK` rule paying for itself for the fourth time — after
+    `CapacityModel.GRID_UNITS` (ADR 0002), the scanning enums grown after
+    `scan_events` was populated, and `AllocationState.STAGED` (ADR 0004). A new
+    way to draw a level is a member here plus a branch in the renderer, on two
+    tables that are already holding every container in the building.
+
+    Nothing here is ever encoded in a printed or tag payload: a view kind is a
+    property of a level, and levels move.
+    """
+
+    #: Children are **placed, not slotted** — cabinets standing in a workshop,
+    #: shelving units against a wall. Drawn as a flow of cards, and drawn with no
+    #: empty positions, because a room has no position to be empty. This is the
+    #: view of the outermost level (the world holds furniture), and it is what a
+    #: location with no container type at all resolves to.
+    FLOOR_PLAN = "floor_plan"
+    #: A shelving unit: children stand side by side on levels. Rows are authored
+    #: and columns are not — how many boxes fit on a shelf is a fact about the
+    #: boxes — so each level is one horizontal run rather than a cell in a grid.
+    #: **Never derived**, only authored: nothing in the schema today distinguishes
+    #: a shelf from a cabinet, and inventing the distinction from a row count
+    #: would be a guess presented as a drawing.
+    SHELF_RUN = "shelf_run"
+    #: A cabinet seen from the front: children are drawer fronts, wide and short,
+    #: with the slot label carried like the label card slid into the real drawer.
+    #: Empty positions **are** drawn — "drawer B3 has nothing in it" is a fact
+    #: about the furniture that a list cannot state.
+    CABINET_FACE = "cabinet_face"
+    #: A tray seen from above: children are square cells of a measured grid, the
+    #: Gridfinity baseplate being the reference case. Same grid machinery as
+    #: `CABINET_FACE`, different picture — which is exactly the distinction this
+    #: enum exists to carry, since `child_layout` says `grid` for both.
+    GRID_CELLS = "grid_cells"
+    #: Rows. The honest answer when children have no spatial relationship worth
+    #: drawing — the dividers in a bin, a bag of bags — rather than a fallback for
+    #: when something went wrong.
+    LIST = "list"
+
+
+class ContainerGlyph(StrEnum):
+    """**A small pictogram for this container** — chosen from a fixed set, not a
+    photograph.
+
+    This is the *other* answer to "what does this container look like",
+    deliberately kept apart from the photo a phone takes standing in front of a
+    drawer (`DocumentRole.PHOTO` on a `document_links` row). The two serve
+    different scales: a photograph is one real image, expensive to fetch and
+    decode, and worth showing exactly once — on the screen for *this specific*
+    container. A glyph is a single character, cheap enough to render at every
+    node of a tree where loading ninety-six photographs to draw a 12x8 grid
+    would be absurd. `frontend/src/components/ContainerLayout.tsx`'s dense
+    recursive view therefore draws `effective_glyph` at every cell it lays out,
+    and never a photo; a photo is drawn once, on that one container's own detail
+    screen.
+
+    **Not derived, unlike `ChildView`.** There is no geometric fact that implies
+    "this looks like a bag" the way a 42 mm pitch implies "this is a tray", so
+    the fallback when neither an instance nor its type has chosen one is simply
+    "no glyph" — the caller renders a neutral placeholder, not a guess.
+
+    **Adding a member is one line here and one line in the client's rendering
+    map** (`frontend/src/lib/locations/glyphs.ts`), because — as with every other
+    enum in this file — neither `container_types.glyph` nor `locations.glyph`
+    carries a `CHECK`. A row naming a glyph this build has never heard of is
+    drawn as the same neutral placeholder rather than raising, which is the other
+    half of that promise.
+    """
+
+    BOX = "box"
+    BIN = "bin"
+    DRAWER = "drawer"
+    CABINET = "cabinet"
+    SHELF = "shelf"
+    TRAY = "tray"
+    BAG = "bag"
+    REEL = "reel"
+    ROOM = "room"
+    RACK = "rack"
 
 
 class SlotLabelScheme(StrEnum):

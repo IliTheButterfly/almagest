@@ -419,8 +419,16 @@ function CorrectForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
+  // Pre-filled from the candidate's own reading, so this only goes empty if
+  // it is cleared while correcting it — the same silent-disable shape as an
+  // untouched required field, just reached from the other direction.
+  const rawValueEmpty = rawValue.trim() === "";
+
   async function submit(): Promise<void> {
-    if (rawValue.trim() === "") {
+    if (rawValueEmpty) {
+      // The submit button is disabled for the same reason; this guards a
+      // stray Enter-key submit from going nowhere with no explanation.
+      setError(new Error("Enter the correct value — an empty correction is not saved."));
       return;
     }
     setBusy(true);
@@ -455,6 +463,11 @@ function CorrectForm({
           onChange={(event) => setRawValue(event.target.value)}
         />
       </label>
+      {rawValueEmpty && (
+        <p className="muted-note">
+          Enter a value — that is why "Save correction" below is disabled.
+        </p>
+      )}
       <label className="field">
         <span>Why (optional, goes on the record)</span>
         <input
@@ -464,7 +477,7 @@ function CorrectForm({
         />
       </label>
       <ErrorBanner error={error} fallback="That correction was not saved." />
-      <button type="submit" className="primary wide" disabled={busy || rawValue.trim() === ""}>
+      <button type="submit" className="primary wide" disabled={busy || rawValueEmpty}>
         {busy ? "Saving…" : "Save correction"}
       </button>
     </form>

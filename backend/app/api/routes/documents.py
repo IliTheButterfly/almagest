@@ -55,7 +55,8 @@ from app.db.session import get_db
 from app.models.catalog import Part
 from app.models.documents import SHA256_LENGTH, Document, DocumentLink
 from app.models.enums import DocumentKind, DocumentRole, EntityType
-from app.services import blobstore, documents
+from app.models.storage import ContainerType, Location
+from app.services import blobstore, documents, layout_authoring
 from app.services.blobstore import BlobError
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -65,6 +66,21 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 #: walk's location routes do: everything they return belongs to the document
 #: store, not to the part.
 parts_router = APIRouter(prefix="/api/parts", tags=["documents"])
+
+#: Same shape, for a container type's own photo — "what does every instance of
+#: this type look like" (`DocumentRole.PHOTO`). Kept here rather than in
+#: `app.api.routes.container_types` for the identical reason `parts_router` is
+#: kept here rather than in `app.api.routes.parts`: everything these routes
+#: return belongs to the document store.
+container_types_router = APIRouter(prefix="/api/container-types", tags=["documents"])
+
+#: And for one physical container's own photo, overriding its type's — see
+#: `app.services.documents.primary_link` for how "override" falls out of the
+#: polymorphic link rather than a new column: a location with its own PHOTO
+#: link wins, and one with none falls back to whatever its type carries, which
+#: `app.api.routes.locations._read` resolves by trying this router's own
+#: `primary_photo` twice.
+locations_router = APIRouter(prefix="/api/locations", tags=["documents"])
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +117,29 @@ def _require_part(db: Session, part_id: RowId) -> Part:
             detail={"reason": "unknown_part", "message": f"no part with id {part_id}"},
         )
     return part
+
+
+def _require_container_type(db: Session, container_type_id: RowId) -> ContainerType:
+    container_type = db.get(ContainerType, container_type_id)
+    if container_type is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={
+                "reason": "unknown_container_type",
+                "message": f"no container type with id {container_type_id}",
+            },
+        )
+    return container_type
+
+
+def _require_location(db: Session, location_id: RowId) -> Location:
+    location = db.get(Location, location_id)
+    if location is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={"reason": "unknown_location", "message": f"no location with id {location_id}"},
+        )
+    return location
 
 
 def _require_document(db: Session, sha256: str) -> Document:
@@ -166,6 +205,19 @@ class DocumentUploadResult(BaseModel):
     #: Set when `part_id` was given, so uploading a datasheet and attaching it to
     #: the part is one request.
     link: DocumentLinkRead | None = None
+    #: The container type the link actually landed on — set only when
+    #: `container_type_id` was given, and **not always the id that was asked
+    #: for**. A seed type is read-only, so attaching a photo to one clones it and
+    #: attaches to the copy (`layout_authoring.ensure_editable`), exactly as
+    #: `PATCH /api/container-types/{id}` does. A client that navigated to the
+    #: requested id has to follow this, or its next save clones the seed again.
+    container_type_id: int | None = None
+    #: True when the id above is a fresh clone rather than the one requested.
+    #: Reported separately from the id itself for the same reason
+    #: `ContainerTypeEdited.cloned` is: a client that never held the original id
+    #: still needs to know that a copy was made, because that is what it has to
+    #: tell the person who thought they were editing the type they opened.
+    cloned_container_type: bool = False
 
 
 class DocumentAttachRequest(BaseModel):
@@ -205,12 +257,53 @@ class DocumentLinkList(BaseModel):
     links: list[DocumentLinkRead]
 
 
+class ContainerTypeDocumentAttached(BaseModel):
+    """`DocumentAttachResult` plus *which type it landed on*.
+
+    Its own model rather than the shared one because a container type is the only
+    attachment target that can be read-only: a seed is cloned on write
+    (`layout_authoring.ensure_editable`), so the answer to "where is this photo
+    now" is not the id in the path. Parts and locations cannot do that, and
+    widening `DocumentAttachResult` with a field that is always null for two of
+    its three callers would document a possibility that does not exist for them.
+    """
+
+    #: The type the link is attached to, which differs from the requested id when
+    #: that id named a seed.
+    container_type_id: int
+    #: True when `container_type_id` is a fresh clone of the requested seed.
+    cloned: bool
+    link: DocumentLinkRead
+    #: False when the link already existed, in which case the request may still
+    #: have promoted it to primary.
+    created: bool
+
+
+class ContainerTypeDocumentLinkList(BaseModel):
+    """Same shape as `DocumentLinkList`, one field renamed. Kept as its own model
+    rather than a shared one with a generic `entity_pk` — the field name is part
+    of what a hand-written client reads, and `part_id`/`container_type_id`/
+    `location_id` say what is actually being listed without a lookup table."""
+
+    container_type_id: int
+    links: list[DocumentLinkRead]
+
+
+class LocationDocumentLinkList(BaseModel):
+    location_id: int
+    links: list[DocumentLinkRead]
+
+
 # ---------------------------------------------------------------------------
 # Mapping
 # ---------------------------------------------------------------------------
 
 
-def _document_read(document: Document) -> DocumentRead:
+def document_read(document: Document) -> DocumentRead:
+    """Public — mapped here once and imported by
+    `app.api.routes.container_types` and `app.api.routes.locations`, so a
+    container's `photo`/`effective_photo` field is built from the same mapping
+    a part's document list is, rather than a second copy of it."""
     return DocumentRead(
         id=document.id,
         sha256=document.sha256,
@@ -243,12 +336,31 @@ def _link_read(link: DocumentLink, document: Document) -> DocumentLinkRead:
         role=link.role,
         is_primary=link.is_primary,
         created_at=link.created_at,
-        document=_document_read(document),
+        document=document_read(document),
     )
 
 
 def document_url(sha256: str) -> str:
     return f"{router.prefix}/{sha256}"
+
+
+def primary_photo(db: Session, *, entity_type: EntityType, entity_pk: int) -> DocumentRead | None:
+    """The photo an entity's `PHOTO`-role link resolves to, or `None`.
+
+    Shared by `app.api.routes.container_types` and `app.api.routes.locations`:
+    both build a `photo` field the exact same way — the one link a role resolves
+    to (`app.services.documents.primary_link`), mapped through `document_read`
+    — and a location's `effective_photo` is simply this called twice, once for
+    the location and, only if that came back empty, once for its container
+    type. Kept here rather than duplicated in each of those modules so "how a
+    photo link becomes a `DocumentRead`" has one implementation.
+    """
+    link = documents.primary_link(
+        db, entity_type=entity_type, entity_pk=entity_pk, role=DocumentRole.PHOTO
+    )
+    if link is None:
+        return None
+    return document_read(_document_of(db, link))
 
 
 #: Everything outside this is replaced in a `Content-Disposition` filename.
@@ -343,6 +455,24 @@ def upload_document(
         RowId | None,
         Query(description="Attach to this part in the same request."),
     ] = None,
+    container_type_id: Annotated[
+        RowId | None,
+        Query(
+            description=(
+                "Attach to this container type in the same request — the phone-in-"
+                "hand path for setting a type's default photo (`role=photo`)."
+            )
+        ),
+    ] = None,
+    location_id: Annotated[
+        RowId | None,
+        Query(
+            description=(
+                "Attach to this one location in the same request, overriding its "
+                "container type's photo (`role=photo`)."
+            )
+        ),
+    ] = None,
     role: DocumentRole = DocumentRole.DATASHEET,
     is_primary: bool = True,
 ) -> DocumentUploadResult:
@@ -353,8 +483,39 @@ def upload_document(
     `created`, and encoding it in the status code instead would mean one of the two
     outcomes going undeclared in the OpenAPI document that every client is
     generated from.
+
+    **At most one of `part_id`, `container_type_id`, `location_id`.** Each names a
+    different `entity_type` in the same polymorphic `document_links` table, and a
+    single upload is one file attached in one role to one thing — sending two
+    would silently pick one, which is worse than refusing the ambiguous request.
     """
-    part = _require_part(db, part_id) if part_id is not None else None
+    targets = [
+        (part_id, EntityType.PART),
+        (container_type_id, EntityType.CONTAINER_TYPE),
+        (location_id, EntityType.LOCATION),
+    ]
+    given = [(pk, entity_type) for pk, entity_type in targets if pk is not None]
+    if len(given) > 1:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "reason": "ambiguous_attachment",
+                "message": ("at most one of part_id, container_type_id, location_id may be given"),
+            },
+        )
+    attach_to: tuple[int, EntityType] | None = None
+    #: Held rather than discarded, because a container type is the one target that
+    #: might be read-only — see the `ensure_editable` call below.
+    target_type: ContainerType | None = None
+    if given:
+        pk, entity_type = given[0]
+        if entity_type is EntityType.PART:
+            _require_part(db, pk)
+        elif entity_type is EntityType.CONTAINER_TYPE:
+            target_type = _require_container_type(db, pk)
+        else:
+            _require_location(db, pk)
+        attach_to = (pk, entity_type)
 
     try:
         stored = documents.store_document(
@@ -370,22 +531,37 @@ def upload_document(
         raise _blob_error(error) from error
 
     link_read: DocumentLinkRead | None = None
-    if part is not None:
+    attached_type_id: int | None = None
+    cloned_type = False
+    if attach_to is not None:
+        entity_pk, entity_type = attach_to
+        if target_type is not None:
+            # The same guard `PATCH /api/container-types/{id}` and
+            # `PUT .../slot-template` already go through: a seed type is read-only,
+            # so attaching to one clones it and dresses the copy. Skipping this
+            # would make "every instance of this type looks like this" a statement
+            # about a row every fresh install starts with — the only way left to
+            # edit a seed in place.
+            editable, cloned_type = layout_authoring.ensure_editable(db, target_type)
+            entity_pk = editable.id
+            attached_type_id = editable.id
         link, _ = documents.attach(
             db,
             document=stored.document,
-            entity_type=EntityType.PART,
-            entity_pk=part.id,
+            entity_type=entity_type,
+            entity_pk=entity_pk,
             role=role,
             is_primary=is_primary,
         )
         link_read = _link_read(link, stored.document)
 
     result = DocumentUploadResult(
-        document=_document_read(stored.document),
+        document=document_read(stored.document),
         created=stored.created,
         deduplicated=stored.deduplicated,
         link=link_read,
+        container_type_id=attached_type_id,
+        cloned_container_type=cloned_type,
     )
     db.commit()
     return result
@@ -512,6 +688,175 @@ def detach_part_document(
             detail={
                 "reason": "unknown_link",
                 "message": f"document {document.sha256} is not attached to part {part.id}",
+            },
+        )
+    result = DocumentDetachResult(
+        detached=detachment.removed,
+        promoted=[_link_read(link, _document_of(db, link)) for link in detachment.promoted],
+    )
+    db.commit()
+    return result
+
+
+# ---------------------------------------------------------------------------
+# The same three, for a container type's own photo (or any other document a
+# type wants to carry — the routes are as general as `parts_router`'s, the
+# feature request is specifically about `role=photo`).
+# ---------------------------------------------------------------------------
+
+
+@container_types_router.get(
+    "/{container_type_id}/documents", response_model=ContainerTypeDocumentLinkList
+)
+def read_container_type_documents(
+    container_type_id: RowId, db: Session = Depends(get_db)
+) -> ContainerTypeDocumentLinkList:
+    container_type = _require_container_type(db, container_type_id)
+    return ContainerTypeDocumentLinkList(
+        container_type_id=container_type.id,
+        links=[
+            _link_read(link, document)
+            for link, document in documents.links_for(
+                db, entity_type=EntityType.CONTAINER_TYPE, entity_pk=container_type.id
+            )
+        ],
+    )
+
+
+@container_types_router.post(
+    "/{container_type_id}/documents", response_model=ContainerTypeDocumentAttached
+)
+def attach_container_type_document(
+    container_type_id: RowId, request: DocumentAttachRequest, db: Session = Depends(get_db)
+) -> ContainerTypeDocumentAttached:
+    """Attach an already-stored document to a container type, or promote its
+    existing link — "every instance of this type looks like this" for
+    `role=photo`.
+
+    **A seed clones first**, as every other write to a container type does
+    (`layout_authoring.ensure_editable`), and the response says so: the id a
+    client should be looking at afterwards is `container_type_id`, not the one it
+    put in the path.
+    """
+    original = _require_container_type(db, container_type_id)
+    document = _require_document(db, request.sha256)
+    container_type, cloned = layout_authoring.ensure_editable(db, original)
+    link, created = documents.attach(
+        db,
+        document=document,
+        entity_type=EntityType.CONTAINER_TYPE,
+        entity_pk=container_type.id,
+        role=request.role,
+        is_primary=request.is_primary,
+    )
+    result = ContainerTypeDocumentAttached(
+        container_type_id=container_type.id,
+        cloned=cloned,
+        link=_link_read(link, document),
+        created=created,
+    )
+    db.commit()
+    return result
+
+
+@container_types_router.delete(
+    "/{container_type_id}/documents/{sha256}", response_model=DocumentDetachResult
+)
+def detach_container_type_document(
+    container_type_id: RowId, sha256: str, db: Session = Depends(get_db)
+) -> DocumentDetachResult:
+    """**No `ensure_editable` here, deliberately.** This route only ever deletes
+    `document_links` rows whose `entity_pk` is this type's id, and with both attach
+    doors above cloning, a seed can never hold one — so the only answer it can
+    give for a seed is the 404 below. Cloning a seed in order to delete something
+    from the copy that the copy never had would mint a type per click.
+
+    `tests/integration/test_container_authoring_findings.py::
+    test_a_seed_can_therefore_never_reach_the_detach_route_with_a_photo` pins that
+    reasoning, so adding a third writer of `CONTAINER_TYPE` links without the
+    guard turns it red — which is the point at which this route would need one too.
+    """
+    container_type = _require_container_type(db, container_type_id)
+    document = _require_document(db, sha256)
+    detachment = documents.detach(
+        db, document=document, entity_type=EntityType.CONTAINER_TYPE, entity_pk=container_type.id
+    )
+    if detachment.removed == 0:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={
+                "reason": "unknown_link",
+                "message": (
+                    f"document {document.sha256} is not attached to container type "
+                    f"{container_type.id}"
+                ),
+            },
+        )
+    result = DocumentDetachResult(
+        detached=detachment.removed,
+        promoted=[_link_read(link, _document_of(db, link)) for link in detachment.promoted],
+    )
+    db.commit()
+    return result
+
+
+# ---------------------------------------------------------------------------
+# The same three, for one physical container's own photo — overriding its
+# container type's, exactly as `locations.child_view` overrides
+# `container_types.child_view`.
+# ---------------------------------------------------------------------------
+
+
+@locations_router.get("/{location_id}/documents", response_model=LocationDocumentLinkList)
+def read_location_documents(
+    location_id: RowId, db: Session = Depends(get_db)
+) -> LocationDocumentLinkList:
+    location = _require_location(db, location_id)
+    return LocationDocumentLinkList(
+        location_id=location.id,
+        links=[
+            _link_read(link, document)
+            for link, document in documents.links_for(
+                db, entity_type=EntityType.LOCATION, entity_pk=location.id
+            )
+        ],
+    )
+
+
+@locations_router.post("/{location_id}/documents", response_model=DocumentAttachResult)
+def attach_location_document(
+    location_id: RowId, request: DocumentAttachRequest, db: Session = Depends(get_db)
+) -> DocumentAttachResult:
+    location = _require_location(db, location_id)
+    document = _require_document(db, request.sha256)
+    link, created = documents.attach(
+        db,
+        document=document,
+        entity_type=EntityType.LOCATION,
+        entity_pk=location.id,
+        role=request.role,
+        is_primary=request.is_primary,
+    )
+    result = DocumentAttachResult(link=_link_read(link, document), created=created)
+    db.commit()
+    return result
+
+
+@locations_router.delete("/{location_id}/documents/{sha256}", response_model=DocumentDetachResult)
+def detach_location_document(
+    location_id: RowId, sha256: str, db: Session = Depends(get_db)
+) -> DocumentDetachResult:
+    location = _require_location(db, location_id)
+    document = _require_document(db, sha256)
+    detachment = documents.detach(
+        db, document=document, entity_type=EntityType.LOCATION, entity_pk=location.id
+    )
+    if detachment.removed == 0:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={
+                "reason": "unknown_link",
+                "message": f"document {document.sha256} is not attached to location {location.id}",
             },
         )
     result = DocumentDetachResult(

@@ -625,7 +625,7 @@ describe("recording a part that was really used", () => {
     expect(calls.some((call) => call.url === "/api/builds/5/record-used")).toBe(false);
   });
 
-  it("refuses to submit without a lot and a quantity", async () => {
+  it("refuses to submit without a lot and a quantity, and says why rather than doing nothing", async () => {
     stubApi();
     renderScreen();
     await openTab("Roster");
@@ -633,5 +633,12 @@ describe("recording a part that was really used", () => {
     fireEvent.click(first(await screen.findAllByRole("button", { name: "Record what was used" })));
     const submit = await screen.findByRole("button", { name: "Record as used" });
     expect(submit.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/Enter the lot it came from and a quantity above zero/)).toBeTruthy();
+
+    // Filling in only the lot narrows the reason down to the quantity.
+    fireEvent.change(await screen.findByPlaceholderText("lot id"), { target: { value: "900" } });
+    expect(screen.getByText(/Enter a quantity above zero\./)).toBeTruthy();
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    expect(calls.some((call) => call.url === "/api/builds/5/record-used")).toBe(false);
   });
 });

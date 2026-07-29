@@ -46,6 +46,15 @@ def test_enum_columns_are_plain_varchar(db: Session) -> None:
         ("stock_lots", "status"),
         ("container_types", "capacity_model"),
         ("container_types", "child_layout"),
+        # ADR 0006's third axis, on both halves of the type-default/instance-
+        # override pair. A new way to draw a level has to stay a one-line change
+        # on two tables holding every container in the building.
+        ("container_types", "child_view"),
+        ("locations", "child_view"),
+        # The pictogram half of "containers get a picture" (ADR 0007) — two
+        # rungs, no derivation, but the same one-line-change promise.
+        ("container_types", "glyph"),
+        ("locations", "glyph"),
         ("object_ids", "entity_type"),
         ("parameter_template", "value_type"),
         ("parameter_template", "substitution_direction"),

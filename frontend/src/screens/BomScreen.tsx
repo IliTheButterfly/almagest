@@ -339,8 +339,17 @@ function AddBomLine({ projectId, onAdded }: { projectId: number; onAdded: () => 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
+  // The server refuses a non-positive quantity outright (422,
+  // `non_positive_quantity`), and it is right to — a zero-quantity line
+  // records nothing. Computed once so the disabled button and the inline
+  // hint below always agree on why.
+  const qtyInvalid = qtyMilli <= 0;
+
   async function submit(): Promise<void> {
-    if (qtyMilli <= 0) {
+    if (qtyInvalid) {
+      // Belt and suspenders: the submit button is disabled for the same
+      // reason, but a stray Enter-key submit must not vanish silently either.
+      setError(new Error("Enter a quantity above zero — a zero-quantity line records nothing."));
       return;
     }
     setBusy(true);
@@ -396,6 +405,11 @@ function AddBomLine({ projectId, onAdded }: { projectId: number; onAdded: () => 
           }
         />
       </label>
+      {qtyInvalid && (
+        <p className="muted-note">
+          Quantity must be greater than zero — that is why "Add line" below is disabled.
+        </p>
+      )}
       <div className="row">
         <span style={{ flex: 1 }}>
           {partId === null ? (
@@ -433,7 +447,7 @@ function AddBomLine({ projectId, onAdded }: { projectId: number; onAdded: () => 
         />
       )}
       <ErrorBanner error={error} fallback="That line could not be added." />
-      <button type="submit" className="primary wide" disabled={busy || qtyMilli <= 0}>
+      <button type="submit" className="primary wide" disabled={busy || qtyInvalid}>
         {busy ? "Adding…" : "Add line"}
       </button>
     </form>
@@ -597,6 +611,10 @@ function EditBomLineFields({
   const [designators, setDesignators] = useState(line.designators ?? "");
   const [refValue, setRefValue] = useState(line.ref_value ?? "");
   const [qtyMilli, setQtyMilli] = useState(line.qty_per_assembly_milli);
+  // Pre-filled from an existing line, so this can only go invalid if the
+  // field is cleared while editing — silently disabling "Save" then would be
+  // exactly as confusing as the same field was on the add form.
+  const qtyInvalid = qtyMilli <= 0;
 
   return (
     <div className="card" style={{ marginTop: "0.4rem" }}>
@@ -619,10 +637,15 @@ function EditBomLineFields({
           }
         />
       </label>
+      {qtyInvalid && (
+        <p className="muted-note">
+          Quantity must be greater than zero — that is why "Save" below is disabled.
+        </p>
+      )}
       <button
         type="button"
         className="primary wide"
-        disabled={busy || qtyMilli <= 0}
+        disabled={busy || qtyInvalid}
         onClick={() =>
           onSave({
             designators: designators.trim() === "" ? null : designators.trim(),

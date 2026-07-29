@@ -24,6 +24,8 @@ import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
 import { LocationLayoutScreen } from "./screens/LocationLayoutScreen";
 import { LocationScreen } from "./screens/LocationScreen";
 import { LotScreen } from "./screens/LotScreen";
+import { NewContainersScreen } from "./screens/NewContainersScreen";
+import { NewContainerTypeScreen } from "./screens/NewContainerTypeScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
 import { PartScreen } from "./screens/PartScreen";
 import { ProjectScreen } from "./screens/ProjectScreen";
@@ -62,7 +64,12 @@ export function App() {
         <NavLink to="/search">Search</NavLink>
         <NavLink to="/datasheets">Datasheets</NavLink>
         <NavLink to="/tree">Storage</NavLink>
-        <NavLink to="/container-types">Types</NavLink>
+        {/* "Types" was jargon: the tab that lets you make your own cabinets and
+            drawers read as a settings page, and was reported twice as "I still
+            can't create my own containers". "Containers" is what the screen is
+            for; the URL stays `/container-types`, which nothing physical points
+            at. */}
+        <NavLink to="/container-types">Containers</NavLink>
         <NavLink to="/projects">Projects</NavLink>
         <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
@@ -87,10 +94,18 @@ export function App() {
           <Route path="/lots/:lotId" element={<LotScreen />} />
           <Route path="/provision" element={<ProvisionScreen />} />
           {/* Layout authoring — reached from the tab and from a container's own
-              screen, never from a scanned tag. */}
+              screen, never from a scanned tag. `/container-types/new` is listed
+              before the parameterised route for readability only: React Router
+              ranks a static segment above a dynamic one whatever the order. */}
           <Route path="/container-types" element={<ContainerTypesScreen />} />
+          <Route path="/container-types/new" element={<NewContainerTypeScreen />} />
           <Route path="/container-types/:containerTypeId" element={<ContainerTypeScreen />} />
           <Route path="/locations/:locationId/layout" element={<LocationLayoutScreen />} />
+          {/* Creating real containers out of a type. Deliberately **not** under
+              `/locations/...`: every path in that space is a `/s/{short_id}`
+              redirect target, and this one is reached from the tree, from a
+              container's own screen and from a type — never from a tag. */}
+          <Route path="/containers/new" element={<NewContainersScreen />} />
           {/* Projects, BOMs and builds — not a scan target; reached from the tab. */}
           <Route path="/projects" element={<ProjectsScreen />} />
           <Route path="/projects/:projectId" element={<ProjectScreen />} />
