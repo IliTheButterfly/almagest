@@ -8,11 +8,11 @@
  * /api/locations/{id}/layout` is being built on another branch and will hand
  * over the authored geometry directly.
  *
- * So everything here reads the label and nothing else, and it is deliberately
- * isolated in one module with one entry point (`inferLayout`) for exactly that
- * reason: when the layout endpoint lands, the call site swaps the inferred
- * `Layout` for a fetched one and no component changes. The renderer already
- * treats a `Layout` as data.
+ * So everything here reads the label — with one authored exception, the declared
+ * canvas (`SlotCanvas`) — and it is deliberately isolated in one module with one
+ * entry point (`inferLayout`) for exactly that reason: when the layout endpoint
+ * lands, the call site swaps the inferred `Layout` for a fetched one and no
+ * component changes. The renderer already treats a `Layout` as data.
  *
  * The default scheme is `row_alpha_col_num`, and the backend's own generator
  * (`services/assignment._next_grid_slot`) emits `f"{chr(ord('A') + row)}{col + 1}"`
@@ -30,6 +30,22 @@
 export interface SlotPosition {
   readonly row: number;
   readonly col: number;
+}
+
+/**
+ * The canvas a container declares for its children — `LocationNode`'s
+ * `child_grid_rows`/`child_grid_cols`, straight off its container type.
+ *
+ * **Authored, not inferred.** It is the only geometry in this module that was not
+ * read out of label text, and it is here because a *sequential* label ("01" ...
+ * "30", the seeded Raaco cabinets) carries an order and no column at all — so a
+ * level the server derived as `cabinet_face` from exactly these two numbers could
+ * not be drawn as one without them. Null stays null: no canvas means the drawing
+ * is refused, never that a column count is guessed.
+ */
+export interface SlotCanvas {
+  readonly rows: number;
+  readonly cols: number;
 }
 
 export type LayoutKind =
@@ -140,6 +156,100 @@ function plausible(rows: number, cols: number, placed: number): boolean {
   return rows * cols <= Math.max(64, placed * 6);
 }
 
+interface SequenceEntry<T> {
+  readonly node: T;
+  /** What the label actually reads — `01`, not the index it decodes to. */
+  readonly label: string;
+  readonly index: number;
+}
+
+/**
+ * A plain-numbered run with nothing to place it on: an order, drawn as one.
+ *
+ * The label printed is the one the container actually carries, **not** the index
+ * re-rendered. A drawer whose card reads `01` was previously drawn as `1`, and
+ * the whole reason positions are never guessed in this module is that the screen
+ * has to match the furniture — a relabelled drawer is the same failure one step
+ * smaller.
+ */
+function sequenceOrder<T>(ordered: readonly SequenceEntry<T>[]): Layout<T> {
+  return {
+    kind: "sequence",
+    rows: 0,
+    cols: 0,
+    cells: ordered.map((entry) => ({
+      row: entry.index,
+      col: 0,
+      slotLabel: entry.label,
+      node: entry.node,
+      inferredLabel: false,
+    })),
+    unplaced: [],
+    reason: null,
+  };
+}
+
+/**
+ * The same run laid onto the canvas its container declares — or `null` when it
+ * declares none, and the caller keeps the plain order.
+ *
+ * `index → (index / cols, index % cols)` is not a guess: it is exactly the
+ * row-major enumeration the backend's own generator used to *mint* these labels
+ * (`app.services.layout_authoring.generate_label`, whose sequential branch is
+ * `row_idx * cols + col_idx + 1`), so a 30x1 cabinet's drawer `07` lands on row 6
+ * because that is where the label came from.
+ *
+ * Refused, so that the caller falls back rather than drawing something wrong, when:
+ *
+ * * the canvas has no usable column count — nothing to divide by;
+ * * two labels decode to the same index (`1` and `01` both mean the first
+ *   drawer), which makes the reading ambiguous exactly as a `collision` does for
+ *   the row/column scheme;
+ * * the implied grid is not plausible against the number of children, the same
+ *   guard the row/column path applies to a stray `Z9`.
+ *
+ * Rows are bounded by the highest label present, never by the declared row count:
+ * an empty position is only drawn where a label implies one. A cabinet whose type
+ * says 30 drawers but which has had only 4 built is four rows, not four rows and
+ * twenty-six inventions.
+ */
+function sequenceOnCanvas<T>(
+  ordered: readonly SequenceEntry<T>[],
+  canvas: SlotCanvas | null,
+): Layout<T> | null {
+  if (canvas === null || canvas.cols < 1 || ordered.length === 0) {
+    return null;
+  }
+  const cols = canvas.cols;
+  const byIndex = new Map<number, SequenceEntry<T>>();
+  for (const entry of ordered) {
+    if (byIndex.has(entry.index)) {
+      return null;
+    }
+    byIndex.set(entry.index, entry);
+  }
+
+  const highest = ordered[ordered.length - 1]?.index ?? 0;
+  const rows = Math.ceil((highest + 1) / cols);
+  if (!plausible(rows, cols, ordered.length)) {
+    return null;
+  }
+
+  const cells: LaidOutCell<T>[] = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const index = row * cols + col;
+      const entry = byIndex.get(index);
+      cells.push(
+        entry === undefined
+          ? { row, col, slotLabel: String(index + 1), node: null, inferredLabel: true }
+          : { row, col, slotLabel: entry.label, node: entry.node, inferredLabel: false },
+      );
+    }
+  }
+  return { kind: "grid", rows, cols, cells, unplaced: [], reason: null };
+}
+
 function flow<T>(children: readonly T[], reason: FallbackReason): Layout<T> {
   return {
     kind: "flow",
@@ -169,6 +279,7 @@ function flow<T>(children: readonly T[], reason: FallbackReason): Layout<T> {
 export function inferLayout<T>(
   children: readonly T[],
   slotLabelOf: (child: T) => string | null,
+  canvas: SlotCanvas | null = null,
 ): Layout<T> {
   if (children.length === 0) {
     return { kind: "flow", rows: 0, cols: 0, cells: [], unplaced: [], reason: "unlabelled" };
@@ -209,25 +320,19 @@ export function inferLayout<T>(
     // Every label present, none of them a grid position. A run of plain numbers
     // is an order without a geometry; anything else is not understood at all.
     const sequence = children
-      .map((node, index) => ({ node, index: parseSequenceLabel(labels[index] ?? null) }))
-      .filter((entry): entry is { node: T; index: number } => entry.index !== null);
+      .map((node, index) => ({
+        node,
+        label: labels[index] ?? "",
+        index: parseSequenceLabel(labels[index] ?? null),
+      }))
+      .filter((entry): entry is SequenceEntry<T> => entry.index !== null);
 
     if (sequence.length === children.length) {
       const ordered = [...sequence].sort((a, b) => a.index - b.index);
-      return {
-        kind: "sequence",
-        rows: 0,
-        cols: 0,
-        cells: ordered.map((entry) => ({
-          row: entry.index,
-          col: 0,
-          slotLabel: String(entry.index + 1),
-          node: entry.node,
-          inferredLabel: false,
-        })),
-        unplaced: [],
-        reason: null,
-      };
+      // An order alone is not a geometry — but an order *plus a declared canvas*
+      // is, and that is the one case where the positions come from outside this
+      // module rather than out of the label text.
+      return sequenceOnCanvas(ordered, canvas) ?? sequenceOrder(ordered);
     }
     return flow(children, "unparsed");
   }

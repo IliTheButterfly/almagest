@@ -22,6 +22,10 @@ const LOCATION = {
   label_path: "Workshop / Cabinet A / Drawer bank",
   container_type_id: 7,
   child_count: 2,
+  // ADR 0006: nothing pinned here, so this instance draws whatever its type
+  // draws — which the API has already resolved into `effective_child_view`.
+  child_view: null,
+  effective_child_view: "cabinet_face",
 };
 
 function slotState(overrides: Record<string, unknown>): Record<string, unknown> {
@@ -105,7 +109,22 @@ function stubApi(options: {
         return json(layoutRead());
       }
       if (url.pathname === "/api/container-types/7" && request.method === "GET") {
-        return json({ id: 7, display_name: "Raaco 15-drawer", is_seed: false });
+        return json({
+          id: 7,
+          display_name: "Raaco 15-drawer",
+          is_seed: false,
+          child_view: null,
+          effective_child_view: "cabinet_face",
+        });
+      }
+      if (url.pathname === "/api/locations/11/child-view" && request.method === "PUT") {
+        const chosen = body["child_view"];
+        return json({
+          location_id: 11,
+          child_view: chosen,
+          effective_child_view: chosen ?? "cabinet_face",
+          replayed: false,
+        });
       }
       if (url.pathname === "/api/container-types/7/slot-template" && request.method === "GET") {
         return json(
@@ -279,5 +298,70 @@ describe("loading a type's current layout into the draft", () => {
     renderScreen();
     await screen.findByText("A1", { selector: ".cell-slot" });
     expect(screen.queryByRole("button", { name: /Load the type's current layout/ })).toBeNull();
+  });
+});
+
+/**
+ * ADR 0006's instance half: the type says how every container of its kind draws,
+ * and one particular container can disagree.
+ */
+describe("how this one container is drawn", () => {
+  it("starts on the type's answer and says nobody has overridden it", async () => {
+    stubApi();
+    renderScreen();
+
+    const picker = (await screen.findByLabelText("Picture")) as HTMLSelectElement;
+    expect(picker.value).toBe("");
+    expect(screen.getByText(/Not overridden here/)).toBeTruthy();
+    expect(screen.getByText(/currently drawn as: cabinet face/i)).toBeTruthy();
+  });
+
+  it("pins one, and reports back what it is now drawn as", async () => {
+    stubApi();
+    renderScreen();
+    fireEvent.change(await screen.findByLabelText("Picture"), {
+      target: { value: "grid_cells" },
+    });
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.url === "/api/locations/11/child-view")).toBe(true),
+    );
+    const put = calls.find((call) => call.url === "/api/locations/11/child-view");
+    expect(put?.method).toBe("PUT");
+    expect(put?.body["child_view"]).toBe("grid_cells");
+    expect(await screen.findByText(/Overridden for this container only/)).toBeTruthy();
+    expect(screen.getByText(/currently drawn as: grid/i)).toBeTruthy();
+  });
+
+  it("never touches the layout — a picture cannot swallow a neighbour's stock", async () => {
+    // Which is why this saves on its own rather than behind the Save button that
+    // the change guard protects: routing it through there would imply a risk it
+    // does not carry.
+    stubApi();
+    renderScreen();
+    fireEvent.change(await screen.findByLabelText("Picture"), { target: { value: "list" } });
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.url === "/api/locations/11/child-view")).toBe(true),
+    );
+    expect(calls.some((call) => call.url.includes("reapply-layout"))).toBe(false);
+  });
+
+  it("sends an explicit null to hand the drawing back to the type", async () => {
+    stubApi();
+    renderScreen();
+    const picker = await screen.findByLabelText("Picture");
+    fireEvent.change(picker, { target: { value: "list" } });
+    await waitFor(() => expect(screen.getByText(/Overridden for this container only/)).toBeTruthy());
+
+    fireEvent.change(picker, { target: { value: "" } });
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url === "/api/locations/11/child-view"),
+      ).toHaveLength(2),
+    );
+    const last = calls.filter((call) => call.url === "/api/locations/11/child-view").at(-1);
+    expect(last?.body).toHaveProperty("child_view", null);
+    expect(await screen.findByText(/Not overridden here/)).toBeTruthy();
   });
 });

@@ -34,11 +34,20 @@ from sqlalchemy.orm import Session
 
 from app.api import idempotency
 from app.api.limits import GridSpan, RowId
+from app.api.routes.documents import DocumentRead, primary_photo
 from app.api.schemas import ReplayableResponse, SlotSpecIn, SlotSpecOut
 from app.db.session import get_db
-from app.models.enums import CapacityModel, ChildLayout, SlotLabelScheme
+from app.models.enums import (
+    CapacityModel,
+    ChildLayout,
+    ChildView,
+    ContainerGlyph,
+    EntityType,
+    SlotLabelScheme,
+)
 from app.models.storage import ContainerType
 from app.services import layout_authoring as layout
+from app.services import views
 from app.services.layout_authoring import LayoutError, SlotSpec
 
 router = APIRouter(prefix="/api/container-types", tags=["container-types"])
@@ -73,6 +82,28 @@ class ContainerTypeWrite(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     child_layout: ChildLayout | None = None
+    child_view: ChildView | None = Field(
+        default=None,
+        description=(
+            "How every instance of this type draws its children (ADR 0006). Send it "
+            "explicitly as null to go back to being derived from this type's declared "
+            "geometry, which is what an unset value means — not 'unknown'. Independent "
+            "of `child_layout`: that says whether there are addressable slots, this "
+            "says what the picture looks like, and a cabinet and a Gridfinity "
+            "baseplate answer the first identically and the second differently."
+        ),
+    )
+    glyph: ContainerGlyph | None = Field(
+        default=None,
+        description=(
+            "The pictogram every instance of this type draws in the dense tree "
+            "view (see `ContainerGlyph`). Send it explicitly as null to clear a "
+            "pin, which is what an unset value means here too — there is no "
+            "derivation to fall back to, unlike `child_view`, so both this and an "
+            "instance's own override being unset is 'no glyph', a real state a "
+            "renderer draws as a neutral placeholder."
+        ),
+    )
     grid_rows: GridSpan | None = None
     grid_cols: GridSpan | None = None
     grid_pitch_mm: float | None = Field(default=None, gt=0)
@@ -118,6 +149,23 @@ class ContainerTypeRead(BaseModel):
     display_name: str
     description: str | None
     child_layout: str
+    #: The authored answer, or null for "derived". Both are reported, exactly as
+    #: `LocationRead` reports `esd_safe` beside `effective_esd_safe`: an editor
+    #: has to be able to tell "pinned to a cabinet face" from "happens to derive
+    #: to one", because clearing the field is only meaningful in the first case.
+    child_view: str | None
+    #: What this type actually draws with, after the derivation. Never null.
+    effective_child_view: str
+    #: The pictogram (see `ContainerGlyph`), or null for "no glyph chosen" — a
+    #: real, renderable state and not "unknown", since there is no geometry to
+    #: derive one from. This *is* the type's own answer; unlike a `location`
+    #: there is no further rung above it to fall back to.
+    glyph: str | None
+    #: What every instance of this type actually looks like — its own primary
+    #: `role=photo` document, or null when none has been attached. A location's
+    #: own photo can still override this per instance; see `LocationRead.photo`
+    #: / `effective_photo`.
+    photo: DocumentRead | None
     grid_rows: int | None
     grid_cols: int | None
     grid_pitch_mm: float | None
@@ -212,13 +260,17 @@ def _require_type(db: Session, container_type_id: RowId) -> ContainerType:
     return container_type
 
 
-def _read(container_type: ContainerType) -> ContainerTypeRead:
+def _read(db: Session, container_type: ContainerType) -> ContainerTypeRead:
     return ContainerTypeRead(
         id=container_type.id,
         slug=container_type.slug,
         display_name=container_type.display_name,
         description=container_type.description,
         child_layout=container_type.child_layout,
+        child_view=container_type.child_view,
+        effective_child_view=views.resolve_child_view(None, container_type),
+        glyph=container_type.glyph,
+        photo=primary_photo(db, entity_type=EntityType.CONTAINER_TYPE, entity_pk=container_type.id),
         grid_rows=container_type.grid_rows,
         grid_cols=container_type.grid_cols,
         grid_pitch_mm=container_type.grid_pitch_mm,
@@ -284,6 +336,16 @@ def _apply(container_type: ContainerType, fields: ContainerTypeWrite, assigned: 
             setattr(container_type, name, getattr(fields, name))
     if "child_layout" in assigned and fields.child_layout is not None:
         container_type.child_layout = fields.child_layout
+    # Unlike the enums around it, an explicit null is meaningful rather than a
+    # no-op: it hands the drawing back to `derive_child_view`, so the guard is
+    # `in assigned` alone. Losing that would make "stop pinning this" unsayable.
+    if "child_view" in assigned:
+        container_type.child_view = fields.child_view
+    # Same "explicit null is a real edit" rule as `child_view` just above, for
+    # the same reason: this is the *only* place a pin is ever cleared, since
+    # there is no derivation for it to fall back to.
+    if "glyph" in assigned:
+        container_type.glyph = fields.glyph
     if "slot_label_scheme" in assigned and fields.slot_label_scheme is not None:
         container_type.slot_label_scheme = fields.slot_label_scheme
     if "slot_label_params" in assigned:
@@ -357,7 +419,7 @@ def create_container_type(
         _apply(container_type, request, set(request.model_fields_set))
         db.add(container_type)
         db.flush()
-        return ContainerTypeCreated(container_type=_read(container_type))
+        return ContainerTypeCreated(container_type=_read(db, container_type))
 
     return idempotency.run(
         db,
@@ -377,14 +439,14 @@ def list_container_types(
     stmt = select(ContainerType).order_by(ContainerType.slug)
     if is_seed is not None:
         stmt = stmt.where(ContainerType.is_seed.is_(is_seed))
-    return [_read(row) for row in db.execute(stmt).scalars()]
+    return [_read(db, row) for row in db.execute(stmt).scalars()]
 
 
 @router.get("/{container_type_id}", response_model=ContainerTypeRead)
 def read_container_type(
     container_type_id: RowId, db: Session = Depends(get_db)
 ) -> ContainerTypeRead:
-    return _read(_require_type(db, container_type_id))
+    return _read(db, _require_type(db, container_type_id))
 
 
 @router.patch("/{container_type_id}", response_model=ContainerTypeEdited)
@@ -400,7 +462,7 @@ def update_container_type(
         target, cloned = layout.ensure_editable(db, original)
         _apply(target, request, set(request.model_fields_set))
         db.flush()
-        return ContainerTypeEdited(container_type=_read(target), cloned=cloned)
+        return ContainerTypeEdited(container_type=_read(db, target), cloned=cloned)
 
     return idempotency.run(
         db,
@@ -438,7 +500,7 @@ def clone_container_type(
                 },
             )
         clone = layout.clone_type(db, source, slug=slug, display_name=request.display_name)
-        return ContainerTypeCreated(container_type=_read(clone))
+        return ContainerTypeCreated(container_type=_read(db, clone))
 
     return idempotency.run(
         db,

@@ -107,6 +107,23 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
         ) : (
           <HereSummary index={index} here={here} />
         )}
+
+        {/*
+          The tree is where somebody stands when they realise they need somewhere
+          to put a part, so this is where "add one" has to be — carrying the
+          position they are already looking at, so the new containers land here
+          rather than making them pick their own location out of a list again.
+        */}
+        <div className="row">
+          <Link
+            className="button-link"
+            to={here === null ? "/containers/new" : `/containers/new?parent=${here.id}`}
+          >
+            {here === null ? "Add a container" : `Add containers in ${here.name}`}
+          </Link>
+          <span className="spacer" />
+          <Link to="/container-types">Container types →</Link>
+        </div>
       </div>
 
       {view === "map" ? (
@@ -342,7 +359,9 @@ function TreeGrid({ nodes, rootId }: { nodes: readonly LocationNode[]; rootId: n
         {rows.length === 0 && (
           <div className="tree-row" role="row">
             <div role="cell" className="dim" style={{ gridColumn: "1 / -1" }}>
-              No containers. Storage has not been laid out yet.
+              No containers. Storage has not been laid out yet —{" "}
+              <Link to="/containers/new">add the first one</Link>, a room or a bench to hang
+              everything else off.
             </div>
           </div>
         )}

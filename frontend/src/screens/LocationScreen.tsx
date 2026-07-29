@@ -15,18 +15,24 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { ContainerPhotoPanel } from "../components/ContainerPhotoPanel";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
 import {
   assignLocationShortId,
+  detachLocationDocument,
   emptyBin,
   getLocation,
   getLocationTree,
   resolveShortId,
+  setLocationGlyph,
+  uploadDocument,
+  type ContainerGlyph,
   type LocationRead,
   type LocationTree,
 } from "../lib/api/client";
 import { formatFillRatio, formatQty } from "../lib/format";
+import { ALL_GLYPHS, glyphLabel } from "../lib/locations/glyphs";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
 import { useAsync } from "../lib/hooks/useAsync";
 import { uuid4 } from "../lib/scan/session";
@@ -94,8 +100,17 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
         </div>
       </div>
 
+      <Picture location={location} onDone={onChanged} />
+
       <Capacity location={location} />
 
+      {/*
+        Two different jobs, so two links rather than one "manage" screen: adding
+        containers *inside* this one creates new rows from a container type
+        (`instantiate`), while editing the layout rearranges the slots this one
+        already has and goes through the change guard. Conflating them would put a
+        create button behind a guard that exists to protect existing contents.
+      */}
       <div className="card">
         <div className="row">
           <p className="muted-note" style={{ flex: 1, margin: 0 }}>
@@ -106,6 +121,13 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
             still holds stock or a bound tag blocks the change rather than losing it.
           </p>
           <Link to={`/locations/${location.id}/layout`}>Edit layout →</Link>
+        </div>
+        <div className="row">
+          <p className="muted-note" style={{ flex: 1, margin: 0 }}>
+            Drawers, trays or bins that live in here are containers of their own — stamped
+            from a container type, each with its own copy of that type's layout.
+          </p>
+          <Link to={`/containers/new?parent=${location.id}`}>Add containers inside →</Link>
         </div>
       </div>
 
@@ -186,6 +208,91 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * "What does this container look like" — a real photo (own, falling back to
+ * the container type's) and, separately, the pictogram used everywhere else:
+ * the dense tree map. See `ContainerPhoto`'s docstring for why the two are
+ * different components with different costs, and `ContainerPhotoPanel`'s for
+ * why the upload/remove mechanics live there rather than being duplicated
+ * between this screen and `ContainerTypeScreen`.
+ */
+function Picture({ location, onDone }: { location: LocationRead; onDone: () => void }) {
+  const [glyph, setGlyph] = useState(location.glyph ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function saveGlyph(next: string): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await setLocationGlyph(location.id, {
+        glyph: next === "" ? null : (next as ContainerGlyph),
+        client_op_id: uuid4(),
+      });
+      setGlyph(next);
+      onDone();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadPhoto(file: File): Promise<void> {
+    await uploadDocument(file, {
+      mediaType: file.type !== "" ? file.type : "image/jpeg",
+      kind: "photo",
+      role: "photo",
+      locationId: location.id,
+      isPrimary: true,
+    });
+    onDone();
+  }
+
+  async function removePhoto(): Promise<void> {
+    if (location.photo === null) {
+      return;
+    }
+    await detachLocationDocument(location.id, location.photo.sha256);
+    onDone();
+  }
+
+  return (
+    <div className="card">
+      <h3>Picture</h3>
+      <ContainerPhotoPanel
+        displayPhoto={location.effective_photo}
+        ownPhoto={location.photo}
+        glyph={location.effective_glyph}
+        note={
+          location.photo === null && location.effective_photo !== null
+            ? "Inherited from the container type's photo. Uploading one here " +
+              "overrides it just for this one container."
+            : null
+        }
+        onUpload={uploadPhoto}
+        onRemoveOwn={location.photo === null ? null : removePhoto}
+      />
+      <label className="field">
+        <span>Pictogram in the map view</span>
+        <select value={glyph} disabled={busy} onChange={(event) => void saveGlyph(event.target.value)}>
+          <option value="">
+            {location.effective_glyph === null
+              ? "None chosen"
+              : `Use the container type's — currently ${glyphLabel(location.effective_glyph) ?? "none"}`}
+          </option>
+          {ALL_GLYPHS.map((value) => (
+            <option key={value} value={value}>
+              {glyphLabel(value)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <ErrorBanner error={error} fallback="That could not be saved." />
     </div>
   );
 }

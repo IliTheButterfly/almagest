@@ -82,6 +82,37 @@ export const REASON_HINTS: Readonly<Record<string, string>> = {
     "rather than creating a second row for the same part.",
   unknown_part_kind: "Not a known part kind.",
 
+  // --- authoring container types, and stamping containers out of them ------
+  // `duplicate_slug` is checked before the insert rather than caught after it,
+  // so it is a clean 409 about one field instead of a 500 — and the slug is the
+  // one field with no PATCH counterpart, so it is worth saying that it is
+  // permanent while the user is still choosing it.
+  duplicate_slug:
+    "Another container type already uses that slug. A slug is permanent — it is the " +
+    "one field that cannot be changed later — so pick a different one, or clone the " +
+    "existing type instead of writing a second like it.",
+  bad_naming_pattern:
+    "Only {n} can be filled in in a name pattern, and it is replaced with the number " +
+    "of each container. Any other braces are refused rather than guessed at, so the " +
+    "thirty drawers you asked for do not all end up called the same thing.",
+  unknown_container_type: "That container type no longer exists — it may have been renamed or removed.",
+  unknown_parent: "The container you were putting these inside no longer exists.",
+
+  // --- the one hard geometric refusal (app.services.capacity) -------------
+  // Everything else about capacity in this system is advisory: an over-capacity
+  // put-away is accepted and flagged. These three are not, and the wording has
+  // to say why they are different rather than reading as another warning.
+  pitch_mismatch:
+    "The grid pitches do not match, so these physically will not seat — a 42 mm bin " +
+    "does not sit on a 50 mm plate. This is refused rather than flagged, unlike being " +
+    "over capacity: it would record a world that cannot exist.",
+  footprint_too_wide:
+    "This takes up more columns than the container you are putting it in offers. " +
+    "Refused rather than flagged, because it does not physically fit.",
+  footprint_too_deep:
+    "This takes up more rows than the container you are putting it in offers. " +
+    "Refused rather than flagged, because it does not physically fit.",
+
   // --- ledger refusals (409) ----------------------------------------------
   same_location: "Source and destination are the same place, so there is nothing to move.",
   same_lot: "A lot cannot be split into itself.",

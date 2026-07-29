@@ -33,6 +33,7 @@ import {
   getLocationLayout,
   getSlotTemplate,
   reapplyLayout,
+  setLocationChildView,
   type ContainerTypeRead,
   type LayoutRead,
   type LocationRead,
@@ -50,7 +51,80 @@ import {
   type OriginalSlot,
 } from "../lib/locations/layoutDraft";
 import { slotLabelFor } from "../lib/locations/slots";
+import { known, VIEW_LABELS, type ChildView } from "../lib/locations/views";
 import { uuid4 } from "../lib/scan/session";
+
+/**
+ * How *this one* container draws its children — the instance half of ADR 0006's
+ * override.
+ *
+ * Its own card, above the canvas and separate from it, because the two answer
+ * different questions: the canvas says where the slots are, this says what the
+ * picture looks like. It also saves on its own rather than through Save, and that
+ * is deliberate — the change guard exists to protect slots that hold stock, and a
+ * drawing cannot swallow a neighbour's contents, so putting it behind the same
+ * button would imply a risk it does not carry.
+ */
+function ChildViewPicker({
+  location,
+  typeName,
+}: {
+  location: LocationRead;
+  typeName: string | null;
+}) {
+  // "" is "use the container type", which is a real choice — sending null is what
+  // clears the override — rather than an absence.
+  const [choice, setChoice] = useState<string>(location.child_view ?? "");
+  const [effective, setEffective] = useState<string>(location.effective_child_view);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function apply(next: string): Promise<void> {
+    setChoice(next);
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await setLocationChildView(location.id, {
+        child_view: next === "" ? null : (next as ChildView),
+        client_op_id: uuid4(),
+      });
+      setEffective(response.effective_child_view);
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>How this one is drawn</h3>
+      <label className="field">
+        <span>Picture</span>
+        <select value={choice} onChange={(event) => void apply(event.target.value)} disabled={busy}>
+          <option value="">
+            {typeName === null
+              ? "Work it out from what this container is"
+              : `Whatever "${typeName}" says`}
+          </option>
+          {(Object.keys(VIEW_LABELS) as ChildView[]).map((kind) => (
+            <option key={kind} value={kind}>
+              {VIEW_LABELS[kind]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted-note" style={{ margin: 0 }}>
+        Currently drawn as: {VIEW_LABELS[known(effective)].toLowerCase()}.{" "}
+        {choice === "" ? "Not overridden here." : "Overridden for this container only."} This
+        changes the picture and nothing else — no slot moves, and nothing inside is touched.
+        It applies to this container's own contents, not to anything deeper: each level
+        answers for itself.
+      </p>
+      <ErrorBanner error={error} fallback="That could not be changed." />
+    </div>
+  );
+}
 
 const REASON_WORDS: Readonly<Record<string, string>> = {
   has_stock: "holds stock",
@@ -275,6 +349,8 @@ function Editor({ location, initialLayout }: { location: LocationRead; initialLa
           </div>
         </div>
       )}
+
+      <ChildViewPicker location={location} typeName={containerType.data?.display_name ?? null} />
 
       <div className="card">
         <h3>Canvas</h3>

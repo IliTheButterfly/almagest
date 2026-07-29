@@ -34,6 +34,12 @@ const LOCATION = {
   is_overfull: false,
   is_placeable: true,
   effective_esd_safe: null,
+  child_view: null,
+  effective_child_view: "floor_plan",
+  glyph: null,
+  effective_glyph: null,
+  photo: null,
+  effective_photo: null,
   container_type_id: null,
   lots: [],
   capacity: {
