@@ -34,14 +34,17 @@ import {
   assignLocationShortId,
   emptyBin,
   getLocation,
+  getLocationPlan,
   getLocationTree,
   resolveShortId,
   type LocationRead,
   type LocationTree,
+  type RoomPlanRead,
 } from "../lib/api/client";
 import { formatFillRatio, formatQty } from "../lib/format";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
 import { indexTree } from "../lib/locations/tree";
+import { FLOOR_PLAN, known } from "../lib/locations/views";
 import { useAsync } from "../lib/hooks/useAsync";
 import { uuid4 } from "../lib/scan/session";
 import { formatShortId, looksLikeShortId, normalizeShortId } from "../lib/shortid";
@@ -73,6 +76,22 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
   const children = useAsync<LocationTree | null>(
     () => (location.child_count > 0 ? getLocationTree(location.id) : Promise.resolve(null)),
     [location.id, location.child_count],
+  );
+  /**
+   * The drawn room, when this level is drawn as one — ADR 0009.
+   *
+   * Fetched on the strength of **this level's own** `effective_child_view`, which is
+   * the single question ADR 0006 says decides the picture, asked here exactly as the
+   * renderer asks it. Not on depth, and not on "is this a room": a shelf two levels
+   * down that somebody chose to draw a plan of gets its plan through this same call.
+   * A level drawn any other way never pays for the request.
+   */
+  const plan = useAsync<RoomPlanRead | null>(
+    () =>
+      known(location.effective_child_view) === FLOOR_PLAN
+        ? getLocationPlan(location.id)
+        : Promise.resolve(null),
+    [location.id, location.effective_child_view],
   );
 
   return (
@@ -156,7 +175,7 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
 
       {location.lots.length > 0 && <EmptyInto location={location} onDone={onChanged} />}
 
-      <Inside location={location} tree={children.data} />
+      <Inside location={location} tree={children.data} plan={plan.data} />
     </div>
   );
 }
@@ -169,10 +188,26 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
  * for the same reason and through the same call (ADR 0006). Nothing here knows
  * which of those it is holding.
  */
-function Inside({ location, tree }: { location: LocationRead; tree: LocationTree | null }) {
-  const index = useMemo(() => (tree === null ? null : indexTree(tree.nodes)), [tree]);
+function Inside({
+  location,
+  tree,
+  plan,
+}: {
+  location: LocationRead;
+  tree: LocationTree | null;
+  plan: RoomPlanRead | null;
+}) {
+  const index = useMemo(() => indexTree(tree?.nodes ?? []), [tree]);
+  // "Still loading" and "there is nothing to load" are different, and only the
+  // first may show a spinner: a drawn but empty room has no tree to wait for.
+  const loading = location.child_count > 0 && tree === null;
+  // A room with walls drawn and nothing in it yet is still worth drawing — it is
+  // what somebody was in the middle of doing. So "empty" here means empty of
+  // containers *and* undrawn, which is a question about the data and not about
+  // which level this is.
+  const drawn = plan !== null && plan.shapes.length > 0;
 
-  if (location.child_count === 0) {
+  if (location.child_count === 0 && !drawn) {
     return (
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Inside</h3>
@@ -191,13 +226,14 @@ function Inside({ location, tree }: { location: LocationRead; tree: LocationTree
         <span className="spacer" />
         <Link to={`/tree?at=${location.id}`}>See it in the whole tree →</Link>
       </div>
-      {index === null ? (
+      {loading ? (
         <Loading what="what is inside" />
       ) : (
         <ContainerLayout
           index={index}
           parentId={location.id}
           drillTo={(node) => `/locations/${node.id}`}
+          plan={plan}
         />
       )}
     </div>

@@ -10,7 +10,7 @@
  * the container to use them.
  *
  * **This component knows nothing about depth, and must not learn.** It is handed a
- * `LocationRead` and renders the same four panels whether that row is a room, a
+ * `LocationRead` and renders the same five panels whether that row is a room, a
  * cabinet, a drawer or a divider inside a bin — the same rule
  * `lib/locations/views.ts` documents for drawing a level: every level is asked
  * about itself. A branch here on "is this a room" or `depth === 0` would be the
@@ -20,9 +20,10 @@
  * The panels differ in *when* they save, and each one says which it is, because
  * ambiguity about that is how work gets lost:
  *
- * - **Name and description** and **Slots inside** hold a draft and save on a
- *   button. Both show "unsaved" in the panel's titlebar and both refuse to close
- *   silently on an unsent edit.
+ * - **Name and description**, **Slots inside** and **Room plan** hold a draft and
+ *   save on a button. Each shows "unsaved" in the panel's titlebar and refuses to
+ *   close silently on an unsent edit. The plan's Save is one write for a whole
+ *   rearrangement, not one per box moved.
  * - **Picture** (photo, pictogram) and **how this one is drawn** save the moment
  *   you choose, and say so. They have nothing a guard could protect: a pictogram
  *   cannot swallow a neighbour's stock.
@@ -38,6 +39,7 @@ import { ContainerPhotoPanel } from "./ContainerPhotoPanel";
 import { Dialog, DiscardPrompt, useDiscardGuard } from "./Dialog";
 import { ErrorBanner, Loading, Notice } from "./Feedback";
 import { RemoveContainer } from "./RemoveContainer";
+import { RoomPlanPanel } from "./RoomPlanPanel";
 import { SlotLayoutPanel } from "./SlotLayoutPanel";
 import { AddContainersPanel } from "./AddContainers";
 import {
@@ -54,7 +56,7 @@ import { useAsync } from "../lib/hooks/useAsync";
 import { ALL_GLYPHS, glyphLabel } from "../lib/locations/glyphs";
 import { uuid4 } from "../lib/scan/session";
 
-const PANELS = ["details", "picture", "layout", "add"] as const;
+const PANELS = ["details", "picture", "layout", "plan", "add"] as const;
 
 export type EditPanel = (typeof PANELS)[number];
 
@@ -160,6 +162,9 @@ export function ContainerEditMode({
         <button type="button" onClick={() => openPanel("layout")}>
           Slots inside…
         </button>
+        <button type="button" onClick={() => openPanel("plan")}>
+          Room plan…
+        </button>
         <button type="button" onClick={() => openPanel("add")}>
           Add containers inside…
         </button>
@@ -176,6 +181,7 @@ export function ContainerEditMode({
       {panel === "layout" && (
         <LayoutDialog location={location} onClose={close} onSaved={onChanged} />
       )}
+      {panel === "plan" && <PlanDialog location={location} onClose={close} onSaved={onChanged} />}
       {panel === "add" && <AddDialog location={location} onClose={close} onCreated={onChanged} />}
     </div>
   );
@@ -476,6 +482,61 @@ function LayoutDialog({
           />
         )}
         <SlotLayoutPanel location={location} onSaved={onSaved} onDirtyChange={setDirty} />
+        <div className="row">
+          <span className="spacer" />
+          <button type="button" onClick={guard.requestClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+// ------------------------------------------------------------------ plan ----
+
+/**
+ * Drawing the room, and standing the containers in it — ADR 0009.
+ *
+ * A sibling of the slots panel and not a replacement for it: a slot canvas and a
+ * drawn room are two different pictures of two different kinds of fact, and a
+ * container can carry both without either meaning anything to the other. That is
+ * what makes a cabinet legible in its room *and* a drawer legible in its cabinet.
+ *
+ * Offered at every level, unconditionally. Nothing is validated against
+ * `child_view` — ADR 0006's rule — so drawing a plan of something that renders as a
+ * cabinet face is allowed and simply unused; refusing would be the editor overruling
+ * the person holding the furniture. It is also why this button is on every
+ * container's editor and there is no "is this a room?" test anywhere near it.
+ */
+function PlanDialog({
+  location,
+  onClose,
+  onSaved,
+}: {
+  location: LocationRead;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [dirty, setDirty] = useState(false);
+  const guard = useDiscardGuard(dirty, onClose);
+
+  return (
+    <Dialog
+      title={`Plan of ${location.name}`}
+      onClose={guard.requestClose}
+      unsaved={dirty}
+      note="Draw the walls, then put what is inside where it actually stands. Millimetres, snapped to a grid. Nothing is saved until you press Save, and a whole rearrangement is one write."
+    >
+      <div className="stack">
+        {guard.asking && (
+          <DiscardPrompt
+            what="the room you have drawn and everything you have moved"
+            onKeepEditing={guard.keepEditing}
+            onDiscard={guard.discard}
+          />
+        )}
+        <RoomPlanPanel location={location} onSaved={onSaved} onDirtyChange={setDirty} />
         <div className="row">
           <span className="spacer" />
           <button type="button" onClick={guard.requestClose}>

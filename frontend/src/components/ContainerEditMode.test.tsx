@@ -389,11 +389,15 @@ it("offers the identical editor at every depth", async () => {
   expect(top?.length).toBeGreaterThan(0);
   expect(middle).toEqual(top);
   expect(deep).toEqual(top);
-  // And the four panels plus the removal are all of them, at each depth.
+  // And the five panels plus the removal are all of them, at each depth. The room
+  // plan is on this list on purpose: nothing is validated against `child_view`
+  // (ADR 0006), so a container drawn as a cabinet face can still be given a plan,
+  // and gating the button on the view would be the first "is this a room?" branch.
   expect(top).toEqual([
     "Name and description…",
     "Picture…",
     "Slots inside…",
+    "Room plan…",
     "Add containers inside…",
     "Remove this container",
   ]);
