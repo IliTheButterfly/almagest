@@ -31,6 +31,7 @@ import {
 } from "../lib/api/client";
 import { formatQty } from "../lib/format";
 import { uuid4 } from "../lib/scan/session";
+import { ContainerPicker, type PickedContainer } from "./ContainerPicker";
 import { ErrorBanner, Notice } from "./Feedback";
 import { QuantityPad } from "./Quantity";
 
@@ -53,7 +54,7 @@ export function AssignStock({
   const [suggestion, setSuggestion] = useState<SuggestResponse | null>(null);
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [suggestError, setSuggestError] = useState<unknown>(null);
-  const [overrideId, setOverrideId] = useState("");
+  const [override, setOverride] = useState<PickedContainer | null>(null);
   const [qtyMilli, setQtyMilli] = useState(1000);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -83,16 +84,11 @@ export function AssignStock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partId, autoSuggest]);
 
-  const overrideTrimmed = overrideId.trim();
-  const overrideNumeric = overrideTrimmed === "" ? null : Number(overrideTrimmed);
-  const overrideValid =
-    overrideNumeric === null || (Number.isSafeInteger(overrideNumeric) && overrideNumeric > 0);
-  const targetLocationId = overrideNumeric ?? suggestion?.location_id ?? null;
-  const targetLabel =
-    overrideNumeric !== null ? `location ${overrideNumeric}` : suggestion?.label_path ?? null;
+  const targetLocationId = override?.id ?? suggestion?.location_id ?? null;
+  const targetLabel = override?.label ?? suggestion?.label_path ?? null;
 
   async function commit(): Promise<void> {
-    if (targetLocationId === null || qtyMilli <= 0 || !overrideValid) {
+    if (targetLocationId === null || qtyMilli <= 0) {
       return;
     }
     setBusy(true);
@@ -167,22 +163,31 @@ export function AssignStock({
         </div>
       )}
 
-      <details>
-        <summary>Use a different location instead</summary>
-        <label className="field">
-          <span>Location id</span>
-          <input
-            inputMode="numeric"
-            value={overrideId}
-            onChange={(event) => setOverrideId(event.target.value)}
-            placeholder={suggestion === null ? "id" : String(suggestion.location_id)}
-          />
-        </label>
-        <p className="muted-note">
-          Browse the <Link to="/tree">storage tree</Link> for its id if you do not know it
-          offhand.
-        </p>
-        {!overrideValid && <p className="muted-note">That is not a location id.</p>}
+      {/*
+        The override used to be a free-text `location_id`, which asked for a database
+        row id and was therefore no override at all. The picker browses, filters and
+        accepts a printed short ID; the numeric field lives on inside it, marked as
+        the last resort it is.
+      */}
+      <details open={override !== null}>
+        <summary>
+          {override === null ? "Use a different container instead" : `Going to ${override.label}`}
+        </summary>
+        {override !== null && (
+          <div className="row">
+            <p className="muted-note" style={{ flex: 1, margin: 0 }}>
+              Overriding the suggestion.
+            </p>
+            <button type="button" onClick={() => setOverride(null)}>
+              Use the suggestion again
+            </button>
+          </div>
+        )}
+        <ContainerPicker
+          onPick={setOverride}
+          pickedId={override?.id ?? null}
+          actionLabel="Put it in"
+        />
       </details>
 
       <QuantityPad valueMilli={qtyMilli} onChange={setQtyMilli} caption="how many are going there" />
@@ -193,7 +198,7 @@ export function AssignStock({
         type="button"
         className="primary wide tall"
         onClick={() => void commit()}
-        disabled={busy || targetLocationId === null || qtyMilli <= 0 || !overrideValid}
+        disabled={busy || targetLocationId === null || qtyMilli <= 0}
       >
         {busy
           ? "Assigning…"

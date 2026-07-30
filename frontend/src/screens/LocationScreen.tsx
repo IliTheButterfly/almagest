@@ -16,6 +16,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ContainerPhotoPanel } from "../components/ContainerPhotoPanel";
+import { ContainerPicker, type PickedContainer } from "../components/ContainerPicker";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
 import {
@@ -24,7 +25,6 @@ import {
   emptyBin,
   getLocation,
   getLocationTree,
-  resolveShortId,
   setLocationGlyph,
   uploadDocument,
   type ContainerGlyph,
@@ -326,8 +326,10 @@ function Capacity({ location }: { location: LocationRead }) {
  * "Empty this bin into that one" — workflow 4, from the bin's own screen.
  *
  * One lot failing validation commits the rest and reports just that failure, which
- * is what the endpoint does and what this renders. The destination is given by short
- * ID, because that is what is printed on the other drawer.
+ * is what the endpoint does and what this renders. The destination is chosen with the
+ * container picker: typing a short ID is still offered inside it, but it cannot be the
+ * only way in — a generated grid cell has no printed id until somebody mints one, so
+ * a short-ID-only field could not name most of the drawers in the system.
  */
 /**
  * The container's printed identity: mint one, or adopt one already printed.
@@ -456,42 +458,37 @@ function PrintedId({ location, onDone }: { location: LocationRead; onDone: () =>
 
 function EmptyInto({ location, onDone }: { location: LocationRead; onDone: () => void }) {
   const [open, setOpen] = useState(false);
-  const [code, setCode] = useState("");
+  const [destination, setDestination] = useState<PickedContainer | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [result, setResult] = useState<string | null>(null);
 
   async function run(): Promise<void> {
+    if (destination === null) {
+      return;
+    }
     setBusy(true);
     setError(null);
     setResult(null);
     try {
-      const resolved = await resolveShortId(normalizeShortId(code));
-      const target = resolved.target;
-      if (target === null || target === undefined || target.entity_type !== "location") {
-        setError(new Error("That code does not name a container."));
-        return;
-      }
-      if (target.entity_pk === location.id) {
-        setError(new Error("Source and destination are the same container."));
-        return;
-      }
       const response = await emptyBin(location.id, {
-        to_location_id: target.entity_pk,
+        to_location_id: destination.id,
         client_op_id: uuid4(),
-        source: "scan",
+        // The destination is chosen in the UI, not read off a code, so the ledger
+        // row should not claim a scan happened.
+        source: "manual",
       });
       const moved = response.moved_lot_ids.length;
       const failed = response.failures.length;
       setResult(
-        `Moved ${moved} lot(s) to ${target.label_path ?? target.label}` +
+        `Moved ${moved} lot(s) to ${destination.label}` +
           (failed === 0
             ? "."
             : `; ${failed} could not move: ${response.failures
                 .map((failure) => `lot ${failure.lot_id} (${failure.reason})`)
                 .join(", ")}.`),
       );
-      setCode("");
+      setDestination(null);
       onDone();
     } catch (cause) {
       setError(cause);
@@ -519,18 +516,15 @@ function EmptyInto({ location, onDone }: { location: LocationRead; onDone: () =>
       }}
     >
       <h3>Empty into</h3>
-      <label className="field">
-        <span>Destination short ID</span>
-        <input
-          className="mono"
-          value={code}
-          onChange={(event) => setCode(event.target.value)}
-          placeholder="4K7T-92M8"
-          autoComplete="off"
-          autoCapitalize="characters"
-          spellCheck={false}
-        />
-      </label>
+      {/* The destination used to be a typed short ID only, which excluded every
+          generated cell — none of them has a printed id until one is minted. */}
+      <ContainerPicker
+        onPick={setDestination}
+        pickedId={destination?.id ?? null}
+        excludeIds={[location.id]}
+        startAtId={location.parent_id}
+        actionLabel="Empty into"
+      />
       <ErrorBanner error={error} fallback="Nothing was moved." />
       {result !== null && <Notice kind="ok">{result}</Notice>}
       <div className="row">
@@ -538,12 +532,12 @@ function EmptyInto({ location, onDone }: { location: LocationRead; onDone: () =>
           Cancel
         </button>
         <span className="spacer" />
-        <button
-          type="submit"
-          className="primary"
-          disabled={busy || !looksLikeShortId(code)}
-        >
-          {busy ? "Moving…" : `Move ${location.lots.length} lot(s)`}
+        <button type="submit" className="primary" disabled={busy || destination === null}>
+          {busy
+            ? "Moving…"
+            : destination === null
+              ? `Choose where ${location.lots.length} lot(s) go`
+              : `Move ${location.lots.length} lot(s) to ${destination.label}`}
         </button>
       </div>
     </form>

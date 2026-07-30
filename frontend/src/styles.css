@@ -857,6 +857,17 @@ button.tall {
   overflow-wrap: anywhere;
 }
 
+/*
+ * The container picker's rows scroll inside the picker rather than pushing the
+ * commit button off a phone screen: it sits above the quantity pad and the button
+ * that finishes the job, and a cabinet with ninety-six cells would otherwise put
+ * both several swipes away.
+ */
+.picker-list {
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
 /* -------------------------------------------------------- storage tree --- */
 
 /*
