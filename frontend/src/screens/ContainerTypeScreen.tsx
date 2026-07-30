@@ -33,6 +33,7 @@ import { ContainerPhotoPanel } from "../components/ContainerPhotoPanel";
 import { ContainerTypeForm } from "../components/ContainerTypeForm";
 import { LayoutEditor } from "../components/LayoutEditor";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { PathBar } from "../components/PathBar";
 import {
   cloneContainerType,
   detachContainerTypeDocument,
@@ -155,9 +156,13 @@ function TypeEditor({
   return (
     <div className="stack">
       <div className="card">
-        <div className="row">
-          <Link to="/container-types">← types</Link>
-        </div>
+        <PathBar
+          trail={[
+            { key: "types", label: "Container types", to: "/container-types" },
+            { key: `type-${type.id}`, label: type.display_name },
+          ]}
+          label="Container type path"
+        />
         <div className="row">
           <h1 style={{ flex: 1 }}>{type.display_name}</h1>
           {type.is_seed && <span className="badge badge-warn">seed</span>}

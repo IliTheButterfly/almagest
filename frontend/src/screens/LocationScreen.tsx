@@ -31,6 +31,7 @@ import { ContainerPhoto } from "../components/ContainerPhoto";
 import { ContainerPicker, type PickedContainer } from "../components/ContainerPicker";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
+import { PathBar } from "../components/PathBar";
 import {
   assignLocationShortId,
   emptyBin,
@@ -43,6 +44,7 @@ import {
 } from "../lib/api/client";
 import { formatFillRatio, formatQty } from "../lib/format";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
+import { containerTrail } from "../lib/locations/trail";
 import { indexTree } from "../lib/locations/tree";
 import { FLOOR_PLAN, known } from "../lib/locations/views";
 import { useAsync } from "../lib/hooks/useAsync";
@@ -118,9 +120,11 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
   return (
     <div className="stack">
       <div className={editing ? "card editing" : "card"}>
-        <p className="muted-note" style={{ margin: 0 }}>
-          {location.label_path}
-        </p>
+        {/* The path, clickable, at the top of the page a scanned tag lands on.
+            It used to be this same string rendered as dead text with a lone "Up
+            one level" link beside it — so the one screen you arrive at by
+            scanning was the one you could not climb out of. */}
+        <PathBar trail={containerTrail(location)} label="Container path" />
         <div className="row">
           <h1 style={{ flex: 1 }}>{location.name}</h1>
           {location.slot_label !== null && (
@@ -143,9 +147,6 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
           {location.is_overfull && <span className="badge badge-warn">over</span>}
           {location.effective_esd_safe === true && <span className="badge badge-good">ESD safe</span>}
           {location.is_placeable === false && <span className="badge">not placeable</span>}
-          {location.parent_id !== null && (
-            <Link to={`/locations/${location.parent_id}`}>Up one level</Link>
-          )}
           <span className="spacer" />
           {/* The same toggle at every depth — a drawer inside a cabinet inside a
               room is edited by the identical component, which is what keeps this

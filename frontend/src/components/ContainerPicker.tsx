@@ -43,9 +43,11 @@ import { getLocationTree, resolveShortId, type LocationNode, type LocationTree }
 import { useAsync } from "../lib/hooks/useAsync";
 import { matchLocations } from "../lib/locations/match";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
-import { ancestorsOf, childrenOf, indexTree } from "../lib/locations/tree";
+import { containerTrailFromIndex } from "../lib/locations/trail";
+import { childrenOf, indexTree } from "../lib/locations/tree";
 import { formatShortId, looksLikeShortId, normalizeShortId } from "../lib/shortid";
 import { CodeEntry } from "./CodeEntry";
+import { PathBar } from "./PathBar";
 import { ErrorBanner, Loading, Notice } from "./Feedback";
 
 /** Enough of a chosen container to label a button with. */
@@ -187,31 +189,14 @@ export function ContainerPicker({
           </>
         ) : (
           <>
-            <nav className="crumbs" aria-label="Container breadcrumb">
-              <button type="button" className="crumb" onClick={() => setAt(null)}>
-                All storage
-              </button>
-              {(here === null ? [] : ancestorsOf(index, here.id)).map((node) => (
-                <span key={node.id} className="row-tight">
-                  <span className="sep" aria-hidden="true">
-                    /
-                  </span>
-                  <button type="button" className="crumb" onClick={() => setAt(node.id)}>
-                    {node.name}
-                  </button>
-                </span>
-              ))}
-              {here !== null && (
-                <span className="row-tight">
-                  <span className="sep" aria-hidden="true">
-                    /
-                  </span>
-                  <span className="here" aria-current="page">
-                    {here.name}
-                  </span>
-                </span>
-              )}
-            </nav>
+            {/* The same trail component every page uses, in its callback form:
+                this runs inside a form on the way to a commit, so a crumb must
+                move the picker rather than route the page away from a typed
+                quantity. */}
+            <PathBar
+              trail={containerTrailFromIndex(index, at, setAt)}
+              label="Container path"
+            />
 
             {here !== null && !excludeIds.includes(here.id) && (
               <button

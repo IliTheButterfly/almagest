@@ -1562,6 +1562,35 @@ button.tall {
   padding: 0;
 }
 
+/* Every page's path sits in one of these, so the trail on a container, a project
+   and a lot is one object rather than three lookalikes. */
+.path-bar {
+  align-items: center;
+}
+
+/*
+ * Link crumbs and button crumbs must be indistinguishable.
+ *
+ * Both kinds occur in the same trail: a page routes, while a picker running
+ * inside a form calls back instead (routing away would discard a typed
+ * quantity). A trail that changed appearance halfway along would read as two
+ * different things joined by a slash.
+ */
+.crumbs a.crumb {
+  text-decoration: none;
+}
+
+.crumbs a.crumb:hover,
+.crumbs button.crumb:hover {
+  text-decoration: underline;
+}
+
+/* A crumb this page cannot link to — a level whose id it does not know. Dimmed
+   rather than accented, so it does not read as a link that fails to work. */
+.crumbs .crumb-flat {
+  color: var(--text-dim);
+}
+
 /* ------------------------------------------------------ search: facets --- */
 
 /*
