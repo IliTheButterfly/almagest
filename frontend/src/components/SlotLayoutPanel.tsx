@@ -1,35 +1,36 @@
 /**
- * `/locations/:id/layout` — edit one already-instantiated container's own
- * slots, through the three-way change guard.
+ * One container's own slots, edited in place — the panel that used to be
+ * `/locations/:id/layout`.
  *
- * **Deliberately its own screen, not a panel bolted onto the bin view.**
- * Editing a container *type*'s canvas (`ContainerTypeScreen`) never touches
- * a cabinet already built from it — `reapply-layout` is the separate,
- * explicit action that pushes a change into *this one* instance, and it
- * goes through the guard exactly like any hand-drawn edit does. Loading the
- * type's current layout here is one more explicit step (below), not a
- * button that silently overwrites and saves in the same click — a user who
- * expected a preview must still get to see one.
+ * It is a panel and not a page now, because "go to the layout editor page" was
+ * exactly the step Iliana asked to lose: a drawer is added, a slot relabelled and
+ * two cells merged on the container's own screen, in edit mode. What has *not*
+ * changed is the thing the old screen's docstring was really defending, and it
+ * was never the URL:
  *
- * **The three outcomes are kept visually and verbally distinct, per ADR
- * 0002 and `app.services.layout_authoring`:**
- * - *safe* → the request went through; a plain "Saved" notice.
- * - *guarded* (409, `slots_hold_content`) → an amber notice naming every
- *   blocked slot and what it holds, each linking to that container so its
- *   contents can be moved out — not a generic "are you sure".
- * - *refused* (422, most often `slot_identity_reinterpreted`) → a red
- *   notice. Detected client-side before Save is even pressed wherever
- *   possible (`previewChanges`), because it can never succeed by retrying.
+ * - Editing a container **type**'s canvas still never touches a cabinet already
+ *   built from it. Pushing the type's current layout into this one instance is a
+ *   deliberate button here, it only replaces the draft, and it still has to be
+ *   saved through the guard like any hand-drawn edit. A user who expected a
+ *   preview still gets one.
+ * - **The three outcomes stay three different things** (ADR 0002,
+ *   `app.services.layout_authoring`): *safe* is a plain "Saved"; *guarded* (409,
+ *   `slots_hold_content`) is an amber notice naming every blocked slot and what it
+ *   holds, each linking to that container so its contents can be moved out;
+ *   *refused* (422, usually `slot_identity_reinterpreted`) is red, and is caught
+ *   client-side before Save is pressable wherever `previewChanges` can see it,
+ *   because retrying can never make it succeed.
+ * - Nothing is saved until Save. `dirty` is reported upward so the panel's frame
+ *   can say "unsaved" — a panel is much easier to walk away from than a page was.
  */
 
-import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
-import { ErrorBanner, Loading, Notice } from "../components/Feedback";
-import { LayoutEditor, type LayoutEditorContentInfo } from "../components/LayoutEditor";
+import { ErrorBanner, Loading, Notice } from "./Feedback";
+import { LayoutEditor, type LayoutEditorContentInfo } from "./LayoutEditor";
 import {
   getContainerType,
-  getLocation,
   getLocationLayout,
   getSlotTemplate,
   reapplyLayout,
@@ -58,7 +59,7 @@ import { uuid4 } from "../lib/scan/session";
  * How *this one* container draws its children — the instance half of ADR 0006's
  * override.
  *
- * Its own card, above the canvas and separate from it, because the two answer
+ * Its own section, above the canvas and separate from it, because the two answer
  * different questions: the canvas says where the slots are, this says what the
  * picture looks like. It also saves on its own rather than through Save, and that
  * is deliberate — the change guard exists to protect slots that hold stock, and a
@@ -68,9 +69,18 @@ import { uuid4 } from "../lib/scan/session";
 function ChildViewPicker({
   location,
   typeName,
+  onSaved,
 }: {
   location: LocationRead;
   typeName: string | null;
+  /** Re-read the container. **Not optional in practice**: the page behind this
+   * panel decides which picture to draw — and whether to fetch a room plan at all
+   * — from `effective_child_view` on its own `LocationRead`. Without this the
+   * write succeeded and nothing behind the panel ever heard, so the cabinet you
+   * had just asked to be drawn as a floor plan kept drawing drawer fronts until a
+   * manual reload, and reopening this panel re-initialised the select from the
+   * stale row and showed the *old* choice. */
+  onSaved?: (() => void) | undefined;
 }) {
   // "" is "use the container type", which is a real choice — sending null is what
   // clears the override — rather than an absence.
@@ -89,6 +99,7 @@ function ChildViewPicker({
         client_op_id: uuid4(),
       });
       setEffective(response.effective_child_view);
+      onSaved?.();
     } catch (cause) {
       setError(cause);
     } finally {
@@ -116,10 +127,10 @@ function ChildViewPicker({
       </label>
       <p className="muted-note" style={{ margin: 0 }}>
         Currently drawn as: {VIEW_LABELS[known(effective)].toLowerCase()}.{" "}
-        {choice === "" ? "Not overridden here." : "Overridden for this container only."} This
-        changes the picture and nothing else — no slot moves, and nothing inside is touched.
-        It applies to this container's own contents, not to anything deeper: each level
-        answers for itself.
+        {choice === "" ? "Not overridden here." : "Overridden for this container only."} Saved as
+        soon as you pick it: this changes the picture and nothing else — no slot moves, and nothing
+        inside is touched. It applies to this container's own contents, not to anything deeper:
+        each level answers for itself.
       </p>
       <ErrorBanner error={error} fallback="That could not be changed." />
     </div>
@@ -184,38 +195,34 @@ function specOutToDraft(spec: SlotSpecOut): DraftSlot {
   };
 }
 
-export function LocationLayoutScreen() {
-  const { locationId: raw } = useParams();
-  const locationId = Number(raw);
-  const valid = Number.isSafeInteger(locationId) && locationId > 0;
-
-  const location = useAsync<LocationRead | null>(
-    () => (valid ? getLocation(locationId) : Promise.resolve(null)),
-    [locationId, valid],
-  );
-
-  if (!valid) {
-    return <Notice kind="error" title="That is not a location id" />;
-  }
-  if (location.error !== null) {
-    return <ErrorBanner error={location.error} fallback="That container could not be loaded." />;
-  }
-  if (location.data === null) {
-    return <Loading what="the container" />;
-  }
-  return <LayoutLoader location={location.data} />;
+export interface SlotLayoutPanelProps {
+  readonly location: LocationRead;
+  /** Called after a save the server accepted, so the page behind can re-read. */
+  readonly onSaved?: (() => void) | undefined;
+  /** Whether there is an unsent edit in the draft. Lifted so the panel's frame
+   * can say so where the close button is. */
+  readonly onDirtyChange?: ((dirty: boolean) => void) | undefined;
 }
 
-function LayoutLoader({ location }: { location: LocationRead }) {
+export function SlotLayoutPanel({ location, onSaved, onDirtyChange }: SlotLayoutPanelProps) {
   const layout = useAsync<LayoutRead>(() => getLocationLayout(location.id), [location.id]);
 
   if (layout.error !== null) {
-    return <ErrorBanner error={layout.error} fallback="This container's layout could not be loaded." />;
+    return (
+      <ErrorBanner error={layout.error} fallback="This container's layout could not be loaded." />
+    );
   }
   if (layout.data === null) {
     return <Loading what="the layout" />;
   }
-  return <Editor location={location} initialLayout={layout.data} />;
+  return (
+    <Editor
+      location={location}
+      initialLayout={layout.data}
+      onSaved={onSaved}
+      onDirtyChange={onDirtyChange}
+    />
+  );
 }
 
 type Outcome =
@@ -223,7 +230,17 @@ type Outcome =
   | { readonly kind: "guarded"; readonly affected: readonly AffectedSlotProblem[] }
   | { readonly kind: "refused"; readonly message: string };
 
-function Editor({ location, initialLayout }: { location: LocationRead; initialLayout: LayoutRead }) {
+function Editor({
+  location,
+  initialLayout,
+  onSaved,
+  onDirtyChange,
+}: {
+  location: LocationRead;
+  initialLayout: LayoutRead;
+  onSaved?: (() => void) | undefined;
+  onDirtyChange?: ((dirty: boolean) => void) | undefined;
+}) {
   const [baseline, setBaseline] = useState<readonly OriginalSlot[]>(() =>
     initialLayout.slots.map(slotSpecOutToOriginal),
   );
@@ -263,6 +280,10 @@ function Editor({ location, initialLayout }: { location: LocationRead; initialLa
     preview.reinterpreted.length > 0;
   const blankLabels = requireLabels(slots);
   const canSave = dirty && preview.reinterpreted.length === 0 && blankLabels.length === 0;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   async function loadTypeLayout(): Promise<void> {
     if (location.container_type_id === null) {
@@ -304,6 +325,7 @@ function Editor({ location, initialLayout }: { location: LocationRead; initialLa
       setSlots(nextBaseline.map(draftOf));
       setRows(response.layout.grid_rows);
       setCols(response.layout.grid_cols);
+      onSaved?.();
     } catch (cause) {
       const report = describeError(cause);
       if (report.reason === "slots_hold_content" && report.affectedSlots !== null) {
@@ -318,26 +340,17 @@ function Editor({ location, initialLayout }: { location: LocationRead; initialLa
 
   return (
     <div className="stack">
-      <div className="card">
-        <div className="row">
-          <Link to={`/locations/${location.id}`}>← {location.name}</Link>
-        </div>
-        <h1>Edit layout</h1>
-        <p className="muted-note" style={{ margin: 0 }}>
-          {location.label_path}
-        </p>
-      </div>
-
       {location.container_type_id !== null && (
         <div className="card">
           <div className="row">
             <p className="muted-note" style={{ flex: 1, margin: 0 }}>
               {containerType.data === null
                 ? "Loading the container type this was stamped from…"
-                : `Stamped from "${containerType.data.display_name}". Loading its current ` +
-                  "layout below replaces the draft you are editing — nothing is saved until " +
-                  "you press Save, and the change guard still applies exactly as it would to " +
-                  "a hand-drawn edit."}
+                : `Stamped from "${containerType.data.display_name}" — a starting point, and ` +
+                  "nothing more: this container has owned its layout ever since. Loading the " +
+                  "type's current layout below replaces the draft you are editing, nothing is " +
+                  "saved until you press Save, and the change guard still applies exactly as it " +
+                  "would to a hand-drawn edit."}
             </p>
             <button
               type="button"
@@ -350,7 +363,11 @@ function Editor({ location, initialLayout }: { location: LocationRead; initialLa
         </div>
       )}
 
-      <ChildViewPicker location={location} typeName={containerType.data?.display_name ?? null} />
+      <ChildViewPicker
+        location={location}
+        typeName={containerType.data?.display_name ?? null}
+        onSaved={onSaved}
+      />
 
       <div className="card">
         <h3>Canvas</h3>
@@ -406,16 +423,16 @@ function Editor({ location, initialLayout }: { location: LocationRead; initialLa
             {preview.reinterpreted.map(({ before, afterLabel }) => (
               <li key={before.id} className="sub">
                 <span className="badge badge-bad">refused</span> "{afterLabel}" would reinterpret{" "}
-                {before.slotLabel}'s identity at a new position — delete it and create a new
-                slot instead
+                {before.slotLabel}'s identity at a new position — delete it and create a new slot
+                instead
               </li>
             ))}
           </ul>
         )}
         {blankLabels.length > 0 && (
           <p className="muted-note" style={{ margin: 0 }}>
-            {blankLabels.length} slot(s) have no label — an instance has no generator to fill
-            one in, unlike a type's canvas.
+            {blankLabels.length} slot(s) have no label — an instance has no generator to fill one
+            in, unlike a type's canvas.
           </p>
         )}
       </div>
@@ -428,8 +445,8 @@ function Editor({ location, initialLayout }: { location: LocationRead; initialLa
       {outcome?.kind === "guarded" && (
         <Notice kind="warn" title="Blocked — some slots still hold content">
           <p style={{ margin: 0 }}>
-            This did not save. Move the contents of the slot(s) below out of the way, then
-            press Save again — everything else in this edit stays exactly as drawn.
+            This did not save. Move the contents of the slot(s) below out of the way, then press
+            Save again — everything else in this edit stays exactly as drawn.
           </p>
           <ul className="list">
             {outcome.affected.map((affected) => (
@@ -449,9 +466,22 @@ function Editor({ location, initialLayout }: { location: LocationRead; initialLa
         </Notice>
       )}
 
-      <button type="button" className="primary wide" onClick={() => void save()} disabled={!canSave || busy}>
-        {busy ? "Saving…" : "Save"}
-      </button>
+      <div className="row">
+        {dirty ? (
+          <span className="badge badge-warn">unsaved</span>
+        ) : (
+          <span className="muted-note">Everything here is saved.</span>
+        )}
+        <span className="spacer" />
+        <button
+          type="button"
+          className="primary"
+          onClick={() => void save()}
+          disabled={!canSave || busy}
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
     </div>
   );
 }

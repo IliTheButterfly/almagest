@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.models.base import LABEL_SEP, PATH_SEP
 from app.models.catalog import PartCategory
 from app.models.storage import Location
+from app.services import room_plan
 
 #: Table names are our own constants, never user input — but they are
 #: interpolated into SQL, so they are checked anyway rather than trusted.
@@ -146,6 +147,17 @@ class TreeRepository[TreeNode: (Location, PartCategory)]:
             raise CycleError(
                 f"moving {self.table} {node.id} under {new_parent_id} would create a cycle"
             )
+        if isinstance(node, Location) and node.plan_parent_id != new_parent_id:
+            # A floor-plan coordinate belongs to one parent and is meaningless in
+            # another (ADR 0009), so a reparent drops it. This lives in the
+            # generic repository rather than in `room_plan` because this method is
+            # the *only* reparent path in the codebase, and the alternative is a
+            # rule every future caller has to remember. It is not what makes the
+            # invalidation correct — `room_plan.placement_of()` already ignores a
+            # placement whose `plan_parent_id` no longer matches, so a reparent
+            # written any other way is still safe. This just stops the row
+            # carrying dead coordinates.
+            room_plan.forget_placement(node)
         node.parent_id = new_parent_id
         self.session.flush()
         self.rebuild_paths()

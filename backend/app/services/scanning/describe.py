@@ -39,6 +39,17 @@ class EntityDescription:
     short_id: str | None = None
     #: `BIN 4K7T-92M8`. The type prefix is cosmetic and never parsed back.
     display: str | None = None
+    #: **This container was removed.** True only for a location the user removed
+    #: and whose row the ledger, a printed label or a stuck-on tag pinned in place
+    #: (`app.services.removal`).
+    #:
+    #: Carried here, on the shared describer, because the tag stuck to that drawer
+    #: is still in the workshop and someone will tap it. Deleting the `object_ids`
+    #: row instead would make the tap resolve to *nothing*, which the resolver
+    #: reports as an unknown code and the UI offers to provision — telling the user
+    #: the tag is blank when in fact it names a drawer that was thrown out. So the
+    #: binding survives, and this is how "this is gone" gets said.
+    retired: bool = False
 
 
 def describe(
@@ -52,12 +63,14 @@ def describe(
     (a short-ID scan), and looked up otherwise."""
     label = f"{entity_type} {entity_pk}"
     label_path: str | None = None
+    retired = False
 
     if entity_type == EntityType.LOCATION:
         location = session.get(Location, entity_pk)
         if location is not None:
             label = location.name
             label_path = location.label_path
+            retired = location.retired_at is not None
     elif entity_type == EntityType.PART:
         part = session.get(Part, entity_pk)
         if part is not None:
@@ -85,6 +98,7 @@ def describe(
         label_path=label_path,
         short_id=short_id,
         display=shortid.format_display(short_id, entity_type) if short_id else None,
+        retired=retired,
     )
 
 

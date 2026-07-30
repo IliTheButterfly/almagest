@@ -27,6 +27,13 @@
  * `LocationNode` carries neither, so for the two slotted views the geometry is
  * read back out of the label text by `lib/locations/slots.ts`.
  *
+ * The **floor plan is the exception, and now the counter-example**: when a caller
+ * hands this component a `plan` (ADR 0009), the boxes it draws are *authored*
+ * millimetre coordinates from the server and nothing is inferred from a label. A
+ * container in that plan with no coordinate is drawn in a "not placed yet" tray
+ * rather than at the origin, for the same reason the two slotted views refuse to
+ * guess a grid: a guessed position puts a drawer somewhere it is not.
+ *
  * `GET /api/locations/{id}/layout` does return the authored geometry, per
  * location. When the tree screen starts fetching it, the swap is: hand the
  * resulting `Layout` to this component and delete the `inferLayout` call. This
@@ -38,7 +45,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
-import type { LocationNode } from "../lib/api/client";
+import type { LocationNode, RoomPlanRead } from "../lib/api/client";
 import { formatQty } from "../lib/format";
 import { inferLayout, type FallbackReason, type Layout } from "../lib/locations/slots";
 import { childrenOf, type TreeIndex } from "../lib/locations/tree";
@@ -51,6 +58,7 @@ import {
 } from "../lib/locations/views";
 import { ContainerPhoto } from "./ContainerPhoto";
 import { FillMeter } from "./FillMeter";
+import { FloorPlan } from "./FloorPlan";
 
 /** Beyond this many children, a nested preview is noise rather than a picture. */
 const MAX_PREVIEW_CELLS = 36;
@@ -94,6 +102,16 @@ export interface ContainerLayoutProps {
   /** Where a cell with children of its own links to. */
   readonly drillTo: (node: LocationNode) => string;
   readonly variant?: "full" | "mini" | undefined;
+  /**
+   * This container's drawn room — ADR 0009 — when the caller has fetched it.
+   *
+   * Only ever *used* by the `floor_plan` branch, and passing it is optional
+   * because the map view draws many levels in one render and one plan fetch per
+   * level would be N requests for a picture nobody has zoomed into yet. A level
+   * with no plan handed to it draws the flow of cards it always did, which is
+   * honest rather than empty: no plan means nobody has drawn one.
+   */
+  readonly plan?: RoomPlanRead | null | undefined;
   /** How many levels of nested preview are still allowed. */
   readonly previewDepth?: number | undefined;
 }
@@ -134,20 +152,13 @@ function FullLayout({
   nodes,
   view,
   drillTo,
+  plan = null,
   previewDepth = DEFAULT_PREVIEW_DEPTH,
 }: ContainerLayoutProps & {
   readonly layout: Layout<LocationNode>;
   readonly nodes: readonly LocationNode[];
   readonly view: ChildView;
 }) {
-  if (nodes.length === 0) {
-    return (
-      <p className="dim">
-        Nothing is recorded inside this container. Put something away and it appears here.
-      </p>
-    );
-  }
-
   const cell = (node: LocationNode, slotLabel?: string) => (
     <Cell
       key={node.id}
@@ -159,6 +170,33 @@ function FullLayout({
       {...(slotLabel === undefined ? {} : { slotLabel })}
     />
   );
+
+  // A room somebody has actually drawn — walls, and a coordinate per container
+  // (ADR 0009). This is the one branch that draws *authored* positions rather than
+  // positions read back out of a label, and it comes first because a drawn plan is
+  // the strongest thing this renderer can say about where furniture is. An
+  // undrawn one falls through to the flow below, which is the honest picture of
+  // "nobody has said where these are".
+  if (view === "floor_plan" && plan != null && (plan.shapes.length > 0 || plan.placements.length > 0)) {
+    return (
+      <div className="stack" data-view={view} data-drawn="plan">
+        <FloorPlan
+          plan={plan}
+          nodes={nodes}
+          hrefOf={(node) => cellHref(index, node, drillTo)}
+          renderCard={(node) => cell(node)}
+        />
+      </div>
+    );
+  }
+
+  if (nodes.length === 0) {
+    return (
+      <p className="dim">
+        Nothing is recorded inside this container. Put something away and it appears here.
+      </p>
+    );
+  }
 
   /**
    * The children a positional view could not place, drawn anyway.
@@ -341,6 +379,20 @@ function groupByRow(layout: Layout<LocationNode>): LocationNode[][] {
   return rows;
 }
 
+/**
+ * Where a cell or a plan box links to: one level down in the map if there is
+ * anything inside, else straight to the container's own screen, which is where
+ * taking and returning happens. Shared so a drawn box and a flowed card cannot
+ * disagree about where the same container lives.
+ */
+function cellHref(
+  index: TreeIndex,
+  node: LocationNode,
+  drillTo: (node: LocationNode) => string,
+): string {
+  return childrenOf(index, node.id).length > 0 ? drillTo(node) : `/locations/${node.id}`;
+}
+
 function Cell({
   node,
   index,
@@ -357,9 +409,7 @@ function Cell({
   slotLabel?: string | undefined;
 }) {
   const inside = childrenOf(index, node.id);
-  // A container with children drills one level down in the map; a leaf goes
-  // straight to its own screen, which is where taking and returning happens.
-  const href = inside.length > 0 ? drillTo(node) : `/locations/${node.id}`;
+  const href = cellHref(index, node, drillTo);
   const label = slotLabel ?? node.slot_label ?? "";
 
   const classes = ["cell", `cell-${view}`];
