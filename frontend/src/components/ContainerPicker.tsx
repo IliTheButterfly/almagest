@@ -27,6 +27,14 @@
  * stock, empty a bin, move a lot and drain the INBOX all need the same choice, and
  * a picker welded into one of them is how the second one ends up with a numeric
  * field again.
+ *
+ * **Browsing is a list here, and should become the storage map** — the same
+ * `ContainerLayout` the tree screen draws, so the drawer you pick looks like the
+ * drawer you walk to, empty slots included. Not done in this pass because that
+ * component navigates by `Link` and this runs inside a form on the way to a commit,
+ * where routing away loses the quantity already typed: it needs a callback mode
+ * rather than a fork. Issue #43 has the design constraints, and it is sequenced
+ * *after* the project-context rework, which rewrites one of the four callers.
  */
 
 import { useMemo, useState } from "react";
