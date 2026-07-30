@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { centreRoi, ROI_FRACTION } from "./roi";
+import { centreRoi, ROI_FRACTION, roiOverlayInset, VIEWFINDER_ASPECT } from "./roi";
 
 describe("the centre-ROI crop", () => {
   it("centres a crop of the configured fraction", () => {
@@ -44,8 +44,55 @@ describe("the centre-ROI crop", () => {
     expect(() => centreRoi(100, 100, 1.5)).toThrow(RangeError);
   });
 
-  it("matches the fraction the viewfinder draws", () => {
-    // `.viewfinder .roi { inset: 20% }` in styles.css leaves 60% of each axis.
+  it("matches the fraction the viewfinder falls back to", () => {
+    // `.viewfinder .roi { inset: 20% }` in styles.css leaves 60% of each axis,
+    // and is the value used until the granted resolution is known.
     expect(ROI_FRACTION).toBe(0.6);
+  });
+});
+
+describe("placing the overlay over a cover-cropped preview", () => {
+  it("insets less horizontally than vertically for a 16:9 camera in a 4:3 box", () => {
+    // 1080 × 4/3 = 1440 frame pixels wide are visible; the crop is 1152 wide, so
+    // 10% in from each side. Vertically the whole 1080 is visible against a
+    // 648-pixel crop, so 20%. A fixed 20% inset — what the CSS used to do alone —
+    // marks a region narrower than the one being read, and the box is the only
+    // aiming instruction the user has.
+    const inset = roiOverlayInset(1920, 1080, 0.6, 4 / 3);
+    expect(inset.x).toBeCloseTo(0.1, 5);
+    expect(inset.y).toBeCloseTo(0.2, 5);
+  });
+
+  it("is symmetric when the camera agrees with the box", () => {
+    const inset = roiOverlayInset(1440, 1080, 0.6, 4 / 3);
+    expect(inset.x).toBeCloseTo(0.2, 5);
+    expect(inset.y).toBeCloseTo(0.2, 5);
+  });
+
+  it("crops the other axis for a frame taller than the box", () => {
+    // A portrait-locked camera: now the top and bottom are the parts cut away.
+    const inset = roiOverlayInset(1080, 1920, 0.6, 4 / 3);
+    expect(inset.y).toBeLessThan(inset.x);
+  });
+
+  it("never draws the box outside the preview", () => {
+    // A crop wider than the visible picture would give a negative inset, which
+    // would put the border off the edge of the panel.
+    const inset = roiOverlayInset(4000, 1000, 1, 4 / 3);
+    expect(inset.x).toBe(0);
+    expect(inset.y).toBeGreaterThanOrEqual(0);
+  });
+
+  it("falls back to the naive inset before the resolution is known", () => {
+    // `useScanner` reports a null resolution until `getSettings()` answers, and
+    // the box has to be drawn somewhere in the meantime.
+    for (const inset of [roiOverlayInset(0, 0), roiOverlayInset(1920, 0), roiOverlayInset(0, 1080)]) {
+      expect(inset).toEqual({ x: 0.2, y: 0.2 });
+    }
+  });
+
+  it("defaults to the fraction and box the app actually uses", () => {
+    expect(roiOverlayInset(1920, 1080)).toEqual(roiOverlayInset(1920, 1080, ROI_FRACTION, 4 / 3));
+    expect(VIEWFINDER_ASPECT).toBeCloseTo(4 / 3, 5);
   });
 });

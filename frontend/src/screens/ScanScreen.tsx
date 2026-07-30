@@ -236,6 +236,7 @@ export function ScanScreen() {
             message={scanner.message}
             unavailableNotice={cameraNotice(capabilities)}
             hint={busy ? "Resolving…" : undefined}
+            camera={scanner}
           />
           <button
             type="button"
