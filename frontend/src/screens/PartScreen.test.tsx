@@ -234,7 +234,9 @@ describe("a part with no stock", () => {
     // The override used to want `location_id`, a row id nobody can know, which
     // made it no override at all. It is the container picker now.
     fireEvent.click(screen.getByText("Use a different container instead"));
-    fireEvent.click(await screen.findByRole("button", { name: "Put it in" }));
+    // The picker browses as the storage map now, so the container is chosen by
+    // pressing the cell that draws it rather than a row in a list.
+    fireEvent.click(await screen.findByRole("button", { name: /^Put it in: Bench bin/ }));
 
     fireEvent.click(await screen.findByRole("button", { name: /^Put 1 in Bench bin$/ }));
 
