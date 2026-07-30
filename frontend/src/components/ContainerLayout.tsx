@@ -80,6 +80,9 @@ const MAX_NESTED_PREVIEW_CELLS = 12;
  */
 const DEFAULT_PREVIEW_DEPTH = 2;
 
+/** One shared empty array, so "nothing is excluded" is a stable dependency. */
+const NO_EXCLUSIONS: readonly number[] = [];
+
 const FALLBACK_NOTE: Readonly<Record<FallbackReason, string>> = {
   unlabelled:
     "This is drawn as a grid, but nothing in it carries a slot label — so the positions " +
@@ -95,12 +98,37 @@ const FALLBACK_NOTE: Readonly<Record<FallbackReason, string>> = {
     "reading is probably wrong and the layout is not drawn.",
 };
 
-export interface ContainerLayoutProps {
+/**
+ * What pressing a cell does, when the map is being used to *choose* a container
+ * rather than to walk around storage.
+ *
+ * The map is the only honest picture of where things are — it draws the empty
+ * positions too, so "drawer B3 has nothing in it" is visible — and Iliana asked
+ * for "the same UI as the storage tab, being able to select the containers as
+ * they appear there" wherever a destination is chosen. That has to be a callback
+ * and not a link: a picker runs inside a form on the way to a commit, and routing
+ * away would discard the quantity already typed. Issue #43.
+ *
+ * `onPick` is the cell body. `onDrill` is a separate control on a cell that has
+ * children, because in a picker "choose this drawer" and "look inside this
+ * cabinet" are both wanted and a single press cannot mean both — a shelf holds
+ * stock as well as bins.
+ */
+export interface CellPicking {
+  readonly onPick: (node: LocationNode) => void;
+  readonly onDrill: (node: LocationNode) => void;
+  /** Already chosen, so the cell can say so. */
+  readonly pickedId?: number | null | undefined;
+  /** Containers that cannot be chosen — the bin being emptied. */
+  readonly excludeIds?: readonly number[] | undefined;
+  /** Verb on the cell's accessible name. "Choose" reads oddly for a move. */
+  readonly actionLabel?: string | undefined;
+}
+
+interface ContainerLayoutBase {
   readonly index: TreeIndex;
   /** The container whose children are drawn. `null` draws the roots. */
   readonly parentId: number | null;
-  /** Where a cell with children of its own links to. */
-  readonly drillTo: (node: LocationNode) => string;
   readonly variant?: "full" | "mini" | undefined;
   /**
    * This container's drawn room — ADR 0009 — when the caller has fetched it.
@@ -114,6 +142,36 @@ export interface ContainerLayoutProps {
   readonly plan?: RoomPlanRead | null | undefined;
   /** How many levels of nested preview are still allowed. */
   readonly previewDepth?: number | undefined;
+}
+
+/**
+ * Exactly one of the two behaviours, enforced at every call site.
+ *
+ * A union rather than two optional props, so there is no fourth state where a
+ * cell has neither a destination nor a callback and silently becomes furniture
+ * you cannot press.
+ */
+export type ContainerLayoutProps = ContainerLayoutBase &
+  (
+    | {
+        /** Where a cell with children of its own links to. */
+        readonly drillTo: (node: LocationNode) => string;
+        readonly pick?: undefined;
+      }
+    | { readonly pick: CellPicking; readonly drillTo?: undefined }
+  );
+
+/**
+ * The behaviour half of the props, as one object the internals pass around.
+ *
+ * The public type guarantees one of the two is present; below this line both are
+ * optional and every branch asks which it has.
+ */
+function behaviourOf(props: ContainerLayoutProps): {
+  drillTo?: ((node: LocationNode) => string) | undefined;
+  pick?: CellPicking | undefined;
+} {
+  return props.pick === undefined ? { drillTo: props.drillTo } : { pick: props.pick };
 }
 
 export function ContainerLayout(props: ContainerLayoutProps) {
@@ -138,7 +196,7 @@ export function ContainerLayout(props: ContainerLayoutProps) {
         index={index}
         nodes={children}
         view={view}
-        drillTo={props.drillTo}
+        {...behaviourOf(props)}
         previewDepth={props.previewDepth ?? 0}
       />
     );
@@ -152,6 +210,7 @@ function FullLayout({
   nodes,
   view,
   drillTo,
+  pick,
   plan = null,
   previewDepth = DEFAULT_PREVIEW_DEPTH,
 }: ContainerLayoutProps & {
@@ -164,9 +223,10 @@ function FullLayout({
       key={node.id}
       node={node}
       index={index}
-      drillTo={drillTo}
       previewDepth={previewDepth}
       view={view}
+      {...(drillTo === undefined ? {} : { drillTo })}
+      {...(pick === undefined ? {} : { pick })}
       {...(slotLabel === undefined ? {} : { slotLabel })}
     />
   );
@@ -183,7 +243,20 @@ function FullLayout({
         <FloorPlan
           plan={plan}
           nodes={nodes}
-          hrefOf={(node) => cellHref(index, node, drillTo)}
+          {...(drillTo === undefined
+            ? {}
+            : { hrefOf: (node: LocationNode) => cellHref(index, node, drillTo) })}
+          {...(pick === undefined
+            ? {}
+            : {
+                onSelect: pick.onPick,
+                pickedId: pick.pickedId ?? null,
+                excludeIds: pick.excludeIds ?? NO_EXCLUSIONS,
+                actionLabel: pick.actionLabel ?? "Choose",
+              })}
+          /* The unplaced tray, and the only way to reach a container nobody has
+             put on the plan — so these are the ordinary pressable cells, exactly
+             as they are in the flow view. */
           renderCard={(node) => cell(node)}
         />
       </div>
@@ -397,20 +470,23 @@ function Cell({
   node,
   index,
   drillTo,
+  pick,
   previewDepth,
   view,
   slotLabel,
 }: {
   node: LocationNode;
   index: TreeIndex;
-  drillTo: (node: LocationNode) => string;
+  drillTo?: ((node: LocationNode) => string) | undefined;
+  pick?: CellPicking | undefined;
   previewDepth: number;
   view: ChildView;
   slotLabel?: string | undefined;
 }) {
   const inside = childrenOf(index, node.id);
-  const href = cellHref(index, node, drillTo);
   const label = slotLabel ?? node.slot_label ?? "";
+  const excluded = (pick?.excludeIds ?? NO_EXCLUSIONS).includes(node.id);
+  const chosen = pick !== undefined && pick.pickedId === node.id;
 
   const classes = ["cell", `cell-${view}`];
   if (node.is_overfull) {
@@ -419,19 +495,22 @@ function Cell({
   if (node.is_staging) {
     classes.push("cell-staging");
   }
+  if (pick !== undefined) {
+    classes.push("cell-pickable");
+  }
+  if (chosen) {
+    classes.push("cell-current");
+  }
 
-  return (
-    <Link
-      className={classes.join(" ")}
-      to={href}
-      aria-label={
-        `${node.name}${label === "" ? "" : `, slot ${label}`}, ` +
-        `${node.lot_count} lot(s)` +
-        (node.is_overfull ? ", over capacity" : "") +
-        (node.is_staging ? ", staging inbox" : "") +
-        (inside.length > 0 ? `, ${inside.length} container(s) inside` : "")
-      }
-    >
+  const describe =
+    `${node.name}${label === "" ? "" : `, slot ${label}`}, ` +
+    `${node.lot_count} lot(s)` +
+    (node.is_overfull ? ", over capacity" : "") +
+    (node.is_staging ? ", staging inbox" : "") +
+    (inside.length > 0 ? `, ${inside.length} container(s) inside` : "");
+
+  const body = (
+    <>
       <span className="row-tight">
         {/* The cheap picture — see `ContainerPhoto`'s docstring for why this is
             always the glyph and never a photo here: a slotted view can lay out
@@ -458,13 +537,61 @@ function Cell({
             <ContainerLayout
               index={index}
               parentId={node.id}
-              drillTo={drillTo}
               variant="mini"
               previewDepth={previewDepth - 1}
+              {...(pick === undefined
+                ? { drillTo: drillTo as (node: LocationNode) => string }
+                : { pick })}
             />
           )}
         </>
       )}
+    </>
+  );
+
+  // Choosing a destination. The cell body picks; a cell with children of its own
+  // also gets a small control to look inside, since a picker wants both and one
+  // press cannot mean two things.
+  if (pick !== undefined) {
+    return (
+      <span className="cell-pick">
+        <button
+          type="button"
+          className={classes.join(" ")}
+          disabled={excluded}
+          aria-pressed={chosen}
+          aria-label={
+            excluded
+              ? `${node.name}: where the stock is now`
+              : `${chosen ? "Chosen" : (pick.actionLabel ?? "Choose")}: ${describe}`
+          }
+          onClick={() => pick.onPick(node)}
+        >
+          {body}
+          {excluded && <span className="cell-sub">where it is now</span>}
+          {chosen && <span className="cell-sub">chosen</span>}
+        </button>
+        {inside.length > 0 && (
+          <button
+            type="button"
+            className="cell-open"
+            aria-label={`Look inside ${node.name}`}
+            onClick={() => pick.onDrill(node)}
+          >
+            <span aria-hidden="true">&rsaquo;</span>
+          </button>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <Link
+      className={classes.join(" ")}
+      to={cellHref(index, node, drillTo as (node: LocationNode) => string)}
+      aria-label={describe}
+    >
+      {body}
     </Link>
   );
 }
@@ -502,13 +629,15 @@ function MiniLayout({
   nodes,
   view,
   drillTo,
+  pick,
   previewDepth,
 }: {
   layout: Layout<LocationNode>;
   index: TreeIndex;
   nodes: readonly LocationNode[];
   view: ChildView;
-  drillTo: (node: LocationNode) => string;
+  drillTo?: ((node: LocationNode) => string) | undefined;
+  pick?: CellPicking | undefined;
   previewDepth: number;
 }) {
   const cells = previewNodes(view, layout, nodes).slice(0, MAX_PREVIEW_CELLS);
@@ -556,9 +685,11 @@ function MiniLayout({
               <ContainerLayout
                 index={index}
                 parentId={node.id}
-                drillTo={drillTo}
                 variant="mini"
                 previewDepth={previewDepth - 1}
+                {...(pick === undefined
+                  ? { drillTo: drillTo as (node: LocationNode) => string }
+                  : { pick })}
               />
             )}
           </span>

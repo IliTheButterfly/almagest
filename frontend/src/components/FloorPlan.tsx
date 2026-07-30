@@ -37,12 +37,24 @@ import {
   type PlacementDraft,
 } from "../lib/locations/roomPlan";
 
+/** One shared empty array, so "nothing is excluded" is a stable default. */
+const NO_EXCLUSIONS: readonly number[] = [];
+
 export interface FloorPlanProps {
   readonly plan: RoomPlanRead;
   /** The children of the container whose plan this is. */
   readonly nodes: readonly LocationNode[];
-  /** Where a box links to — the same rule the map's cells use. */
-  readonly hrefOf: (node: LocationNode) => string;
+  /**
+   * Where a box links to — the same rule the map's cells use. Absent when the
+   * plan is being used to *choose* a container, where `onSelect` takes over: a
+   * picker runs inside a form and must not route away from a typed quantity.
+   */
+  readonly hrefOf?: ((node: LocationNode) => string) | undefined;
+  /** Choosing rather than walking: the box reports back instead of navigating. */
+  readonly onSelect?: ((node: LocationNode) => void) | undefined;
+  readonly pickedId?: number | null | undefined;
+  readonly excludeIds?: readonly number[] | undefined;
+  readonly actionLabel?: string | undefined;
   /**
    * How the tray draws a child that has nowhere to stand.
    *
@@ -53,7 +65,16 @@ export interface FloorPlanProps {
   readonly renderCard: (node: LocationNode) => ReactNode;
 }
 
-export function FloorPlan({ plan, nodes, hrefOf, renderCard }: FloorPlanProps) {
+export function FloorPlan({
+  plan,
+  nodes,
+  hrefOf,
+  onSelect,
+  pickedId = null,
+  excludeIds = NO_EXCLUSIONS,
+  actionLabel = "Choose",
+  renderCard,
+}: FloorPlanProps) {
   const shapes = useMemo(() => {
     let next = 0;
     return shapeDraftsFrom(plan.shapes, () => `shape-${next++}`);
@@ -75,17 +96,47 @@ export function FloorPlan({ plan, nodes, hrefOf, renderCard }: FloorPlanProps) {
   return (
     <div className="stack">
       <PlanSurface frame={frame} shapes={shapes} gridMm={DEFAULT_GRID_MM} label="Floor plan">
-        {boxes.map(({ placement, node }) => (
-          <Link
-            key={node.id}
-            className={boxClass(placement, node, "plan-box")}
-            style={planBoxStyle(placement, frame)}
-            to={hrefOf(node)}
-            aria-label={boxLabel(placement, node)}
-          >
-            <span className="plan-box-name">{node.name}</span>
-          </Link>
-        ))}
+        {boxes.map(({ placement, node }) => {
+          const chosen = pickedId === node.id;
+          const excluded = excludeIds.includes(node.id);
+          const classes =
+            boxClass(placement, node, "plan-box") + (chosen ? " plan-box-chosen" : "");
+
+          // Choosing: the box is where the room is picked from, so a destination
+          // is chosen on the drawing of the room rather than in a list beside it.
+          if (onSelect !== undefined) {
+            return (
+              <button
+                key={node.id}
+                type="button"
+                className={classes}
+                style={planBoxStyle(placement, frame)}
+                disabled={excluded}
+                aria-pressed={chosen}
+                aria-label={
+                  excluded
+                    ? `${node.name}: where the stock is now`
+                    : `${chosen ? "Chosen" : actionLabel}: ${boxLabel(placement, node)}`
+                }
+                onClick={() => onSelect(node)}
+              >
+                <span className="plan-box-name">{node.name}</span>
+              </button>
+            );
+          }
+
+          return (
+            <Link
+              key={node.id}
+              className={classes}
+              style={planBoxStyle(placement, frame)}
+              to={hrefOf === undefined ? `/locations/${node.id}` : hrefOf(node)}
+              aria-label={boxLabel(placement, node)}
+            >
+              <span className="plan-box-name">{node.name}</span>
+            </Link>
+          );
+        })}
       </PlanSurface>
 
       <p className="muted-note" style={{ margin: 0 }}>

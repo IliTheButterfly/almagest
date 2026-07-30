@@ -115,10 +115,60 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** Switches to the list, which is a toggle beside the map rather than the default. */
+async function useList(): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: "List" }));
+}
+
+describe("browsing the map", () => {
+  it("draws the level as the storage map, not a second list of the same shelf", async () => {
+    stubApi();
+    renderPicker();
+
+    // The map's own renderer: a cell per container, pressable, with the level's
+    // view kind on the wrapper. This is issue #43 — the picker and the storage
+    // tab must not be two different pictures of the same cabinet.
+    expect(await screen.findByRole("button", { name: /^Choose: Workshop/ })).toBeTruthy();
+    expect(document.querySelector('[data-view]')).not.toBeNull();
+  });
+
+  it("looks inside a container without choosing it", async () => {
+    stubApi();
+    renderPicker();
+
+    // Two verbs on one cell: the body chooses, the corner drills. A shelf holds
+    // stock as well as bins, so one press cannot mean both.
+    fireEvent.click(await screen.findByRole("button", { name: "Look inside Workshop" }));
+
+    expect(await screen.findByRole("button", { name: /^Choose: Cabinet A/ })).toBeTruthy();
+    expect(picked).toEqual([]);
+  });
+
+  it("chooses the container the cell draws", async () => {
+    stubApi();
+    renderPicker({ actionLabel: "Put it in" });
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Put it in: Workshop/ }));
+
+    expect(picked).toEqual([{ id: 1, label: "Workshop" }]);
+  });
+
+  it("refuses the container the stock is leaving, on the map too", async () => {
+    stubApi();
+    renderPicker({ startAtId: 1, excludeIds: [2] });
+
+    const cell = await screen.findByRole("button", {
+      name: "Cabinet A: where the stock is now",
+    });
+    expect(cell).toHaveProperty("disabled", true);
+  });
+});
+
 describe("browsing", () => {
   it("starts at the top level and drills in", async () => {
     stubApi();
     renderPicker();
+    await useList();
 
     fireEvent.click(await screen.findByRole("button", { name: "Open" }));
 
@@ -130,6 +180,7 @@ describe("browsing", () => {
   it("chooses a container that has children, because a shelf holds stock too", async () => {
     stubApi();
     renderPicker({ actionLabel: "Put it in" });
+    await useList();
 
     fireEvent.click(await screen.findByRole("button", { name: "Put it in" }));
 
@@ -139,6 +190,7 @@ describe("browsing", () => {
   it("starts where it is told, so emptying a drawer offers its siblings first", async () => {
     stubApi();
     renderPicker({ startAtId: 2 });
+    await useList();
 
     // Cabinet A itself is choosable, and its child is the row on offer. ("07" is
     // both the name and the slot badge, hence the plural query.)
@@ -149,6 +201,7 @@ describe("browsing", () => {
   it("marks the container the stock is leaving instead of offering it", async () => {
     stubApi();
     renderPicker({ startAtId: 1, excludeIds: [2] });
+    await useList();
 
     const row = await screen.findByRole("button", { name: "Where it is now" });
     expect(row).toHaveProperty("disabled", true);
@@ -157,6 +210,7 @@ describe("browsing", () => {
   it("says which chosen container is chosen", async () => {
     stubApi();
     renderPicker({ startAtId: 1, pickedId: 2 });
+    await useList();
 
     expect(await screen.findByRole("button", { name: "Chosen" })).toBeTruthy();
   });

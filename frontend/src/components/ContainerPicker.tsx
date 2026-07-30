@@ -28,13 +28,13 @@
  * a picker welded into one of them is how the second one ends up with a numeric
  * field again.
  *
- * **Browsing is a list here, and should become the storage map** — the same
- * `ContainerLayout` the tree screen draws, so the drawer you pick looks like the
- * drawer you walk to, empty slots included. Not done in this pass because that
- * component navigates by `Link` and this runs inside a form on the way to a commit,
- * where routing away loses the quantity already typed: it needs a callback mode
- * rather than a fork. Issue #43 has the design constraints, and it is sequenced
- * *after* the project-context rework, which rewrites one of the four callers.
+ * **Browsing is the storage map**, the same `ContainerLayout` the tree screen
+ * draws, in its callback mode — so the drawer you pick looks like the drawer you
+ * walk to, empty positions included, and there is one renderer rather than two
+ * pictures of the same shelf. Iliana asked for exactly that: "the same UI as the
+ * storage tab. being able to select the containers as they appear there."
+ * The list survives as a toggle, because filtering ninety-six cells by path reads
+ * faster as rows and a level whose labels are not a grid has no map worth drawing.
  */
 
 import { useMemo, useState } from "react";
@@ -47,6 +47,7 @@ import { containerTrailFromIndex } from "../lib/locations/trail";
 import { childrenOf, indexTree } from "../lib/locations/tree";
 import { formatShortId, looksLikeShortId, normalizeShortId } from "../lib/shortid";
 import { CodeEntry } from "./CodeEntry";
+import { ContainerLayout } from "./ContainerLayout";
 import { PathBar } from "./PathBar";
 import { ErrorBanner, Loading, Notice } from "./Feedback";
 
@@ -89,6 +90,16 @@ export function ContainerPicker({
   const index = useMemo(() => indexTree(nodes), [nodes]);
 
   const [at, setAt] = useState<number | null>(startAtId);
+  /**
+   * Map or list, map first — issue #43.
+   *
+   * The map is the storage tab's own picture: it draws a level as the furniture it
+   * is, empty positions included, so the drawer you choose looks like the drawer
+   * you walk to. The list stays because filtering ninety-six cells by path reads
+   * faster as rows, and because a level whose labels are not a grid has no map
+   * worth drawing.
+   */
+  const [shape, setShape] = useState<"map" | "list">("map");
   const [filter, setFilter] = useState("");
   const [lookupBusy, setLookupBusy] = useState(false);
   const [lookupError, setLookupError] = useState<unknown>(null);
@@ -193,10 +204,20 @@ export function ContainerPicker({
                 this runs inside a form on the way to a commit, so a crumb must
                 move the picker rather than route the page away from a typed
                 quantity. */}
-            <PathBar
-              trail={containerTrailFromIndex(index, at, setAt)}
-              label="Container path"
-            />
+            <PathBar trail={containerTrailFromIndex(index, at, setAt)} label="Container path">
+              <div className="segmented" style={{ flex: "0 0 auto" }}>
+                <button type="button" aria-pressed={shape === "map"} onClick={() => setShape("map")}>
+                  Map
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={shape === "list"}
+                  onClick={() => setShape("list")}
+                >
+                  List
+                </button>
+              </div>
+            </PathBar>
 
             {here !== null && !excludeIds.includes(here.id) && (
               <button
@@ -209,16 +230,33 @@ export function ContainerPicker({
               </button>
             )}
 
-            <PickList
-              nodes={childrenOf(index, at)}
-              index={index}
-              showPaths={false}
-              pickedId={pickedId}
-              excludeIds={excludeIds}
-              actionLabel={actionLabel}
-              onChoose={choose}
-              onOpen={(node) => setAt(node.id)}
-            />
+            {shape === "map" ? (
+              /* The storage tab's own renderer, in its callback mode. Not a
+                 second drawing of the same shelf: one component, so the picker
+                 and the map can never disagree about what a cabinet looks like. */
+              <ContainerLayout
+                index={index}
+                parentId={at}
+                pick={{
+                  onPick: choose,
+                  onDrill: (node) => setAt(node.id),
+                  pickedId,
+                  excludeIds,
+                  actionLabel,
+                }}
+              />
+            ) : (
+              <PickList
+                nodes={childrenOf(index, at)}
+                index={index}
+                showPaths={false}
+                pickedId={pickedId}
+                excludeIds={excludeIds}
+                actionLabel={actionLabel}
+                onChoose={choose}
+                onOpen={(node) => setAt(node.id)}
+              />
+            )}
           </>
         ))}
 

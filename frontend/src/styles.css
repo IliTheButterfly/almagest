@@ -1150,7 +1150,11 @@ button.tall {
   border-bottom: 2px solid var(--line-strong);
 }
 
-.layout-run > .cell {
+.layout-run > .cell,
+/* In pick mode the cell is wrapped, so the wrapper is the flex item here and
+   owes the same rule — without it a shelf's boxes shrink to fit instead of the
+   run scrolling, which is the one thing this view must not do. */
+.layout-run > .cell-pick {
   flex: 0 0 auto;
 }
 
@@ -1435,9 +1439,78 @@ button.tall {
 }
 
 /* The layout editor's cells are real `<button>`s, not links — this is the
- * only hover/press feedback they get beyond the shared focus ring. */
-.cell-editable:hover:not(:disabled) {
+ * only hover/press feedback they get beyond the shared focus ring. The picker's
+ * cells are buttons for the same reason and want the same feedback. */
+.cell-editable:hover:not(:disabled),
+.cell-pickable:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+/*
+ * A cell being used to choose a container.
+ *
+ * The wrapper exists so a cell with children can carry a second control: the body
+ * chooses this container, the corner looks inside it. Both are wanted in a picker
+ * — a shelf holds stock as well as bins — and one press cannot mean both.
+ */
+/*
+ * A grid and not an overlay, deliberately.
+ *
+ * The first version floated the "look inside" control over the cell's top-right
+ * corner, which is where the `inbox` and `over` badges live — so on a staging box
+ * it covered the one badge that says this container is not an ordinary bin. A
+ * control that hides a warning to save 30px is not worth the space it saves.
+ */
+.cell-pick {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.cell-pick > .cell {
+  min-width: 0;
+}
+
+/*
+ * The secondary verb, as a full-height strip down the edge of the cell.
+ *
+ * Narrower than `--touch` in one dimension on purpose: it spans the whole cell
+ * height (never less than 4.5rem), so the target is about 28x72px, and a
+ * `--touch`-wide strip would eat half of a 5.5rem square grid cell. The cell body
+ * beside it — choosing, the primary verb — keeps the full touch area.
+ */
+.cell-open {
+  min-width: 1.75rem;
+  padding: 0 0.2rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--bg-inset);
+  color: var(--accent);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.cell-open:hover {
+  border-color: var(--accent);
+}
+
+/* Cannot be chosen — it is where the stock already is. Dimmed *and* labelled in
+   words inside the cell, because a disabled control that only looks faded reads
+   as a rendering glitch. */
+.cell:disabled {
+  color: var(--text-dim);
+  background: var(--bg-inset);
+  cursor: not-allowed;
+}
+
+/* Chosen, on a drawn room. `cell-current` already does this for a grid cell; a
+   plan box is a different element and needs its own rule. Outline rather than
+   fill, so the box's measured/nominal border keeps meaning what it means. */
+.plan-box-chosen {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* A container's picture: a glyph in the dense tree, a real photo on its own
