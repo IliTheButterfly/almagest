@@ -29,6 +29,7 @@ import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
 import { getLocationTree, type LocationNode, type LocationTree } from "../lib/api/client";
 import { formatQty } from "../lib/format";
+import { matchLocations } from "../lib/locations/match";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
 import { ancestorsOf, childrenOf, descendantsOf, indexTree } from "../lib/locations/tree";
 import { useAsync } from "../lib/hooks/useAsync";
@@ -304,7 +305,7 @@ function HereSummary({
         <Notice kind="warn" title="This is the staging inbox">
           The permanent catch-all, not an ordinary bin. Anything here landed because
           auto-assignment ran out of options, and it is meant to be emptied rather
-          than lived in.
+          than lived in. <Link to="/staging">Empty it →</Link>
         </Notice>
       )}
       {isProjectStagingBox(here) && (
@@ -337,13 +338,12 @@ function TreeGrid({ nodes, rootId }: { nodes: readonly LocationNode[]; rootId: n
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set());
   const [filter, setFilter] = useState("");
 
-  const needle = filter.trim().toLowerCase();
-  const matching = useMemo(() => {
-    if (needle === "") {
-      return null;
-    }
-    return nodes.filter((node) => node.label_path.toLowerCase().includes(needle));
-  }, [needle, nodes]);
+  // The same matcher the container picker uses, so the two screens cannot disagree
+  // about what "cabinet a drawer 7" finds. See `lib/locations/match`.
+  const matching = useMemo(
+    () => (filter.trim() === "" ? null : matchLocations(nodes, filter)),
+    [filter, nodes],
+  );
 
   function toggle(id: number): void {
     const next = new Set(collapsed);

@@ -76,6 +76,13 @@ export function IntakeQueueScreen() {
           so scanning never waits for the network; syncing sends them to the server,
           after which the queue follows you to any other device.
         </p>
+        {/* Where resolved intake lands when auto-assignment ran out of options.
+            Named here because that is where somebody notices the parts are not in
+            the drawer they expected. */}
+        <p className="muted-note" style={{ margin: 0 }}>
+          Stock that could not be placed automatically waits in{" "}
+          <Link to="/staging">staging</Link> until it is given a home.
+        </p>
 
         <div className="row">
           <button

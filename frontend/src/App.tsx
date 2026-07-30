@@ -36,6 +36,7 @@ import { ReviewScreen } from "./screens/ReviewScreen";
 import { ScanScreen } from "./screens/ScanScreen";
 import { SearchScreen } from "./screens/SearchScreen";
 import { ShopScreen } from "./screens/ShopScreen";
+import { StagingScreen } from "./screens/StagingScreen";
 import { TreeScreen } from "./screens/TreeScreen";
 
 /**
@@ -97,6 +98,10 @@ export function App() {
         <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/cart">Cart{inCart > 0 ? ` (${inCart})` : ""}</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
+        {/* Beside Intake on purpose: what intake could not place lands in the
+            inbox, and the tab that empties it has to be next to the tab that
+            fills it or nobody goes looking. */}
+        <NavLink to="/staging">Staging</NavLink>
         <NavLink to="/review">Review</NavLink>
       </nav>
 
@@ -118,6 +123,9 @@ export function App() {
           <Route path="/tree" element={<TreeScreen />} />
           <Route path="/scan" element={<ScanScreen />} />
           <Route path="/intake" element={<IntakeQueueScreen />} />
+          {/* Emptying the inbox. Not a scan target — reached from the tab, and from
+              intake once a part has been parked there. */}
+          <Route path="/staging" element={<StagingScreen />} />
           <Route path="/review" element={<ReviewScreen />} />
           {/* The `/s/{short_id}` redirect targets — these paths are physical. */}
           <Route path="/parts/:partId" element={<PartScreen />} />
