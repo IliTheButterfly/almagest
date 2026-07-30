@@ -24,6 +24,7 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
+import { ContainerDetailPanel } from "../components/ContainerDetailPanel";
 import { ContainerLayout } from "../components/ContainerLayout";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
@@ -57,14 +58,42 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
   // blank screen: an unknown id falls back to the top level.
   const at = Number.isSafeInteger(rawAt) && index.byId.has(rawAt) ? rawAt : null;
   const view = params.get("view") === "list" ? "list" : "map";
+  /**
+   * Which container the detail panel is showing — the other half of a
+   * master/detail workspace, and in the URL for the same reason `?at=` is: a
+   * position somebody can send to somebody else, and one the Back button
+   * restores.
+   *
+   * Falls back to the level in view, so the panel always describes something.
+   * That matters at the moment you drill: you pressed into a cabinet because you
+   * are interested in the cabinet, and an empty panel would make you press it
+   * again to find out about it.
+   */
+  const rawSel = Number(params.get("sel"));
+  const sel = Number.isSafeInteger(rawSel) && index.byId.has(rawSel) ? rawSel : null;
+  const subject = sel ?? at;
 
-  function go(next: { at?: number | null; view?: "map" | "list" }): void {
+  function go(next: {
+    at?: number | null;
+    view?: "map" | "list";
+    sel?: number | null;
+  }): void {
     const updated = new URLSearchParams(params);
     if ("at" in next) {
       if (next.at === null || next.at === undefined) {
         updated.delete("at");
       } else {
         updated.set("at", String(next.at));
+      }
+      // Drilling changes what the panel is about; keeping the old selection would
+      // leave a drawer's details beside a different cabinet's map.
+      updated.delete("sel");
+    }
+    if ("sel" in next) {
+      if (next.sel === null || next.sel === undefined) {
+        updated.delete("sel");
+      } else {
+        updated.set("sel", String(next.sel));
       }
     }
     if (next.view !== undefined) {
@@ -141,9 +170,35 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
       </div>
 
       {view === "map" ? (
-        <div className="card">
+        /*
+         * Master and detail, side by side on a desktop and stacked on a phone.
+         *
+         * The map never leaves the screen: pressing a cell fills the panel, and
+         * the corner strip drills. That is the whole answer to "you end up having
+         * a second view that is only slightly different from the other view" —
+         * there is no second view to end up on.
+         */
+        <div className="workspace">
+          <div className="card">
           {/* Drilling keeps you in the map; `?at=` is the shareable position. */}
-          <ContainerLayout index={index} parentId={at} drillTo={(node) => `/tree?at=${node.id}`} />
+            <ContainerLayout
+              index={index}
+              parentId={at}
+              pick={{
+                onPick: (node) => go({ sel: node.id }),
+                onDrill: (node) => go({ at: node.id }),
+                pickedId: sel,
+                actionLabel: "Show",
+              }}
+            />
+          </div>
+          {subject !== null && (
+            <ContainerDetailPanel
+              locationId={subject}
+              childCount={childrenOf(index, subject).length}
+              onLookInside={(id) => go({ at: id })}
+            />
+          )}
         </div>
       ) : (
         <TreeGrid nodes={nodes} rootId={at} />
@@ -224,11 +279,22 @@ function RemovedContainers() {
 }
 
 /**
- * What this container holds, counting everything below it.
+ * What this **level** holds, counting everything below it.
+ *
+ * Trimmed to only what the detail panel does not say. It used to restate the
+ * container's identity — name, slot, badges, its path, its own fill — beside a
+ * panel now saying the same things about the same container, which is the
+ * duplication this workspace exists to remove. What survives is what is genuinely
+ * about the level rather than the container: the roll-up over everything beneath
+ * it, and the two staging notices, which are advice about a whole subtree.
  *
  * The roll-up is over the client-side index rather than a second request: the
  * whole tree is already here, and a per-container endpoint would be N+1 requests
  * for a number the browser can add up.
+ *
+ * The "Open this container" link is gone rather than moved. It was the one-way
+ * door onto the other view, and there is no other view now; the panel's own link
+ * is named for what is over there instead.
  */
 function HereSummary({
   index,
@@ -244,24 +310,10 @@ function HereSummary({
 
   return (
     <>
-      <div className="row">
-        <h1 style={{ flex: 1 }}>{here.name}</h1>
-        {here.slot_label !== null && <span className="badge mono">{here.slot_label}</span>}
-        {isInbox(here) && <span className="badge badge-accent">inbox</span>}
-        {isProjectStagingBox(here) && <span className="badge badge-accent">project parts</span>}
-        {here.is_overfull && <span className="badge badge-warn">over</span>}
-        <Link to={`/locations/${here.id}`}>Open this container →</Link>
-      </div>
       <p className="muted-note" style={{ margin: 0 }}>
-        {here.label_path}
+        {childrenOf(index, here.id).length} inside · {lots} lot(s) in here and below ·{" "}
+        {formatQty(qty)} total
       </p>
-      <div className="row">
-        <FillMeter ratio={here.fill_ratio} overfull={here.is_overfull} />
-        <span className="muted-note">
-          {childrenOf(index, here.id).length} inside · {lots} lot(s) in here and below ·{" "}
-          {formatQty(qty)} total
-        </span>
-      </div>
       {/* Two staging kinds, opposite advice. This notice used to fire on
           `is_staging` alone, so a project's box was told it "is meant to be
           emptied rather than lived in" — the exact opposite of true for a box

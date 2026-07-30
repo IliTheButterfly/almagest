@@ -69,6 +69,22 @@ function stubTree(): void {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(String(input), init);
       const url = new URL(request.url);
+      // The map is a master/detail workspace now, so the level in view is also
+      // read on its own for the panel beside it.
+      if (/^\/api\/locations\/\d+$/.test(url.pathname)) {
+        return new Response(
+          JSON.stringify({
+            ...LIVE,
+            description: null,
+            short_id: null,
+            effective_esd_safe: null,
+            child_count: 0,
+            lots: [],
+            capacity: { model: "none", unit: "none", used: 0, capacity: null, fill_ratio: null, is_overfull: false },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (url.pathname !== "/api/locations/tree") {
         throw new Error(`unstubbed request: ${url.pathname}`);
       }
@@ -103,7 +119,7 @@ afterEach(() => {
 
 it("lists a removed container, and links to the page that brings it back", async () => {
   renderTree();
-  await screen.findByRole("link", { name: /Cabinet A/ });
+  await screen.findByRole("button", { name: /^Show: Cabinet A/ });
 
   // Not asked for yet, so not fetched: the ordinary tree read stays one request.
   expect(queries.every((search) => !search.includes("include_retired"))).toBe(true);
