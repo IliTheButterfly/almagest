@@ -29,6 +29,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { ContainerPicker, type PickedContainer } from "../components/ContainerPicker";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { PathBar } from "../components/PathBar";
 import { QuantityPad } from "../components/Quantity";
 import {
   consumeLot,
@@ -45,6 +46,7 @@ import {
 } from "../lib/api/client";
 import { formatDelta, formatQty, formatTimestamp } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
+import { ALL_STORAGE } from "../lib/locations/trail";
 import { scanSession, uuid4 } from "../lib/scan/session";
 import { offersUndo, undoSecondsLeft, UNDO_WINDOW_MS } from "../lib/stock/undo";
 
@@ -201,6 +203,22 @@ function TakeReturn({
   return (
     <div className="stack">
       <div className="card">
+        {/* A lot's place is its container's place. Only the container itself can
+            be linked from here: `LotRead` carries `location_label_path` but no
+            `id_path`, so the intermediate levels have no ids to link to and are
+            shown as the one crumb they can honestly be. */}
+        <PathBar
+          trail={[
+            { key: "root", label: ALL_STORAGE, to: "/tree" },
+            {
+              key: `loc-${lot.location_id}`,
+              label: lot.location_label_path ?? `location ${lot.location_id}`,
+              to: `/locations/${lot.location_id}`,
+            },
+            { key: `lot-${lot.id}`, label: part?.name ?? `Lot ${lot.id}` },
+          ]}
+          label="Lot path"
+        />
         <h1>{part?.name ?? `Lot ${lot.id}`}</h1>
         {mpn !== null && (
           <p className="mono dim" style={{ margin: 0 }}>
@@ -208,7 +226,6 @@ function TakeReturn({
           </p>
         )}
         <p className="muted-note" style={{ margin: 0 }}>
-          <Link to={`/locations/${lot.location_id}`}>{lot.location_label_path ?? "—"}</Link>
           {batch !== null && (
             <>
               {" · batch "}

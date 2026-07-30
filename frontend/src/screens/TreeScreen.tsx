@@ -27,11 +27,13 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ContainerLayout } from "../components/ContainerLayout";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
+import { PathBar } from "../components/PathBar";
 import { getLocationTree, type LocationNode, type LocationTree } from "../lib/api/client";
 import { formatQty } from "../lib/format";
 import { matchLocations } from "../lib/locations/match";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
-import { ancestorsOf, childrenOf, descendantsOf, indexTree } from "../lib/locations/tree";
+import { containerTrailFromIndex } from "../lib/locations/trail";
+import { childrenOf, descendantsOf, indexTree } from "../lib/locations/tree";
 import { useAsync } from "../lib/hooks/useAsync";
 
 export function TreeScreen() {
@@ -81,7 +83,10 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
     <div className="stack">
       <div className="card">
         <div className="row">
-          <Crumbs index={index} here={here} onGo={(id) => go({ at: id })} />
+          <PathBar
+            trail={containerTrailFromIndex(index, at, (id) => go({ at: id }))}
+            label="Storage path"
+          />
           <span className="spacer" />
           <div className="segmented" style={{ flex: "0 0 auto" }}>
             <button
@@ -215,45 +220,6 @@ function RemovedContainers() {
         </>
       )}
     </div>
-  );
-}
-
-function Crumbs({
-  index,
-  here,
-  onGo,
-}: {
-  index: ReturnType<typeof indexTree>;
-  here: LocationNode | null;
-  onGo: (id: number | null) => void;
-}) {
-  const chain = here === null ? [] : ancestorsOf(index, here.id);
-  return (
-    <nav className="crumbs" aria-label="Breadcrumb">
-      <button type="button" className="crumb" onClick={() => onGo(null)}>
-        All storage
-      </button>
-      {chain.map((node) => (
-        <span key={node.id} className="row-tight">
-          <span className="sep" aria-hidden="true">
-            /
-          </span>
-          <button type="button" className="crumb" onClick={() => onGo(node.id)}>
-            {node.name}
-          </button>
-        </span>
-      ))}
-      {here !== null && (
-        <span className="row-tight">
-          <span className="sep" aria-hidden="true">
-            /
-          </span>
-          <span className="here" aria-current="page">
-            {here.name}
-          </span>
-        </span>
-      )}
-    </nav>
   );
 }
 
