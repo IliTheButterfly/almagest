@@ -476,12 +476,17 @@ function LayoutDialog({
   const [dirty, setDirty] = useState(false);
   const guard = useDiscardGuard(dirty, onClose);
 
+  // `note` is a braced JS string rather than a plain `note="..."` attribute, and the
+  // quotes in it are ASCII, because JSX attribute text is literal the way HTML is:
+  // a backslash-u escape written in there is not an escape at all, and this note
+  // shipped reading `\u201cHow this one is drawn\u201d` on screen, six characters at a time.
+  // Every string in this file is plain ASCII for the same reason.
   return (
     <Dialog
       title="Slots inside this container"
       onClose={guard.requestClose}
       unsaved={dirty}
-      note="Add, relabel, merge or remove the positions inside this one container. The canvas is not saved until you press Save, and a slot that still holds stock or a bound tag blocks the change rather than losing it. The one exception is in here and says so: \u201cHow this one is drawn\u201d applies the moment you pick it, because a picture cannot swallow a neighbour\u2019s stock."
+      note={`Add, relabel, merge or remove the positions inside this one container. The canvas is not saved until you press Save, and a slot that still holds stock or a bound tag blocks the change rather than losing it. The one exception is in here and says so: "How this one is drawn" applies the moment you pick it, because a picture cannot swallow a neighbour's stock.`}
     >
       <div className="stack">
         {guard.asking && (
