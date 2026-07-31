@@ -27,6 +27,7 @@ import { GuidedPickStop } from "./GuidedPick";
 import type { PickStopRead } from "../lib/api/client";
 import { simulatedTagSource } from "../lib/tags/simulated";
 
+const BUILD_ID = 7;
 const RIGHT_DRAWER = 101;
 const WRONG_DRAWER = 102;
 const RIGHT_UID = "04A1B2C3D4E580";
@@ -55,10 +56,17 @@ const STOP: PickStopRead = {
   ],
 };
 
-const consumed: { lotId: number; body: Record<string, unknown> }[] = [];
+/**
+ * What the pick actually wrote. **`stage`, never `consume`** — ADR 0011: parts
+ * that have physically left a drawer are a ledger *move* into the build's staging
+ * location. Consuming would claim they had been soldered down the instant they
+ * were picked up, and the drawer's cached balance is the number that has to stop
+ * lying either way.
+ */
+const staged: { lotId: number; body: Record<string, unknown> }[] = [];
 
 function stubFetch(): void {
-  consumed.length = 0;
+  staged.length = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
@@ -89,10 +97,16 @@ function stubFetch(): void {
           },
         });
       }
-      if (url.pathname.endsWith("/consume")) {
-        const lotId = Number(url.pathname.split("/").at(-2));
-        consumed.push({ lotId, body: (await request.json()) as Record<string, unknown> });
-        return json({ seq: 1, lot: { id: lotId, qty_milli_cached: 0 } });
+      if (url.pathname === `/api/builds/${BUILD_ID}/stage`) {
+        const body = (await request.json()) as Record<string, unknown>;
+        staged.push({ lotId: Number(body["lot_id"]), body });
+        return json({
+          seqs: [1],
+          staging_location_id: 900,
+          allocation: { id: 1 },
+          source_lot: { id: body["lot_id"] },
+          staging_lot: { id: 901 },
+        });
       }
       throw new Error(`unstubbed request: ${request.method} ${url.pathname}`);
     }),
@@ -102,7 +116,12 @@ function stubFetch(): void {
 function renderStop(source?: ReturnType<typeof simulatedTagSource>) {
   return render(
     <MemoryRouter>
-      <GuidedPickStop stop={STOP} index={1} {...(source === undefined ? {} : { source })} />
+      <GuidedPickStop
+        stop={STOP}
+        index={1}
+        buildId={BUILD_ID}
+        {...(source === undefined ? {} : { source })}
+      />
     </MemoryRouter>,
   );
 }
@@ -125,9 +144,10 @@ describe("picking a stop", () => {
     // Pre-filled with the planned quantity, so the common case is one press.
     fireEvent.click(screen.getByRole("button", { name: /^Take / }));
 
-    await waitFor(() => expect(consumed).toHaveLength(1));
-    expect(consumed[0]?.lotId).toBe(900);
-    expect(consumed[0]?.body["qty_milli"]).toBe(40_000);
+    await waitFor(() => expect(staged).toHaveLength(1));
+    expect(staged[0]?.lotId).toBe(900);
+    expect(staged[0]?.body["bom_line_id"]).toBe(3);
+    expect(staged[0]?.body["qty_milli"]).toBe(40_000);
     // The confirmation states both numbers, because "took 40" is not checkable
     // and "took 40 of 40" is.
     await waitFor(() => expect(screen.getByText(/Took 40 of 40/)).toBeTruthy());
@@ -157,7 +177,7 @@ describe("picking a stop", () => {
     expect(screen.getByText(/Recording this without a confirmed scan/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /^Take / }));
 
-    await waitFor(() => expect(consumed).toHaveLength(1));
+    await waitFor(() => expect(staged).toHaveLength(1));
   });
 
   it("says a short take is short rather than calling it done", async () => {
@@ -176,7 +196,7 @@ describe("picking a stop", () => {
 
     // Both numbers again, and the word that makes it a finding rather than a tick.
     await waitFor(() => expect(screen.getByText(/Took 38 of 40 — short/)).toBeTruthy());
-    expect(consumed[0]?.body["qty_milli"]).toBe(38_000);
+    expect(staged[0]?.body["qty_milli"]).toBe(38_000);
   });
 
   it("offers the optical counter as unavailable rather than as a dead button", () => {

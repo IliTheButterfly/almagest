@@ -43,7 +43,7 @@ import {
   type RequirementRead,
   type SuggestionLineRead,
 } from "../lib/api/client";
-import { shoppingCart } from "../lib/cart/cart";
+import { openTargets } from "../lib/projectcontext/store";
 import { formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { uuid4 } from "../lib/scan/session";
@@ -145,20 +145,19 @@ function Bom({ project }: { project: ProjectRead }) {
             </button>
           </div>
           <span className="spacer" />
-          {/* ADR 0007's second way in, and the one this screen had no answer for:
-              a BOM you are *deciding* rather than transcribing is chosen by
-              browsing your own stock, which needs the whole faceted search view.
-              Aiming the cart at this project here means the destination is already
-              set by the time the parts are gathered. */}
+          {/* A BOM you are *deciding* rather than transcribing is built by walking
+              the shelves, which is what ADR 0010 turned into a mode: this opens the
+              project as a tab and drops you in search, so every take from here on
+              is attributed to it until the tab is closed. */}
           <button
             type="button"
             onClick={() => {
-              shoppingCart.setTarget({
+              openTargets.openTarget({
                 kind: "project",
                 projectId: project.id,
                 label: project.name,
               });
-              navigate("/cart/add");
+              navigate("/search");
             }}
           >
             Choose from what you have

@@ -6,7 +6,16 @@
  * scanned lot tag (`/lots/:id` is a `/s/{short_id}` redirect target), so it has to
  * work from a cold page load with no prior state.
  *
- * Three details are load-bearing rather than cosmetic:
+ * **Where a take goes depends on whether a tab is open** (ADR 0010). With a target
+ * focused, taking adds a line to *that target's* record and writes **nothing**;
+ * with nothing open it commits to the ledger immediately, exactly as it always
+ * did — a take with no tab is a take, and that path is a request in its own right
+ * ("just pick a container, scan it and say how many parts you took or put back"),
+ * not an edge case of the other one. Return is symmetric on both paths: while a tab
+ * is focused it is a negative line in the same record, because "I took four and put
+ * one back" is one activity and has to read as one.
+ *
+ * Four details are load-bearing rather than cosmetic:
  *
  * 1. **The idempotency key comes from the scan, not from the commit.** If the key
  *    were minted when Commit was pressed, a double tap on a bad connection would
@@ -22,11 +31,22 @@
  * 3. **The key is spent on use.** A second take from the same bin mints a fresh
  *    key, because replaying the first key would return the first take's numbers and
  *    look exactly like a successful second take — silently losing stock.
+ *
+ * 4. **On the record path the key is scoped to the *line*, not to this screen or
+ *    this scan.** Deferring the write moves where the key must live: one visit to
+ *    this screen can now feed several distinct future writes — one per tab, and one
+ *    more each time a row is edited — so a key held here would make the second of
+ *    them a replay of the first, which is rule 3's silent stock loss with extra
+ *    steps. `ShoppingCart.add` therefore mints and re-mints the key per row, and
+ *    this screen's own key stays **unspent**: nothing was written, so there is
+ *    nothing for it to have been spent on. It is still there for the take that
+ *    commits.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { ChooseIteration } from "../components/ChooseIteration";
 import { ContainerPicker, type PickedContainer } from "../components/ContainerPicker";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { PathBar } from "../components/PathBar";
@@ -44,9 +64,16 @@ import {
   type MovementResponse,
   type PartRead,
 } from "../lib/api/client";
+import { netQtyMilli } from "../lib/cart/cart";
+import { describeTarget, takeActionLabel } from "../lib/cart/describe";
+import { carts } from "../lib/cart/registry";
+import { useCartLines } from "../lib/cart/useCart";
 import { formatDelta, formatQty, formatTimestamp } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { ALL_STORAGE } from "../lib/locations/trail";
+import { useFocusedTarget } from "../lib/projectcontext/hooks";
+import { openTargets } from "../lib/projectcontext/store";
+import type { WorkTarget } from "../lib/projectcontext/target";
 import { scanSession, uuid4 } from "../lib/scan/session";
 import { offersUndo, undoSecondsLeft, UNDO_WINDOW_MS } from "../lib/stock/undo";
 
@@ -59,6 +86,21 @@ interface Committed {
   readonly at: number;
   readonly response: MovementResponse;
   readonly undoable: boolean;
+}
+
+/**
+ * A take that went into a record instead of the ledger.
+ *
+ * `lineId` is `null` when the addition cancelled a row out exactly — "I put back
+ * the four I had just taken" — which is a legitimate outcome with nothing left to
+ * point at.
+ */
+interface Staged {
+  readonly target: WorkTarget;
+  readonly direction: Direction;
+  readonly qtyMilli: number;
+  readonly lineId: string | null;
+  readonly at: number;
 }
 
 export function LotScreen() {
@@ -111,8 +153,27 @@ function TakeReturn({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [committed, setCommitted] = useState<Committed | null>(null);
+  const [staged, setStaged] = useState<Staged | null>(null);
   const [undone, setUndone] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  /** Bumped whenever a movement is recorded; see `QuantityPad`'s `entryKey`. */
+  const [entryKey, setEntryKey] = useState(0);
+  /** Up while the iteration question is being asked — ADR 0011. */
+  const [choosing, setChoosing] = useState(false);
+
+  /**
+   * The tab this take will be attributed to, or `null` for "nothing is open".
+   *
+   * Read on every render rather than captured, so a tab opened or focused in the
+   * panel while this screen is up changes what the button says and does — the
+   * alternative is a control that names a target that stopped being the focused
+   * one, which is the one thing ADR 0010 forbids outright.
+   */
+  const focused = useFocusedTarget();
+  const cart = focused === null ? null : carts.for(focused);
+  const lines = useCartLines(cart);
+  /** What this record already says about *this* lot, netted. Signed. */
+  const inRecordMilli = netQtyMilli(lines.filter((line) => line.lotId === lot.id));
 
   /**
    * The key for the movement about to be committed.
@@ -122,6 +183,26 @@ function TakeReturn({
    * a pasted link, where the tap *is* the scan.
    */
   const opIdRef = useRef<string>(scanSession.current()?.clientOpId ?? uuid4());
+
+  /**
+   * Put the real name on anything taken before the part had loaded.
+   *
+   * The lot resolves before the part does, and the take control is live in
+   * between — deliberately, because a bench screen that makes you wait to say you
+   * picked something up is the wrong trade. So the row captures `Lot 7`, and this
+   * corrects it the moment the name exists. Display only: `relabel` does not
+   * re-key the row.
+   *
+   * The focused cart only. A take can only have landed in the cart that was
+   * focused when the button was pressed, and the sub-second window in which that
+   * take was captured nameless is not one a tab switch fits inside.
+   */
+  useEffect(() => {
+    if (cart === null || part === null) {
+      return;
+    }
+    cart.relabel(part.id, { partName: part.name, mpn: part.mpn ?? null });
+  }, [cart, part]);
 
   // Drives the countdown, and only while there is one to draw.
   const counting = committed !== null && committed.undoable && !undone;
@@ -136,13 +217,14 @@ function TakeReturn({
   const elapsed = committed === null ? 0 : now - committed.at;
   const undoOpen = counting && elapsed < UNDO_WINDOW_MS;
 
-  const commit = useCallback(async () => {
+  const commitToLedger = useCallback(async () => {
     if (qtyMilli <= 0) {
       return;
     }
     setBusy(true);
     setError(null);
     setUndone(false);
+    setStaged(null);
     // Duplicate scans during an in-flight commit are dropped by the same debounce
     // as the decoder — the scanner must not queue a second movement behind this.
     scanSession.beginCommit();
@@ -160,6 +242,7 @@ function TakeReturn({
         undoable: offersUndo(response),
       });
       setNow(Date.now());
+      setEntryKey((key) => key + 1);
       // Spent. The next movement gets its own key.
       scanSession.spend();
       opIdRef.current = uuid4();
@@ -171,6 +254,72 @@ function TakeReturn({
       setBusy(false);
     }
   }, [direction, lot.id, onCommitted, qtyMilli]);
+
+  /**
+   * The other half: put this into the focused target's record and write nothing.
+   *
+   * No `scanSession.beginCommit()`/`spend()` here, and that is the point of rule 4
+   * in the module comment — no request is made, so there is no key to spend and no
+   * commit for the scanner debounce to protect. The line carries its own key,
+   * minted by `add`, and a second take of this same bin nets into the same row with
+   * a *fresh* key rather than reusing the one the server may already have seen.
+   */
+  const addToRecord = useCallback(
+    (target: WorkTarget) => {
+    if (qtyMilli <= 0) {
+      return;
+    }
+    setError(null);
+    setCommitted(null);
+    const line = carts.for(target).add({
+      partId: lot.part_id,
+      partName: part?.name ?? `Lot ${lot.id}`,
+      mpn: part?.mpn ?? null,
+      qtyMilli,
+      lotId: lot.id,
+      locationId: lot.location_id,
+      locationLabel: lot.location_label_path ?? null,
+      direction,
+    });
+    setStaged({
+      target,
+      direction,
+      qtyMilli,
+      lineId: line?.id ?? null,
+      at: Date.now(),
+    });
+    setEntryKey((key) => key + 1);
+    },
+    [direction, lot, part, qtyMilli],
+  );
+
+  /**
+   * Take back the line that was just added.
+   *
+   * Adding the opposite direction rather than deleting the row: the row may have
+   * existed before this screen touched it, in which case removing it would throw
+   * away an earlier take as well. The netting in `add` is the same arithmetic
+   * either way, so this restores exactly the state before the press — and if the
+   * row only existed because of that press, netting to zero removes it.
+   */
+  const undoStaged = useCallback(() => {
+    if (staged === null) {
+      return;
+    }
+    // The cart it went into, which after an iteration was chosen is not
+    // necessarily the one focused when the button was pressed.
+    carts.for(staged.target).add({
+      partId: lot.part_id,
+      partName: part?.name ?? `Lot ${lot.id}`,
+      mpn: part?.mpn ?? null,
+      qtyMilli: staged.qtyMilli,
+      lotId: lot.id,
+      locationId: lot.location_id,
+      locationLabel: lot.location_label_path ?? null,
+      direction: staged.direction === "take" ? "return" : "take",
+    });
+    setStaged(null);
+  }, [lot, part, staged]);
 
   const undo = useCallback(async () => {
     if (committed === null) {
@@ -197,6 +346,14 @@ function TakeReturn({
 
   const onHand = lot.qty_milli;
   const projected = direction === "take" ? onHand - qtyMilli : onHand + qtyMilli;
+  /**
+   * What the button says, and it says the target.
+   *
+   * ADR 0010: *"a take must never be attributable to a target the user cannot see
+   * named at the moment they press the button"*. With nothing open the label is
+   * exactly what it always was.
+   */
+  const actionLabel = takeActionLabel(focused, direction, formatQty(qtyMilli));
   const mpn = part?.mpn ?? null;
   const batch = lot.batch_code ?? null;
 
@@ -263,20 +420,66 @@ function TakeReturn({
         </button>
       </div>
 
+      {focused !== null && (
+        <Notice kind="info" title={`Working on ${describeTarget(focused)}`}>
+          <p style={{ margin: 0 }}>
+            {focused.kind === "project"
+              ? "That is the design, so this will ask which iteration the parts are for. Nothing is written to the ledger until you commit that tab."
+              : "This goes into that record — nothing is written to the ledger until you commit it."}
+            {focused.kind === "build" &&
+              inRecordMilli !== 0 &&
+              ` It already holds ${formatQty(Math.abs(inRecordMilli))} of this lot${
+                inRecordMilli < 0 ? ", going back" : ""
+              }.`}
+          </p>
+        </Notice>
+      )}
+
+      {choosing && focused !== null && focused.kind === "project" && (
+        <ChooseIteration
+          project={focused}
+          onCancel={() => {
+            setChoosing(false);
+          }}
+          onPick={(target) => {
+            // Opened *and* focused, so the strip immediately tells the truth
+            // about where the next take on this screen will go.
+            openTargets.openTarget(target);
+            addToRecord(target);
+            setChoosing(false);
+          }}
+        />
+      )}
+
       <div className="card">
         <QuantityPad
           valueMilli={qtyMilli}
           onChange={setQtyMilli}
-          caption={`${direction === "take" ? "taking" : "returning"} — leaves ${formatQty(projected)}`}
+          caption={
+            focused === null
+              ? `${direction === "take" ? "taking" : "returning"} — leaves ${formatQty(projected)}`
+              : focused.kind === "project"
+                ? `${direction === "take" ? "taking" : "putting back"} — for an iteration of ${describeTarget(focused)}`
+                : `${direction === "take" ? "taking" : "putting back"} — for ${describeTarget(focused)}`
+          }
           disabled={busy}
+          entryKey={entryKey}
         />
       </div>
 
-      {projected < 0 && (
+      {focused === null && projected < 0 && (
         <Notice kind="warn">
           That takes the balance below zero. It is recorded anyway — a negative
           balance is a bookkeeping error to be reconciled, not a reason to refuse
           something that physically happened.
+        </Notice>
+      )}
+
+      {focused !== null && focused.kind === "build" && direction === "take" && inRecordMilli + qtyMilli > onHand && (
+        <Notice kind="warn">
+          That is more than this lot holds. It goes into the record anyway — the
+          record is what you say you did — but the line will be refused when the
+          record is committed unless the stock is there by then.
         </Notice>
       )}
 
@@ -286,14 +489,25 @@ function TakeReturn({
         <button
           type="button"
           className="primary wide tall"
-          onClick={() => void commit()}
+          onClick={() => {
+            if (focused === null) {
+              void commitToLedger();
+            } else if (focused.kind === "project") {
+              // A design is not somewhere to put parts. Ask which iteration.
+              setChoosing(true);
+            } else {
+              addToRecord(focused);
+            }
+          }}
           disabled={busy || qtyMilli <= 0}
         >
-          {busy
-            ? "Recording…"
-            : `${direction === "take" ? "Take" : "Return"} ${formatQty(qtyMilli)}`}
+          {busy ? "Recording…" : actionLabel}
         </button>
       </div>
+
+      {staged !== null && (
+        <StagedOutcome staged={staged} netMilli={inRecordMilli} onUndo={undoStaged} />
+      )}
 
       {committed !== null && (
         <CommitOutcome
@@ -309,6 +523,45 @@ function TakeReturn({
       <MoveLot lot={lot} onMoved={onCommitted} />
 
       <LotHistory lotId={lot.id} refreshKey={committed?.at ?? 0} undone={undone} />
+    </div>
+  );
+}
+
+/**
+ * What just went into a record — and the free undo that comes with it.
+ *
+ * ADR 0010 names this as the compensating gain for the fidelity the deferred write
+ * costs: undoing an *uncommitted* line writes nothing and reverses nothing, so it
+ * needs no eight-second window and no compensating ledger row. There is
+ * deliberately no countdown here for that reason.
+ */
+function StagedOutcome({
+  staged,
+  netMilli,
+  onUndo,
+}: {
+  staged: Staged;
+  netMilli: number;
+  onUndo: () => void;
+}) {
+  const verb = staged.direction === "take" ? "Took" : "Put back";
+  return (
+    <div className="undo-bar" role="status">
+      <div style={{ flex: 1 }}>
+        <strong>
+          {verb} {formatQty(staged.qtyMilli)} for {describeTarget(staged.target)}
+        </strong>
+        <div className="muted-note">
+          {netMilli === 0
+            ? "That record now says nothing about this lot. Nothing has been written."
+            : `${formatQty(Math.abs(netMilli))} of this lot in that record${
+                netMilli < 0 ? ", going back" : ""
+              }. Nothing has been written to the ledger.`}
+        </div>
+      </div>
+      <button type="button" onClick={onUndo}>
+        Undo
+      </button>
     </div>
   );
 }

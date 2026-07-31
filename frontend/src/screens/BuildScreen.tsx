@@ -31,6 +31,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { GuidedPickStop } from "../components/GuidedPick";
 import { HandoffQr } from "../components/HandoffQr";
+import { OpenTargetButton } from "../components/OpenTargetButton";
 import { PathBar } from "../components/PathBar";
 import {
   allocateStock,
@@ -178,6 +179,16 @@ function Build({ build, onChanged }: { build: BuildRead; onChanged: () => void }
         </p>
         {build.notes !== null && <p style={{ margin: 0 }}>{build.notes}</p>}
         <div className="row">
+          {/* ADR 0010: a build is a tab in its own right — "kitting rev C" is a
+              build, not a project — and opening it here is what aims every later
+              take at it. */}
+          <OpenTargetButton
+            target={{
+              kind: "build",
+              buildId: build.id,
+              label: `Build #${build.build_no}${build.label === null ? "" : ` — ${build.label}`}`,
+            }}
+          />
           <button type="button" onClick={() => setEditing(!editing)}>
             {editing ? "Cancel" : "Edit"}
           </button>
@@ -911,6 +922,7 @@ function PickListView({ build }: { build: BuildRead }) {
               key={stop.location_id}
               stop={stop}
               index={index + 1}
+              buildId={build.id}
               onPicked={() => plan.reload()}
             />
           ))}

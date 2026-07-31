@@ -17,6 +17,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { OpenTargetButton } from "../components/OpenTargetButton";
 import { PathBar } from "../components/PathBar";
 import {
   createBuild,
@@ -98,6 +99,11 @@ function ProjectDetail({
         <div className="row">
           <Link to={`/projects/${project.id}/bom`}>Bill of materials →</Link>
           <span className="spacer" />
+          {/* ADR 0010: opening this as a tab is what makes every later take
+              attribute to it, so the gesture belongs on the thing itself. */}
+          <OpenTargetButton
+            target={{ kind: "project", projectId: project.id, label: project.name }}
+          />
           <button type="button" onClick={() => setEditing(!editing)}>
             {editing ? "Cancel" : "Edit"}
           </button>

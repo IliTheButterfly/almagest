@@ -26,6 +26,14 @@
  * is rendered as unavailable with the reason, never as a button that does nothing.
  * Overstating what the hardware can do is the specific failure CLAUDE.md's
  * "honest capability limits" section is about.
+ *
+ * **A picked take stages; it does not consume.** ADR 0011: a take is a
+ * *withdrawal*, and the honest record of parts that have physically left a drawer
+ * is a ledger move into the build's staging location. Consuming here would claim
+ * they had been soldered down the moment they were picked up, and reserving them
+ * would leave `stock_lots.qty_milli_cached` insisting they are still in the
+ * drawer — the exact lie ADR 0004's staging location exists to prevent. What is
+ * built in gets recorded later, from the build screen.
  */
 
 import { useState } from "react";
@@ -34,7 +42,7 @@ import { Link } from "react-router-dom";
 import { ConfirmScan, type ScanVerdict } from "./ConfirmScan";
 import { ErrorBanner, Notice } from "./Feedback";
 import { QuantityPad } from "./Quantity";
-import { consumeLot, type PickStopRead, type PickTakeRead } from "../lib/api/client";
+import { stageStock, type PickStopRead, type PickTakeRead } from "../lib/api/client";
 import { formatQty } from "../lib/format";
 import { uuid4 } from "../lib/scan/session";
 import type { TagSource } from "../lib/tags/source";
@@ -65,11 +73,14 @@ interface TakeState {
 export function GuidedPickStop({
   stop,
   index,
+  buildId,
   source,
   onPicked,
 }: {
   stop: PickStopRead;
   index: number;
+  /** Whose staging location the picked parts move into. */
+  buildId: number;
   /** Injected by tests; production uses every reader at once. */
   source?: TagSource;
   onPicked?: () => void;
@@ -100,6 +111,7 @@ export function GuidedPickStop({
             <TakeRow
               key={`${take.lot_id}-${take.bom_line_id ?? "none"}-${take.part_id}`}
               take={take}
+              buildId={buildId}
               open={open}
               confirmed={confirmed}
               {...(onPicked === undefined ? {} : { onPicked })}
@@ -141,11 +153,13 @@ export function GuidedPickStop({
 
 function TakeRow({
   take,
+  buildId,
   open,
   confirmed,
   onPicked,
 }: {
   take: PickTakeRead;
+  buildId: number;
   /** Whether this stop is being worked, as opposed to read on the way past. */
   open: boolean;
   confirmed: boolean;
@@ -162,13 +176,14 @@ function TakeRow({
   async function record(): Promise<void> {
     setState((previous) => ({ ...previous, busy: true, error: null }));
     try {
-      await consumeLot(take.lot_id, {
+      await stageStock(buildId, {
+        lot_id: take.lot_id,
         qty_milli: state.qtyMilli,
+        ...(take.bom_line_id === null ? {} : { bom_line_id: take.bom_line_id }),
         // Minted per take and never reused: a key is spent on use, and replaying
         // one returns the first take's numbers while looking like a second
         // successful take — which silently loses stock.
         client_op_id: uuid4(),
-        source: "scan",
       });
       setState((previous) => ({ ...previous, busy: false, tookMilli: previous.qtyMilli }));
       onPicked?.();
@@ -245,10 +260,10 @@ function TakeRow({
         >
           <p style={{ margin: 0 }}>
             {short
-              ? "The build is still short by the difference; the shortage list will show it."
+              ? "Staged for this build; it is still short by the difference, and the shortage list will show it."
               : over
-                ? "Recorded as taken. Return the surplus if it was a miscount."
-                : "Exactly what the list asked for."}
+                ? "Staged for this build. Unstage the surplus if it was a miscount."
+                : "Exactly what the list asked for, staged for this build."}
           </p>
         </Notice>
       )}
