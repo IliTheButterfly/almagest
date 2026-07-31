@@ -2158,6 +2158,9 @@ button.tall {
 .viewfinder {
   position: relative;
   width: 100%;
+
+  /* Kept in step with `VIEWFINDER_ASPECT` in `lib/scan/roi.ts`, which needs it
+   * to place the ROI overlay over a `cover`-cropped preview. */
   aspect-ratio: 4 / 3;
   background: #000;
   border: 1px solid var(--line-strong);
@@ -2171,14 +2174,57 @@ button.tall {
   object-fit: cover;
 }
 
-/* Mirrors the centre-ROI crop the decoder actually reads, so the user aims at
- * the region being decoded rather than at the whole frame. */
+/* Mirrors the centre-ROI crop the cheap decode pass reads, so the user aims at
+ * the region being decoded rather than at the whole frame. `inset` is set
+ * inline from `roiOverlayInset()` rather than here: the video is `object-fit:
+ * cover`, so the mapping from the decoder's crop of the frame to a rectangle on
+ * this box depends on the resolution the camera granted. The value here is only
+ * the fallback for a frame whose dimensions are not known yet. Keep
+ * `aspect-ratio` in step with `VIEWFINDER_ASPECT` in `lib/scan/roi.ts`. */
 .viewfinder .roi {
   position: absolute;
   inset: 20%;
   border: 2px solid var(--identity-a);
   border-radius: 6px;
   pointer-events: none;
+}
+
+/* The escalation ladder has fallen back to the full frame, so the box no longer
+ * bounds what is being read. Dashed rather than hidden — it is still the region
+ * that decodes fastest, so it is worth aiming at, just no longer a boundary.
+ * The caption in `.status` says so in words; the border is never the only
+ * signal. */
+.viewfinder .roi.is-advisory {
+  border-style: dashed;
+  opacity: 0.55;
+}
+
+/* Camera diagnostics and the two tuning knobs a phone actually exposes. Wraps
+ * because on a narrow screen the zoom slider needs the whole line. */
+.camera-tuning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.camera-tuning-readout {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.camera-tuning-zoom {
+  display: flex;
+  flex: 1 1 12rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.camera-tuning-zoom input {
+  flex: 1 1 auto;
+  min-width: 6rem;
 }
 
 .viewfinder .status {
