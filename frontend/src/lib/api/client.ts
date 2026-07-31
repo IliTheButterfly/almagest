@@ -55,6 +55,47 @@ export type TemplateFacets = Schemas["TemplateFacets"];
 export type ChoiceFacet = Schemas["ChoiceFacet"];
 export type NumericRange = Schemas["NumericRange"];
 
+// --- authoring a part type: the kind, the category, and the fields you
+// filter on. Three tables, and the UI has to keep them apart: a *kind* is what
+// something fundamentally is, a *category* is where it sits in the taxonomy and
+// is the only one of the two that carries fields
+// (`parameter_template.applies_to_category`).
+export type PartKindRead = Schemas["PartKindRead"];
+export type PartKindCreate = Schemas["PartKindCreate"];
+export type PartKindCreated = Schemas["PartKindCreated"];
+export type PartCategoryRead = Schemas["PartCategoryRead"];
+export type PartCategoryCreate = Schemas["PartCategoryCreate"];
+export type PartCategoryCreated = Schemas["PartCategoryCreated"];
+export type PartCategoryMove = Schemas["PartCategoryMove"];
+export type PartCategoryEdited = Schemas["PartCategoryEdited"];
+export type ParameterFieldRead = Schemas["ParameterFieldRead"];
+export type ParameterFieldCreate = Schemas["ParameterFieldCreate"];
+export type ParameterFieldCreated = Schemas["ParameterFieldCreated"];
+export type ParameterFieldUpdate = Schemas["ParameterFieldUpdate"];
+export type ParameterFieldEdited = Schemas["ParameterFieldEdited"];
+export type ParameterFieldDeleted = Schemas["ParameterFieldDeleted"];
+export type ChoiceAdd = Schemas["ChoiceAdd"];
+export type ChoiceDeleted = Schemas["ChoiceDeleted"];
+export type ParameterChoiceRead = Schemas["ParameterChoiceRead"];
+export type ChoiceIn = Schemas["ChoiceIn"];
+/** One pickable physical quantity for a numeric field's `base_unit`. */
+export type BaseUnitOption = Schemas["BaseUnitOption"];
+export type NameConflictPolicy = Schemas["NameConflictPolicy"];
+/** A physical quantity a numeric field may be measured in — shipped or this
+ * install's own. `custom` is the only difference the UI has to care about. */
+export type QuantityRead = Schemas["QuantityRead"];
+export type QuantityCreate = Schemas["QuantityCreate"];
+export type QuantityCreated = Schemas["QuantityCreated"];
+export type QuantityDeleted = Schemas["QuantityDeleted"];
+/** One field a part could have a value for, plus the value it has. */
+export type PartParameterRead = Schemas["PartParameterRead"];
+export type PartParametersResponse = Schemas["PartParametersResponse"];
+export type PartParameterWrite = Schemas["PartParameterWrite"];
+export type PartParameterWritten = Schemas["PartParameterWritten"];
+export type PartParameterCleared = Schemas["PartParameterCleared"];
+export type SubstitutionDirection = Schemas["SubstitutionDirection"];
+export type ValueType = Schemas["ValueType"];
+
 export type PartRead = Schemas["PartRead"];
 export type PartCreate = Schemas["PartCreate"];
 export type PartCreated = Schemas["PartCreated"];
@@ -322,6 +363,307 @@ export async function listPartCategories(): Promise<CategoryNode[]> {
   const { data, error, response } = await api.GET("/api/part-categories", {});
   if (error !== undefined) {
     fail("could not load the categories", error, response);
+  }
+  return data;
+}
+
+// -------------------------------------------------- authoring a part type ----
+// Until these routes landed every kind, category and filterable field came out
+// of a migration, so "capacitors also have an ESR" was a code change.
+
+/** Every part kind, in the order a picker should offer them. */
+export async function listPartKinds(): Promise<PartKindRead[]> {
+  const { data, error, response } = await api.GET("/api/part-kinds", {});
+  if (error !== undefined) {
+    fail("could not load the part kinds", error, response);
+  }
+  return data;
+}
+
+/**
+ * Author a kind — what something fundamentally *is*.
+ *
+ * A kind carries **no** fields. Its `slug` is what `part_kind=` takes in a search
+ * request and therefore in every shared search URL, which is why the API has no
+ * way to change it later.
+ */
+export async function createPartKind(request: PartKindCreate): Promise<PartKindCreated> {
+  const { data, error, response } = await api.POST("/api/part-kinds", { body: request });
+  if (error !== undefined) {
+    fail("could not create that part kind", error, response);
+  }
+  return data;
+}
+
+/**
+ * Author a category — the node that *carries* the filterable fields, and the one
+ * to reach for when the user wants somewhere to put an "ESR".
+ *
+ * The path cache is rebuilt server-side before the response, so a field authored
+ * on an ancestor is inherited by this category on the very next request.
+ */
+export async function createPartCategory(
+  request: PartCategoryCreate,
+): Promise<PartCategoryCreated> {
+  const { data, error, response } = await api.POST("/api/part-categories", { body: request });
+  if (error !== undefined) {
+    fail("could not create that category", error, response);
+  }
+  return data;
+}
+
+/**
+ * Reparent a category, subtree and all.
+ *
+ * Exposed because the create form's parent is a *choice*, and a choice made wrong
+ * needs an undo that is not "delete it and lose the fields hanging off it". An
+ * explicit null promotes the category to the top level, which is a real edit and
+ * not a no-op. A move that would make a category its own ancestor is refused
+ * server-side as `would_create_cycle`, walked over `parent_id` rather than the
+ * path cache — a cycle admitted through a stale cache makes the rebuild recurse
+ * forever.
+ */
+export async function movePartCategory(
+  categoryId: number,
+  request: PartCategoryMove,
+): Promise<PartCategoryEdited> {
+  const { data, error, response } = await api.POST("/api/part-categories/{category_id}/move", {
+    params: { path: { category_id: categoryId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not move that category", error, response);
+  }
+  return data;
+}
+
+/**
+ * The fields offered on a category: the ones authored on it, the ones authored on
+ * any **ancestor** of it, and the global ones. `inherited` says which, because
+ * editing an inherited field affects every sibling category too.
+ */
+export async function listParameterFields(category?: string): Promise<ParameterFieldRead[]> {
+  const { data, error, response } = await api.GET("/api/parameter-fields", {
+    params: { query: category === undefined || category === "" ? {} : { category } },
+  });
+  if (error !== undefined) {
+    fail("could not load the fields", error, response);
+  }
+  return data;
+}
+
+/**
+ * The fields this part could have a value for, and the values it has.
+ *
+ * Fields with no value come back too, which is what makes this an editor rather
+ * than a display: a field you cannot see is a field you will not fill in. Which
+ * fields apply is decided by the part's category — the same resolution the filter
+ * panel uses — so a part filed nowhere gets only the fields every part has.
+ */
+export async function listPartParameters(partId: number): Promise<PartParametersResponse> {
+  const { data, error, response } = await api.GET("/api/parts/{part_id}/parameters", {
+    params: { path: { part_id: partId } },
+  });
+  if (error !== undefined) {
+    fail("could not load this part's fields", error, response);
+  }
+  return data;
+}
+
+/**
+ * Set one field's value.
+ *
+ * One field per request on purpose: the refusals here are the valuable kind — `1M`
+ * under capacitance is physically absurd and the parser says so — and a message
+ * about one value belongs against the box that caused it, not in a partial-success
+ * report about six.
+ */
+export async function setPartParameter(
+  partId: number,
+  name: string,
+  request: PartParameterWrite,
+): Promise<PartParameterWritten> {
+  const { data, error, response } = await api.PUT("/api/parts/{part_id}/parameters/{name}", {
+    params: { path: { part_id: partId, name } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("that value was not saved", error, response);
+  }
+  return data;
+}
+
+/** Remove this part's value for one field. The row goes, not just its contents. */
+export async function clearPartParameter(
+  partId: number,
+  name: string,
+): Promise<PartParameterCleared> {
+  const { data, error, response } = await api.DELETE("/api/parts/{part_id}/parameters/{name}", {
+    params: { path: { part_id: partId, name } },
+  });
+  if (error !== undefined) {
+    fail("that value was not cleared", error, response);
+  }
+  return data;
+}
+
+/**
+ * Every quantity a numeric field may be measured in, shipped and custom together.
+ *
+ * The same list the field form's unit select is built from, with `custom` and a
+ * `field_count` the shipped ones do not need — a shipped quantity cannot be
+ * deleted, and neither can a custom one that fields are already using.
+ */
+export async function listParameterQuantities(): Promise<QuantityRead[]> {
+  const { data, error, response } = await api.GET("/api/parameter-quantities", {});
+  if (error !== undefined) {
+    fail("could not load the units", error, response);
+  }
+  return data;
+}
+
+/**
+ * Define a quantity of this install's own.
+ *
+ * The name cannot be one the parser already answers to, alias included: every
+ * value already stored was parsed under the shipped definition of its quantity, so
+ * redefining `farad` would change what those numbers mean without touching a row.
+ * The symbol is validated by actually parsing a value with it, because a symbol the
+ * grammar cannot read would make every value of every field using it unfilterable —
+ * silently, and only discovered by the person entering the first one.
+ */
+export async function createParameterQuantity(
+  request: QuantityCreate,
+): Promise<QuantityCreated> {
+  const { data, error, response } = await api.POST("/api/parameter-quantities", {
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not create that unit", error, response);
+  }
+  return data;
+}
+
+/** Remove a definition. Refused while any field is measured in it. */
+export async function deleteParameterQuantity(quantityId: number): Promise<QuantityDeleted> {
+  const { data, error, response } = await api.DELETE("/api/parameter-quantities/{quantity_id}", {
+    params: { path: { quantity_id: quantityId } },
+  });
+  if (error !== undefined) {
+    fail("could not delete that unit", error, response);
+  }
+  return data;
+}
+
+/**
+ * Every quantity a numeric field's `base_unit` may name.
+ *
+ * Served rather than hardcoded: the parser owns the list, so a quantity added to
+ * the library becomes authorable without a second edit here. These are quantity
+ * *names* — `ohm`, not `ohms` and not `Ω`.
+ */
+export async function listBaseUnits(): Promise<BaseUnitOption[]> {
+  const { data, error, response } = await api.GET("/api/parameter-fields/base-units", {});
+  if (error !== undefined) {
+    fail("could not load the units", error, response);
+  }
+  return data;
+}
+
+/**
+ * Author one filterable field, options and all, in one request.
+ *
+ * One request rather than two because a list field with no options matches
+ * nothing while looking like a working filter — the API refuses `value_type:
+ * "enum"` with an empty `choices` for exactly that reason.
+ *
+ * `name` is globally unique, so a collision is a real decision and
+ * `on_name_conflict` is how the caller makes it: `fail` hands the existing field
+ * back in the 409 so the UI can offer it, `reuse` adopts it, `namespace` files a
+ * separate `<category>.<name>`.
+ */
+export async function createParameterField(
+  request: ParameterFieldCreate,
+): Promise<ParameterFieldCreated> {
+  const { data, error, response } = await api.POST("/api/parameter-fields", { body: request });
+  if (error !== undefined) {
+    fail("could not create that field", error, response);
+  }
+  return data;
+}
+
+/**
+ * Edit a definition. What the API refuses here is the point of the route:
+ * `value_type` and `base_unit` are frozen once any part holds a value, because
+ * every stored `value_min`/`value_max` was computed under the old quantity and
+ * would keep answering range queries in it, and all three identity columns are
+ * frozen on a seeded field. Everything else — the display name, the ordering, the
+ * plausibility window, the substitution rule — is editable at any time and cannot
+ * invalidate a stored value.
+ */
+export async function updateParameterField(
+  fieldId: number,
+  request: ParameterFieldUpdate,
+): Promise<ParameterFieldEdited> {
+  const { data, error, response } = await api.PATCH("/api/parameter-fields/{field_id}", {
+    params: { path: { field_id: fieldId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save that field", error, response);
+  }
+  return data;
+}
+
+/**
+ * Delete a definition.
+ *
+ * Refused with `field_in_use` while any part holds a value, and that refusal is
+ * the whole reason this goes through the API rather than a cascade: the FK is
+ * `ON DELETE CASCADE`, so an unguarded delete would take every stored value with
+ * it without asking.
+ */
+export async function deleteParameterField(fieldId: number): Promise<ParameterFieldDeleted> {
+  const { data, error, response } = await api.DELETE("/api/parameter-fields/{field_id}", {
+    params: { path: { field_id: fieldId } },
+  });
+  if (error !== undefined) {
+    fail("could not delete that field", error, response);
+  }
+  return data;
+}
+
+/** Add one option to an existing list field. Additive, so always safe. */
+export async function addParameterChoice(
+  fieldId: number,
+  request: ChoiceAdd,
+): Promise<ParameterFieldEdited> {
+  const { data, error, response } = await api.POST("/api/parameter-fields/{field_id}/choices", {
+    params: { path: { field_id: fieldId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not add that option", error, response);
+  }
+  return data;
+}
+
+/**
+ * Remove one option. Refused with `choice_in_use` while parts are filed under it
+ * — `parameter_value.choice_id` is `RESTRICT`, so without the guard the database
+ * says no as an `IntegrityError`, which reaches the user as a 500 with no number
+ * in it.
+ */
+export async function deleteParameterChoice(
+  fieldId: number,
+  choiceId: number,
+): Promise<ChoiceDeleted> {
+  const { data, error, response } = await api.DELETE(
+    "/api/parameter-fields/{field_id}/choices/{choice_id}",
+    { params: { path: { field_id: fieldId, choice_id: choiceId } } },
+  );
+  if (error !== undefined) {
+    fail("could not delete that option", error, response);
   }
   return data;
 }

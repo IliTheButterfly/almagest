@@ -624,10 +624,15 @@ textarea {
   border-radius: 8px;
 }
 
-input[type="checkbox"] {
+/* Radios were added with the part-type field form and had never existed here, so
+ * they were picking up the full-width text-input sizing above and rendering as a
+ * circle the size of a button. */
+input[type="checkbox"],
+input[type="radio"] {
   min-height: 0;
   width: 1.15rem;
   height: 1.15rem;
+  flex: none;
   accent-color: var(--accent-2);
 }
 
@@ -643,6 +648,36 @@ label.check {
   gap: 0.5rem;
   min-height: var(--touch);
   white-space: nowrap;
+}
+
+/*
+ * An option whose label is two lines: the answer, and why it is that answer —
+ * "a bigger number is always acceptable", then the rating it is true of.
+ *
+ * Its own shape rather than `label.check`, which is `nowrap` because a one-line
+ * switch should never wrap mid-sentence. Reusing it here put a whole explanation
+ * on one unbreakable line and gave the page a horizontal scrollbar.
+ */
+.choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+  min-height: var(--touch);
+}
+
+.choice > input {
+  margin-top: 0.4rem;
+}
+
+.choice .title,
+.choice .sub {
+  display: block;
+}
+
+.choice .sub {
+  font-size: 0.85rem;
+  color: var(--text-dim);
 }
 
 .field {

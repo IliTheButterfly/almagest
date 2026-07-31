@@ -21,6 +21,8 @@ import { useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { CategorySelect } from "../components/CategorySelect";
+import { PartKindPicker } from "../components/PartKindPicker";
 import {
   bindScanAlias,
   createPart,
@@ -266,6 +268,7 @@ function PendingRow({ entry }: { entry: PendingScan }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(entry.mpn ?? "");
   const [partKind, setPartKind] = useState("component");
+  const [categoryId, setCategoryId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [createdId, setCreatedId] = useState<number | null>(entry.partId);
@@ -278,6 +281,7 @@ function PendingRow({ entry }: { entry: PendingScan }) {
         name: name.trim() === "" ? entry.code.slice(0, 60) : name.trim(),
         part_kind: partKind.trim() === "" ? "component" : partKind.trim(),
         is_stub: true,
+        ...(categoryId === null ? {} : { category_id: categoryId }),
         ...(entry.mpn === null ? {} : { mpn: entry.mpn }),
         // The key from the original scan. Curating the same parked label twice must
         // not fork the catalogue.
@@ -346,14 +350,8 @@ function PendingRow({ entry }: { entry: PendingScan }) {
             <span>Name (the only required field)</span>
             <input value={name} onChange={(event) => setName(event.target.value)} />
           </label>
-          <label className="field">
-            <span>Part kind</span>
-            <input
-              value={partKind}
-              onChange={(event) => setPartKind(event.target.value)}
-              autoComplete="off"
-            />
-          </label>
+          <PartKindPicker value={partKind} onChange={setPartKind} />
+          <CategorySelect value={categoryId} onChange={setCategoryId} />
           <details>
             <summary>Raw payload</summary>
             <p className="muted-note mono" style={{ overflowWrap: "anywhere" }}>

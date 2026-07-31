@@ -26,6 +26,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { AssignStock } from "../components/AssignStock";
 import { CodeEntry } from "../components/CodeEntry";
 import { ErrorBanner, Notice } from "../components/Feedback";
+import { CategorySelect } from "../components/CategorySelect";
+import { PartKindPicker } from "../components/PartKindPicker";
 import { Viewfinder } from "../components/Viewfinder";
 import {
   bindScanAlias,
@@ -563,6 +565,7 @@ function BindOrCreate({
   const parsed = resolution.response.parsed ?? null;
   const [name, setName] = useState(parsed?.mpn ?? "");
   const [partKind, setPartKind] = useState("component");
+  const [categoryId, setCategoryId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [created, setCreated] = useState<{ id: number; name: string } | null>(null);
@@ -577,6 +580,10 @@ function BindOrCreate({
         name: name.trim() === "" ? resolution.code.slice(0, 60) : name.trim(),
         part_kind: partKind.trim() === "" ? "component" : partKind.trim(),
         is_stub: true,
+        // Filed now if the user knows where it goes. Optional on purpose: a scan
+        // that lands on an unknown label must not turn into a form somebody
+        // abandons, and a part can be filed later from its own screen.
+        ...(categoryId === null ? {} : { category_id: categoryId }),
         ...(parsed?.mpn === null || parsed?.mpn === undefined ? {} : { mpn: parsed.mpn }),
         // Reuse the key minted at scan time: a retried create must not fork the
         // catalogue into two rows for the same label.
@@ -675,15 +682,12 @@ function BindOrCreate({
         <span>Name (the only required field)</span>
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="what it is" />
       </label>
-      <label className="field">
-        <span>Part kind</span>
-        <input
-          value={partKind}
-          onChange={(event) => setPartKind(event.target.value)}
-          placeholder="component"
-          autoComplete="off"
-        />
-      </label>
+      <PartKindPicker value={partKind} onChange={setPartKind} />
+      <CategorySelect
+        value={categoryId}
+        onChange={setCategoryId}
+        hint="Optional, and changeable later — but it is what decides which fields this part can be filtered by."
+      />
       <button type="button" className="primary wide" onClick={() => void create()} disabled={busy}>
         {busy ? "Creating…" : "Create a stub part and bind this code"}
       </button>

@@ -101,6 +101,14 @@ function stubApi(): void {
           scan_event_id: 2,
         });
       }
+      // The kind control is a picker over the real kinds now, not a free-text box:
+      // an unrecognised kind is `unknown_part_kind` from `POST /api/parts`, which
+      // used to be a refusal discovered only after the form was filled in.
+      if (url.pathname === "/api/part-kinds") {
+        return json([
+          { id: 1, slug: "component", display_name: "Component", sort_order: 0, part_count: 4 },
+        ]);
+      }
       if (url.pathname === "/api/locations/suggest") {
         return json(SUGGESTION);
       }

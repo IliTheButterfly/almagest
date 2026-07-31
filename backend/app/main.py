@@ -8,6 +8,8 @@ repo splits safe, so operation ids must stay stable and readable.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
@@ -23,6 +25,11 @@ from app.api.routes import (
     labels,
     location_tags,
     locations,
+    parameter_fields,
+    parameter_quantities,
+    part_categories,
+    part_kinds,
+    part_parameters,
     parts,
     projects,
     provisioning,
@@ -34,6 +41,8 @@ from app.api.routes import (
     system,
 )
 from app.config import get_settings
+from app.db.session import get_session_factory
+from app.services.quantities import load_into_parser
 
 
 def _operation_id(route: APIRoute) -> str:
@@ -46,11 +55,40 @@ def _operation_id(route: APIRoute) -> str:
     return route.name
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Register this install's own quantities with the parser before serving.
+
+    `parameter_quantity` is the source of truth and the parser's registry is a
+    per-process view of it, so a process that skipped this would raise
+    `UnknownQuantityError` for every value of every field measured in a custom
+    unit. That is the designed failure — loud, and never a value read under a
+    different definition — but it is still a failure, so it happens here, once, at
+    startup, and the names are logged so "does this process know about `byte`" has
+    an answer in the log rather than in a debugger.
+
+    Any *other* process that parses values (the extraction worker of ADR 0005,
+    when it exists) has to do the same thing; that is a contract of
+    `app.services.quantities`, stated in its docstring.
+    """
+    with get_session_factory()() as session:
+        registered = load_into_parser(session)
+    if registered:
+        logging.getLogger(__name__).info(
+            "registered %d custom quantit%s: %s",
+            len(registered),
+            "y" if len(registered) == 1 else "ies",
+            ", ".join(registered),
+        )
+    yield
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level.upper())
 
     app = FastAPI(
+        lifespan=_lifespan,
         title="Almagest",
         version=__version__,
         summary="Self-hosted electronic-component inventory.",
@@ -96,6 +134,28 @@ def create_app() -> FastAPI:
     app.include_router(stock.router)
     app.include_router(facets.router)
     app.include_router(facets.categories_router)
+    # Authoring the things the facet panel is built from. Three routers, because
+    # "part type" names two different objects and only one of them owns fields:
+    # a *kind* is what something fundamentally is, a *category* is where it sits
+    # and what fields hang off it, and a *field* is one filterable attribute.
+    # `part_categories` rides the same prefix as `facets.categories_router` —
+    # that one is the read rail with its descendant counts, this one is the write
+    # half, the same split `documents.parts_router` makes.
+    app.include_router(part_kinds.router)
+    app.include_router(part_categories.router)
+    # Not `POST /api/parameter-templates`: that path is the facet *reader*, which
+    # has to be a POST because it carries the whole filter set in its body. See
+    # the module docstring.
+    app.include_router(parameter_fields.router)
+    # The quantities a numeric field may be measured in. Its own prefix rather than
+    # a sub-path of parameter-fields: a field belongs to a category, a quantity
+    # belongs to the install, and a dozen fields may share one.
+    app.include_router(parameter_quantities.router)
+    # A part's own field values — the door that let everything above be filled in
+    # by hand. Its own module rather than `parts`, because what it returns belongs
+    # to the field definitions rather than to the part row, the same split
+    # `documents.parts_router` makes.
+    app.include_router(part_parameters.router)
     app.include_router(projects.router)
     app.include_router(projects.builds_router)
     app.include_router(requirements.router)
