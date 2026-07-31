@@ -10,7 +10,7 @@
  */
 
 import { useSyncExternalStore } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useParams } from "react-router-dom";
 
 import { Logo } from "./components/Logo";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -25,7 +25,6 @@ import { ContainerTypeScreen } from "./screens/ContainerTypeScreen";
 import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
 import { DatasheetSearchScreen } from "./screens/DatasheetSearchScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
-import { LocationLayoutScreen } from "./screens/LocationLayoutScreen";
 import { LocationScreen } from "./screens/LocationScreen";
 import { LotScreen } from "./screens/LotScreen";
 import { NewContainersScreen } from "./screens/NewContainersScreen";
@@ -38,7 +37,19 @@ import { ProvisionScreen } from "./screens/ProvisionScreen";
 import { ReviewScreen } from "./screens/ReviewScreen";
 import { ScanScreen } from "./screens/ScanScreen";
 import { SearchScreen } from "./screens/SearchScreen";
+import { StagingScreen } from "./screens/StagingScreen";
 import { TreeScreen } from "./screens/TreeScreen";
+
+/**
+ * The old layout-editor URL, pointed at the panel it became.
+ *
+ * `replace` so Back goes where the user came from rather than bouncing through
+ * the dead route again.
+ */
+function LayoutRedirect() {
+  const { locationId } = useParams();
+  return <Navigate to={`/locations/${locationId ?? ""}?edit=1&panel=layout`} replace />;
+}
 
 function usePendingCount(): number {
   return useSyncExternalStore(
@@ -102,6 +113,10 @@ export function App() {
         <NavLink to="/projects">Projects</NavLink>
         <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
+        {/* Beside Intake on purpose: what intake could not place lands in the
+            inbox, and the tab that empties it has to be next to the tab that
+            fills it or nobody goes looking. */}
+        <NavLink to="/staging">Staging</NavLink>
         <NavLink to="/review">Review</NavLink>
       </nav>
 
@@ -116,6 +131,9 @@ export function App() {
           <Route path="/tree" element={<TreeScreen />} />
           <Route path="/scan" element={<ScanScreen />} />
           <Route path="/intake" element={<IntakeQueueScreen />} />
+          {/* Emptying the inbox. Not a scan target — reached from the tab, and from
+              intake once a part has been parked there. */}
+          <Route path="/staging" element={<StagingScreen />} />
           <Route path="/review" element={<ReviewScreen />} />
           {/* The `/s/{short_id}` redirect targets — these paths are physical. */}
           <Route path="/parts/:partId" element={<PartScreen />} />
@@ -129,11 +147,20 @@ export function App() {
           <Route path="/container-types" element={<ContainerTypesScreen />} />
           <Route path="/container-types/new" element={<NewContainerTypeScreen />} />
           <Route path="/container-types/:containerTypeId" element={<ContainerTypeScreen />} />
-          <Route path="/locations/:locationId/layout" element={<LocationLayoutScreen />} />
-          {/* Creating real containers out of a type. Deliberately **not** under
-              `/locations/...`: every path in that space is a `/s/{short_id}`
-              redirect target, and this one is reached from the tree, from a
-              container's own screen and from a type — never from a tag. */}
+          {/* Collapsed into the container's own page's edit mode — Iliana asked
+              to lose the page-per-editing-task. Kept as a redirect rather than
+              deleted: the link is in browser histories and in her notes, and
+              landing on "not found" would read as the feature having been
+              removed. `?panel=layout` opens the panel it used to be. */}
+          <Route path="/locations/:locationId/layout" element={<LayoutRedirect />} />
+          {/* Creating real containers out of a *type*, which is the one create
+              path that has no container page to live on: it is reached from the
+              type library and from a type's own page, which know what to stamp and
+              not where it goes, and from the empty tree, where no container exists
+              yet. Adding into a container you are looking at is that container's
+              own edit mode instead. Deliberately **not** under `/locations/...`:
+              every path in that space is a `/s/{short_id}` redirect target, and
+              this one is never reached from a tag. */}
           <Route path="/containers/new" element={<NewContainersScreen />} />
           {/* Projects, BOMs and builds — not a scan target; reached from the tab. */}
           <Route path="/projects" element={<ProjectsScreen />} />

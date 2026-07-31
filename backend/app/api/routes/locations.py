@@ -23,16 +23,34 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api import idempotency
-from app.api.limits import InstanceCount, MassMg, RowId
+from app.api.limits import (
+    PLAN_MAX_PLACEMENTS,
+    PLAN_MAX_POINTS,
+    PLAN_MAX_SHAPES,
+    PLAN_MIN_POINTS,
+    InstanceCount,
+    MassMg,
+    PlanCoordMm,
+    PlanExtentMm,
+    PlanRotationDeg,
+    RowId,
+)
 from app.api.routes.documents import DocumentRead, primary_photo
 from app.api.schemas import LotRead, ReplayableResponse, SlotSpecIn, lot_read
 from app.db.session import get_db
 from app.models.catalog import Packaging, Part
-from app.models.enums import CapacityModel, ChildView, ContainerGlyph, EntityType, TagGranularity
+from app.models.enums import (
+    CapacityModel,
+    ChildView,
+    ContainerGlyph,
+    EntityType,
+    PlanShapeKind,
+    TagGranularity,
+)
 from app.models.identity import ObjectId
 from app.models.stock import StockLot
 from app.models.storage import ContainerType, Location, LocationOccupancy, LocationTag
-from app.services import assignment, capacity, glyphs, shortid, views
+from app.services import assignment, capacity, glyphs, removal, room_plan, shortid, views
 from app.services import layout_authoring as layout
 from app.services.assignment import AssignmentResult
 from app.services.capacity import DefragPlan
@@ -67,6 +85,166 @@ class CapacityRead(BaseModel):
     is_full: bool
     is_overfull: bool
     unit: str
+
+
+# --- ADR 0009: drawn rooms and placed containers ---------------------------
+
+
+class PlanPoint(BaseModel):
+    """One vertex, in the room's own millimetres. Signed — see `PlanCoordMm`."""
+
+    x_mm: PlanCoordMm
+    y_mm: PlanCoordMm
+
+
+class PlanShapeIn(BaseModel):
+    """One drawn line as the editor sends it: a wall, a door, the bench.
+
+    **No `id`.** The whole plan is replaced on every save, so the client never
+    holds shape ids and redrawing a wall is not a diff. See
+    `app.services.room_plan.replace_shapes`.
+    """
+
+    kind: PlanShapeKind
+    points: list[PlanPoint] = Field(min_length=PLAN_MIN_POINTS, max_length=PLAN_MAX_POINTS)
+    label: str | None = Field(default=None, max_length=255)
+    is_closed: bool = False
+    thickness_mm: PlanExtentMm | None = Field(
+        default=None,
+        description=(
+            "Stroke width — a 100 mm stud wall is not a hairline. Null lets the "
+            "renderer pick a nominal width for the kind, which is honest: nobody "
+            "measures the thickness of a door swing."
+        ),
+    )
+
+
+class PlanShapeRead(BaseModel):
+    #: Assigned on save and **not stable across saves**, because a save replaces
+    #: the plan. Nothing references it: it is not a `short_id`, it is never
+    #: printed, and no tag carries one.
+    id: int
+    kind: str
+    points: list[PlanPoint]
+    label: str | None
+    is_closed: bool
+    thickness_mm: int | None
+    sort_order: int
+
+
+class PlacementIn(BaseModel):
+    """Drop one child at a coordinate in this room."""
+
+    location_id: RowId
+    x_mm: PlanCoordMm
+    y_mm: PlanCoordMm
+    rotation_deg: PlanRotationDeg = 0
+    width_mm: PlanExtentMm | None = Field(
+        default=None,
+        description=(
+            "The footprint as drawn, overriding the container type's physical "
+            "size. Null takes the type's, which is the common case."
+        ),
+    )
+    depth_mm: PlanExtentMm | None = None
+
+
+class PlacementRead(BaseModel):
+    location_id: int
+    #: The parent these coordinates belong to. Always equal to the location's
+    #: current `parent_id` — a placement authored against a different parent is
+    #: not reported at all, it is reported as unplaced (ADR 0009).
+    parent_id: int
+    x_mm: int
+    y_mm: int
+    rotation_deg: int
+    #: The drawn footprint, else the container type's, else null. Null means
+    #: "draw a nominal box" — **never zero**, which would draw nothing. This is
+    #: the pair to *draw*; it is not the pair to send back.
+    width_mm: int | None
+    depth_mm: int | None
+    #: What this placement itself says, with no fallback — null for "use the
+    #: container type's size". Reported beside the resolved pair for the same
+    #: reason ADR 0006 reports `child_view` beside `effective_child_view`: an
+    #: editor handed only the resolved number cannot tell an authored size from
+    #: an inherited one, so it sends the type's size back as an override and
+    #: silently freezes it. **This is the pair an editor round-trips.**
+    own_width_mm: int | None
+    own_depth_mm: int | None
+
+
+class PlanExtentRead(BaseModel):
+    """Bounding box of everything drawn and placed. Derived, never stored."""
+
+    min_x_mm: int
+    min_y_mm: int
+    max_x_mm: int
+    max_y_mm: int
+
+
+class RoomPlanRead(BaseModel):
+    """One room's drawing: its outline, its furniture, and where things stand.
+
+    The floor-plan counterpart of `LayoutRead`, and deliberately a separate
+    route from it: a slot canvas and a drawn room are different pictures with no
+    shared field, and merging them would give every client a response where half
+    the shape is always null.
+    """
+
+    location_id: RowId
+    shapes: list[PlanShapeRead]
+    placements: list[PlacementRead]
+    #: Children with no valid placement — added to the room and never dragged
+    #: anywhere, or dragged in a *different* room and moved here since. A real
+    #: state that the client renders as an unplaced tray, not an error and not a
+    #: container silently sitting at the origin.
+    unplaced_location_ids: list[int]
+    #: Null for a room with nothing drawn and nothing placed. Reportable because
+    #: a default canvas would make the client draw a box that is not there.
+    extent: PlanExtentRead | None
+
+
+class RoomPlanShapesUpdate(BaseModel):
+    """Replace this location's entire drawn plan.
+
+    **One request for the whole drawing**, not a shape at a time: a drawing
+    session ends with "this is the room now", and a stream of inserts and deletes
+    whose order matters cannot half-apply safely.
+    """
+
+    shapes: list[PlanShapeIn] = Field(max_length=PLAN_MAX_SHAPES)
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class RoomPlanShapesResponse(ReplayableResponse):
+    location_id: RowId
+    shapes: list[PlanShapeRead]
+    extent: PlanExtentRead | None
+
+
+class RoomPlacementsUpdate(BaseModel):
+    """Save where several children now stand, in **one** request.
+
+    Dragging five cabinets around and then saving is one write. Per-placement
+    routes would make a five-box rearrangement five requests that can partially
+    fail, leaving the room in a state nobody authored.
+    """
+
+    placements: list[PlacementIn] = Field(max_length=PLAN_MAX_PLACEMENTS)
+    #: Children to return to the unplaced tray. Separate from `placements`
+    #: because "not placed" is a real state and there is no coordinate that
+    #: expresses it — sending (0, 0) would put the box in a corner instead.
+    unplace_location_ids: list[RowId] = Field(default_factory=list, max_length=PLAN_MAX_PLACEMENTS)
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class RoomPlacementsResponse(ReplayableResponse):
+    location_id: RowId
+    placements: list[PlacementRead]
+    unplaced_location_ids: list[int]
+    extent: PlanExtentRead | None
 
 
 class LocationCreate(BaseModel):
@@ -165,6 +343,11 @@ class LocationRead(BaseModel):
     effective_photo: DocumentRead | None
     is_overfull: bool
     is_staging: bool
+    #: Where this container stands in its parent's floor plan (ADR 0009), or null
+    #: — which covers "never dragged anywhere", "moved to another room since it
+    #: was placed", and "this is a root". All three are drawn the same way,
+    #: because the fix for all three is the same gesture.
+    placement: PlacementRead | None
     access_score: float
     tare_mg: int | None
     short_id: str | None
@@ -176,6 +359,13 @@ class LocationRead(BaseModel):
     #: to the layout"). Set by `POST /api/labels/sheets`, never by anything in
     #: this module — a location cannot claim to be printed on its own say-so.
     last_printed_at: datetime | None
+    #: Set when this container was **removed but could not be deleted** — the
+    #: ledger, a printed label or a stuck-on tag names it, so the row and its
+    #: history stay while the container leaves the tree (`app.services.removal`).
+    #: Reported on the detail screen rather than hidden, because this screen is
+    #: where a tapped tag on a removed drawer lands, and "this is gone" has to be
+    #: something it can actually say. Null for every live container.
+    retired_at: datetime | None
 
 
 class LocationCreated(ReplayableResponse):
@@ -247,6 +437,11 @@ class LocationNode(BaseModel):
     fill_ratio: float | None
     lot_count: int
     qty_milli: int
+    #: Set for a container that was removed but could not be deleted — see
+    #: `LocationRead.retired_at`. **Always null unless `include_retired=true`**,
+    #: because a retired container is not part of the tree; the field exists so
+    #: the one view that asks for them can tell them apart from the living.
+    retired_at: datetime | None
 
 
 class LocationTree(BaseModel):
@@ -351,6 +546,89 @@ class AffectedSlotRead(BaseModel):
     reasons: list[str]
 
 
+# --- removing a container (app.services.removal) ---------------------------
+
+
+class RemovalBlockerRead(BaseModel):
+    """One thing standing in the way, and **what is inside it**.
+
+    `detail` carries the actual contents — "470 x C0603C104K (lot 12)" — because
+    a refusal that does not name what is in the drawer tells the user nothing
+    they can act on, and "constraint failed" is not an answer.
+    """
+
+    reason: str
+    location_id: RowId
+    label: str
+    label_path: str
+    detail: str
+
+
+class RemovalNodeRead(BaseModel):
+    """What removing this container would do to one node of its subtree."""
+
+    location_id: RowId
+    label: str
+    label_path: str
+    #: `delete` — the row goes — or `retire`: the row and its history stay, and
+    #: the container leaves the tree. Never anything else, and never guessed.
+    action: str
+    #: Why it cannot simply be deleted: `has_lots`, `in_ledger`, `printed`,
+    #: `bound_tag`, `pinned_by_child`. Empty exactly when `action == "delete"`.
+    pins: list[str]
+
+
+class RemovalPreview(BaseModel):
+    """A dry run of `DELETE /api/locations/{id}`, derived from the same plan.
+
+    The confirm dialog reads this rather than deciding for itself, so it cannot
+    promise an outcome the delete then refuses — and so the words "this cannot be
+    undone" are only ever shown when they are true.
+    """
+
+    location_id: RowId
+    removable: bool
+    #: Non-empty exactly when `removable` is false.
+    blockers: list[RemovalBlockerRead]
+    reason: str | None
+    message: str | None
+    nodes: list[RemovalNodeRead]
+    #: How many containers sit inside this one. Non-zero means `recursive` is
+    #: required, and the preview says which ones would go with it.
+    descendant_count: int
+
+
+class LocationRemoved(BaseModel):
+    """What actually happened, split by outcome rather than summarised.
+
+    Two lists rather than one count, because the two are different promises: a
+    deleted id is gone and a retired one is recoverable, and the UI has to be
+    able to say which without asking again.
+    """
+
+    location_id: RowId
+    deleted_location_ids: list[int]
+    retired_location_ids: list[int]
+    nodes: list[RemovalNodeRead]
+
+
+class LocationRestored(BaseModel):
+    """A retirement undone.
+
+    `restored_location_ids` covers the whole retired subtree: retiring a cabinet
+    retired its drawers, so restoring the cabinet alone would leave them
+    stranded, invisible, inside a visible container.
+    """
+
+    location_id: RowId
+    restored_location_ids: list[int]
+    #: True when the container came back without a position, which is the normal
+    #: outcome: retiring cleared its slot cell and its floor-plan coordinate, and
+    #: silently reclaiming a cell somebody has laid out since is exactly the
+    #: "redefine what a label already means" failure the layout guard prevents.
+    unplaced: bool
+
+
 class ReapplyLayoutRequest(BaseModel):
     """The complete desired layout for this location's own children — never a
     delta. See `app.services.layout_authoring.diff_instance_layout` for how a
@@ -397,6 +675,48 @@ class LayoutRead(BaseModel):
     grid_rows: int
     grid_cols: int
     slots: list[SlotStateRead]
+
+
+class LocationDetailsUpdate(BaseModel):
+    """What a person can rename or re-describe about a container, in place.
+
+    The write half of the storage screen's **edit mode**: name, description, and
+    the two tri-state flags that read as sentences on that panel. Its own narrow
+    route for the same reason `.../child-view` and `.../glyph` are — a general
+    `PATCH /api/locations/{id}` would put `parent_id`, `slot_label`, `row_idx`
+    and every other structural column on the wire as writable, and each of those
+    has a guarded path of its own (`.../reapply-layout`, `TreeRepository.move`)
+    that a free-for-all patch would let a client bypass.
+
+    **Every field is sent every time**, which is why this is a PUT: a panel with
+    a "Description" box in it that is now blank means "no description", and there
+    is no way to tell that from a PATCH that simply omitted the key.
+    """
+
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(
+        default=None, description="Null and empty both mean 'no description'."
+    )
+    esd_safe: bool | None = Field(
+        default=None,
+        description=(
+            "Null stops this container answering for itself and inherits from the "
+            "nearest ancestor that does — so sending null is a real edit."
+        ),
+    )
+    is_placeable: bool | None = Field(
+        default=None,
+        description="Null hands the answer back to the container type.",
+    )
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class LocationDetailsResponse(ReplayableResponse):
+    #: The whole container, re-read. A rename changes `label_path` here *and* on
+    #: every descendant, so returning the one row that was written would leave
+    #: the caller holding a stale path for everything under it.
+    location: LocationRead
 
 
 class LocationChildViewUpdate(BaseModel):
@@ -509,6 +829,33 @@ def _require_location(db: Session, location_id: RowId, *, label: str = "location
     return location
 
 
+def _require_live_parent(db: Session, location_id: RowId, *, label: str = "parent") -> Location:
+    """A container something may be created *inside*.
+
+    A retired parent is refused, because the tree read's own filter depends on it
+    never happening: `read_location_tree` drops a retired node per row and says
+    so on the grounds that "a retired node's descendants are retired too", which
+    `removal.restore` enforces from the other end. A live child under a retired
+    parent breaks that — the child comes back from `/tree` while its parent does
+    not, so `indexTree` re-roots it and it renders as a top-level container whose
+    `label_path` still names the cabinet somebody removed. Auto-assignment would
+    then propose it as somewhere to put stock.
+    """
+    parent = _require_location(db, location_id, label=label)
+    if parent.retired_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "reason": "parent_retired",
+                "message": (
+                    f"{parent.name} was removed from the storage tree, so nothing can be added"
+                    " inside it. Bring it back first."
+                ),
+            },
+        )
+    return parent
+
+
 def _check_grid_compatibility(
     db: Session, parent: Location | None, child_type: ContainerType | None
 ) -> None:
@@ -562,6 +909,68 @@ def _capacity_read(db: Session, location: Location) -> CapacityRead:
     )
 
 
+def _placement_read(placement: room_plan.Placement) -> PlacementRead:
+    return PlacementRead(
+        location_id=placement.location_id,
+        parent_id=placement.parent_id,
+        x_mm=placement.x_mm,
+        y_mm=placement.y_mm,
+        rotation_deg=placement.rotation_deg,
+        width_mm=placement.width_mm,
+        depth_mm=placement.depth_mm,
+        own_width_mm=placement.own_width_mm,
+        own_depth_mm=placement.own_depth_mm,
+    )
+
+
+def _extent_read(extent: room_plan.Extent | None) -> PlanExtentRead | None:
+    if extent is None:
+        return None
+    return PlanExtentRead(
+        min_x_mm=extent.min_x_mm,
+        min_y_mm=extent.min_y_mm,
+        max_x_mm=extent.max_x_mm,
+        max_y_mm=extent.max_y_mm,
+    )
+
+
+def _shape_read(shape: room_plan.Shape) -> PlanShapeRead:
+    return PlanShapeRead(
+        id=shape.id,
+        kind=shape.kind,
+        points=[PlanPoint(x_mm=point.x_mm, y_mm=point.y_mm) for point in shape.points],
+        label=shape.label,
+        is_closed=shape.is_closed,
+        thickness_mm=shape.thickness_mm,
+        sort_order=shape.sort_order,
+    )
+
+
+def _plan_read(db: Session, parent: Location) -> RoomPlanRead:
+    """Everything drawn on, and standing in, one location.
+
+    Placed and unplaced children are split here rather than left to the client,
+    because the split is exactly the `plan_parent_id == parent_id` rule and there
+    must be one implementation of it (`room_plan.placement_of`).
+    """
+    shapes = room_plan.shapes_of(db, parent)
+    placements: list[room_plan.Placement] = []
+    unplaced: list[int] = []
+    for child in room_plan.children_of(db, parent):
+        placement = room_plan.placement_of(db, child)
+        if placement is None:
+            unplaced.append(child.id)
+        else:
+            placements.append(placement)
+    return RoomPlanRead(
+        location_id=parent.id,
+        shapes=[_shape_read(shape) for shape in shapes],
+        placements=[_placement_read(placement) for placement in placements],
+        unplaced_location_ids=unplaced,
+        extent=_extent_read(room_plan.extent(shapes, placements)),
+    )
+
+
 def _read(db: Session, location: Location) -> LocationRead:
     entity = describe(db, EntityType.LOCATION, location.id)
     container_type = (
@@ -576,8 +985,13 @@ def _read(db: Session, location: Location) -> LocationRead:
         .scalars()
         .all()
     )
+    # Retired children are excluded: `child_count` drives "N slot(s) laid out
+    # here" and whether the client fetches a subtree at all, and a container that
+    # has left the tree must not keep its parent claiming to hold something.
     child_count = db.execute(
-        select(func.count()).select_from(Location).where(Location.parent_id == location.id)
+        select(func.count())
+        .select_from(Location)
+        .where(Location.parent_id == location.id, Location.retired_at.is_(None))
     ).scalar_one()
     own_photo = primary_photo(db, entity_type=EntityType.LOCATION, entity_pk=location.id)
     type_photo = (
@@ -606,6 +1020,11 @@ def _read(db: Session, location: Location) -> LocationRead:
         effective_photo=own_photo if own_photo is not None else type_photo,
         is_overfull=location.is_overfull,
         is_staging=location.is_staging,
+        placement=(
+            _placement_read(placement)
+            if (placement := room_plan.placement_of(db, location)) is not None
+            else None
+        ),
         access_score=location.access_score,
         tare_mg=location.tare_mg,
         short_id=entity.short_id,
@@ -614,6 +1033,7 @@ def _read(db: Session, location: Location) -> LocationRead:
         capacity=_capacity_read(db, location),
         lots=[lot_read(db, lot) for lot in lots],
         last_printed_at=location.last_printed_at,
+        retired_at=location.retired_at,
     )
 
 
@@ -801,17 +1221,27 @@ def _guarded_change_error(guard: GuardedLayoutChange) -> HTTPException:
 def read_location_tree(
     db: Session = Depends(get_db),
     root_id: int | None = None,
+    include_retired: bool = False,
 ) -> LocationTree:
     """The whole tree, or one subtree.
 
     Subtree filtering is `id_path LIKE :prefix || '%'` — left-anchored, so the
     index on `id_path` serves it, and no recursion is involved at read time.
+
+    **Retired containers are excluded by default** (`app.services.removal`): a
+    container whose row the ledger pins but which the user has removed is not part
+    of the storage tree any more, and leaving it in would make "remove" mean
+    nothing. `include_retired=true` is for the one screen that offers to restore
+    them; a retired node's descendants are retired too, so the filter is per node
+    and needs no subtree arithmetic.
     """
     tree = location_tree(db)
     if root_id is None:
         nodes = sorted(tree.subtree_all(), key=lambda node: node.id_path)
     else:
         nodes = tree.subtree(_require_location(db, root_id))
+    if not include_retired:
+        nodes = [node for node in nodes if node.retired_at is None]
 
     # One aggregate query for the whole tree rather than one per node: the totals
     # come from `stock_lots.qty_milli_cached`, so this is a sum over the cache.
@@ -861,6 +1291,7 @@ def read_location_tree(
                 fill_ratio=fill.get(node.id),
                 lot_count=totals.get(node.id, (0, 0))[0],
                 qty_milli=totals.get(node.id, (0, 0))[1],
+                retired_at=node.retired_at,
             )
             for node in nodes
         ]
@@ -919,7 +1350,7 @@ def create_location(request: LocationCreate, db: Session = Depends(get_db)) -> L
     the new row comes back with a correct `label_path` rather than one that is
     right after the next nightly job.
     """
-    parent = _require_location(db, request.parent_id, label="parent") if request.parent_id else None
+    parent = _require_live_parent(db, request.parent_id) if request.parent_id else None
     child_type = None
     if request.container_type_id is not None:
         child_type = db.get(ContainerType, request.container_type_id)
@@ -983,6 +1414,153 @@ def read_location(location_id: RowId, db: Session = Depends(get_db)) -> Location
     return _read(db, _require_location(db, location_id))
 
 
+# ---------------------------------------------------------------------------
+# Removing a container
+# ---------------------------------------------------------------------------
+
+
+def _blocker_read(blocker: removal.Blocker) -> RemovalBlockerRead:
+    return RemovalBlockerRead(
+        reason=blocker.reason,
+        location_id=blocker.location_id,
+        label=blocker.label,
+        label_path=blocker.label_path,
+        detail=blocker.detail,
+    )
+
+
+def _node_read(node: removal.NodePlan) -> RemovalNodeRead:
+    return RemovalNodeRead(
+        location_id=node.location_id,
+        label=node.label,
+        label_path=node.label_path,
+        action=node.action,
+        pins=list(node.pins),
+    )
+
+
+def _removal_conflict(error: removal.RemovalRefused) -> HTTPException:
+    """A refusal, carrying the list of what is in the way.
+
+    409 rather than 422 for both reasons this can fire: neither is a malformed
+    request. The drawer really does hold stock, or really does have containers in
+    it, and the fix is out here in the workshop.
+    """
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={
+            "reason": error.reason,
+            "message": error.message,
+            "blockers": [_blocker_read(blocker).model_dump() for blocker in error.blockers],
+        },
+    )
+
+
+@router.get("/{location_id}/removal", response_model=RemovalPreview)
+def preview_location_removal(
+    location_id: RowId,
+    recursive: bool = False,
+    db: Session = Depends(get_db),
+) -> RemovalPreview:
+    """What removing this container would do — a dry run, writing nothing.
+
+    The confirm dialog reads this so that it and the delete derive their answer
+    from one function (`app.services.removal.plan_removal`). Without it the dialog
+    would have to guess between "this is permanent" and "this can be undone", and
+    it would guess wrong for exactly the drawers where being wrong matters: the
+    ones with history behind them.
+
+    A refusal comes back as a 200 with `removable: false`, not a 409 — nothing was
+    attempted, so there is nothing to refuse; the caller asked a question and this
+    is the answer.
+    """
+    location = _require_location(db, location_id)
+    descendants = len(location_tree(db).subtree(location, include_self=False))
+    try:
+        plan = removal.plan_removal(db, location, recursive=recursive)
+    except removal.RemovalRefused as error:
+        return RemovalPreview(
+            location_id=location.id,
+            removable=False,
+            blockers=[_blocker_read(blocker) for blocker in error.blockers],
+            reason=error.reason,
+            message=error.message,
+            nodes=[],
+            descendant_count=descendants,
+        )
+    return RemovalPreview(
+        location_id=location.id,
+        removable=True,
+        blockers=[],
+        reason=None,
+        message=None,
+        nodes=[_node_read(node) for node in plan.nodes],
+        descendant_count=descendants,
+    )
+
+
+@router.delete("/{location_id}", response_model=LocationRemoved)
+def remove_location(
+    location_id: RowId,
+    recursive: bool = False,
+    db: Session = Depends(get_db),
+) -> LocationRemoved:
+    """Remove a container. **Deletes it if nothing names it, retires it if
+    something does, and refuses if stock is inside.**
+
+    Which of the three happens per node is decided by
+    `app.services.removal.plan_removal` and reported back rather than summarised,
+    because the three are different promises and the UI has to be able to say
+    which one it got. The full reasoning lives in that module; the short version:
+
+    * `stock_lots.location_id` and `stock_ledger.{from,to}_location_id` are
+      `RESTRICT` against tables nothing deletes from, so a drawer that ever held
+      anything cannot be deleted, ever. It is retired instead: the row and every
+      ledger entry naming it stay untouched, and the container leaves the tree,
+      the room plan, its parent's slot canvas and auto-assignment.
+    * A container holding actual stock is refused, and the refusal names the
+      lots. Relocating them is a ledger movement and the user's decision, so
+      nothing here does it silently.
+    * `recursive=false` on a container with children is refused and names them.
+      Deleting a cabinet is never an accident of deleting a cabinet.
+    """
+    location = _require_location(db, location_id)
+    try:
+        plan = removal.apply_removal(db, removal.plan_removal(db, location, recursive=recursive))
+    except removal.RemovalRefused as error:
+        raise _removal_conflict(error) from error
+    db.commit()
+    return LocationRemoved(
+        location_id=location_id,
+        deleted_location_ids=list(plan.deleted_ids),
+        retired_location_ids=list(plan.retired_ids),
+        nodes=[_node_read(node) for node in plan.nodes],
+    )
+
+
+@router.post("/{location_id}/restore", response_model=LocationRestored)
+def restore_location(location_id: RowId, db: Session = Depends(get_db)) -> LocationRestored:
+    """Undo a retirement — for this container and everything retired under it.
+
+    Only a retirement is undoable. A deleted container is gone, and the UI says
+    so plainly before it happens rather than offering an undo that cannot exist.
+    """
+    location = _require_location(db, location_id)
+    try:
+        restored = removal.restore(db, location)
+    except removal.RestoreRefused as error:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"reason": error.reason, "message": error.message},
+        ) from error
+    db.commit()
+    return LocationRestored(
+        location_id=location_id,
+        restored_location_ids=[loc.id for loc in restored],
+        unplaced=room_plan.placement_of(db, location) is None and location.slot_label is None,
+    )
+
+
 @router.post(
     "/{location_id}/instantiate",
     response_model=InstantiateResponse,
@@ -997,7 +1575,7 @@ def instantiate_containers(
     `locations` — never a live link back to the type, which is what keeps
     editing the type afterwards from touching anything created here.
     """
-    parent = _require_location(db, location_id)
+    parent = _require_live_parent(db, location_id, label="location")
     container_type = db.get(ContainerType, request.container_type_id)
     if container_type is None:
         raise HTTPException(
@@ -1108,6 +1686,213 @@ def read_location_layout(location_id: RowId, db: Session = Depends(get_db)) -> L
     """Grid + tag + contents state for one location's own children — shared by
     the editor, the provisioning walk and the verification walk."""
     return _layout_read(db, _require_location(db, location_id))
+
+
+@router.get("/{location_id}/plan", response_model=RoomPlanRead)
+def read_location_plan(location_id: RowId, db: Session = Depends(get_db)) -> RoomPlanRead:
+    """This location's drawn room — outline, furniture, and where things stand.
+
+    The floor-plan sibling of `GET /{id}/layout`, which answers the *slot canvas*
+    question. Two routes rather than one because a room and a grid are different
+    pictures sharing no field; a merged response would be half null for everyone.
+
+    **Never a 404 for an undrawn room.** A location with nothing drawn and nothing
+    placed answers with empty lists and a null `extent`, which is what the editor
+    needs in order to be the thing you draw the first wall in.
+    """
+    return _plan_read(db, _require_location(db, location_id))
+
+
+@router.put("/{location_id}/plan/shapes", response_model=RoomPlanShapesResponse)
+def set_location_plan_shapes(
+    location_id: RowId, request: RoomPlanShapesUpdate, db: Session = Depends(get_db)
+) -> RoomPlanShapesResponse:
+    """Replace this location's drawn plan — walls, doors, benches — in one write.
+
+    **A drawn wall is not a location** (ADR 0009): it gets no `short_id`, holds no
+    stock and never appears in the tree, so nothing here touches `locations`.
+    Sending an empty list erases the drawing, which is a real edit rather than an
+    omission — same convention as clearing a `child_view` override.
+
+    Nothing is validated against the location's `child_view`. Drawing a room on a
+    container that renders as a cabinet face is allowed and simply unused, for the
+    reason ADR 0006 gives: refusing would be the editor overruling the person
+    holding the furniture.
+    """
+    location = _require_location(db, location_id)
+
+    def work() -> RoomPlanShapesResponse:
+        shapes = room_plan.replace_shapes(
+            db,
+            location,
+            [
+                room_plan.ShapeDraft(
+                    kind=shape.kind,
+                    points=[
+                        room_plan.Point(x_mm=point.x_mm, y_mm=point.y_mm) for point in shape.points
+                    ],
+                    label=shape.label,
+                    is_closed=shape.is_closed,
+                    thickness_mm=shape.thickness_mm,
+                )
+                for shape in request.shapes
+            ],
+        )
+        placements = [
+            placement
+            for child in room_plan.children_of(db, location)
+            if (placement := room_plan.placement_of(db, child)) is not None
+        ]
+        return RoomPlanShapesResponse(
+            location_id=location.id,
+            shapes=[_shape_read(shape) for shape in shapes],
+            extent=_extent_read(room_plan.extent(shapes, placements)),
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="PUT /api/locations/{id}/plan/shapes",
+        payload=request,
+        response_model=RoomPlanShapesResponse,
+        work=work,
+    )
+
+
+@router.put("/{location_id}/plan/placements", response_model=RoomPlacementsResponse)
+def set_location_plan_placements(
+    location_id: RowId, request: RoomPlacementsUpdate, db: Session = Depends(get_db)
+) -> RoomPlacementsResponse:
+    """Save where several children now stand, in **one** request.
+
+    Dragging five cabinets around the room and then saving is one write. Per-child
+    routes would make that five requests that can partially fail, leaving a room
+    in a state nobody authored.
+
+    Every id must be a current child of this location — a coordinate authored
+    against one room is meaningless in another, so placing something that is not
+    in the room is a 422 rather than a coordinate that would be ignored on read
+    anyway. Ids sent in both `placements` and `unplace_location_ids` are the same
+    refusal: the request contradicts itself, and guessing which half was meant is
+    how a drag gets silently discarded.
+    """
+    location = _require_location(db, location_id)
+    placed_ids = [item.location_id for item in request.placements]
+    both = sorted(set(placed_ids) & set(request.unplace_location_ids))
+    if both:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "reason": "placed_and_unplaced",
+                "message": (f"these locations are both placed and unplaced in one request: {both}"),
+                "location_ids": both,
+            },
+        )
+    duplicates = sorted({row for row in placed_ids if placed_ids.count(row) > 1})
+    if duplicates:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "reason": "duplicate_placement",
+                "message": f"these locations are placed more than once: {duplicates}",
+                "location_ids": duplicates,
+            },
+        )
+
+    children = {child.id: child for child in room_plan.children_of(db, location)}
+    strangers = sorted(
+        {row for row in [*placed_ids, *request.unplace_location_ids] if row not in children}
+    )
+    if strangers:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "reason": "not_a_child",
+                "message": (
+                    f"these locations are not children of location {location.id}: {strangers}"
+                ),
+                "location_ids": strangers,
+            },
+        )
+
+    def work() -> RoomPlacementsResponse:
+        for item in request.placements:
+            room_plan.place(
+                children[item.location_id],
+                parent_id=location.id,
+                x_mm=item.x_mm,
+                y_mm=item.y_mm,
+                rotation_deg=item.rotation_deg,
+                width_mm=item.width_mm,
+                depth_mm=item.depth_mm,
+            )
+        for stale_id in request.unplace_location_ids:
+            room_plan.forget_placement(children[stale_id])
+        db.flush()
+        plan = _plan_read(db, location)
+        return RoomPlacementsResponse(
+            location_id=location.id,
+            placements=plan.placements,
+            unplaced_location_ids=plan.unplaced_location_ids,
+            extent=plan.extent,
+        )
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="PUT /api/locations/{id}/plan/placements",
+        payload=request,
+        response_model=RoomPlacementsResponse,
+        work=work,
+    )
+
+
+@router.put("/{location_id}/details", response_model=LocationDetailsResponse)
+def set_location_details(
+    location_id: RowId, request: LocationDetailsUpdate, db: Session = Depends(get_db)
+) -> LocationDetailsResponse:
+    """Rename and re-describe a container where it stands.
+
+    A rename is the one edit here with a consequence beyond the row: `label_path`
+    is a cache of the names down the chain, so renaming a cabinet restates the
+    path of every drawer in it. That goes through `TreeRepository.rebuild_paths`
+    rather than any hand-written string surgery — the cache is reconstructible
+    from `parent_id` and `name` by exactly one recursive CTE, and a second way to
+    compute it is a second way to be wrong.
+
+    Nothing physical changes: no `short_id` is re-minted, no tag is touched and
+    nothing is re-printed. A printed label carries the opaque code and never the
+    name, which is precisely what makes renaming free.
+    """
+    location = _require_location(db, location_id)
+
+    def work() -> LocationDetailsResponse:
+        renamed = location.name != request.name
+        location.name = request.name
+        description = request.description
+        # A box the user cleared is "no description", not the empty string —
+        # otherwise the read side has two falsy values meaning one thing.
+        location.description = (
+            None if description is None or not description.strip() else description
+        )
+        location.esd_safe = request.esd_safe
+        location.is_placeable = request.is_placeable
+        db.flush()
+        if renamed:
+            location_tree(db).rebuild_paths()
+        return LocationDetailsResponse(location=_read(db, location))
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="PUT /api/locations/{id}/details",
+        payload=request,
+        response_model=LocationDetailsResponse,
+        work=work,
+    )
 
 
 @router.put("/{location_id}/child-view", response_model=LocationChildViewResponse)

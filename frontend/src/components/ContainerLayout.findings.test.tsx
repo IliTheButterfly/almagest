@@ -60,6 +60,8 @@ function node(spec: Spec): LocationNode {
     fill_ratio: 0.25,
     lot_count: 1,
     qty_milli: 4000,
+    // Every fixture here is a live node; a retired one never reaches a renderer.
+    retired_at: null,
   };
 }
 

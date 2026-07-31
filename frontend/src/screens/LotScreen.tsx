@@ -46,13 +46,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { ContainerPicker, type PickedContainer } from "../components/ContainerPicker";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { PathBar } from "../components/PathBar";
 import { QuantityPad } from "../components/Quantity";
 import {
   consumeLot,
   getLot,
   getLotHistory,
   getPart,
+  moveLot,
   returnLot,
   undoMovement,
   type LedgerEntry,
@@ -66,6 +69,7 @@ import { carts } from "../lib/cart/registry";
 import { useCartLines } from "../lib/cart/useCart";
 import { formatDelta, formatQty, formatTimestamp } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
+import { ALL_STORAGE } from "../lib/locations/trail";
 import { useFocusedTarget } from "../lib/projectcontext/hooks";
 import type { WorkTarget } from "../lib/projectcontext/target";
 import { scanSession, uuid4 } from "../lib/scan/session";
@@ -323,6 +327,22 @@ function TakeReturn({
   return (
     <div className="stack">
       <div className="card">
+        {/* A lot's place is its container's place. Only the container itself can
+            be linked from here: `LotRead` carries `location_label_path` but no
+            `id_path`, so the intermediate levels have no ids to link to and are
+            shown as the one crumb they can honestly be. */}
+        <PathBar
+          trail={[
+            { key: "root", label: ALL_STORAGE, to: "/tree" },
+            {
+              key: `loc-${lot.location_id}`,
+              label: lot.location_label_path ?? `location ${lot.location_id}`,
+              to: `/locations/${lot.location_id}`,
+            },
+            { key: `lot-${lot.id}`, label: part?.name ?? `Lot ${lot.id}` },
+          ]}
+          label="Lot path"
+        />
         <h1>{part?.name ?? `Lot ${lot.id}`}</h1>
         {mpn !== null && (
           <p className="mono dim" style={{ margin: 0 }}>
@@ -330,7 +350,6 @@ function TakeReturn({
           </p>
         )}
         <p className="muted-note" style={{ margin: 0 }}>
-          <Link to={`/locations/${lot.location_id}`}>{lot.location_label_path ?? "—"}</Link>
           {batch !== null && (
             <>
               {" · batch "}
@@ -438,6 +457,8 @@ function TakeReturn({
         />
       )}
 
+      <MoveLot lot={lot} onMoved={onCommitted} />
+
       <LotHistory lotId={lot.id} refreshKey={committed?.at ?? 0} undone={undone} />
     </div>
   );
@@ -478,6 +499,90 @@ function StagedOutcome({
       <button type="button" onClick={onUndo}>
         Undo
       </button>
+    </div>
+  );
+}
+
+/**
+ * "This is in the wrong drawer" — the whole lot, to a container chosen by hand.
+ *
+ * Its own key, minted per attempt and never `opIdRef`: that one belongs to the
+ * take/return above and is *spent on use*, so borrowing it would let a move replay
+ * a take's stored response — the exact silent-stock-loss the module comment warns
+ * about. A move is a different operation and gets a different key.
+ *
+ * Whole-lot only. A partial move would split the lot, and "some of these go
+ * elsewhere" is take-then-receive, which already exists and keeps both halves'
+ * provenance straight.
+ */
+function MoveLot({ lot, onMoved }: { lot: LotRead; onMoved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [destination, setDestination] = useState<PickedContainer | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function run(): Promise<void> {
+    if (destination === null) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      await moveLot(lot.id, {
+        to_location_id: destination.id,
+        client_op_id: uuid4(),
+        source: "manual",
+      });
+      setResult(`Moved to ${destination.label}.`);
+      setDestination(null);
+      setOpen(false);
+      onMoved();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>Where it lives</h3>
+        <span className="spacer" />
+        <button type="button" onClick={() => setOpen(!open)}>
+          {open ? "Cancel" : "Move this lot…"}
+        </button>
+      </div>
+      {result !== null && <Notice kind="ok">{result}</Notice>}
+      {open && (
+        <>
+          <p className="muted-note" style={{ margin: 0 }}>
+            The whole lot goes to one container. Nothing is taken out of stock — this
+            only changes where it is.
+          </p>
+          <ContainerPicker
+            onPick={setDestination}
+            pickedId={destination?.id ?? null}
+            excludeIds={[lot.location_id]}
+            actionLabel="Move here"
+          />
+          <ErrorBanner error={error} fallback="The lot was not moved." />
+          <button
+            type="button"
+            className="primary wide"
+            disabled={busy || destination === null}
+            onClick={() => void run()}
+          >
+            {busy
+              ? "Moving…"
+              : destination === null
+                ? "Choose where it goes"
+                : `Move to ${destination.label}`}
+          </button>
+        </>
+      )}
     </div>
   );
 }

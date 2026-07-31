@@ -90,7 +90,17 @@ export type SuggestResponse = Schemas["SuggestResponse"];
 export type ShortIdRequest = Schemas["ShortIdRequest"];
 export type ShortIdResponse = Schemas["ShortIdResponse"];
 
+// --- removing a container (backend `app/services/removal.py`) --------------
+export type RemovalPreview = Schemas["RemovalPreview"];
+export type RemovalBlockerRead = Schemas["RemovalBlockerRead"];
+export type RemovalNodeRead = Schemas["RemovalNodeRead"];
+export type LocationRemoved = Schemas["LocationRemoved"];
+export type LocationRestored = Schemas["LocationRestored"];
+
 // --- ADR 0006: how each layer of the tree is drawn ------------------------
+export type LocationDetailsUpdate = Schemas["LocationDetailsUpdate"];
+export type LocationDetailsResponse = Schemas["LocationDetailsResponse"];
+
 export type ChildView = Schemas["ChildView"];
 export type LocationChildViewUpdate = Schemas["LocationChildViewUpdate"];
 export type LocationChildViewResponse = Schemas["LocationChildViewResponse"];
@@ -132,6 +142,22 @@ export type LayoutRead = Schemas["LayoutRead"];
 export type SlotStateRead = Schemas["SlotStateRead"];
 export type ReapplyLayoutRequest = Schemas["ReapplyLayoutRequest"];
 export type ReapplyLayoutResponse = Schemas["ReapplyLayoutResponse"];
+
+// --- ADR 0009: a drawn room, and the containers standing in it -------------
+// Two shapes because they are two kinds of fact: the room's own outline is drawn
+// geometry that is not a container, and a placement is a coordinate on a child.
+export type RoomPlanRead = Schemas["RoomPlanRead"];
+export type PlanShapeKind = Schemas["PlanShapeKind"];
+export type PlanShapeRead = Schemas["PlanShapeRead"];
+export type PlanShapeIn = Schemas["PlanShapeIn"];
+export type PlanPoint = Schemas["PlanPoint"];
+export type PlanExtentRead = Schemas["PlanExtentRead"];
+export type PlacementRead = Schemas["PlacementRead"];
+export type PlacementIn = Schemas["PlacementIn"];
+export type RoomPlanShapesUpdate = Schemas["RoomPlanShapesUpdate"];
+export type RoomPlanShapesResponse = Schemas["RoomPlanShapesResponse"];
+export type RoomPlacementsUpdate = Schemas["RoomPlacementsUpdate"];
+export type RoomPlacementsResponse = Schemas["RoomPlacementsResponse"];
 export type PendingIntakeIn = Schemas["PendingIntakeIn"];
 export type PendingIntakeRead = Schemas["PendingIntakeRead"];
 export type PendingIntakeCreated = Schemas["PendingIntakeCreated"];
@@ -500,9 +526,27 @@ export function partDatasheetUrl(partId: number): string {
 
 // ------------------------------------------------------------- locations ----
 
-export async function getLocationTree(rootId?: number): Promise<LocationTree> {
+/**
+ * The storage tree, flat — one row per node with `parent_id` and the cached paths.
+ *
+ * `includeRetired` is how a removed container stays reachable at all. A retirement
+ * takes the row out of every other read: it is in no parent's children, no slot
+ * canvas, no room plan and no assignment proposal, so without this the "Bring it
+ * back" button on its own page could only be reached by typing its numeric id into
+ * the URL. The tree screen offers it as "removed containers", which is the one
+ * screen the route's docstring says exists for them.
+ */
+export async function getLocationTree(
+  rootId?: number,
+  options: { readonly includeRetired?: boolean } = {},
+): Promise<LocationTree> {
   const { data, error, response } = await api.GET("/api/locations/tree", {
-    params: { query: rootId === undefined ? {} : { root_id: rootId } },
+    params: {
+      query: {
+        ...(rootId === undefined ? {} : { root_id: rootId }),
+        ...(options.includeRetired === true ? { include_retired: true } : {}),
+      },
+    },
   });
   if (error !== undefined) {
     fail("could not load the storage tree", error, response);
@@ -528,6 +572,63 @@ export async function createLocation(request: LocationCreate): Promise<LocationC
   return data;
 }
 
+// --- removing a container -------------------------------------------------
+//
+// Three calls rather than one, because the interesting part of removing a
+// container is finding out what would happen. The backend decides per node
+// between deleting the row, retiring it (the ledger names it, so the row and its
+// history stay while the container leaves the tree) and refusing outright
+// because stock is inside — see `app/services/removal.py`. The preview returns
+// that same decision without writing anything, so the confirm panel states the
+// real consequence instead of a generic warning it might be wrong about.
+
+/**
+ * What removing this container *would* do. Writes nothing.
+ *
+ * A refusal is a 200 with `removable: false` and a `blockers` list naming the
+ * contents, not an error — the caller asked a question and this is the answer.
+ */
+export async function previewLocationRemoval(
+  locationId: number,
+  recursive = false,
+): Promise<RemovalPreview> {
+  const { data, error, response } = await api.GET("/api/locations/{location_id}/removal", {
+    params: { path: { location_id: locationId }, query: { recursive } },
+  });
+  if (error !== undefined) {
+    fail("could not work out what removing this would do", error, response);
+  }
+  return data;
+}
+
+/**
+ * Remove it. `recursive` is required for a container with anything inside it,
+ * and the server refuses rather than recursing silently.
+ */
+export async function removeLocation(
+  locationId: number,
+  recursive = false,
+): Promise<LocationRemoved> {
+  const { data, error, response } = await api.DELETE("/api/locations/{location_id}", {
+    params: { path: { location_id: locationId }, query: { recursive } },
+  });
+  if (error !== undefined) {
+    fail("could not remove that container", error, response);
+  }
+  return data;
+}
+
+/** Undo a retirement — this container and everything retired under it. */
+export async function restoreLocation(locationId: number): Promise<LocationRestored> {
+  const { data, error, response } = await api.POST("/api/locations/{location_id}/restore", {
+    params: { path: { location_id: locationId } },
+  });
+  if (error !== undefined) {
+    fail("could not bring that container back", error, response);
+  }
+  return data;
+}
+
 /**
  * Ask where a new lot should go.
  *
@@ -544,15 +645,30 @@ export async function suggestLocation(request: SuggestRequest): Promise<SuggestR
 }
 
 /**
- * Give a container a printed identity: minted, or one it already carries.
+ * Rename and re-describe a container in place — the edit mode's details panel.
  *
- * Omit `short_id` to promote a generated grid cell that has none — safe to call
- * unconditionally, since it returns the existing id when there is one. Pass a
- * `short_id` to adopt a code that is already printed on a card or written to a
- * tag; the server verifies the check symbol and refuses a code held elsewhere
- * rather than substituting a free one, because a substitute would leave the
- * label and the database permanently disagreeing.
+ * Every field is sent every time, because that is what the route is: a blank
+ * description box means "no description", and null on `esd_safe` or
+ * `is_placeable` means "stop answering for yourself and inherit again". Both are
+ * real edits that an omitted key could not express.
+ *
+ * A rename restates `label_path` for every descendant, so the whole re-read
+ * `LocationRead` comes back rather than the one row that was written.
  */
+export async function setLocationDetails(
+  locationId: number,
+  request: LocationDetailsUpdate,
+): Promise<LocationDetailsResponse> {
+  const { data, error, response } = await api.PUT("/api/locations/{location_id}/details", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save those details", error, response);
+  }
+  return data;
+}
+
 /**
  * Pin — or, with `child_view: null`, stop pinning — how one container draws its
  * children (ADR 0006).
@@ -594,6 +710,16 @@ export async function setLocationGlyph(
   return data;
 }
 
+/**
+ * Give a container a printed identity: minted, or one it already carries.
+ *
+ * Omit `short_id` to promote a generated grid cell that has none — safe to call
+ * unconditionally, since it returns the existing id when there is one. Pass a
+ * `short_id` to adopt a code that is already printed on a card or written to a
+ * tag; the server verifies the check symbol and refuses a code held elsewhere
+ * rather than substituting a free one, because a substitute would leave the
+ * label and the database permanently disagreeing.
+ */
 export async function assignLocationShortId(
   locationId: number,
   request: ShortIdRequest = {},
@@ -881,6 +1007,69 @@ export async function reapplyLayout(
   });
   if (error !== undefined) {
     fail("could not reapply that layout", error, response);
+  }
+  return data;
+}
+
+// ------------------------------------------------------------ room plans ----
+
+/**
+ * One container's drawn plan: its outline, and where its children stand.
+ *
+ * Never 404s for an undrawn room — the editor has to be the thing you draw the
+ * first wall in — so an empty response is the normal starting state and not an
+ * error. `extent` is null for an empty room; the client sizes its own surface
+ * from what is there rather than from a default canvas the server invented.
+ */
+export async function getLocationPlan(locationId: number): Promise<RoomPlanRead> {
+  const { data, error, response } = await api.GET("/api/locations/{location_id}/plan", {
+    params: { path: { location_id: locationId } },
+  });
+  if (error !== undefined) {
+    fail("could not load that room's plan", error, response);
+  }
+  return data;
+}
+
+/**
+ * Replace the whole drawing in one write — walls, doors, benches.
+ *
+ * Whole-plan replacement, not per-shape CRUD: a drawing session ends with "this
+ * is the room now". The client therefore never holds a shape id, redrawing a wall
+ * is not a diff, and an empty list is a real edit that erases the plan.
+ */
+export async function setLocationPlanShapes(
+  locationId: number,
+  request: RoomPlanShapesUpdate,
+): Promise<RoomPlanShapesResponse> {
+  const { data, error, response } = await api.PUT("/api/locations/{location_id}/plan/shapes", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save that drawing", error, response);
+  }
+  return data;
+}
+
+/**
+ * Save where several children stand, in **one** request.
+ *
+ * Dragging five cabinets around and then saving is one write. `unplace_location_ids`
+ * is a separate field rather than a sentinel coordinate, because no coordinate is
+ * what "nowhere" means — a container in the "not placed yet" tray does not have a
+ * position of (0, 0).
+ */
+export async function setLocationPlanPlacements(
+  locationId: number,
+  request: RoomPlacementsUpdate,
+): Promise<RoomPlacementsResponse> {
+  const { data, error, response } = await api.PUT("/api/locations/{location_id}/plan/placements", {
+    params: { path: { location_id: locationId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save where those containers stand", error, response);
   }
   return data;
 }

@@ -115,6 +115,34 @@ function stubApi(part: Record<string, unknown>): void {
       if (url.pathname === "/api/locations/suggest") {
         return json(SUGGESTION);
       }
+      if (url.pathname === "/api/locations/tree") {
+        // The override is a container picker now, not a numeric field, so the
+        // tree is part of this screen's mount whenever the override is opened.
+        return json({
+          nodes: [
+            {
+              id: 7,
+              parent_id: null,
+              name: "Bench bin",
+              slot_label: null,
+              label_path: "Bench bin",
+              id_path: "/7/",
+              depth: 0,
+              lot_count: 0,
+              qty_milli: 0,
+              fill_ratio: null,
+              is_overfull: false,
+              is_staging: false,
+              is_placeable: true,
+              container_type_id: null,
+              child_grid_rows: null,
+              child_grid_cols: null,
+              effective_child_view: "list",
+              effective_glyph: null,
+            },
+          ],
+        });
+      }
       if (url.pathname === "/api/stock/receive") {
         return json({
           seqs: [1],
@@ -198,15 +226,19 @@ describe("a part with no stock", () => {
     expect(body?.["qty_milli"]).toBe(1000);
   });
 
-  it("lets an override location id take priority over the suggestion", async () => {
+  it("lets a container chosen by hand take priority over the suggestion", async () => {
     stubApi(ZERO_STOCK_PART);
     renderPart(9);
 
     await screen.findByText("Cabinet B / Drawer B3");
-    fireEvent.click(screen.getByText("Use a different location instead"));
-    fireEvent.change(screen.getByPlaceholderText("42"), { target: { value: "7" } });
+    // The override used to want `location_id`, a row id nobody can know, which
+    // made it no override at all. It is the container picker now.
+    fireEvent.click(screen.getByText("Use a different container instead"));
+    // The picker browses as the storage map now, so the container is chosen by
+    // pressing the cell that draws it rather than a row in a list.
+    fireEvent.click(await screen.findByRole("button", { name: /^Put it in: Bench bin/ }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /^Put 1 in location 7$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Put 1 in Bench bin$/ }));
 
     await waitFor(() => expect(callTo("/api/stock/receive")).toBeDefined());
     expect(callTo("/api/stock/receive")?.body["location_id"]).toBe(7);

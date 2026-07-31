@@ -26,6 +26,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 
 import { ErrorBanner, Empty, Loading, Notice } from "../components/Feedback";
 import { PartResultRow } from "../components/PartResultRow";
+import { PathBar } from "../components/PathBar";
 import {
   getProject,
   importBom,
@@ -117,9 +118,14 @@ function Bom({ project }: { project: ProjectRead }) {
   return (
     <div className="stack">
       <div className="card">
-        <div className="row">
-          <Link to={`/projects/${project.id}`}>← {project.name}</Link>
-        </div>
+        <PathBar
+          trail={[
+            { key: "projects", label: "Projects", to: "/projects" },
+            { key: `project-${project.id}`, label: project.name, to: `/projects/${project.id}` },
+            { key: "bom", label: "Bill of materials" },
+          ]}
+          label="BOM path"
+        />
         <h1>Bill of materials</h1>
         <div className="row">
           <div className="segmented" role="group" aria-label="Filter">

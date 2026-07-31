@@ -135,10 +135,18 @@ afterEach(() => {
 });
 
 describe("the storage map at a project's staging box", () => {
-  function renderTreeAt(id: number): void {
-    stub((pathname) => (pathname === "/api/locations/tree" ? { nodes: NODES } : undefined));
+  function renderTreeAt(id: number | null): void {
+    stub((pathname) =>
+      pathname === "/api/locations/tree"
+        ? { nodes: NODES }
+        : // The panel beside the map reads the level in view on its own, and it is
+          // now what carries the container's identity badges.
+          /^\/api\/locations\/\d+$/.test(pathname)
+          ? locationRead({})
+          : undefined,
+    );
     render(
-      <MemoryRouter initialEntries={[`/tree?at=${id}`]}>
+      <MemoryRouter initialEntries={[id === null ? "/tree" : `/tree?at=${id}`]}>
         <Routes>
           <Route path="/tree" element={<TreeScreen />} />
         </Routes>
@@ -169,15 +177,19 @@ describe("the storage map at a project's staging box", () => {
     expect(screen.queryByText("These parts are set aside for a project")).toBeNull();
   });
 
-  it("gives the two kinds different badge words, not one shared hue", async () => {
-    renderTreeAt(6);
+  it("gives the two kinds different badge words on the map, not one shared hue", async () => {
+    // The top level, where the two really are siblings — which is what this test
+    // always meant to check. It used to render `?at=6`, where the only staging
+    // container on screen was a project's box, and then assert that exactly one
+    // badge read "inbox": it was asserting the bug. The map badged anything with
+    // `is_staging` as "inbox", so the project box carried the word that means the
+    // opposite of the truth about it, and the test passed *because* of that.
+    renderTreeAt(null);
 
-    // Both are on screen at once here — the PROJECTS root and the INBOX are
-    // siblings — so a badge that read "inbox" on both would be indistinguishable
-    // for a reader who cannot rely on colour.
     await waitFor(() => {
       expect(screen.getAllByText("project parts").length).toBeGreaterThan(0);
     });
+    // INBOX is the only real inbox here; PROJECTS must not also claim the word.
     expect(screen.getAllByText("inbox")).toHaveLength(1);
   });
 });

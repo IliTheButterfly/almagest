@@ -30,10 +30,12 @@ import { Link, useParams } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { OpenTargetButton } from "../components/OpenTargetButton";
+import { PathBar } from "../components/PathBar";
 import {
   allocateStock,
   consumeStaged,
   getBuild,
+  getProject,
   getPart,
   getPickList,
   getRoster,
@@ -44,6 +46,7 @@ import {
   unstageStock,
   updateBuild,
   type BuildRead,
+  type ProjectRead,
   type BuildStatus,
   type BuildUpdate,
   type LineShortageRead,
@@ -94,6 +97,18 @@ export function BuildScreen() {
 
 function Build({ build, onChanged }: { build: BuildRead; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
+  /**
+   * The project this build belongs to, fetched for one reason: its name.
+   *
+   * `BuildRead` carries `project_id` and no name, and a trail whose middle step
+   * reads "Project" is a worse thing to show than the extra request is to make —
+   * the point of the path is to say *which* project you are inside. Until it
+   * arrives the crumb still links, labelled from the id.
+   */
+  const project = useAsync<ProjectRead | null>(
+    () => getProject(build.project_id),
+    [build.project_id],
+  );
   const [tab, setTab] = useState<Tab>("shortages");
   const shortages = useAsync<ShortageResponse>(() => getShortages(build.id), [build.id]);
   // Release-all had no rejection path at all: a 409 (a staged row that cannot be
@@ -122,9 +137,18 @@ function Build({ build, onChanged }: { build: BuildRead; onChanged: () => void }
   return (
     <div className="stack">
       <div className="card">
-        <div className="row">
-          <Link to={`/projects/${build.project_id}`}>← project</Link>
-        </div>
+        <PathBar
+          trail={[
+            { key: "projects", label: "Projects", to: "/projects" },
+            {
+              key: `project-${build.project_id}`,
+              label: project.data?.name ?? `project ${build.project_id}`,
+              to: `/projects/${build.project_id}`,
+            },
+            { key: `build-${build.id}`, label: `Build #${build.build_no}` },
+          ]}
+          label="Build path"
+        />
         <div className="row">
           <h1 style={{ flex: 1 }}>
             Build #{build.build_no}

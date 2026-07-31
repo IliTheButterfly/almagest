@@ -47,6 +47,12 @@ class ResolvedTarget(BaseModel):
     #: stored on the tag, because a container that moves would make an encoded
     #: path a lie the moment the drawer changed cabinet.
     label_path: str | None = None
+    #: **This container was removed.** The tag is still stuck to it and still
+    #: resolves — deleting the binding would report the tag as blank and offer to
+    #: provision it, which says the opposite of the truth. So the code resolves,
+    #: and this field is how the answer reads "this is gone". See
+    #: `app.services.removal`.
+    retired: bool = False
 
 
 class ResolveResponse(BaseModel):
@@ -72,6 +78,7 @@ def _describe(db: Session, binding: ObjectId) -> ResolvedTarget:
         entity_pk=entity.entity_pk,
         label=entity.label,
         label_path=entity.label_path,
+        retired=entity.retired,
     )
 
 

@@ -183,6 +183,12 @@
    * the header wash and the active-tab underline. Never text, never a border. */
   --identity-a: var(--pal-blue-400); /* #5bcefa — the flag, large fills only */
   --identity-b: var(--pal-pink-400); /* #f5a9b8 — the flag, large fills only */
+  
+  /* The scrim behind a popup panel. Derived from the darkest neutral rather
+   * than being a fourth kind of black, and alpha because a solid one would
+   * hide the container you are editing — the panel is *over* the page and
+   * has to look it. Same value in both themes: dimming is not a hue. */
+  --scrim: color-mix(in srgb, var(--pal-ink-975) 62%, transparent);
 }
 /* @/tokens:light */
 
@@ -212,6 +218,12 @@
   --focus: var(--pal-pink-300); /* #ffb2cc — 9.52:1 raised / 10.62:1 bg / 11.69:1 sunken */
   --identity-a: var(--pal-blue-400); /* #5bcefa — the flag, large fills only */
   --identity-b: var(--pal-pink-400); /* #f5a9b8 — the flag, large fills only */
+  
+  /* The scrim behind a popup panel. Derived from the darkest neutral rather
+   * than being a fourth kind of black, and alpha because a solid one would
+   * hide the container you are editing — the panel is *over* the page and
+   * has to look it. Same value in both themes: dimming is not a hue. */
+  --scrim: color-mix(in srgb, var(--pal-ink-975) 62%, transparent);
 }
 /* @/tokens:dark-attr */
 
@@ -242,6 +254,12 @@
     --focus: var(--pal-pink-300); /* #ffb2cc — 9.52:1 raised / 10.62:1 bg / 11.69:1 sunken */
     --identity-a: var(--pal-blue-400); /* #5bcefa — the flag, large fills only */
     --identity-b: var(--pal-pink-400); /* #f5a9b8 — the flag, large fills only */
+    
+    /* The scrim behind a popup panel. Derived from the darkest neutral rather
+     * than being a fourth kind of black, and alpha because a solid one would
+     * hide the container you are editing — the panel is *over* the page and
+     * has to look it. Same value in both themes: dimming is not a hue. */
+    --scrim: color-mix(in srgb, var(--pal-ink-975) 62%, transparent);
   }
   /* @/tokens:dark-media */
 }
@@ -857,6 +875,17 @@ button.tall {
   overflow-wrap: anywhere;
 }
 
+/*
+ * The container picker's rows scroll inside the picker rather than pushing the
+ * commit button off a phone screen: it sits above the quantity pad and the button
+ * that finishes the job, and a cabinet with ninety-six cells would otherwise put
+ * both several swipes away.
+ */
+.picker-list {
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
 /* -------------------------------------------------------- storage tree --- */
 
 /*
@@ -1121,7 +1150,11 @@ button.tall {
   border-bottom: 2px solid var(--line-strong);
 }
 
-.layout-run > .cell {
+.layout-run > .cell,
+/* In pick mode the cell is wrapped, so the wrapper is the flex item here and
+   owes the same rule — without it a shelf's boxes shrink to fit instead of the
+   run scrolling, which is the one thing this view must not do. */
+.layout-run > .cell-pick {
   flex: 0 0 auto;
 }
 
@@ -1144,6 +1177,219 @@ button.tall {
 .cell-list .cell-name {
   flex: 1;
   -webkit-line-clamp: 1;
+}
+
+/* -------------------------------------------- storage: a drawn room plan ---
+ *
+ * ADR 0009. The plan is inline SVG (the walls, the grid) with real DOM boxes on
+ * top of it, so a placed container is a link or a button rather than a hit-tested
+ * region of a canvas — see `components/PlanSurface.tsx`.
+ *
+ * Every distinction here is carried by a *shape*: a dashed border for a footprint
+ * nobody measured, a heavier inset for over capacity, an outline for the selected
+ * box. The hue is a second cue and never the only one, and each fact is stated in
+ * words as well — in the box's own accessible name, and in the panel beside it.
+ */
+.plan-frame {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.plan-surface {
+  position: relative;
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  /* The frame is derived from what is drawn, so a box dragged past the last wall
+   * re-scales the picture rather than escaping it. Clipping is a backstop. */
+  overflow: hidden;
+}
+
+/* Only while a line is being drawn, and only then: `touch-action: none` on a
+ * surface you are merely reading would eat the page scroll under a thumb. */
+.plan-surface-drawing {
+  touch-action: none;
+}
+
+.plan-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.plan-grid line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+/* x = 0 and y = 0. The origin is wherever the person drawing put it (ADR 0009),
+ * and the numeric fields in the editor are relative to it, so it has to be
+ * findable on the picture. */
+.plan-grid line.plan-axis {
+  stroke: var(--line-strong);
+  stroke-width: 2;
+}
+
+.plan-shape {
+  fill: none;
+  stroke: var(--text-dim);
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.plan-shape-outline,
+.plan-shape-wall {
+  stroke: var(--text);
+}
+
+.plan-shape-door {
+  stroke: var(--accent-2);
+  stroke-dasharray: 120 90;
+}
+
+.plan-shape-window {
+  stroke: var(--accent);
+  stroke-dasharray: 240 60;
+}
+
+.plan-shape-fixture {
+  stroke: var(--text-dim);
+  fill: var(--bg-sunken);
+}
+
+.plan-shape-zone {
+  stroke: var(--accent);
+  stroke-dasharray: 300 200;
+  fill: var(--accent-soft);
+  fill-opacity: 0.4;
+}
+
+.plan-vertex {
+  fill: var(--text-dim);
+}
+
+/*
+ * One placed container. `min-width`/`min-height` hold it at the 44px touch floor
+ * even when its real footprint is smaller than that on screen — this is used on a
+ * phone at the shelf, and a 6px box is a box nobody can tap. The picture is
+ * therefore slightly generous for small furniture, which is the right way round:
+ * an untappable truth is worse than a tappable approximation.
+ */
+.plan-box {
+  position: absolute;
+  min-width: var(--touch);
+  min-height: var(--touch);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0.15rem;
+  border: 2px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: inherit;
+  font-size: 0.7rem;
+  line-height: 1.1;
+  text-align: center;
+  text-decoration: none;
+}
+
+.plan-box-name {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* Nobody measured this footprint, so it is drawn at a nominal size — dashed, so
+ * the picture says so rather than passing a guess off as a measurement. */
+.plan-box-nominal {
+  border-style: dashed;
+}
+
+.plan-box-over {
+  border-color: var(--warn);
+  box-shadow: inset 0 0 0 3px var(--warn);
+}
+
+.plan-box-edit {
+  touch-action: none;
+  cursor: grab;
+}
+
+.plan-box-selected {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* A plan with no scale is a doodle. */
+.plan-scale {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.plan-scale-bar {
+  flex: 0 0 auto;
+  height: 0.45rem;
+  border: 2px solid var(--text-dim);
+  border-top: 0;
+}
+
+/* The tray: containers that are inside this one and nowhere on the plan. Dashed,
+ * like every other "this is not authored geometry" surface in this stylesheet. */
+.plan-tray,
+.plan-tools,
+.plan-inspector {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  padding: var(--gap);
+  background: var(--bg-inset);
+}
+
+.plan-inspector {
+  border-style: solid;
+  border-color: var(--focus);
+}
+
+/*
+ * Master and detail: the map, and the container you pressed on it.
+ *
+ * The map keeps the wide column because it is the drawing — a cabinet squashed to
+ * half the screen stops looking like a cabinet, which is the whole reason the map
+ * exists. The panel is capped rather than proportional so it does not grow into a
+ * second page on a large monitor.
+ *
+ * One column below 60rem, panel *after* the map: on a phone the map is what you
+ * came for, and a detail panel pushed above it would hide the thing you are
+ * pressing.
+ */
+.workspace {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+@media (min-width: 60rem) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 21rem);
+  }
+
+  /* Sticks while the map scrolls, because comparing two drawers means scrolling
+     the drawing, not losing what you selected off the top of the screen. */
+  .workspace > .detail-panel {
+    position: sticky;
+    top: var(--gap);
+  }
+}
+
+.detail-panel {
+  /* Its own edge, so it reads as a panel about one container rather than as more
+     of the map. A shape, not a hue: it survives a monochrome screen. */
+  border-left: 3px solid var(--line-strong);
 }
 
 /* The fallback is *marked* as a fallback rather than left looking like a grid
@@ -1231,9 +1477,121 @@ button.tall {
 }
 
 /* The layout editor's cells are real `<button>`s, not links — this is the
- * only hover/press feedback they get beyond the shared focus ring. */
-.cell-editable:hover:not(:disabled) {
+ * only hover/press feedback they get beyond the shared focus ring. The picker's
+ * cells are buttons for the same reason and want the same feedback. */
+.cell-editable:hover:not(:disabled),
+.cell-pickable:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+/*
+ * A cell being used to choose a container.
+ *
+ * The wrapper exists so a cell with children can carry a second control: the body
+ * chooses this container, the corner looks inside it. Both are wanted in a picker
+ * — a shelf holds stock as well as bins — and one press cannot mean both.
+ */
+/*
+ * A grid and not an overlay, deliberately.
+ *
+ * The first version floated the "look inside" control over the cell's top-right
+ * corner, which is where the `inbox` and `over` badges live — so on a staging box
+ * it covered the one badge that says this container is not an ordinary bin. A
+ * control that hides a warning to save 30px is not worth the space it saves.
+ */
+.cell-pick {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.cell-pick > .cell {
+  min-width: 0;
+}
+
+/*
+ * A square level stays square — and it is the *cell* that is square, not the pair.
+ *
+ * A Gridfinity unit is 42mm square in real life, so `aspect-ratio` stays on the
+ * cell where it already was. Putting it on the wrapper instead (tried first) makes
+ * the wrapper square, and since the wrapper also holds the pencil strip the cell
+ * inside comes out narrower than it is tall — a tray of portrait boxes, which is a
+ * lie about the furniture. The column is simply a strip wider than the bin.
+ */
+.cell-pick-grid_cells > .cell {
+  min-width: 0;
+}
+
+/*
+ * The cell's side control, as a full-height strip down its edge.
+ *
+ * One of two things depending on the caller: a pencil to the container's own page
+ * where the body already opens it (the workspace), or a "go deeper" where the body
+ * chooses it terminally (the picker). Never both on one cell.
+ *
+ * Narrower than `--touch` in one dimension on purpose: it spans the whole cell
+ * height (never less than 4.5rem), so the target is about 28x72px, and a
+ * `--touch`-wide strip would eat half of a 5.5rem square grid cell. The cell body
+ * beside it — the primary verb — keeps the full touch area.
+ */
+.cell-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+/*
+ * Quiet until wanted.
+ *
+ * A 24-cell Gridfinity tray carries 24 of these, and the first version gave each
+ * one a border and an inset background — so the tray read as 24 boxes and 24
+ * *more* boxes, and stopped looking like a tray at all. It stays in the layout
+ * rather than appearing on hover, because a control that only exists on hover does
+ * not exist on a phone; it just stops competing with the container it belongs to.
+ */
+/* The drill strip earns a permanent edge — see its call site. */
+.cell-side-strong {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--bg-inset);
+  color: var(--accent);
+  min-width: 1.75rem;
+}
+
+.cell-side:hover,
+.cell-side:focus-visible {
+  color: var(--accent);
+  background: var(--bg-inset);
+  border-radius: 6px;
+}
+
+
+
+/* Cannot be chosen — it is where the stock already is. Dimmed *and* labelled in
+   words inside the cell, because a disabled control that only looks faded reads
+   as a rendering glitch. */
+.cell:disabled {
+  color: var(--text-dim);
+  background: var(--bg-inset);
+  cursor: not-allowed;
+}
+
+/* Chosen, on a drawn room. `cell-current` already does this for a grid cell; a
+   plan box is a different element and needs its own rule. Outline rather than
+   fill, so the box's measured/nominal border keeps meaning what it means. */
+.plan-box-chosen {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* A container's picture: a glyph in the dense tree, a real photo on its own
@@ -1356,6 +1714,35 @@ button.tall {
 .crumbs .sep {
   color: var(--text-dim);
   padding: 0;
+}
+
+/* Every page's path sits in one of these, so the trail on a container, a project
+   and a lot is one object rather than three lookalikes. */
+.path-bar {
+  align-items: center;
+}
+
+/*
+ * Link crumbs and button crumbs must be indistinguishable.
+ *
+ * Both kinds occur in the same trail: a page routes, while a picker running
+ * inside a form calls back instead (routing away would discard a typed
+ * quantity). A trail that changed appearance halfway along would read as two
+ * different things joined by a slash.
+ */
+.crumbs a.crumb {
+  text-decoration: none;
+}
+
+.crumbs a.crumb:hover,
+.crumbs button.crumb:hover {
+  text-decoration: underline;
+}
+
+/* A crumb this page cannot link to — a level whose id it does not know. Dimmed
+   rather than accented, so it does not read as a link that fails to work. */
+.crumbs .crumb-flat {
+  color: var(--text-dim);
 }
 
 /* ------------------------------------------------------ search: facets --- */
@@ -1748,7 +2135,94 @@ button.tall {
   font-weight: 700;
 }
 
+/* ---------------------------------------------------------- popup panels ---
+ *
+ * One dialog shape for every editing panel (see components/Dialog.tsx). On a
+ * phone it is a sheet pinned to the bottom of the viewport, because that is
+ * where the thumb is and because a centred box with a keyboard open leaves the
+ * fields off screen; from 40rem up it is a centred panel.
+ */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30; /* above the header (20) and the sticky commit bar (15) */
+  background: var(--scrim);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+
+.dialog-panel {
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: var(--gap);
+  width: 100%;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dialog-head h2 {
+  font-size: 1.1rem;
+}
+
+.dialog-close {
+  min-width: var(--touch);
+  flex: 0 0 auto;
+}
+
+/* The panel scrolls, not the page behind it. */
+.dialog-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+}
+
+/* ------------------------------------------------------------- edit mode ---
+ *
+ * The storage screen in edit mode is the same page, marked as a different
+ * *mode* — so the marking is a band with a word in it and a dashed edge, never
+ * a tint alone: "customising" and "using" must be distinguishable on a
+ * monochrome screen and to somebody who cannot see the accent hue at all.
+ */
+.editing {
+  border: 2px dashed var(--accent-2);
+  background: var(--accent-2-soft);
+}
+
+.editing-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.editing-strip .badge {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
+
 @media (min-width: 40rem) {
+  .dialog-backdrop {
+    align-items: center;
+    padding: var(--gap);
+  }
+
+  .dialog-panel {
+    border-radius: var(--radius);
+    max-width: 44rem;
+    max-height: 88dvh;
+  }
+
   .app-nav {
     position: sticky;
     top: var(--header-h);

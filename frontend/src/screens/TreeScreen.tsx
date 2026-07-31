@@ -24,13 +24,17 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
+import { ContainerDetailPanel } from "../components/ContainerDetailPanel";
 import { ContainerLayout } from "../components/ContainerLayout";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
+import { PathBar } from "../components/PathBar";
 import { getLocationTree, type LocationNode, type LocationTree } from "../lib/api/client";
 import { formatQty } from "../lib/format";
+import { matchLocations } from "../lib/locations/match";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
-import { ancestorsOf, childrenOf, descendantsOf, indexTree } from "../lib/locations/tree";
+import { containerTrailFromIndex } from "../lib/locations/trail";
+import { childrenOf, descendantsOf, indexTree } from "../lib/locations/tree";
 import { useAsync } from "../lib/hooks/useAsync";
 
 export function TreeScreen() {
@@ -54,14 +58,42 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
   // blank screen: an unknown id falls back to the top level.
   const at = Number.isSafeInteger(rawAt) && index.byId.has(rawAt) ? rawAt : null;
   const view = params.get("view") === "list" ? "list" : "map";
+  /**
+   * Which container the detail panel is showing — the other half of a
+   * master/detail workspace, and in the URL for the same reason `?at=` is: a
+   * position somebody can send to somebody else, and one the Back button
+   * restores.
+   *
+   * Falls back to the level in view, so the panel always describes something.
+   * That matters at the moment you drill: you pressed into a cabinet because you
+   * are interested in the cabinet, and an empty panel would make you press it
+   * again to find out about it.
+   */
+  const rawSel = Number(params.get("sel"));
+  const sel = Number.isSafeInteger(rawSel) && index.byId.has(rawSel) ? rawSel : null;
+  const subject = sel ?? at;
 
-  function go(next: { at?: number | null; view?: "map" | "list" }): void {
+  function go(next: {
+    at?: number | null;
+    view?: "map" | "list";
+    sel?: number | null;
+  }): void {
     const updated = new URLSearchParams(params);
     if ("at" in next) {
       if (next.at === null || next.at === undefined) {
         updated.delete("at");
       } else {
         updated.set("at", String(next.at));
+      }
+      // Drilling changes what the panel is about; keeping the old selection would
+      // leave a drawer's details beside a different cabinet's map.
+      updated.delete("sel");
+    }
+    if ("sel" in next) {
+      if (next.sel === null || next.sel === undefined) {
+        updated.delete("sel");
+      } else {
+        updated.set("sel", String(next.sel));
       }
     }
     if (next.view !== undefined) {
@@ -80,7 +112,10 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
     <div className="stack">
       <div className="card">
         <div className="row">
-          <Crumbs index={index} here={here} onGo={(id) => go({ at: id })} />
+          <PathBar
+            trail={containerTrailFromIndex(index, at, (id) => go({ at: id }))}
+            label="Storage path"
+          />
           <span className="spacer" />
           <div className="segmented" style={{ flex: "0 0 auto" }}>
             <button
@@ -113,11 +148,19 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
           to put a part, so this is where "add one" has to be — carrying the
           position they are already looking at, so the new containers land here
           rather than making them pick their own location out of a list again.
+
+          When there *is* a container to add into, this goes to that container's own
+          page in edit mode rather than to `/containers/new?parent=`. There is one
+          place a container is edited, and a second surface that also adds children
+          to it is a second thing to keep in step — which is the whole complaint
+          edit mode answers. The top of the tree is different in kind, not in level:
+          there is no container page to open, so the standalone screen remains the
+          only way to make the first one.
         */}
         <div className="row">
           <Link
             className="button-link"
-            to={here === null ? "/containers/new" : `/containers/new?parent=${here.id}`}
+            to={here === null ? "/containers/new" : `/locations/${here.id}?edit=1&panel=add`}
           >
             {here === null ? "Add a container" : `Add containers in ${here.name}`}
           </Link>
@@ -127,62 +170,144 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
       </div>
 
       {view === "map" ? (
-        <div className="card">
+        /*
+         * Master and detail, side by side on a desktop and stacked on a phone.
+         *
+         * The map never leaves the screen: pressing a cell fills the panel, and
+         * the corner strip drills. That is the whole answer to "you end up having
+         * a second view that is only slightly different from the other view" —
+         * there is no second view to end up on.
+         */
+        <div className="workspace">
+          <div className="card">
           {/* Drilling keeps you in the map; `?at=` is the shareable position. */}
-          <ContainerLayout index={index} parentId={at} drillTo={(node) => `/tree?at=${node.id}`} />
+            <ContainerLayout
+              index={index}
+              parentId={at}
+              pick={{
+                /**
+                 * Pressing a container **opens** it, which is the ordinary reading
+                 * of pressing a thing. No arrow to hunt for.
+                 *
+                 * "Open" means one act with two visible halves: the map goes into
+                 * it when there is anything to go into, and the panel lists what is
+                 * in it either way. A leaf has no inside for the map to show, so
+                 * there the map stays where it is and the cell is simply marked —
+                 * drilling into a bin would empty the screen to say "nothing here",
+                 * throwing away the row of siblings you were reading.
+                 */
+                onPick: (node) =>
+                  childrenOf(index, node.id).length > 0
+                    ? go({ at: node.id, sel: node.id })
+                    : go({ sel: node.id }),
+                editTo: (node) => `/locations/${node.id}?edit=1`,
+                pickedId: sel,
+                actionLabel: "Open",
+              }}
+            />
+          </div>
+          {subject !== null && (
+            <ContainerDetailPanel
+              locationId={subject}
+              childCount={childrenOf(index, subject).length}
+            />
+          )}
         </div>
       ) : (
         <TreeGrid nodes={nodes} rootId={at} />
+      )}
+
+      <RemovedContainers />
+    </div>
+  );
+}
+
+/**
+ * The containers that were removed but kept — and the only screen that lists them.
+ *
+ * A retirement is the reversible half of removing a container, and it is reversible
+ * from the container's *own* page. But retirement takes the row out of every other
+ * read: no parent's children, no slot canvas, no room plan, no assignment proposal.
+ * So without this list the "Bring it back" button was reachable only by typing the
+ * numeric id into the URL or by scanning the tag still stuck to the drawer, which
+ * makes "it can be restored" a promise the UI did not keep.
+ *
+ * Fetched only when asked for, and rendered as plain rows rather than through
+ * `ContainerLayout`: a retired container has no slot cell and no coordinate — that
+ * is what retiring cleared — so it belongs in no picture of the furniture. The path
+ * is what identifies it, because the name alone ("B3") does not.
+ */
+function RemovedContainers() {
+  const [open, setOpen] = useState(false);
+  const removed = useAsync<LocationTree | null>(
+    () => (open ? getLocationTree(undefined, { includeRetired: true }) : Promise.resolve(null)),
+    [open],
+  );
+  const rows = (removed.data?.nodes ?? []).filter((node) => node.retired_at !== null);
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>Removed containers</h3>
+        <span className="spacer" />
+        <button type="button" aria-pressed={open} onClick={() => setOpen(!open)}>
+          {open ? "Hide them" : "Show them"}
+        </button>
+      </div>
+      {!open ? (
+        <p className="muted-note" style={{ margin: 0 }}>
+          A container the stock ledger, a printed label or a tag names keeps its row and its
+          history when it is removed — it just leaves the tree. Those can be brought back.
+        </p>
+      ) : (
+        <>
+          <ErrorBanner error={removed.error} fallback="The removed containers could not be loaded." />
+          {removed.data === null && removed.error === null ? (
+            <Loading what="the removed containers" />
+          ) : rows.length === 0 ? (
+            <p className="dim" style={{ margin: 0 }}>
+              Nothing has been removed and kept.
+            </p>
+          ) : (
+            <ul className="list">
+              {rows.map((node) => (
+                <li key={node.id}>
+                  <Link className="list-item" to={`/locations/${node.id}`}>
+                    <div className="row">
+                      <span className="title">{node.name}</span>
+                      <span className="spacer" />
+                      <span className="badge badge-warn">removed</span>
+                    </div>
+                    <div className="sub mono">{node.label_path}</div>
+                    <div className="sub">Open it to bring it back →</div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-function Crumbs({
-  index,
-  here,
-  onGo,
-}: {
-  index: ReturnType<typeof indexTree>;
-  here: LocationNode | null;
-  onGo: (id: number | null) => void;
-}) {
-  const chain = here === null ? [] : ancestorsOf(index, here.id);
-  return (
-    <nav className="crumbs" aria-label="Breadcrumb">
-      <button type="button" className="crumb" onClick={() => onGo(null)}>
-        All storage
-      </button>
-      {chain.map((node) => (
-        <span key={node.id} className="row-tight">
-          <span className="sep" aria-hidden="true">
-            /
-          </span>
-          <button type="button" className="crumb" onClick={() => onGo(node.id)}>
-            {node.name}
-          </button>
-        </span>
-      ))}
-      {here !== null && (
-        <span className="row-tight">
-          <span className="sep" aria-hidden="true">
-            /
-          </span>
-          <span className="here" aria-current="page">
-            {here.name}
-          </span>
-        </span>
-      )}
-    </nav>
-  );
-}
-
 /**
- * What this container holds, counting everything below it.
+ * What this **level** holds, counting everything below it.
+ *
+ * Trimmed to only what the detail panel does not say. It used to restate the
+ * container's identity — name, slot, badges, its path, its own fill — beside a
+ * panel now saying the same things about the same container, which is the
+ * duplication this workspace exists to remove. What survives is what is genuinely
+ * about the level rather than the container: the roll-up over everything beneath
+ * it, and the two staging notices, which are advice about a whole subtree.
  *
  * The roll-up is over the client-side index rather than a second request: the
  * whole tree is already here, and a per-container endpoint would be N+1 requests
  * for a number the browser can add up.
+ *
+ * The "Open this container" link is gone rather than moved. It was the one-way
+ * door onto the other view, and there is no other view now; the panel's own link
+ * is named for what is over there instead.
  */
 function HereSummary({
   index,
@@ -198,24 +323,10 @@ function HereSummary({
 
   return (
     <>
-      <div className="row">
-        <h1 style={{ flex: 1 }}>{here.name}</h1>
-        {here.slot_label !== null && <span className="badge mono">{here.slot_label}</span>}
-        {isInbox(here) && <span className="badge badge-accent">inbox</span>}
-        {isProjectStagingBox(here) && <span className="badge badge-accent">project parts</span>}
-        {here.is_overfull && <span className="badge badge-warn">over</span>}
-        <Link to={`/locations/${here.id}`}>Open this container →</Link>
-      </div>
       <p className="muted-note" style={{ margin: 0 }}>
-        {here.label_path}
+        {childrenOf(index, here.id).length} inside · {lots} lot(s) in here and below ·{" "}
+        {formatQty(qty)} total
       </p>
-      <div className="row">
-        <FillMeter ratio={here.fill_ratio} overfull={here.is_overfull} />
-        <span className="muted-note">
-          {childrenOf(index, here.id).length} inside · {lots} lot(s) in here and below ·{" "}
-          {formatQty(qty)} total
-        </span>
-      </div>
       {/* Two staging kinds, opposite advice. This notice used to fire on
           `is_staging` alone, so a project's box was told it "is meant to be
           emptied rather than lived in" — the exact opposite of true for a box
@@ -225,7 +336,7 @@ function HereSummary({
         <Notice kind="warn" title="This is the staging inbox">
           The permanent catch-all, not an ordinary bin. Anything here landed because
           auto-assignment ran out of options, and it is meant to be emptied rather
-          than lived in.
+          than lived in. <Link to="/staging">Empty it →</Link>
         </Notice>
       )}
       {isProjectStagingBox(here) && (
@@ -258,13 +369,12 @@ function TreeGrid({ nodes, rootId }: { nodes: readonly LocationNode[]; rootId: n
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set());
   const [filter, setFilter] = useState("");
 
-  const needle = filter.trim().toLowerCase();
-  const matching = useMemo(() => {
-    if (needle === "") {
-      return null;
-    }
-    return nodes.filter((node) => node.label_path.toLowerCase().includes(needle));
-  }, [needle, nodes]);
+  // The same matcher the container picker uses, so the two screens cannot disagree
+  // about what "cabinet a drawer 7" finds. See `lib/locations/match`.
+  const matching = useMemo(
+    () => (filter.trim() === "" ? null : matchLocations(nodes, filter)),
+    [filter, nodes],
+  );
 
   function toggle(id: number): void {
     const next = new Set(collapsed);
