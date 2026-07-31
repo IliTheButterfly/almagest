@@ -1996,6 +1996,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/parts/{part_id}/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Part Parameters
+         * @description Every field this part could have a value for, with the values it has.
+         *
+         *     Fields with no value are returned too, and that is the point: this is an
+         *     editor, and a field you cannot see is a field you will not fill in.
+         */
+        get: operations["list_part_parameters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parts/{part_id}/parameters/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Part Parameter
+         * @description Set this part's value for one field.
+         *
+         *     Every refusal here is one the search path would otherwise hit later: an
+         *     unparseable value, a one-sided limit that no range query can match, several
+         *     options on a field that holds one. The reason codes are the parser's own, so the
+         *     UI can put the message against the box that caused it.
+         */
+        put: operations["set_part_parameter"];
+        post?: never;
+        /**
+         * Clear Part Parameter
+         * @description Remove this part's value for one field.
+         *
+         *     The row is deleted rather than blanked: a `parameter_value` with every value
+         *     column null is a part claiming an attribute it has no answer for, which is
+         *     counted as populated and matches no query — indistinguishable from a bug.
+         */
+        delete: operations["clear_part_parameter"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects": {
         parameters: {
             query?: never;
@@ -3600,6 +3656,15 @@ export interface components {
             label?: string | null;
             /** Sort Order */
             sort_order?: number | null;
+        };
+        /** ChoiceValueRead */
+        ChoiceValueRead: {
+            /** Id */
+            id: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
         };
         /** CloneRequest */
         CloneRequest: {
@@ -5706,6 +5771,97 @@ export interface components {
             display_name?: string | null;
             /** Sort Order */
             sort_order?: number | null;
+        };
+        /** PartParameterCleared */
+        PartParameterCleared: {
+            /** Name */
+            name: string;
+            /** Removed */
+            removed: boolean;
+            /** Template Id */
+            template_id: number;
+        };
+        /**
+         * PartParameterRead
+         * @description One field this part could have a value for, and the value if it has one.
+         */
+        PartParameterRead: {
+            /** Allow Multiple */
+            allow_multiple: boolean;
+            /** Base Unit */
+            base_unit: string | null;
+            /** Choices */
+            choices?: components["schemas"]["ChoiceValueRead"][];
+            /** Display */
+            display?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Inherited */
+            inherited: boolean;
+            /** Name */
+            name: string;
+            /** Options */
+            options?: components["schemas"]["ChoiceValueRead"][];
+            /** Provenance */
+            provenance?: string | null;
+            /** Raw Input */
+            raw_input?: string | null;
+            /** Sort Order */
+            sort_order: number;
+            /** Template Id */
+            template_id: number;
+            /** Value Bool */
+            value_bool?: boolean | null;
+            /** Value Max */
+            value_max?: number | null;
+            /** Value Min */
+            value_min?: number | null;
+            /** Value Nominal */
+            value_nominal?: number | null;
+            /** Value Text */
+            value_text?: string | null;
+            /** Value Type */
+            value_type: string;
+        };
+        /**
+         * PartParameterWrite
+         * @description The value, in whichever shape the field's type takes.
+         *
+         *     Separate optional members rather than one `Any`: a bool is not the string
+         *     'true', and a list field takes a *set*. Sending the wrong one for the type is a
+         *     422 that names the mismatch instead of a coercion nobody asked for.
+         */
+        PartParameterWrite: {
+            /**
+             * Checked
+             * @description For a yes/no field.
+             */
+            checked?: boolean | null;
+            /**
+             * Choices
+             * @description For a list field: the complete set of options, by key or by any alias. One entry unless the field allows several. The whole set, never a delta, so 'now only SMD' is sayable.
+             */
+            choices?: string[] | null;
+            /**
+             * Value
+             * @description For a numeric field the shorthand to parse — '22uF', '20-30uF', '>=50V'. For a text field the text itself, stored verbatim.
+             */
+            value?: string | null;
+        };
+        /** PartParameterWritten */
+        PartParameterWritten: {
+            parameter: components["schemas"]["PartParameterRead"];
+        };
+        /** PartParametersResponse */
+        PartParametersResponse: {
+            /** Category */
+            category: string | null;
+            /** Filed */
+            filed: boolean;
+            /** Parameters */
+            parameters: components["schemas"]["PartParameterRead"][];
+            /** Part Id */
+            part_id: number;
         };
         /** PartRead */
         PartRead: {
@@ -10938,6 +11094,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_part_parameters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParametersResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_part_parameter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartParameterWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParameterWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_part_parameter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParameterCleared"];
                 };
             };
             /** @description Validation Error */

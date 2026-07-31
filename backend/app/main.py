@@ -29,6 +29,7 @@ from app.api.routes import (
     parameter_quantities,
     part_categories,
     part_kinds,
+    part_parameters,
     parts,
     projects,
     provisioning,
@@ -150,6 +151,11 @@ def create_app() -> FastAPI:
     # a sub-path of parameter-fields: a field belongs to a category, a quantity
     # belongs to the install, and a dozen fields may share one.
     app.include_router(parameter_quantities.router)
+    # A part's own field values — the door that let everything above be filled in
+    # by hand. Its own module rather than `parts`, because what it returns belongs
+    # to the field definitions rather than to the part row, the same split
+    # `documents.parts_router` makes.
+    app.include_router(part_parameters.router)
     app.include_router(projects.router)
     app.include_router(projects.builds_router)
     app.include_router(requirements.router)

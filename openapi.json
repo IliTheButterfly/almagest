@@ -2194,6 +2194,29 @@
         "title": "ChoiceUpdate",
         "type": "object"
       },
+      "ChoiceValueRead": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "label"
+        ],
+        "title": "ChoiceValueRead",
+        "type": "object"
+      },
       "CloneRequest": {
         "properties": {
           "client_op_id": {
@@ -8626,6 +8649,283 @@
           }
         },
         "title": "PartKindUpdate",
+        "type": "object"
+      },
+      "PartParameterCleared": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "boolean"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "template_id",
+          "name",
+          "removed"
+        ],
+        "title": "PartParameterCleared",
+        "type": "object"
+      },
+      "PartParameterRead": {
+        "description": "One field this part could have a value for, and the value if it has one.",
+        "properties": {
+          "allow_multiple": {
+            "title": "Allow Multiple",
+            "type": "boolean"
+          },
+          "base_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Unit"
+          },
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/ChoiceValueRead"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "display": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "inherited": {
+            "title": "Inherited",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ChoiceValueRead"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          },
+          "raw_input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Input"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          },
+          "value_bool": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Bool"
+          },
+          "value_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Max"
+          },
+          "value_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Min"
+          },
+          "value_nominal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Nominal"
+          },
+          "value_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Text"
+          },
+          "value_type": {
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "name",
+          "display_name",
+          "value_type",
+          "base_unit",
+          "allow_multiple",
+          "inherited",
+          "sort_order"
+        ],
+        "title": "PartParameterRead",
+        "type": "object"
+      },
+      "PartParameterWrite": {
+        "description": "The value, in whichever shape the field's type takes.\n\nSeparate optional members rather than one `Any`: a bool is not the string\n'true', and a list field takes a *set*. Sending the wrong one for the type is a\n422 that names the mismatch instead of a coercion nobody asked for.",
+        "properties": {
+          "checked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a yes/no field.",
+            "title": "Checked"
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a list field: the complete set of options, by key or by any alias. One entry unless the field allows several. The whole set, never a delta, so 'now only SMD' is sayable.",
+            "title": "Choices"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a numeric field the shorthand to parse \u2014 '22uF', '20-30uF', '>=50V'. For a text field the text itself, stored verbatim.",
+            "title": "Value"
+          }
+        },
+        "title": "PartParameterWrite",
+        "type": "object"
+      },
+      "PartParameterWritten": {
+        "properties": {
+          "parameter": {
+            "$ref": "#/components/schemas/PartParameterRead"
+          }
+        },
+        "required": [
+          "parameter"
+        ],
+        "title": "PartParameterWritten",
+        "type": "object"
+      },
+      "PartParametersResponse": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "filed": {
+            "title": "Filed",
+            "type": "boolean"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PartParameterRead"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "category",
+          "filed",
+          "parameters"
+        ],
+        "title": "PartParametersResponse",
         "type": "object"
       },
       "PartRead": {
@@ -19841,6 +20141,167 @@
         "summary": "Detach Part Document",
         "tags": [
           "documents"
+        ]
+      }
+    },
+    "/api/parts/{part_id}/parameters": {
+      "get": {
+        "description": "Every field this part could have a value for, with the values it has.\n\nFields with no value are returned too, and that is the point: this is an\neditor, and a field you cannot see is a field you will not fill in.",
+        "operationId": "list_part_parameters",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParametersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Part Parameters",
+        "tags": [
+          "part-parameters"
+        ]
+      }
+    },
+    "/api/parts/{part_id}/parameters/{name}": {
+      "delete": {
+        "description": "Remove this part's value for one field.\n\nThe row is deleted rather than blanked: a `parameter_value` with every value\ncolumn null is a part claiming an attribute it has no answer for, which is\ncounted as populated and matches no query \u2014 indistinguishable from a bug.",
+        "operationId": "clear_part_parameter",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParameterCleared"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Part Parameter",
+        "tags": [
+          "part-parameters"
+        ]
+      },
+      "put": {
+        "description": "Set this part's value for one field.\n\nEvery refusal here is one the search path would otherwise hit later: an\nunparseable value, a one-sided limit that no range query can match, several\noptions on a field that holds one. The reason codes are the parser's own, so the\nUI can put the message against the box that caused it.",
+        "operationId": "set_part_parameter",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartParameterWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParameterWritten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Part Parameter",
+        "tags": [
+          "part-parameters"
         ]
       }
     },

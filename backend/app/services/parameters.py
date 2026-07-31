@@ -122,6 +122,122 @@ def set_numeric(
     return row
 
 
+def set_text(
+    session: Session,
+    part: Part,
+    template: ParameterTemplate,
+    text: str,
+    *,
+    provenance: Provenance = Provenance.MANUAL,
+    confidence: float | None = None,
+) -> ParameterValue:
+    """Store a free-text parameter — a marking, a note, a package code.
+
+    Written for the same reason `set_bool` below is: **nothing in this codebase
+    ever wrote `value_text`**. The column and the `text` value type have existed
+    since the first migration, the field form offers the type, and no writer could
+    put anything in it — so a text field was declarable and permanently empty.
+
+    Text matching is substring only, which the authoring form says out loud. The
+    value is stored verbatim in both `raw_input` and `value_text`: what was typed
+    *is* the value, and there is no parse to be lossless about.
+    """
+    row = _existing_or_new(session, part, template, provenance)
+
+    row.raw_input = text
+    row.value_text = text
+    row.value_nominal = None
+    row.value_min = None
+    row.value_max = None
+    row.value_typ = None
+    row.tolerance_pct = None
+    row.display_mantissa = None
+    row.display_si_prefix = None
+    row.display_unit_symbol = None
+    row.choice_id = None
+    row.value_bool = None
+    row.provenance = provenance
+    row.confidence = confidence
+
+    session.flush()
+    _replace_choice_set(session, row, ())
+    session.flush()
+    refresh_param_digest(session, part.id)
+    return row
+
+
+def set_bool(
+    session: Session,
+    part: Part,
+    template: ParameterTemplate,
+    value: bool,
+    *,
+    provenance: Provenance = Provenance.MANUAL,
+    confidence: float | None = None,
+) -> ParameterValue:
+    """Store a yes/no parameter — automotive grade, RoHS.
+
+    `raw_input` is 'yes'/'no' rather than 'True'/'False': it is the lossless record
+    of what a human said, and it is what a re-parse and every export read.
+    """
+    row = _existing_or_new(session, part, template, provenance)
+
+    row.raw_input = "yes" if value else "no"
+    row.value_bool = value
+    row.value_nominal = None
+    row.value_min = None
+    row.value_max = None
+    row.value_typ = None
+    row.tolerance_pct = None
+    row.display_mantissa = None
+    row.display_si_prefix = None
+    row.display_unit_symbol = None
+    row.choice_id = None
+    row.value_text = None
+    row.provenance = provenance
+    row.confidence = confidence
+
+    session.flush()
+    _replace_choice_set(session, row, ())
+    session.flush()
+    refresh_param_digest(session, part.id)
+    return row
+
+
+def clear_value(session: Session, part: Part, template: ParameterTemplate) -> bool:
+    """Remove a part's value for one field. True if there was one.
+
+    A delete rather than a null row: `parameter_value` exists to say "this part has
+    this attribute", and a row with every value column null is a part that claims an
+    attribute it has no answer for — invisible to a range query, present in a
+    populated-count, and impossible to tell from a bug.
+
+    The child choice rows go with it by `ON DELETE CASCADE`, which is safe in the
+    one direction that matters: deleting *this part's* options is not deleting the
+    options themselves.
+    """
+    row = session.execute(
+        select(ParameterValue).where(
+            ParameterValue.part_id == part.id, ParameterValue.template_id == template.id
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return False
+    session.delete(row)
+    session.flush()
+    refresh_param_digest(session, part.id)
+    return True
+
+
+def value_for(session: Session, part: Part, template: ParameterTemplate) -> ParameterValue | None:
+    """This part's value for one field, or None."""
+    return session.execute(
+        select(ParameterValue).where(
+            ParameterValue.part_id == part.id, ParameterValue.template_id == template.id
+        )
+    ).scalar_one_or_none()
+
+
 def set_choice(
     session: Session,
     part: Part,

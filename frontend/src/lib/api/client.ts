@@ -87,6 +87,12 @@ export type QuantityRead = Schemas["QuantityRead"];
 export type QuantityCreate = Schemas["QuantityCreate"];
 export type QuantityCreated = Schemas["QuantityCreated"];
 export type QuantityDeleted = Schemas["QuantityDeleted"];
+/** One field a part could have a value for, plus the value it has. */
+export type PartParameterRead = Schemas["PartParameterRead"];
+export type PartParametersResponse = Schemas["PartParametersResponse"];
+export type PartParameterWrite = Schemas["PartParameterWrite"];
+export type PartParameterWritten = Schemas["PartParameterWritten"];
+export type PartParameterCleared = Schemas["PartParameterCleared"];
 export type SubstitutionDirection = Schemas["SubstitutionDirection"];
 export type ValueType = Schemas["ValueType"];
 
@@ -442,6 +448,61 @@ export async function listParameterFields(category?: string): Promise<ParameterF
   });
   if (error !== undefined) {
     fail("could not load the fields", error, response);
+  }
+  return data;
+}
+
+/**
+ * The fields this part could have a value for, and the values it has.
+ *
+ * Fields with no value come back too, which is what makes this an editor rather
+ * than a display: a field you cannot see is a field you will not fill in. Which
+ * fields apply is decided by the part's category — the same resolution the filter
+ * panel uses — so a part filed nowhere gets only the fields every part has.
+ */
+export async function listPartParameters(partId: number): Promise<PartParametersResponse> {
+  const { data, error, response } = await api.GET("/api/parts/{part_id}/parameters", {
+    params: { path: { part_id: partId } },
+  });
+  if (error !== undefined) {
+    fail("could not load this part's fields", error, response);
+  }
+  return data;
+}
+
+/**
+ * Set one field's value.
+ *
+ * One field per request on purpose: the refusals here are the valuable kind — `1M`
+ * under capacitance is physically absurd and the parser says so — and a message
+ * about one value belongs against the box that caused it, not in a partial-success
+ * report about six.
+ */
+export async function setPartParameter(
+  partId: number,
+  name: string,
+  request: PartParameterWrite,
+): Promise<PartParameterWritten> {
+  const { data, error, response } = await api.PUT("/api/parts/{part_id}/parameters/{name}", {
+    params: { path: { part_id: partId, name } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("that value was not saved", error, response);
+  }
+  return data;
+}
+
+/** Remove this part's value for one field. The row goes, not just its contents. */
+export async function clearPartParameter(
+  partId: number,
+  name: string,
+): Promise<PartParameterCleared> {
+  const { data, error, response } = await api.DELETE("/api/parts/{part_id}/parameters/{name}", {
+    params: { path: { part_id: partId, name } },
+  });
+  if (error !== undefined) {
+    fail("that value was not cleared", error, response);
   }
   return data;
 }

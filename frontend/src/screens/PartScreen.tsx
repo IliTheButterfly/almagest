@@ -17,6 +17,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { AssignStock } from "../components/AssignStock";
 import { CategorySelect } from "../components/CategorySelect";
+import { PartFields } from "../components/PartFields";
 import { DocumentsPanel } from "../components/DocumentsPanel";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import {
@@ -163,6 +164,10 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
         heading={part.lots.length === 0 ? "This part has no stock yet — put some somewhere" : undefined}
         onAssigned={onSaved}
       />
+
+      {/* Beside the stock rather than buried under Details: what a part *is* is
+          its values, and this is the only place they can be entered. */}
+      <PartFields partId={part.id} />
 
       <div className="card">
         <h3>Details</h3>
