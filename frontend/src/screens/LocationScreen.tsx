@@ -148,6 +148,19 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
           {location.effective_esd_safe === true && <span className="badge badge-good">ESD safe</span>}
           {location.is_placeable === false && <span className="badge">not placeable</span>}
           <span className="spacer" />
+          {/* Back to the workspace, with this container selected beside the map it
+              sits in — the return leg of "never leave the map". A tag scan lands
+              here rather than there (the URL is written into the tag), so without
+              this the map is reachable only by starting again from the top. */}
+          <Link
+            to={
+              location.parent_id === null
+                ? `/tree?sel=${location.id}`
+                : `/tree?at=${location.parent_id}&sel=${location.id}`
+            }
+          >
+            Show on the map
+          </Link>
           {/* The same toggle at every depth — a drawer inside a cabinet inside a
               room is edited by the identical component, which is what keeps this
               page honest about the tree having no named levels. */}

@@ -1354,6 +1354,44 @@ button.tall {
   border-color: var(--focus);
 }
 
+/*
+ * Master and detail: the map, and the container you pressed on it.
+ *
+ * The map keeps the wide column because it is the drawing — a cabinet squashed to
+ * half the screen stops looking like a cabinet, which is the whole reason the map
+ * exists. The panel is capped rather than proportional so it does not grow into a
+ * second page on a large monitor.
+ *
+ * One column below 60rem, panel *after* the map: on a phone the map is what you
+ * came for, and a detail panel pushed above it would hide the thing you are
+ * pressing.
+ */
+.workspace {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+@media (min-width: 60rem) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 21rem);
+  }
+
+  /* Sticks while the map scrolls, because comparing two drawers means scrolling
+     the drawing, not losing what you selected off the top of the screen. */
+  .workspace > .detail-panel {
+    position: sticky;
+    top: var(--gap);
+  }
+}
+
+.detail-panel {
+  /* Its own edge, so it reads as a panel about one container rather than as more
+     of the map. A shape, not a hue: it survives a monochrome screen. */
+  border-left: 3px solid var(--line-strong);
+}
+
 /* The fallback is *marked* as a fallback rather than left looking like a grid
  * that failed to align. */
 .layout-fallback {

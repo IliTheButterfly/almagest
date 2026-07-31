@@ -48,6 +48,7 @@ import { Link } from "react-router-dom";
 import type { LocationNode, RoomPlanRead } from "../lib/api/client";
 import { formatQty } from "../lib/format";
 import { inferLayout, type FallbackReason, type Layout } from "../lib/locations/slots";
+import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
 import { childrenOf, type TreeIndex } from "../lib/locations/tree";
 import {
   childCanvasOf,
@@ -506,7 +507,8 @@ function Cell({
     `${node.name}${label === "" ? "" : `, slot ${label}`}, ` +
     `${node.lot_count} lot(s)` +
     (node.is_overfull ? ", over capacity" : "") +
-    (node.is_staging ? ", staging inbox" : "") +
+    (isInbox(node) ? ", staging inbox" : "") +
+    (isProjectStagingBox(node) ? ", parts set aside for a project" : "") +
     (inside.length > 0 ? `, ${inside.length} container(s) inside` : "");
 
   const body = (
@@ -520,7 +522,12 @@ function Cell({
         <ContainerPhoto glyph={node.effective_glyph} alt="" />
         {label !== "" && <span className="cell-slot mono">{label}</span>}
         <span className="spacer" />
-        {node.is_staging && <span className="badge badge-accent">inbox</span>}
+        {/* Two staging kinds, two words — `lib/locations/staging`. A cell used to
+            badge both as "inbox", which tells a reader the opposite of the truth
+            about a project's parts box: the INBOX is a catch-all to empty, that
+            box is where a board's parts are meant to sit until it is built. */}
+        {isInbox(node) && <span className="badge badge-accent">inbox</span>}
+        {isProjectStagingBox(node) && <span className="badge badge-accent">project parts</span>}
         {/* A warning, not an error: an over-capacity put-away was accepted on
             purpose. The badge carries a "!" glyph and a 2px border too. */}
         {node.is_overfull && <span className="badge badge-warn">over</span>}
