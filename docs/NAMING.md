@@ -16,6 +16,7 @@ name each repo after the instrument it actually is.
 | **Almagest** | `almagest` (master) | The web platform: `backend/`, `frontend/`, `deviceagent/`, `idcodec/`, the SQLite database, deployment manifests, docs |
 | **Mensa** | `mensa` (submodule) | ESP-IDF firmware for the bench station — NAU7802 scale, WS2812B, USB-serial line protocol |
 | **Circinus** | `circinus` (submodule) | OpenSCAD/CAD — Gridfinity trays, label cards, station plinth/gantry/platform |
+| **Antlia** | `antlia` (submodule) | Flipper Zero app — reads a container tag, types its short ID as a USB keyboard |
 | — | `ecia-barcode` (submodule) | MH10.8.2 / EIGP-114 barcode parser. **Descriptive on purpose** |
 | — | `elec-value-parser` (submodule) | `4k7` / `0R22` electronics shorthand grammar. **Descriptive on purpose** |
 
@@ -26,6 +27,12 @@ is the entire product.
 **Mensa** is the constellation "the Table". The station is a table.
 
 **Circinus** is the drafting compasses. It holds the CAD.
+
+**Antlia** is the air pump — the instrument whose whole job is moving the contents
+of one vessel into another, which is precisely and only what that app does: it
+takes the ID off a tag and puts it into a computer. It is a submodule for the same
+reason Mensa is: a separate toolchain (`ufbt` and the Flipper SDK) with no
+coupling to the API contract.
 
 ## The two libraries stay descriptive
 
@@ -69,3 +76,5 @@ solo-maintained project that is a cost with no payer.
   cabinets, which is close enough to inventory to avoid.
 - **Reticulum** — also a networking stack.
 - **Mensa** — also the IQ society. Unrelated domain, no practical conflict.
+- **Antlia** — an asteroid family and a defunct telescope project; nothing in
+  software, and nothing in inventory or embedded tooling.
