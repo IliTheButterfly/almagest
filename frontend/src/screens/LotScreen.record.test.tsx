@@ -24,6 +24,12 @@ import { LotScreen } from "./LotScreen";
 
 const PROJECT: WorkTarget = { kind: "project", projectId: 12, label: "Bench PSU" };
 const BUILD: WorkTarget = { kind: "build", buildId: 5, label: "rev B ×3" };
+const OTHER_BUILD: WorkTarget = { kind: "build", buildId: 6, label: "rev C ×1" };
+
+/** What `/api/projects/12` answers with — the chooser's list of iterations. */
+let projectBuilds: Record<string, unknown>[] = [
+  { id: 5, project_id: 12, build_no: 1, label: "rev B x3", assembly_count: 3, status: "planned" },
+];
 
 const LOT = {
   id: 7,
@@ -95,6 +101,33 @@ function stubApi(): void {
       if (url.pathname === "/api/stock/lots/7/history") {
         return json([]);
       }
+      if (url.pathname === "/api/projects/12") {
+        return json({
+          id: 12,
+          name: "Bench PSU",
+          revision: "B",
+          status: "planning",
+          description: null,
+          source_ref: null,
+          notes: null,
+          created_at: "2026-07-30T00:00:00Z",
+          updated_at: "2026-07-30T00:00:00Z",
+          builds: projectBuilds,
+        });
+      }
+      if (url.pathname === "/api/projects/12/builds") {
+        return json({
+          replayed: false,
+          build: {
+            id: 9,
+            project_id: 12,
+            build_no: 2,
+            label: null,
+            assembly_count: 1,
+            status: "planned",
+          },
+        });
+      }
       throw new Error(`unstubbed request: ${request.method} ${url.pathname}`);
     }),
   );
@@ -117,6 +150,9 @@ function renderScreen() {
 
 beforeEach(() => {
   calls.length = 0;
+  projectBuilds = [
+    { id: 5, project_id: 12, build_no: 1, label: "rev B x3", assembly_count: 3, status: "planned" },
+  ];
   globalThis.localStorage.clear();
   carts.reset();
   openTargets.reset();
@@ -130,12 +166,12 @@ afterEach(() => {
 
 describe("with a tab focused", () => {
   it("names the focused target on the button, so the attribution is visible", async () => {
-    openTargets.openTarget(PROJECT);
+    openTargets.openTarget(BUILD);
     renderScreen();
 
     // ADR 0010: a take must never be attributable to a target the user cannot see
     // named at the moment they press the button.
-    expect(await screen.findByRole("button", { name: "Take 1 for Bench PSU" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Take 1 for rev B ×3" })).toBeTruthy();
   });
 
   it("adds a line to that tab's record and writes nothing", async () => {
@@ -248,23 +284,104 @@ describe("with two tabs open", () => {
   it("does not move existing lines when focus changes", async () => {
     // The reason the record is per-target at all: one shared list would silently
     // re-aim everything already gathered the moment the focused tab changed.
-    openTargets.openTarget(PROJECT);
+    openTargets.openTarget(OTHER_BUILD);
     openTargets.openTarget(BUILD);
     renderScreen();
 
     fireEvent.click(await screen.findByRole("button", { name: "Take 1 for rev B ×3" }));
     const gathered = carts.for(BUILD).lines()[0]?.id;
 
-    openTargets.focus(targetKey(PROJECT));
+    openTargets.focus(targetKey(OTHER_BUILD));
     // The button follows the focus, which is what makes the attribution honest.
-    expect(await screen.findByRole("button", { name: "Take 1 for Bench PSU" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Take 1 for rev C ×1" })).toBeTruthy();
 
     expect(carts.for(BUILD).lines().map((line) => line.id)).toEqual([gathered]);
+    expect(carts.for(OTHER_BUILD).size).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Take 1 for rev C ×1" }));
+    expect(carts.for(OTHER_BUILD).size).toBe(1);
+    expect(carts.for(BUILD).lines().map((line) => line.id)).toEqual([gathered]);
+    expect(writes()).toEqual([]);
+  });
+});
+
+describe("with a project focused", () => {
+  it("does not offer to attribute the take to the project", async () => {
+    // ADR 0011: a project is the design. Naming it on the button would be the
+    // control lying about where the parts are going.
+    openTargets.openTarget(PROJECT);
+    renderScreen();
+
+    expect(await screen.findByRole("button", { name: "Take 1 for an iteration…" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Take 1 for Bench PSU" })).toBeNull();
+  });
+
+  it("asks which iteration, and writes nothing while it is asking", async () => {
+    openTargets.openTarget(PROJECT);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Take 1 for an iteration…" }));
+
+    expect(await screen.findByText("Which iteration are these for?")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Build #1 — rev B x3/ })).toBeTruthy();
     expect(carts.for(PROJECT).size).toBe(0);
+    expect(writes()).toEqual([]);
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Take 1 for Bench PSU" }));
-    expect(carts.for(PROJECT).size).toBe(1);
-    expect(carts.for(BUILD).lines().map((line) => line.id)).toEqual([gathered]);
+  it("puts the line in the chosen iteration, and opens it as the focused tab", async () => {
+    openTargets.openTarget(PROJECT);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Take 1 for an iteration…" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Build #1 — rev B x3/ }));
+
+    const chosen: WorkTarget = { kind: "build", buildId: 5, label: "Build #1 — rev B x3" };
+    expect(carts.for(chosen).size).toBe(1);
+    expect(carts.for(chosen).lines()[0]?.lotId).toBe(7);
+    // The project itself gathers nothing: it is not somewhere parts can be.
+    expect(carts.for(PROJECT).size).toBe(0);
+    // Focused, so the next take on this screen goes straight there and the strip
+    // says so without being asked again.
+    expect(targetKey(openTargets.focused ?? PROJECT)).toBe(targetKey(chosen));
+    expect(await screen.findByRole("button", { name: /^Take 1 for Build #1/ })).toBeTruthy();
+    expect(writes()).toEqual([]);
+  });
+
+  it("can start an iteration when the project has none, and uses it", async () => {
+    projectBuilds = [];
+    openTargets.openTarget(PROJECT);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Take 1 for an iteration…" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Start a new iteration/ }));
+
+    const created: WorkTarget = { kind: "build", buildId: 9, label: "Build #2" };
+    await waitFor(() => expect(carts.for(created).size).toBe(1));
+    expect(targetKey(openTargets.focused ?? PROJECT)).toBe(targetKey(created));
+  });
+
+  it("does not offer an iteration that is finished", async () => {
+    projectBuilds = [
+      { id: 5, project_id: 12, build_no: 1, label: "done", assembly_count: 1, status: "completed" },
+    ];
+    openTargets.openTarget(PROJECT);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Take 1 for an iteration…" }));
+
+    expect(await screen.findByText(/One iteration is/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Build #1 — done/ })).toBeNull();
+  });
+
+  it("leaves the record alone when the question is cancelled", async () => {
+    openTargets.openTarget(PROJECT);
+    renderScreen();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Take 1 for an iteration…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByText("Which iteration are these for?")).toBeNull();
+    expect(carts.for(PROJECT).size).toBe(0);
     expect(writes()).toEqual([]);
   });
 });

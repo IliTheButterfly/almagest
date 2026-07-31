@@ -23,6 +23,34 @@ export type WorkTarget =
   | { readonly kind: "project"; readonly projectId: number; readonly label: string }
   | { readonly kind: "build"; readonly buildId: number; readonly label: string };
 
+/**
+ * The two constructors, so a target's captured label is written once.
+ *
+ * Three screens now open tabs — a project, a build, and the iteration chooser the
+ * take screen puts up — and a build named "Build #2" in one place and "rev C" in
+ * another is two tabs as far as a reader is concerned, even though `targetKey`
+ * would tell them apart correctly. Structural parameters rather than the generated
+ * `ProjectRead`/`BuildRead`: this module is deliberately free of API imports.
+ */
+export function projectTarget(project: {
+  readonly id: number;
+  readonly name: string;
+}): WorkTarget {
+  return { kind: "project", projectId: project.id, label: project.name };
+}
+
+export function buildTarget(build: {
+  readonly id: number;
+  readonly build_no: number;
+  readonly label: string | null;
+}): WorkTarget {
+  return {
+    kind: "build",
+    buildId: build.id,
+    label: `Build #${build.build_no}${build.label === null ? "" : ` — ${build.label}`}`,
+  };
+}
+
 /** The tab's identity, and the suffix of its cart's `localStorage` key. */
 export type TargetKey = string;
 

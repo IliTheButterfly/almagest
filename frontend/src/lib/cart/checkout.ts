@@ -33,10 +33,11 @@
  */
 
 import {
-  allocateStockBatch,
   ApiError,
+  getBuild,
+  listBomLines,
+  stageStock,
   updateBomLines,
-  type AllocateLine,
   type BomLineEdit,
 } from "../api/client";
 import { describeError } from "../api/errors";
@@ -206,51 +207,52 @@ async function toProjectBom(
 }
 
 /**
- * A build's allocations.
+ * A build's staged parts — a real ledger move, not a hold.
  *
- * A hold is a hold *on a lot*, so a cart row with no lot cannot become one. That
- * is refused here without a request rather than sent for the server to reject:
- * the missing piece is a local one, and telling the user "this row needs a
- * container" is more useful than relaying a validation error about a field they
- * have never seen.
+ * ADR 0011. A cart line says *I picked this up*, and the only honest record of
+ * that is the one `stock_lots.qty_milli_cached` can be read against: the parts
+ * left the drawer, so the ledger has to say so. Reserving instead — which is what
+ * this did until now — leaves the count in a bin nobody can find the parts in,
+ * which is the failure ADR 0004 wrote the staging location to prevent. Reserving
+ * is still the right verb for planning a hold you have not walked to the shelf
+ * for; that lives on the build screen, and it is a different gesture.
+ *
+ * A hold is a hold *on a lot*, so a row with no lot cannot become one. Refused
+ * here without a request rather than sent for the server to reject: the missing
+ * piece is local, and "this row needs a container" is more useful than a
+ * validation error about a field the user has never seen.
+ *
+ * **One request per line, deliberately.** There is no batch stage route, and the
+ * per-line rules survive without one because each line carries the `clientOpId`
+ * minted when it was added: a resend replays rather than doubling, a refusal
+ * stops that line and not the loop, and a row is dropped only once the server has
+ * said it applied.
  */
 async function toBuild(
   cart: ShoppingCart,
   lines: readonly CartLine[],
   buildId: number,
 ): Promise<CheckoutOutcome> {
-  const allocatable: CartLine[] = [];
-  const batch: AllocateLine[] = [];
+  const stageable: CartLine[] = [];
   const localFailures: CheckoutFailure[] = [];
   for (const line of lines) {
-    const lotId = line.lotId;
-    if (lotId === null) {
+    if (line.lotId === null) {
       localFailures.push({
         id: line.id,
         reason: "no_lot",
         message:
-          "Reserving stock needs a specific container, and this row does not name one. " +
-          "Choose which package it comes from.",
+          "Sending parts to a build needs the container they came out of, and this " +
+          "row does not name one. Choose which package it comes from.",
       });
       continue;
     }
-    allocatable.push(line);
-    batch.push({
-      client_line_id: line.id,
-      client_op_id: line.clientOpId,
-      lot_id: lotId,
-      part_id: line.partId,
-      qty_milli: line.qtyMilli,
-    });
+    stageable.push(line);
   }
+  const at = Date.now();
   for (const failure of localFailures) {
-    cart.markFailed(failure.id, {
-      reason: failure.reason,
-      message: failure.message,
-      at: Date.now(),
-    });
+    cart.markFailed(failure.id, { reason: failure.reason, message: failure.message, at });
   }
-  if (allocatable.length === 0) {
+  if (stageable.length === 0) {
     return {
       destination: "build",
       applied: 0,
@@ -261,15 +263,80 @@ async function toBuild(
     };
   }
 
-  const outcome = await attempt(cart, allocatable, "build", null, async () => {
-    const response = await allocateStockBatch(buildId, {
-      client_op_id: uuid4(),
-      lines: batch,
-    });
-    return { results: response.results, groupUuid: null };
-  });
+  const bomLineFor = await bomLineResolver(buildId);
+  const appliedIds: string[] = [];
+  const failed: CheckoutFailure[] = [...localFailures];
+  let replayed = 0;
 
-  return { ...outcome, failed: [...localFailures, ...outcome.failed] };
+  for (const line of stageable) {
+    const lotId = line.lotId;
+    if (lotId === null) {
+      continue;
+    }
+    try {
+      const response = await stageStock(buildId, {
+        lot_id: lotId,
+        qty_milli: line.qtyMilli,
+        client_op_id: line.clientOpId,
+        ...(bomLineFor(line.partId) === null ? {} : { bom_line_id: bomLineFor(line.partId) }),
+      });
+      appliedIds.push(line.id);
+      if (response.replayed) {
+        replayed += 1;
+      }
+    } catch (cause) {
+      const message = describeFailure(cause);
+      const reason = cause instanceof ApiError ? describeError(cause).reason : null;
+      failed.push({ id: line.id, reason, message });
+      cart.markFailed(line.id, { reason, message, at: Date.now() });
+    }
+  }
+
+  // After the failures are marked, so one write does not undo the other.
+  cart.removeMany(appliedIds);
+
+  return {
+    destination: "build",
+    applied: appliedIds.length,
+    replayed,
+    failed,
+    groupUuid: null,
+    notAttempted: null,
+  };
+}
+
+/**
+ * Which BOM line a staged part counts against — **only when that is not a guess.**
+ *
+ * Attribution is what makes staged parts show up as progress against a line
+ * instead of as stock that merely moved somewhere, so it is worth one extra read.
+ * But two BOM lines can legitimately name the same part (`R1` and `R7` of one
+ * resistor are two requirements), and picking either would credit work to a line
+ * the user never chose. So: exactly one candidate attributes, anything else
+ * attributes to nothing and stages as an off-BOM part, which ADR 0004 already
+ * calls a first-class case — "the part nobody planned for" is what the roster is
+ * for.
+ *
+ * A failure to read the BOM is not a failure to stage. The parts moved; losing
+ * the line attribution is a smaller loss than refusing to record the movement.
+ */
+async function bomLineResolver(buildId: number): Promise<(partId: number) => number | null> {
+  const byPart = new Map<number, number | null>();
+  try {
+    const build = await getBuild(buildId);
+    const bom = await listBomLines(build.project_id);
+    for (const line of bom.lines) {
+      if (line.part_id === null) {
+        continue;
+      }
+      // Second sighting poisons the entry rather than overwriting it: ambiguous
+      // is a different answer from unknown, and both mean "do not attribute".
+      byPart.set(line.part_id, byPart.has(line.part_id) ? null : line.id);
+    }
+  } catch {
+    return () => null;
+  }
+  return (partId: number) => byPart.get(partId) ?? null;
 }
 
 // ------------------------------------------------------------- plumbing ----

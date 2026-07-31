@@ -46,6 +46,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { ChooseIteration } from "../components/ChooseIteration";
 import { ContainerPicker, type PickedContainer } from "../components/ContainerPicker";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { PathBar } from "../components/PathBar";
@@ -71,6 +72,7 @@ import { formatDelta, formatQty, formatTimestamp } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { ALL_STORAGE } from "../lib/locations/trail";
 import { useFocusedTarget } from "../lib/projectcontext/hooks";
+import { openTargets } from "../lib/projectcontext/store";
 import type { WorkTarget } from "../lib/projectcontext/target";
 import { scanSession, uuid4 } from "../lib/scan/session";
 import { offersUndo, undoSecondsLeft, UNDO_WINDOW_MS } from "../lib/stock/undo";
@@ -156,6 +158,8 @@ function TakeReturn({
   const [now, setNow] = useState(() => Date.now());
   /** Bumped whenever a movement is recorded; see `QuantityPad`'s `entryKey`. */
   const [entryKey, setEntryKey] = useState(0);
+  /** Up while the iteration question is being asked — ADR 0011. */
+  const [choosing, setChoosing] = useState(false);
 
   /**
    * The tab this take will be attributed to, or `null` for "nothing is open".
@@ -260,13 +264,14 @@ function TakeReturn({
    * minted by `add`, and a second take of this same bin nets into the same row with
    * a *fresh* key rather than reusing the one the server may already have seen.
    */
-  const addToRecord = useCallback(() => {
-    if (cart === null || focused === null || qtyMilli <= 0) {
+  const addToRecord = useCallback(
+    (target: WorkTarget) => {
+    if (qtyMilli <= 0) {
       return;
     }
     setError(null);
     setCommitted(null);
-    const line = cart.add({
+    const line = carts.for(target).add({
       partId: lot.part_id,
       partName: part?.name ?? `Lot ${lot.id}`,
       mpn: part?.mpn ?? null,
@@ -277,14 +282,16 @@ function TakeReturn({
       direction,
     });
     setStaged({
-      target: focused,
+      target,
       direction,
       qtyMilli,
       lineId: line?.id ?? null,
       at: Date.now(),
     });
     setEntryKey((key) => key + 1);
-  }, [cart, direction, focused, lot, part, qtyMilli]);
+    },
+    [direction, lot, part, qtyMilli],
+  );
 
   /**
    * Take back the line that was just added.
@@ -296,10 +303,12 @@ function TakeReturn({
    * row only existed because of that press, netting to zero removes it.
    */
   const undoStaged = useCallback(() => {
-    if (cart === null || staged === null) {
+    if (staged === null) {
       return;
     }
-    cart.add({
+    // The cart it went into, which after an iteration was chosen is not
+    // necessarily the one focused when the button was pressed.
+    carts.for(staged.target).add({
       partId: lot.part_id,
       partName: part?.name ?? `Lot ${lot.id}`,
       mpn: part?.mpn ?? null,
@@ -310,7 +319,7 @@ function TakeReturn({
       direction: staged.direction === "take" ? "return" : "take",
     });
     setStaged(null);
-  }, [cart, lot, part, staged]);
+  }, [lot, part, staged]);
 
   const undo = useCallback(async () => {
     if (committed === null) {
@@ -414,14 +423,32 @@ function TakeReturn({
       {focused !== null && (
         <Notice kind="info" title={`Working on ${describeTarget(focused)}`}>
           <p style={{ margin: 0 }}>
-            This goes into that record — nothing is written to the ledger until you
-            commit it.
-            {inRecordMilli !== 0 &&
+            {focused.kind === "project"
+              ? "That is the design, so this will ask which iteration the parts are for. Nothing is written to the ledger until you commit that tab."
+              : "This goes into that record — nothing is written to the ledger until you commit it."}
+            {focused.kind === "build" &&
+              inRecordMilli !== 0 &&
               ` It already holds ${formatQty(Math.abs(inRecordMilli))} of this lot${
                 inRecordMilli < 0 ? ", going back" : ""
               }.`}
           </p>
         </Notice>
+      )}
+
+      {choosing && focused !== null && focused.kind === "project" && (
+        <ChooseIteration
+          project={focused}
+          onCancel={() => {
+            setChoosing(false);
+          }}
+          onPick={(target) => {
+            // Opened *and* focused, so the strip immediately tells the truth
+            // about where the next take on this screen will go.
+            openTargets.openTarget(target);
+            addToRecord(target);
+            setChoosing(false);
+          }}
+        />
       )}
 
       <div className="card">
@@ -431,7 +458,9 @@ function TakeReturn({
           caption={
             focused === null
               ? `${direction === "take" ? "taking" : "returning"} — leaves ${formatQty(projected)}`
-              : `${direction === "take" ? "taking" : "putting back"} — for ${describeTarget(focused)}`
+              : focused.kind === "project"
+                ? `${direction === "take" ? "taking" : "putting back"} — for an iteration of ${describeTarget(focused)}`
+                : `${direction === "take" ? "taking" : "putting back"} — for ${describeTarget(focused)}`
           }
           disabled={busy}
           entryKey={entryKey}
@@ -446,7 +475,7 @@ function TakeReturn({
         </Notice>
       )}
 
-      {focused !== null && direction === "take" && inRecordMilli + qtyMilli > onHand && (
+      {focused !== null && focused.kind === "build" && direction === "take" && inRecordMilli + qtyMilli > onHand && (
         <Notice kind="warn">
           That is more than this lot holds. It goes into the record anyway — the
           record is what you say you did — but the line will be refused when the
@@ -460,7 +489,16 @@ function TakeReturn({
         <button
           type="button"
           className="primary wide tall"
-          onClick={() => (focused === null ? void commitToLedger() : addToRecord())}
+          onClick={() => {
+            if (focused === null) {
+              void commitToLedger();
+            } else if (focused.kind === "project") {
+              // A design is not somewhere to put parts. Ask which iteration.
+              setChoosing(true);
+            } else {
+              addToRecord(focused);
+            }
+          }}
           disabled={busy || qtyMilli <= 0}
         >
           {busy ? "Recording…" : actionLabel}

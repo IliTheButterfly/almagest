@@ -89,10 +89,29 @@ let shortages: Record<string, unknown> = {
   ],
 };
 let bom: Record<string, unknown> = { lines: [bomLine()], total: 1 };
-let allocateBatch: Record<string, unknown> = {
-  results: [{ index: 0, client_line_id: null, applied: true, replayed: false }],
-  group_uuid: null,
+/** The build read the commit makes on its way to attributing a staged part. */
+const BUILD_READ = {
+  id: 5,
+  project_id: 12,
+  build_no: 2,
+  label: "rev B x3",
+  assembly_count: 3,
+  bom_revision: "B",
+  status: "planned",
+  staging_location_id: null,
+  started_at: null,
+  completed_at: null,
+  notes: null,
+  created_at: "2026-07-30T00:00:00Z",
+  updated_at: "2026-07-30T00:00:00Z",
 };
+
+/** Per test: what each `/stage` call answers, by the lot it names. */
+let stageReply: (lotId: number) => Response = () =>
+  new Response(
+    JSON.stringify({ replayed: false, staging_location_id: 77, seqs: [1] }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
 
 function stubApi(): void {
   vi.stubGlobal(
@@ -117,8 +136,13 @@ function stubApi(): void {
       if (url.pathname === "/api/projects/12/bom") {
         return json(bom);
       }
-      if (url.pathname === "/api/builds/5/allocate-batch") {
-        return json(allocateBatch);
+      if (url.pathname === "/api/builds/5/stage") {
+        return stageReply(
+          (JSON.parse(raw) as { lot_id: number }).lot_id,
+        );
+      }
+      if (url.pathname === "/api/builds/5") {
+        return json(BUILD_READ);
       }
       throw new Error(`unstubbed request: ${request.method} ${url.pathname}`);
     }),
@@ -164,10 +188,11 @@ beforeEach(() => {
     ],
   };
   bom = { lines: [bomLine()], total: 1 };
-  allocateBatch = {
-    results: [{ index: 0, client_line_id: null, applied: true, replayed: false }],
-    group_uuid: null,
-  };
+  stageReply = () =>
+    new Response(
+      JSON.stringify({ replayed: false, staging_location_id: 77, seqs: [1] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
   stubApi();
 });
 
@@ -351,15 +376,15 @@ describe("already in this, beside what is being added", () => {
 });
 
 describe("committing a tab", () => {
-  it("applies the lines against that tab's target and drops the applied rows", async () => {
+  it("moves the parts into that tab's target and drops the applied rows", async () => {
     openTargets.openTarget(BUILD);
     gather(BUILD);
     renderPanel();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Reserve these lines against/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Send these parts to/ }));
 
     await waitFor(() =>
-      expect(calls.some((call) => call.path === "/api/builds/5/allocate-batch")).toBe(true),
+      expect(calls.some((call) => call.path === "/api/builds/5/stage")).toBe(true),
     );
     await waitFor(() => expect(carts.for(BUILD).size).toBe(0));
     expect(await screen.findByText(/One line committed/)).toBeTruthy();
@@ -371,38 +396,36 @@ describe("committing a tab", () => {
     const line = carts.for(BUILD).lines()[0];
     renderPanel();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Reserve these lines against/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Send these parts to/ }));
 
     await waitFor(() =>
-      expect(calls.some((call) => call.path === "/api/builds/5/allocate-batch")).toBe(true),
+      expect(calls.some((call) => call.path === "/api/builds/5/stage")).toBe(true),
     );
-    const sent = calls.find((call) => call.path === "/api/builds/5/allocate-batch");
-    const lines = sent?.body["lines"] as { client_op_id: string }[] | undefined;
-    expect(lines?.[0]?.client_op_id).toBe(line?.clientOpId);
+    const sent = calls.find((call) => call.path === "/api/builds/5/stage");
+    expect(sent?.body["client_op_id"]).toBe(line?.clientOpId);
   });
 
   it("keeps a refused line, with the reason, and does not lose the rest", async () => {
     // The rule the whole feature rests on: a line whose stock has moved fails
     // *that* line, and the record itself then explains why it is not empty.
-    allocateBatch = {
-      results: [
-        { index: 0, client_line_id: null, applied: true, replayed: false },
-        {
-          index: 1,
-          client_line_id: null,
-          applied: false,
-          reason: "insufficient_stock",
-          message: "That lot only has 1 free.",
-        },
-      ],
-      group_uuid: null,
-    };
+    stageReply = (lotId) =>
+      lotId === 8
+        ? new Response(
+            JSON.stringify({
+              detail: { reason: "insufficient_stock", message: "That lot only has 1 free." },
+            }),
+            { status: 409, headers: { "content-type": "application/json" } },
+          )
+        : new Response(
+            JSON.stringify({ replayed: false, staging_location_id: 77, seqs: [1] }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
     openTargets.openTarget(BUILD);
     gather(BUILD);
     gather(BUILD, { partId: 4, lotId: 8, partName: "1k 1% 0603" });
     renderPanel();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Reserve these lines against/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Send these parts to/ }));
 
     await waitFor(() => expect(carts.for(BUILD).size).toBe(1));
     expect(carts.for(BUILD).lines()[0]?.partName).toBe("1k 1% 0603");
@@ -417,7 +440,7 @@ describe("committing a tab", () => {
     await screen.findByText("held in a bin");
     const before = calls.filter((call) => call.path === "/api/builds/5/shortages").length;
 
-    fireEvent.click(screen.getByRole("button", { name: /Reserve these lines against/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Send these parts to/ }));
 
     await waitFor(() =>
       expect(
@@ -433,10 +456,10 @@ describe("committing a tab", () => {
     gather(BUILD, { direction: "return" });
     renderPanel();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Reserve these lines against/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Send these parts to/ }));
 
     await waitFor(() => expect(screen.getByText(/nets to putting stock back/)).toBeTruthy());
-    expect(calls.some((call) => call.path === "/api/builds/5/allocate-batch")).toBe(false);
+    expect(calls.some((call) => call.path === "/api/builds/5/stage")).toBe(false);
     expect(carts.for(BUILD).size).toBe(1);
   });
 
@@ -447,7 +470,7 @@ describe("committing a tab", () => {
     gather(BUILD);
     renderPanel();
 
-    fireEvent.click(await screen.findByRole("button", { name: /Reserve these lines against/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Send these parts to/ }));
 
     await waitFor(() => expect(carts.for(BUILD).size).toBe(0));
     expect(carts.for(PROJECT).size).toBe(1);

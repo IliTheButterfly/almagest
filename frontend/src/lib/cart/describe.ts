@@ -26,6 +26,12 @@ function fallbackLabel(target: WorkTarget): string {
  * A return says "from" rather than "for" because it subtracts from that record —
  * the parts are going back on the shelf, and the record it comes off is still the
  * thing that has to be named.
+ *
+ * A **project** is named differently on purpose: pressing it does not attribute
+ * to the project, it asks which iteration (ADR 0011). The trailing ellipsis is
+ * the ordinary promise that a question follows, and the alternative — naming the
+ * project as though it were the destination — would be the button lying about
+ * where the parts are going, which is the one thing ADR 0010 forbids outright.
  */
 export function takeActionLabel(
   target: WorkTarget | null,
@@ -38,13 +44,24 @@ export function takeActionLabel(
     // name. ADR 0010's other half — a take with no tab is a take.
     return `${verb} ${quantity}`;
   }
+  if (target.kind === "project") {
+    return `${verb} ${quantity} for an iteration…`;
+  }
   const preposition = direction === "take" ? "for" : "from";
   return `${verb} ${quantity} ${preposition} ${describeTarget(target)}`;
 }
 
-/** What committing a tab will do, said before it is done. */
+/**
+ * What committing a tab will do, said before it is done.
+ *
+ * The build wording changed with ADR 0011 and the change is not cosmetic:
+ * committing now *moves the parts* out of their drawer and into the build's box,
+ * where "reserve" described a hold on stock that had not gone anywhere. A button
+ * that says "reserve" and writes a movement is a button nobody can undo
+ * confidently.
+ */
 export function describeCommit(target: WorkTarget): string {
   return target.kind === "project"
     ? `Add these lines to the bill of materials of ${describeTarget(target)}`
-    : `Reserve these lines against ${describeTarget(target)}`;
+    : `Send these parts to ${describeTarget(target)}`;
 }
