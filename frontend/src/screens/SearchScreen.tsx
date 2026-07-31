@@ -27,7 +27,7 @@
  * row that caused it.
  */
 
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { CategoryRail } from "../components/CategoryRail";
@@ -40,7 +40,6 @@ import {
   searchParts,
   type CategoryNode,
   type FacetsResponse,
-  type PartSummary,
   type SearchResponse,
 } from "../lib/api/client";
 import { describeError } from "../lib/api/errors";
@@ -65,20 +64,17 @@ const COMMIT_DELAY_MS = 300;
 /** The same breakpoint `.search-layout` uses for its two-column grid. */
 const WIDE = "(min-width: 52rem)";
 
-export interface SearchScreenProps {
-  /**
-   * An extra control per result row — how the cart is fed (ADR 0007).
-   *
-   * A prop rather than a second screen, and rendered *beside* the row's link
-   * rather than inside it, because a `<button>` nested in an `<a>` is invalid and
-   * would need its click cancelling to work at all. Omitted, this screen renders
-   * exactly what it always did: the plain `/search` route is unchanged, and the
-   * shopping view is this same component with one argument.
-   */
-  readonly rowAction?: ((part: PartSummary) => ReactNode) | undefined;
-}
-
-export function SearchScreen({ rowAction }: SearchScreenProps = {}) {
+/**
+ * Search takes no props any more.
+ *
+ * #40 hung an add-to-cart control off every result row; ADR 0010 retires that.
+ * Search is where you go to *decide*, and the gesture that fills a record is the
+ * take on the lot screen — the one you make when you physically pick a part up. A
+ * row here knows which part you meant but not which package it comes off, so a row
+ * add produced exactly the container-less line that then has to be edited before it
+ * can be committed.
+ */
+export function SearchScreen() {
   const [params, setParams] = useSearchParams();
   const urlKey = params.toString();
   const wide = useMediaQuery(WIDE);
@@ -196,7 +192,6 @@ export function SearchScreen({ rowAction }: SearchScreenProps = {}) {
             state={applied}
             results={results.data}
             loading={results.loading}
-            rowAction={rowAction}
             onPage={(page) => change(withPage(applied, page), true)}
           />
         </div>
@@ -264,13 +259,11 @@ function Results({
   state,
   results,
   loading,
-  rowAction,
   onPage,
 }: {
   state: SearchState;
   results: SearchResponse | null;
   loading: boolean;
-  rowAction?: ((part: PartSummary) => ReactNode) | undefined;
   onPage: (page: number) => void;
 }) {
   if (results === null) {
@@ -296,30 +289,13 @@ function Results({
       </div>
 
       <ul className="list">
-        {results.results.map((part) =>
-          rowAction === undefined ? (
-            <li key={part.id}>
-              <Link className="list-item" to={`/parts/${part.id}`}>
-                <PartResultRow part={part} />
-              </Link>
-            </li>
-          ) : (
-            /* With an action the row stops being one anchor: the link keeps the
-               left cell so the part is still one tap from its own screen, and the
-               action sits outside it. */
-            <li key={part.id} className="list-item">
-              <div className="row">
-                <Link
-                  to={`/parts/${part.id}`}
-                  style={{ flex: 1, minWidth: 0, textDecoration: "none" }}
-                >
-                  <PartResultRow part={part} />
-                </Link>
-                {rowAction(part)}
-              </div>
-            </li>
-          ),
-        )}
+        {results.results.map((part) => (
+          <li key={part.id}>
+            <Link className="list-item" to={`/parts/${part.id}`}>
+              <PartResultRow part={part} />
+            </Link>
+          </li>
+        ))}
       </ul>
 
       {(state.page > 1 || hasMore) && (

@@ -10,6 +10,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { carts } from "../lib/cart/registry";
+import { openTargets } from "../lib/projectcontext/store";
 import { scanSession } from "../lib/scan/session";
 import { LotScreen } from "./LotScreen";
 
@@ -120,6 +122,12 @@ function callTo(pathname: string): Call | undefined {
 
 beforeEach(() => {
   calls.length = 0;
+  // No tab open: this file is the immediate-commit half of ADR 0010, which is
+  // still what a take does when nothing is being worked on. The record half lives
+  // in `LotScreen.record.test.tsx`.
+  globalThis.localStorage.clear();
+  carts.reset();
+  openTargets.reset();
   scanSession.clear();
 });
 
@@ -220,6 +228,22 @@ describe("take / return", () => {
     const [first, second] = calls.filter((call) => call.url === "/api/stock/lots/7/consume");
     expect(first?.body["client_op_id"]).toBe(session?.clientOpId);
     expect(second?.body["client_op_id"]).not.toBe(first?.body["client_op_id"]);
+  });
+
+  it("does not let the next digit land on the quantity it just committed", async () => {
+    // Take 4, then reach for the keypad again: without the pad being told the
+    // statement finished, its buffer still holds "4" and a tap of "1" reads as 41.
+    // Same surprise the buffer exists to prevent, one step later, and on a take it
+    // is wrong in the expensive direction.
+    stubApi();
+    renderScreen();
+
+    fireEvent.click(await screen.findByLabelText("4"));
+    fireEvent.click(screen.getByRole("button", { name: /^Take 4$/ }));
+    await waitFor(() => expect(callTo("/api/stock/lots/7/consume")).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText("1"));
+    expect(screen.getByRole("button", { name: /^Take 1$/ })).toBeTruthy();
   });
 
   it("warns but still commits when the take drives the balance negative", async () => {
