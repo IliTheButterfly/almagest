@@ -55,11 +55,15 @@ export interface ErrorReport {
  */
 export const REASON_HINTS: Readonly<Record<string, string>> = {
   // --- value parser, via the search filter executor -----------------------
+  // The capacitance case is marked as an example rather than asserted. This used
+  // to state it outright, which reads as nonsense against a field measured in bytes
+  // or lumens — and with units now authorable, the set of quantities this can fire
+  // for is open-ended. The server's own message, which names the actual field and
+  // its window, is shown underneath.
   implausible:
-    "That value is outside the physically plausible range for this parameter. " +
-    "Case matters: a bare `1M` means one mega-, so under capacitance it reads as " +
-    "megafarads, which are not a thing — `1u`, `1uF` or `1000n` is probably what " +
-    "was meant.",
+    "That value is outside the plausible range for this field. Case often matters: " +
+    "a bare `1M` means one mega-, which under capacitance would be megafarads — not " +
+    "a thing — where `1u`, `1uF` or `1000n` was meant.",
   unit_mismatch:
     "That is a real unit, but of the wrong physical quantity. Usually the value " +
     "is filed under the wrong parameter rather than mistyped.",
