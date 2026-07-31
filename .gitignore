@@ -40,6 +40,9 @@ junit.xml
 # Node
 node_modules/
 .vite/
+# A port-rewritten copy of vite.config.ts, used to point a throwaway dev server at
+# a scratch API. Local scaffolding, never the app's config.
+frontend/vite.config.*.ts
 frontend/dist/
 frontend/coverage/
 *.tsbuildinfo
