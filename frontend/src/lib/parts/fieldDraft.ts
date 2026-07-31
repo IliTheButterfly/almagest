@@ -51,6 +51,8 @@ export interface FieldDraft {
   readonly plausibleMin: string;
   readonly plausibleMax: string;
   readonly choices: readonly ChoiceDraft[];
+  /** Whether one part may hold several of the options at once. Enum only. */
+  readonly allowMultiple: boolean;
   readonly onNameConflict: NameConflictPolicy;
 }
 
@@ -65,6 +67,7 @@ export const BLANK_FIELD_DRAFT: FieldDraft = {
   plausibleMin: "",
   plausibleMax: "",
   choices: [BLANK_CHOICE, BLANK_CHOICE],
+  allowMultiple: false,
   onNameConflict: "fail",
 };
 
@@ -174,6 +177,8 @@ const ANCHOR_BY_REASON: Readonly<Record<string, DraftAnchor>> = {
   namespace_needs_category: "category",
   unknown_category: "category",
   value_type_in_use: "valueType",
+  multiple_in_use: "choices",
+  multiple_on_non_enum: "choices",
 };
 
 export function anchorForReason(reason: string | null): DraftAnchor | null {
@@ -344,6 +349,10 @@ export function toFieldCreateRequest(
             sort_order: index,
           }))
         : [],
+    // Only ever sent for a list field: the API refuses it on a number, and a draft
+    // switched to numeric after the box was ticked would otherwise carry a stale
+    // true into a 422 about a field the user is no longer looking at.
+    allow_multiple: draft.valueType === "enum" && draft.allowMultiple,
     on_name_conflict: draft.onNameConflict,
     client_op_id: options.clientOpId,
   };
@@ -369,6 +378,7 @@ export function draftFromField(field: ParameterFieldRead): FieldDraft {
     substitutionDirection: field.substitution_direction as SubstitutionDirection,
     plausibleMin: field.plausible_min === null ? "" : String(field.plausible_min),
     plausibleMax: field.plausible_max === null ? "" : String(field.plausible_max),
+    allowMultiple: field.allow_multiple ?? false,
     choices: (field.choices ?? []).map((choice) => ({
       key: choice.key,
       label: choice.label,
@@ -454,6 +464,10 @@ export function toFieldUpdateRequest(
   }
   if (high !== original.plausible_max) {
     request["plausible_max"] = high;
+  }
+  const multiple = draft.valueType === "enum" && draft.allowMultiple;
+  if (multiple !== (original.allow_multiple ?? false)) {
+    request["allow_multiple"] = multiple;
   }
   return request as ParameterFieldUpdate;
 }

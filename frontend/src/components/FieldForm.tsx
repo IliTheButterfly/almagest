@@ -282,6 +282,23 @@ export function FieldForm({
               Another option
             </button>
           </div>
+          <label className="choice">
+            <input
+              type="checkbox"
+              checked={draft.allowMultiple}
+              onChange={(event) => set("allowMultiple", event.target.checked)}
+            />
+            <span>
+              <span className="title">A part can have more than one of these at once</span>
+              <span className="sub">
+                For an attribute that is genuinely plural — a connector that comes both
+                through-hole and surface-mount, a module with two interfaces. Filtering does not
+                change: ticking two options still matches a part having either. This can be turned
+                on later at any time, but turning it back off is refused while some part holds
+                several, because which one to keep is not a decision to make for you.
+              </span>
+            </span>
+          </label>
           {anchored("choices")}
         </fieldset>
       )}

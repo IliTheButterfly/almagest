@@ -150,6 +150,15 @@ class ParameterFieldCreate(BaseModel):
             "Required for value_type='enum', forbidden otherwise."
         ),
     )
+    allow_multiple: bool = Field(
+        default=False,
+        description=(
+            "Whether one part may hold several of these options at once — a connector "
+            "that is both through-hole and surface-mount. Only meaningful for "
+            "value_type='enum'. Filtering is unchanged either way: ticking two options "
+            "matches a part holding either."
+        ),
+    )
     on_name_conflict: NameConflictPolicy = NameConflictPolicy.FAIL
     client_op_id: str | None = Field(default=None, max_length=36)
     device_id: str | None = Field(default=None, max_length=64)
@@ -165,6 +174,11 @@ class ParameterFieldUpdate(BaseModel):
     value_type: ValueType | None = None
     base_unit: str | None = Field(default=None, max_length=64)
     substitution_direction: SubstitutionDirection | None = None
+    #: Turning it *on* is always safe — every stored value holds one option, which
+    #: is a valid set of one. Turning it *off* while some part holds several is
+    #: refused (`multiple_in_use`), because the answer to "which one survives" is
+    #: not the API's to invent.
+    allow_multiple: bool | None = None
     #: Explicit null makes the field global again, which is a real edit.
     applies_to_category: str | None = Field(default=None, max_length=255)
     sort_order: SortOrder | None = None
@@ -214,6 +228,8 @@ class ParameterFieldRead(BaseModel):
     #: about. The editor has to be able to say "this comes from Passives", because
     #: editing it affects every sibling.
     inherited: bool = False
+    #: Whether a part may hold several of this field's options at once.
+    allow_multiple: bool = False
     #: Part of the shared library: its name, value type and quantity are frozen.
     #: Everything else about it is editable.
     is_seed: bool
@@ -288,6 +304,7 @@ def _read(
         sort_order=template.sort_order,
         plausible_min=template.plausible_min,
         plausible_max=template.plausible_max,
+        allow_multiple=template.allow_multiple,
         inherited=inherited,
         is_seed=template.is_seed,
         value_count=fields.value_count(db, template),
@@ -310,6 +327,7 @@ def _authoring_error(error: fields.AuthoringError) -> HTTPException:
         "base_unit_in_use",
         "field_in_use",
         "choice_in_use",
+        "multiple_in_use",
         "incompatible_existing_field",
     }
     if error.reason == "unknown_category":
@@ -508,6 +526,7 @@ def create_parameter_field(
             sort_order=request.sort_order,
             plausible_min=request.plausible_min,
             plausible_max=request.plausible_max,
+            allow_multiple=request.allow_multiple,
             choices=_specs(request.choices),
         )
         return ParameterFieldCreated(field=_read(db, template))
@@ -595,6 +614,8 @@ def update_parameter_field(
             template.substitution_direction = request.substitution_direction
         if "applies_to_category" in assigned:
             fields.set_applies_to_category(db, template, request.applies_to_category)
+        if "allow_multiple" in assigned and request.allow_multiple is not None:
+            fields.set_allow_multiple(db, template, request.allow_multiple)
         if "sort_order" in assigned and request.sort_order is not None:
             template.sort_order = request.sort_order
         if "plausible_min" in assigned or "plausible_max" in assigned:

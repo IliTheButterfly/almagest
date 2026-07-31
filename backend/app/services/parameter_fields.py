@@ -41,7 +41,12 @@ from sqlalchemy.orm import Session
 
 from app.models.catalog import PartCategory
 from app.models.enums import SubstitutionDirection, ValueType
-from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
+from app.models.parameter import (
+    ParameterChoice,
+    ParameterTemplate,
+    ParameterValue,
+    ParameterValueChoice,
+)
 from app.services.search.value_parser import (
     canonical_quantity,
     supported_quantities,
@@ -150,11 +155,20 @@ def value_count(session: Session, template: ParameterTemplate) -> int:
 
 
 def choice_use_count(session: Session, choice: ParameterChoice) -> int:
+    """How many parts are filed under this option. What a delete is refused with.
+
+    Counted over `parameter_value_choice`, which holds every option of every enum
+    value. Counting `parameter_value.choice_id` instead misses every option of a
+    *multi-valued* field — that column is null while several are held — so the
+    guard would report zero uses, allow the delete, and let the FK refuse it as a
+    bare `IntegrityError`: a 500 with no number in it, which is the exact outcome
+    this guard exists to replace.
+    """
     return int(
         session.execute(
             select(func.count())
-            .select_from(ParameterValue)
-            .where(ParameterValue.choice_id == choice.id)
+            .select_from(ParameterValueChoice)
+            .where(ParameterValueChoice.choice_id == choice.id)
         ).scalar_one()
     )
 
@@ -294,6 +308,7 @@ def create_template(
     sort_order: int = 0,
     plausible_min: float | None = None,
     plausible_max: float | None = None,
+    allow_multiple: bool = False,
     choices: Sequence[ChoiceSpec] = (),
 ) -> ParameterTemplate:
     """Mint a field and, for a list field, all of its options in one go.
@@ -312,6 +327,12 @@ def create_template(
     unit = validated_base_unit(value_type, base_unit)
     _validated_plausibility(plausible_min, plausible_max)
     _validated_choices(choices, value_type)
+    if allow_multiple and value_type != ValueType.ENUM:
+        raise AuthoringError(
+            "only a list field can hold more than one value at once — a number, a yes/no or "
+            "a piece of text has exactly one.",
+            reason="multiple_on_non_enum",
+        )
     category = (
         require_category(session, applies_to_category).slug
         if applies_to_category is not None
@@ -328,6 +349,7 @@ def create_template(
         sort_order=sort_order,
         plausible_min=plausible_min,
         plausible_max=plausible_max,
+        allow_multiple=allow_multiple,
         is_seed=False,
     )
     session.add(template)
@@ -345,6 +367,51 @@ def create_template(
             sort_order=spec.sort_order or (index + 1) * 10,
         )
     return template
+
+
+def set_allow_multiple(session: Session, template: ParameterTemplate, allow: bool) -> None:
+    """Turn "several at once" on or off.
+
+    **On is always safe**: every stored value holds exactly one option, and one
+    option is a valid set of one, so nothing needs rewriting.
+
+    **Off is refused while any part holds several** (`multiple_in_use`). Which of a
+    part's three options survives is not a question this API can answer, and
+    picking one — or dropping the lot — would be a data decision taken silently on
+    the user's behalf. The refusal names the count so they can go and reduce those
+    parts to one option first.
+    """
+    if allow == template.allow_multiple:
+        return
+    if not allow:
+        held = _parts_holding_several(session, template)
+        if held:
+            raise AuthoringError(
+                f"{held} part{'s' if held != 1 else ''} hold more than one option for "
+                f"{template.name!r}. Turning this off would mean discarding options, and which "
+                "one to keep is not something this can decide — reduce those parts to a single "
+                "option first.",
+                reason="multiple_in_use",
+            )
+    if allow and ValueType(template.value_type) != ValueType.ENUM:
+        raise AuthoringError(
+            "only a list field can hold more than one value at once.",
+            reason="multiple_on_non_enum",
+        )
+    template.allow_multiple = allow
+
+
+def _parts_holding_several(session: Session, template: ParameterTemplate) -> int:
+    """How many of this field's values hold more than one option."""
+    counted = (
+        select(ParameterValueChoice.value_id)
+        .join(ParameterValue, ParameterValue.id == ParameterValueChoice.value_id)
+        .where(ParameterValue.template_id == template.id)
+        .group_by(ParameterValueChoice.value_id)
+        .having(func.count() > 1)
+        .subquery()
+    )
+    return int(session.execute(select(func.count()).select_from(counted)).scalar_one())
 
 
 def rename_template(session: Session, template: ParameterTemplate, name: str) -> None:

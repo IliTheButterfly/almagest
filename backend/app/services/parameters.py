@@ -12,15 +12,30 @@ what makes it worth funnelling all writes through one function.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.catalog import Part
 from app.models.enums import PROVENANCE_PRIORITY, Provenance, ValueType
-from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
+from app.models.parameter import (
+    ParameterChoice,
+    ParameterTemplate,
+    ParameterValue,
+    ParameterValueChoice,
+)
 from app.services.search.fts import refresh_param_digest
 from app.services.search.value_parser import parse_for_template
+
+
+class TooManyChoices(ValueError):
+    """Several options were given for a field that holds one per part.
+
+    Its own error rather than a silent truncation: a caller passing two options to a
+    single-valued field has misunderstood the field, and keeping the first would
+    look exactly like success.
+    """
 
 
 class ChoiceNotFound(ValueError):
@@ -116,16 +131,80 @@ def set_choice(
     provenance: Provenance = Provenance.MANUAL,
     confidence: float | None = None,
 ) -> ParameterValue:
-    """Store an enum facet.
+    """Store an enum facet: exactly this one option, replacing whatever was there.
 
     Enum facets live in the same table as numerics, via `choice_id`, so search,
     provenance and review all have one code path rather than three.
+
+    Valid for a multi-valued field too — "this field now holds exactly this one
+    option" is a legitimate thing to say about a set — which is why every existing
+    caller, the MPN decoders and the enrichment promoter among them, needs no
+    change. `set_choices` is for saying more than one.
     """
-    choice = resolve_choice(session, template, key_or_alias)
+    return set_choices(
+        session,
+        part,
+        template,
+        [key_or_alias],
+        provenance=provenance,
+        confidence=confidence,
+    )
+
+
+def set_choices(
+    session: Session,
+    part: Part,
+    template: ParameterTemplate,
+    keys_or_aliases: Sequence[str],
+    *,
+    provenance: Provenance = Provenance.MANUAL,
+    confidence: float | None = None,
+) -> ParameterValue:
+    """Store the **complete set** of options a part holds for an enum field.
+
+    The whole set, never a delta: an attribute that has become "SMD only" has to be
+    sayable, and a caller that could only add would have no way to say it.
+
+    Two invariants this function exists to hold, and both are why every enum write
+    funnels through here:
+
+    * **`parameter_value_choice` is written for every enum value**, single- or
+      multi-valued, so `EXISTS` is the one predicate search needs and facet counts
+      have one source. A row whose options lived only in `choice_id` would be
+      invisible to both.
+    * **`choice_id` is the single-valued answer, or null.** It mirrors the set only
+      when the set has one member; with several it is null, so a consumer reading it
+      gets "no single answer" rather than one option out of three presented as the
+      whole truth.
+
+    Refuses more than one option on a field that has not been declared
+    `allow_multiple`, rather than quietly keeping the first: a caller passing two
+    options to a single-valued field has misunderstood the field, and storing one of
+    them would look like it worked.
+    """
+    if not keys_or_aliases:
+        raise ChoiceNotFound(f"no options given for {template.name}")
+    choices = [resolve_choice(session, template, token) for token in keys_or_aliases]
+    # Dedup, keeping the order given: the same option named twice — once by key and
+    # once by an alias — is one option, not a conflict.
+    unique: list[ParameterChoice] = []
+    for choice in choices:
+        if all(choice.id != seen.id for seen in unique):
+            unique.append(choice)
+
+    if len(unique) > 1 and not template.allow_multiple:
+        raise TooManyChoices(
+            f"{template.name} holds one option per part, but {len(unique)} were given "
+            f"({', '.join(choice.key for choice in unique)}). Turn on 'more than one at once' "
+            "for the field, or pass a single option."
+        )
+
     row = _existing_or_new(session, part, template, provenance)
 
-    row.raw_input = key_or_alias
-    row.choice_id = choice.id
+    row.raw_input = ", ".join(keys_or_aliases)
+    # Null for a set of several — see the docstring: half an answer read as a whole
+    # one is worse than no answer.
+    row.choice_id = unique[0].id if len(unique) == 1 else None
     row.value_nominal = None
     row.value_min = None
     row.value_max = None
@@ -139,11 +218,59 @@ def set_choice(
     row.confidence = confidence
 
     session.flush()
+    _replace_choice_set(session, row, unique)
+
+    session.flush()
     # The FTS digest is derived from parameter_value, so it cannot be kept
     # current by the triggers on `parts`. Refreshing it here means the one
     # write path owns it too.
     refresh_param_digest(session, part.id)
     return row
+
+
+def _replace_choice_set(
+    session: Session, row: ParameterValue, choices: Sequence[ParameterChoice]
+) -> None:
+    """Make the child rows exactly `choices`.
+
+    Deletes what is no longer held and inserts what is newly held, rather than
+    clearing and re-inserting the lot: the FK is `RESTRICT`, so deleting a row that
+    is about to be re-inserted is a needless brush with the guard that protects
+    options parts are filed under.
+    """
+    wanted = {choice.id for choice in choices}
+    existing = set(
+        session.execute(
+            select(ParameterValueChoice.choice_id).where(ParameterValueChoice.value_id == row.id)
+        )
+        .scalars()
+        .all()
+    )
+    for choice_id in existing - wanted:
+        session.execute(
+            delete(ParameterValueChoice).where(
+                ParameterValueChoice.value_id == row.id,
+                ParameterValueChoice.choice_id == choice_id,
+            )
+        )
+    for choice_id in wanted - existing:
+        session.add(ParameterValueChoice(value_id=row.id, choice_id=choice_id))
+
+
+def choices_held(session: Session, row: ParameterValue) -> list[ParameterChoice]:
+    """Every option a value holds, in the field's own display order.
+
+    Read from the child table rather than from `choice_id`, because that is where
+    the whole set lives; for a single-valued field the two agree by construction.
+    """
+    return list(
+        session.execute(
+            select(ParameterChoice)
+            .join(ParameterValueChoice, ParameterValueChoice.choice_id == ParameterChoice.id)
+            .where(ParameterValueChoice.value_id == row.id)
+            .order_by(ParameterChoice.sort_order, ParameterChoice.key)
+        ).scalars()
+    )
 
 
 def resolve_choice(

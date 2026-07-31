@@ -28,7 +28,7 @@ from app.api.schemas import PartQueryRequest
 from app.db.session import get_db
 from app.models.catalog import Part, PartCategory
 from app.models.enums import ValueType
-from app.models.parameter import ParameterChoice, ParameterValue
+from app.models.parameter import ParameterChoice, ParameterValue, ParameterValueChoice
 from app.services import parameter_fields as fields
 from app.services.search import query_builder
 
@@ -141,15 +141,20 @@ def parameter_facets(request: FacetsRequest, db: Session = Depends(get_db)) -> F
         ).all()
     }
 
+    # Counted over `parameter_value_choice`, not `parameter_value.choice_id`: a
+    # multi-valued field keeps its options there and leaves `choice_id` null, so
+    # counting the column would report every one of its options as zero — a facet
+    # that looks like "you own none of these" while the parts are right there.
+    # Joining here is safe in a way it is not in the search query: this is an
+    # aggregate over values, and one row per (value, option) is exactly what is
+    # being counted.
     choice_counts = {
         (row[0], row[1]): row[2]
         for row in db.execute(
-            select(ParameterValue.template_id, ParameterValue.choice_id, func.count())
-            .where(
-                ParameterValue.part_id.in_(part_ids),
-                ParameterValue.choice_id.isnot(None),
-            )
-            .group_by(ParameterValue.template_id, ParameterValue.choice_id)
+            select(ParameterValue.template_id, ParameterValueChoice.choice_id, func.count())
+            .join(ParameterValueChoice, ParameterValueChoice.value_id == ParameterValue.id)
+            .where(ParameterValue.part_id.in_(part_ids))
+            .group_by(ParameterValue.template_id, ParameterValueChoice.choice_id)
         ).all()
     }
 

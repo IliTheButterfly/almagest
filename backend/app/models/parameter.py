@@ -67,6 +67,20 @@ class ParameterTemplate(Base):
     plausible_min: Mapped[float | None] = mapped_column(Float)
     plausible_max: Mapped[float | None] = mapped_column(Float)
 
+    #: Whether one part may hold **several** of this field's options at once — a
+    #: connector that is both through-hole and surface-mount, a module with two
+    #: interfaces. Only meaningful for `enum`.
+    #:
+    #: The multiplicity lives in `parameter_value_choice`, **never** in extra
+    #: `parameter_value` rows: `UNIQUE(part_id, template_id)` is what guarantees a
+    #: multi-predicate search joins without fanning out, and a second value row
+    #: per part would turn every parametric query into a cross product. So a
+    #: multi-valued field is still exactly one value row, with a set hanging off
+    #: it, and search asks `EXISTS` rather than joining wider.
+    allow_multiple: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+
     #: Part of the shared definition library every install starts with, so
     #: `name`, `value_type` and `base_unit` are frozen — the MPN decoders, the
     #: datasheet extractors and the demo data all name `capacitance` and mean
@@ -254,4 +268,42 @@ class ParameterValue(Base):
             "value_max",
             sqlite_where=value_min.isnot(None),
         ),
+    )
+
+
+class ParameterValueChoice(Base):
+    """One option a part holds for an enum field — the set, for a multi-valued one.
+
+    **Why a child table and not more `parameter_value` rows.**
+    `UNIQUE(part_id, template_id)` on `parameter_value` is load-bearing: it is what
+    lets a multi-predicate parametric query be plain `JOIN`s that contribute at
+    most one row each. Storing a second option as a second value row would make
+    every such query a cross product — silently, and worse the more attributes are
+    filtered on. So the value row stays unique per (part, field) and the
+    multiplicity lives here, matched with `EXISTS`, which is a semi-join and cannot
+    fan out.
+
+    Written for **every** enum value, single- or multi-valued, so search and facet
+    counting have one code path rather than one per arity.
+    `parameter_value.choice_id` remains the single-valued answer and is left null
+    for a multi-valued field, which is what stops a consumer reading one option out
+    of several and believing it is the whole answer.
+
+    `RESTRICT` on the choice, like `parameter_value.choice_id`: deleting an option
+    parts are filed under is refused with a count rather than cascading their
+    values away.
+    """
+
+    __tablename__ = "parameter_value_choice"
+
+    value_id: Mapped[int] = mapped_column(
+        ForeignKey("parameter_value.id", ondelete="CASCADE"), primary_key=True
+    )
+    choice_id: Mapped[int] = mapped_column(
+        ForeignKey("parameter_choice.id", ondelete="RESTRICT"), primary_key=True
+    )
+
+    __table_args__ = (
+        # The direction search asks in: "which values hold this choice".
+        Index("ix_pvc_choice", "choice_id"),
     )

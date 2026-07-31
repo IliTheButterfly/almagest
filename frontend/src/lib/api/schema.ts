@@ -5295,6 +5295,12 @@ export interface components {
         /** ParameterFieldCreate */
         ParameterFieldCreate: {
             /**
+             * Allow Multiple
+             * @description Whether one part may hold several of these options at once — a connector that is both through-hole and surface-mount. Only meaningful for value_type='enum'. Filtering is unchanged either way: ticking two options matches a part holding either.
+             * @default false
+             */
+            allow_multiple?: boolean;
+            /**
              * Applies To Category
              * @description Category slug. The field is then offered on that category **and every descendant of it**. Leave it null for a field every part has, like a package, which is offered everywhere.
              */
@@ -5369,6 +5375,11 @@ export interface components {
         };
         /** ParameterFieldRead */
         ParameterFieldRead: {
+            /**
+             * Allow Multiple
+             * @default false
+             */
+            allow_multiple?: boolean;
             /** Applies To Category */
             applies_to_category: string | null;
             /** Base Unit */
@@ -5408,6 +5419,8 @@ export interface components {
          *     reason, not a silently ignored key.
          */
         ParameterFieldUpdate: {
+            /** Allow Multiple */
+            allow_multiple?: boolean | null;
             /** Applies To Category */
             applies_to_category?: string | null;
             /** Base Unit */

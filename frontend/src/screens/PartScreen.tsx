@@ -16,9 +16,17 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { AssignStock } from "../components/AssignStock";
+import { CategorySelect } from "../components/CategorySelect";
 import { DocumentsPanel } from "../components/DocumentsPanel";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
-import { getPart, updatePart, type PartRead, type PartUpdate } from "../lib/api/client";
+import {
+  getPart,
+  listPartCategories,
+  updatePart,
+  type CategoryNode,
+  type PartRead,
+  type PartUpdate,
+} from "../lib/api/client";
 import { formatMoneyMicro, formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { formatShortId } from "../lib/shortid";
@@ -161,6 +169,19 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
         <dl className="kv">
           <dt>Kind</dt>
           <dd>{part.part_kind}</dd>
+          {/* Filed *where*, which is the question the fields on this part depend
+              on: a category's fields reach a part by the part being in it. */}
+          <dt>Category</dt>
+          <dd>
+            {part.category_id === null ? (
+              <span className="dim">
+                not filed under anything — so no category's fields apply to it, and it will not
+                appear when browsing by type
+              </span>
+            ) : (
+              <CategoryName categoryId={part.category_id} />
+            )}
+          </dd>
           <dt>Hot score</dt>
           <dd>{part.hot_score.toFixed(3)}</dd>
           <dt>Unit mass</dt>
@@ -198,6 +219,23 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
   );
 }
 
+/**
+ * The category's name from its id, because `PartRead` carries only the id.
+ *
+ * Resolved here rather than added to the part payload: the tree is already loaded
+ * on most screens and cached by the browser, and putting a derived label on the
+ * part row is what makes a rename show stale text until something re-saves.
+ */
+function CategoryName({ categoryId }: { categoryId: number }) {
+  const categories = useAsync<CategoryNode[]>(() => listPartCategories(), []);
+  const node = (categories.data ?? []).find((candidate) => candidate.id === categoryId) ?? null;
+  return node === null ? (
+    <span className="dim">#{categoryId}</span>
+  ) : (
+    <Link to={`/search?category=${node.slug}`}>{node.name} →</Link>
+  );
+}
+
 function EditPart({ part, onDone }: { part: PartRead; onDone: () => void }) {
   const [draft, setDraft] = useState<PartUpdate>({
     name: part.name,
@@ -206,6 +244,7 @@ function EditPart({ part, onDone }: { part: PartRead; onDone: () => void }) {
     keywords: part.keywords,
     notes: part.notes,
     is_stub: part.is_stub,
+    category_id: part.category_id,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -254,6 +293,15 @@ function EditPart({ part, onDone }: { part: PartRead; onDone: () => void }) {
           onChange={(event) => setDraft({ ...draft, description: event.target.value })}
         />
       </label>
+      <CategorySelect
+        value={draft.category_id ?? null}
+        onChange={(categoryId) => setDraft({ ...draft, category_id: categoryId })}
+        hint={
+          "Where it sits in the taxonomy. This is also what decides which fields it can be " +
+          "filtered by — a field authored on Capacitors reaches every part filed under " +
+          "Capacitors or anything inside it."
+        }
+      />
       <label className="field">
         <span>Keywords</span>
         <input

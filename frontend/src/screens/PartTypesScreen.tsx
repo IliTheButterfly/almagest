@@ -205,6 +205,7 @@ export function PartTypesScreen() {
           <FieldsPanel
             categorySlug={selected}
             categoryName={category?.name ?? null}
+            partCount={category?.part_count ?? 0}
             fields={fields.data}
             loading={fields.loading}
             error={fields.error}
@@ -222,6 +223,7 @@ export function PartTypesScreen() {
 function FieldsPanel({
   categorySlug,
   categoryName,
+  partCount,
   fields,
   loading,
   error,
@@ -230,6 +232,8 @@ function FieldsPanel({
 }: {
   readonly categorySlug: string;
   readonly categoryName: string | null;
+  /** Descendant-inclusive, as the rail reports it. */
+  readonly partCount: number;
   readonly fields: readonly ParameterFieldRead[] | null;
   readonly loading: boolean;
   readonly error: unknown;
@@ -258,6 +262,25 @@ function FieldsPanel({
             ? "With no category selected these are the fields every part has, whatever it is — a package, a mounting type. A field authored here is offered everywhere."
             : `Authored on ${where} and offered on it and every category under it, because a part is filed under the deepest node — a field on Capacitors has to reach Capacitors > Ceramic.`}
         </p>
+        {categorySlug !== "" && (
+          /* The other half of a category: what is actually in it. A field only
+             reaches a part by that part being filed here, so a category with no
+             parts is a category whose fields do nothing — worth being one tap
+             from the parts themselves. */
+          <p className="muted-note" style={{ margin: 0 }}>
+            {partCount === 0 ? (
+              <>
+                <strong>Nothing is filed here yet</strong>, so these fields apply to no part. A
+                part is filed from its own page, or as it is created.{" "}
+              </>
+            ) : (
+              <>
+                {partCount} {partCount === 1 ? "part is" : "parts are"} filed here or below.{" "}
+              </>
+            )}
+            <Link to={`/search?category=${categorySlug}`}>Browse them →</Link>
+          </p>
+        )}
       </div>
 
       {adding && (

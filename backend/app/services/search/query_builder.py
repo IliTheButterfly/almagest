@@ -29,6 +29,7 @@ from sqlalchemy import (
     Select,
     and_,
     column,
+    exists,
     false,
     func,
     select,
@@ -39,7 +40,12 @@ from sqlalchemy.orm import Session, aliased
 
 from app.models.catalog import Part, PartCategory
 from app.models.enums import SubstitutionDirection, ValueType
-from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
+from app.models.parameter import (
+    ParameterChoice,
+    ParameterTemplate,
+    ParameterValue,
+    ParameterValueChoice,
+)
 from app.models.stock import StockLot
 from app.services.parameters import ChoiceNotFound, resolve_choice
 from app.services.search.fts import build_match_query
@@ -355,7 +361,21 @@ def _choice_predicate(
             template=template.name,
             reason="empty_choice",
         )
-    predicate: ColumnElement[bool] = pv.choice_id.in_(wanted)
+    # `EXISTS` over the child table, not `pv.choice_id IN (...)`: a multi-valued
+    # field keeps its options only in `parameter_value_choice` and leaves
+    # `choice_id` null, so the old predicate would silently match none of them.
+    #
+    # A semi-join is also the reason multiplicity was allowed to live in a child
+    # table at all — it contributes no rows, so `UNIQUE(part_id, template_id)`
+    # keeps doing its job and a five-predicate query still cannot fan out. Joining
+    # the child table instead would multiply this value row by the options it
+    # holds, which is the cross product that invariant exists to prevent.
+    predicate: ColumnElement[bool] = exists(
+        select(ParameterValueChoice.value_id)
+        .where(ParameterValueChoice.value_id == pv.id)
+        .where(ParameterValueChoice.choice_id.in_(wanted))
+        .correlate(pv)
+    )
     return predicate
 
 

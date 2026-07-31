@@ -72,6 +72,7 @@ function parameterField(overrides: Record<string, unknown> = {}): Record<string,
     inherited: false,
     is_seed: true,
     value_count: 12,
+    allow_multiple: false,
     choices: [],
     ...overrides,
   };
@@ -435,6 +436,35 @@ describe("PartTypesScreen", () => {
     // IntegrityError the user reads as a 500 with no number in it.
     expect(screen.getByText(/22 parts filed under it/)).toBeTruthy();
     expect(screen.getByText(/8 parts filed under it/)).toBeTruthy();
+  });
+
+  it("offers a list field the option of holding several answers at once", async () => {
+    stubApi();
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Capacitance")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /add a field/i }));
+    fireEvent.change(screen.getByLabelText(/as it appears in the filter panel/i), {
+      target: { value: "Interface" },
+    });
+    // The control only exists for a list field: a number has exactly one value.
+    expect(screen.queryByLabelText(/more than one of these at once/i)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/^type/i), { target: { value: "enum" } });
+    fireEvent.click(screen.getByLabelText(/more than one of these at once/i));
+    fireEvent.change(screen.getAllByLabelText(/^key/i)[0]!, { target: { value: "i2c" } });
+    fireEvent.click(screen.getByLabelText(/has to match exactly/i));
+    fireEvent.click(screen.getByRole("button", { name: /create this field/i }));
+
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.url === "/api/parameter-fields" && call.method === "POST"),
+      ).toBe(true),
+    );
+    const posted = calls.find(
+      (call) => call.url === "/api/parameter-fields" && call.method === "POST",
+    );
+    expect(posted?.body).toMatchObject({ value_type: "enum", allow_multiple: true });
   });
 
   // -------------------------------------------------------------- units ----

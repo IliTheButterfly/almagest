@@ -7282,6 +7282,12 @@
       },
       "ParameterFieldCreate": {
         "properties": {
+          "allow_multiple": {
+            "default": false,
+            "description": "Whether one part may hold several of these options at once \u2014 a connector that is both through-hole and surface-mount. Only meaningful for value_type='enum'. Filtering is unchanged either way: ticking two options matches a part holding either.",
+            "title": "Allow Multiple",
+            "type": "boolean"
+          },
           "applies_to_category": {
             "anyOf": [
               {
@@ -7464,6 +7470,11 @@
       },
       "ParameterFieldRead": {
         "properties": {
+          "allow_multiple": {
+            "default": false,
+            "title": "Allow Multiple",
+            "type": "boolean"
+          },
           "applies_to_category": {
             "anyOf": [
               {
@@ -7573,6 +7584,17 @@
       "ParameterFieldUpdate": {
         "description": "Every field of a definition that can change, with the three that cannot\nguarded rather than omitted \u2014 a client sending `value_type` deserves the\nreason, not a silently ignored key.",
         "properties": {
+          "allow_multiple": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Multiple"
+          },
           "applies_to_category": {
             "anyOf": [
               {
