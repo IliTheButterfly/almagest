@@ -27,46 +27,64 @@ Four findings, each from a cheap, reversible probe rather than an assumption:
    is admitted, is never defaulted to a class, and no controller ever populates
    its address. If a controller exists at all it is not the default and nobody
    knows its name.
-3. **`hostPort` is forbidden.** The namespace enforces PodSecurity `baseline`,
-   which rejects `hostPort` outright. Binding the node's 443 directly from a pod
-   is not available.
-4. **A NodePort may be 443.** The API server's `--service-node-port-range` is
-   extended below the usual 30000 floor; a server-side dry run of a Service with
-   `nodePort: 443` is accepted.
+3. **No ingress controller under any common name.** Nine Ingresses were created,
+   one each for `nginx`, `traefik`, `haproxy`, `contour`, `istio`, `kong`,
+   `cilium`, `openshift-default` and `public`. Not one was claimed or given an
+   address. Combined with finding 2, there is no ingress on this cluster.
+4. **`hostPort` and `hostNetwork` are forbidden.** The namespace enforces
+   PodSecurity `baseline`, which rejects both, and namespace labels cannot be
+   changed from here. Binding the node's 443 from a pod is unavailable.
+5. **A NodePort may *not* be 443.** The range is the standard 30000–32767.
 
-Finding 4 is the one that decides this, and it is the one that would never have
-been guessed — the 30000–32767 range is universal enough that most people treat
-it as part of the protocol.
+### A false positive worth recording
+
+Finding 5 was initially recorded as its opposite. `kubectl apply --dry-run=server`
+**accepts** a Service with `nodePort: 443` and reports it as created; the real
+apply then rejects it with `provided port is not in the valid range`.
+
+The reason is that the range is enforced by the **service port allocator**, which
+runs during storage and which `--dry-run=server` bypasses entirely. So a
+server-side dry run — normally the most trustworthy check available without
+mutating anything — is *not* a valid test of a nodePort value. Only a real apply
+is. Everything else in these manifests was validated by dry run and that
+validation held; this one field is the exception.
 
 ## Decision
 
-**A single `NodePort` Service on port 443, fronted by our own nginx, serving the
-PWA and proxying the API as one origin.**
+**A single `NodePort` Service on 30443, fronted by our own nginx, serving the PWA
+and proxying the API as one origin.**
 
 ```
-router DNS: almagest.lan -> 192.168.85.101   (node "neon")
-
-  phone --https://almagest.lan/s/4K7T-92M8--> :443 NodePort
-     -> almagest-web   nginx, TLS from secret/almagest-tls
-          |-- /       -> the built PWA
-          |-- /api/   -> almagest-api:8000
-          '-- /s/...  -> almagest-api:8000
+  client --https--> <whatever answers on 443 for almagest.lan>
+                      '--> 192.168.85.101:30443   (node "neon")
+                             -> almagest-web   nginx, TLS from secret/almagest-tls
+                                  |-- /       -> the built PWA
+                                  |-- /api/   -> almagest-api:8000
+                                  '-- /s/...  -> almagest-api:8000
 ```
 
-No ingress controller, no LoadBalancer, no router port-forward.
-
-## Why the port number is not negotiable
+## The unresolved half: who answers on 443
 
 `https://almagest.lan/s/{short_id}` is written into every NFC tag and printed on
 every QR label, with **no port in it**. A tag is a physical object glued to a
-physical drawer; there is no migration that reaches it. The deployment therefore
-has to meet the URL, not the other way round.
+drawer; no migration reaches it. The cluster cannot serve 443 — findings 1–5 —
+so something outside it must, and forward to `192.168.85.101:30443`.
 
-`nodePort: 30443` plus a DNAT rule on the router would also land on 443 from the
-phone's point of view, and it was the expected answer before finding 4. It is
-rejected because it moves a load-bearing piece of the tag contract into a
-consumer router's config page — undocumented, unversioned, and invisible to
-anyone reading this repository.
+**A router port-forward does not solve this**, and the reason is easy to miss: a
+LAN client asks the router for `almagest.lan`, gets the node's address, and then
+connects to the node *directly*. The router is never in the path, so it has
+nothing to forward. What is needed is a **reverse proxy at whatever address
+`almagest.lan` resolves to**.
+
+Until that exists, `ALMAGEST_BASE_URL` must include the port, and **no tag may be
+provisioned**, because a tag written now would carry an origin that never
+resolves. Nothing has been provisioned yet — this is a first install — so the
+cost of the delay is zero, which is the only reason it is acceptable.
+
+Cleaner escapes, if either becomes available: an ingress controller on the
+cluster, or an extended `--service-node-port-range` so 443 can be taken directly.
+Both are cluster-admin changes, and either would let the base URL lose its port
+with no change to anything in this repository beyond one ConfigMap value.
 
 ## Why one origin, rather than splitting the PWA and the API
 

@@ -1,7 +1,7 @@
 # Deploying Almagest
 
 Kubernetes manifests for the `aether` cluster, namespace `ili`. The shape and
-the reasoning behind it are in [ADR 0009](../docs/adr/0009-cluster-deployment-nodeport-443.md);
+the reasoning behind it are in [ADR 0009](../docs/adr/0009-cluster-deployment-and-the-443-problem.md);
 this file is the operational half.
 
 `docker compose` (repo root) remains the desktop path and is not generated from
@@ -10,9 +10,7 @@ any of this.
 ## The shape
 
 ```
-router DNS: almagest.lan -> 192.168.85.101   (node "neon")
-
-  :443 NodePort
+  :30443 NodePort on 192.168.85.101   (node "neon")
     -> almagest-web    nginx + the built PWA, terminates TLS
          |-- /       -> static assets, SPA fallback
          |-- /api/   -> almagest-api:8000
@@ -48,6 +46,25 @@ Then point `almagest.lan` at `192.168.85.101` in the router's DNS, and install
 `certs/ca.crt` on every phone that will provision tags — `.lan` cannot obtain a
 publicly trusted certificate, and without the CA the browser refuses the secure
 context that Web NFC and the camera require.
+
+### The port, which is not solved
+
+The cluster cannot serve **443**: there is no ingress controller, no
+LoadBalancer, `hostPort` is blocked by PodSecurity, and the node-port range is
+the standard 30000–32767. So the app answers on `https://almagest.lan:30443`,
+while every NFC tag and printed QR is specified to carry a **portless**
+`https://almagest.lan/s/{short_id}`.
+
+**Do not provision any tag until that is reconciled**, or the tag will carry an
+origin that never resolves — and a tag cannot be rewritten remotely. Nothing has
+been provisioned yet, so this currently costs nothing.
+
+Note that a router *port-forward* does not fix it: a LAN client resolves
+`almagest.lan`, gets the node's address, and connects directly, so the router is
+never in the path. It needs a **reverse proxy at whatever address `almagest.lan`
+resolves to**, forwarding 443 to `192.168.85.101:30443`. Failing that, an ingress
+controller or an extended node-port range — both cluster-admin changes — would
+let `ALMAGEST_BASE_URL` drop the port with no other change here.
 
 ## Updating
 
@@ -117,8 +134,14 @@ is the off-cluster half and is currently manual.
 - **`replicas: 1` and `strategy: Recreate` on the API.** Two SQLite writers is
   corruption, and a RollingUpdate deadlocks trying to attach an RWO volume to a
   second pod. Neither announces itself.
-- **`nodePort: 443`, exactly.** Every provisioned tag carries a portless URL.
-  See ADR 0009.
+- **`kubectl apply --dry-run=server` cannot validate a `nodePort`.** It accepts
+  an out-of-range value and reports success; the range is enforced by the
+  service port allocator, which dry-run bypasses. Everything else here was
+  dry-run validated and that held — this one field is the exception.
+- **The API image needs `--extra labels`.** `app/api/routes/labels.py` imports
+  Pillow at module scope and `app.main` always includes that router, so without
+  the extra the image cannot import its own application. Not `--all-extras`:
+  ADR 0005 keeps `datasheets` out of this image.
 - **Migrations are never run on startup.** On boot, a failed migration and a
   failed rollout look identical and a rollback becomes undiagnosable.
 - **Resource limits on everything.** There is no ResourceQuota in `ili`, so

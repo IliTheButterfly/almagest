@@ -179,8 +179,8 @@ Secrets go in `.env` (gitignored); `.env.example` documents every key. Machine- 
 
 Deployment target is Kubernetes. One architectural consequence matters here regardless of cluster: the datastore is SQLite on a ReadWriteOnce volume, so the API runs **exactly one replica with `strategy: Recreate`**. A `RollingUpdate` would try to attach a second pod to the same RWO volume and deadlock, and two SQLite writers is corruption. See `CLAUDE.local.md` for concrete cluster details.
 
-The manifests live in **`deploy/`** and the operational half is **[deploy/README.md](deploy/README.md)**; the shape and the cluster probing behind it are in **[docs/adr/0009](docs/adr/0009-cluster-deployment-nodeport-443.md)**. Three things about it are easy to get wrong:
+The manifests live in **`deploy/`** and the operational half is **[deploy/README.md](deploy/README.md)**; the shape and the cluster probing behind it are in **[docs/adr/0009](docs/adr/0009-cluster-deployment-and-the-443-problem.md)**. Three things about it are easy to get wrong:
 
 - **Images are built only by `.github/workflows/release.yml`.** There is no container runtime on the dev box, so there is no local build target and never should be a Makefile target pretending otherwise.
 - **`make k8s-deploy` scales the API to zero before migrating**, then applies. That downtime is deliberate — RWO does not prevent two writers, because both pods land on the same node.
-- **`nodePort: 443` is exact, not a default.** Every provisioned NFC tag and printed QR carries `https://almagest.lan/s/{short_id}` with no port in it, and a tag is a physical object no migration can reach.
+- **The cluster cannot serve 443, so the app answers on `:30443`** — no ingress controller, no LoadBalancer, `hostPort` blocked, node-port range 30000–32767. Tags are specified to carry a *portless* URL, so **provision no tags** until a reverse proxy fronts 443. Also note `--dry-run=server` accepts an out-of-range `nodePort` and the real apply then rejects it: dry-run bypasses the port allocator.

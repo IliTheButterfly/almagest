@@ -15,11 +15,20 @@ data:
   ALMAGEST_LABEL_OUTPUT_DIR: /data/labels
 
   # The origin stamped into every NFC tag and printed QR as {base}/s/{short_id}.
-  # Settled in docs/adr/0001. Changing this after any tag has been provisioned
-  # does not migrate those tags — they keep pointing at the old origin, because
-  # a tag is a physical object and nothing in software can reach it. Treat this
-  # value as permanent.
-  ALMAGEST_BASE_URL: https://almagest.lan
+  # Changing it after a tag has been provisioned does not migrate that tag — a
+  # tag is a physical object and nothing in software can reach it — so treat
+  # this as permanent from the first provisioning onward.
+  #
+  # ADR 0001 settled the intended value as `https://almagest.lan`, with no port.
+  # The port is here because the cluster cannot serve 443 (no ingress
+  # controller, no LoadBalancer, hostPort blocked, node-port range 30000-32767 —
+  # ADR 0009), and a value that resolves is better than one that is merely
+  # correct on paper.
+  #
+  # **Do not provision tags until this loses the port**, which needs a reverse
+  # proxy on 443 at whatever address almagest.lan resolves to. Nothing has been
+  # provisioned yet, so nothing is lost by waiting.
+  ALMAGEST_BASE_URL: https://almagest.lan:30443
 
   # Not ALMAGEST_LOG_LEVEL — this one key is deliberately unprefixed in
   # app/config.py.

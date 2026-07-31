@@ -152,4 +152,6 @@ kubectl rollout status deployment/almagest-web --timeout=300s
 
 say "deployed $TAG"
 kubectl get all -l app.kubernetes.io/part-of=almagest
-printf '\n  https://almagest.lan/  (point this name at the node, 192.168.85.101)\n\n'
+printf '\n  https://almagest.lan:30443/   (almagest.lan -> 192.168.85.101)\n'
+printf '  The port is not yet reconciled with the portless URL that tags carry;\n'
+printf '  see "The port, which is not solved" in deploy/README.md.\n\n'
