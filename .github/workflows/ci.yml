@@ -221,6 +221,27 @@ jobs:
             -e ALMAGEST_DB_PATH=/tmp/ci.db \
             almagest-api:ci alembic upgrade head
 
+      # The migration check above never imports `app` — alembic loads models,
+      # not routes — which is exactly how an image that could not start its own
+      # API shipped and only failed on the cluster. This boots the real ASGI app
+      # and makes it answer a request.
+      - name: The API image can actually serve
+        run: |
+          docker run -d --name api-smoke -p 8000:8000 \
+            -e ALMAGEST_DB_PATH=/tmp/smoke.db \
+            almagest-api:ci \
+            sh -c 'alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000'
+          ok=
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/system/health >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          docker logs api-smoke
+          docker rm -f api-smoke >/dev/null
+          test -n "$ok" || { echo "::error::the API image never became healthy"; exit 1; }
+
       # The other half of what release.yml publishes. Built here without
       # pushing, so a broken nginx config or a frontend that no longer compiles
       # fails on the pull request rather than at deploy time.

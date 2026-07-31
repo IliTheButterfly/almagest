@@ -83,21 +83,31 @@ metadata:
   labels:
     app.kubernetes.io/component: web
 spec:
-  # NodePort, and the node port is the real 443.
+  # NodePort 30443, because this cluster offers nothing better and cannot offer
+  # 443 itself. What was ruled out, and how (see ADR 0009):
   #
-  # This cluster has no LoadBalancer provider (a LoadBalancer Service sits at
-  # <pending> forever, with no events) and no default IngressClass (a Service-
-  # less Ingress is admitted but never claimed or given an address). What it
-  # does have is an API server whose --service-node-port-range is extended
-  # below the usual 30000-32767 floor, which a server-side dry run confirms by
-  # accepting nodePort 443.
+  #   * No LoadBalancer provider — a LoadBalancer Service sits at <pending>
+  #     indefinitely and emits no events at all.
+  #   * No ingress controller — nine common class names (nginx, traefik,
+  #     haproxy, contour, istio, kong, cilium, openshift-default, public) were
+  #     each given an Ingress and not one was ever claimed or addressed.
+  #   * `hostPort` and `hostNetwork` are rejected by PodSecurity `baseline`,
+  #     which the namespace enforces and which we cannot relabel.
+  #   * `nodePort: 443` is rejected: the range is the standard 30000-32767.
   #
-  # That is what makes this work at all: every NFC tag and printed QR carries
-  # `https://almagest.lan/s/{short_id}` with **no port in it**. A tag is a
-  # physical object that cannot be re-issued cheaply, so the deployment has to
-  # meet the URL rather than the other way round. 30443 plus a router DNAT rule
-  # would also reach 443, but it puts a silent, undocumented dependency in a
-  # box that is not in this repository.
+  # That last one is worth a warning to anyone extending this file. A
+  # server-side dry run **accepts** an out-of-range nodePort — the range is
+  # enforced by the service port allocator, which `--dry-run=server` bypasses
+  # entirely. `kubectl apply --dry-run=server` is therefore not a valid test of
+  # a nodePort value; only a real apply is.
+  #
+  # The consequence is that something outside this cluster has to answer on 443
+  # and forward here, because every NFC tag and printed QR carries
+  # `https://almagest.lan/s/{short_id}` with no port in it. Note that a router
+  # port-forward does NOT solve it for LAN clients: DNS hands them the node's
+  # address and they connect to it directly, so the router is never in the
+  # path. It has to be a reverse proxy at whatever address `almagest.lan`
+  # resolves to. See deploy/README.md.
   type: NodePort
   selector:
     app.kubernetes.io/name: almagest
@@ -106,4 +116,4 @@ spec:
     - name: https
       port: 443
       targetPort: https
-      nodePort: 443
+      nodePort: 30443
