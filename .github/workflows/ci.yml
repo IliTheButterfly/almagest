@@ -220,3 +220,61 @@ jobs:
           docker run --rm \
             -e ALMAGEST_DB_PATH=/tmp/ci.db \
             almagest-api:ci alembic upgrade head
+
+      # The migration check above never imports `app` — alembic loads models,
+      # not routes — which is exactly how an image that could not start its own
+      # API shipped and only failed on the cluster. This boots the real ASGI app
+      # and makes it answer a request.
+      - name: The API image can actually serve
+        run: |
+          docker run -d --name api-smoke -p 8000:8000 \
+            -e ALMAGEST_DB_PATH=/tmp/smoke.db \
+            almagest-api:ci \
+            sh -c 'alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000'
+          ok=
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/system/health >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          docker logs api-smoke
+          docker rm -f api-smoke >/dev/null
+          test -n "$ok" || { echo "::error::the API image never became healthy"; exit 1; }
+
+      # The other half of what release.yml publishes. Built here without
+      # pushing, so a broken nginx config or a frontend that no longer compiles
+      # fails on the pull request rather than at deploy time.
+      - name: Build the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          push: false
+          load: true
+          tags: almagest-web:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # `nginx -t` parses the config for real, including the regex location that
+      # carries the tag-tap path. It needs two things the image deliberately
+      # does not contain, both supplied here rather than weakened in the config:
+      #
+      #   * the TLS keypair, which lives in a Secret at runtime and must never
+      #     be baked into an image — a throwaway one proves the paths are right;
+      #   * a resolvable `almagest-api`, because nginx resolves a literal
+      #     proxy_pass hostname at startup and `-t` is no exception.
+      - name: nginx config is valid
+        run: |
+          mkdir -p /tmp/tls
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -subj /CN=almagest.lan \
+            -keyout /tmp/tls/tls.key -out /tmp/tls/tls.crt 2>/dev/null
+          # openssl writes the key 0600 owned by the runner's uid, and the
+          # image runs as uid 101, so without this nginx fails to open it. In
+          # the cluster this does not arise: a Secret volume mounts 0644.
+          chmod a+r /tmp/tls/tls.key
+          docker run --rm \
+            -v /tmp/tls:/etc/almagest/tls:ro \
+            --add-host almagest-api:127.0.0.1 \
+            almagest-web:ci nginx -t

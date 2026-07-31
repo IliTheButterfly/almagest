@@ -1,0 +1,68 @@
+# Schema migration, run by scripts/k8s-deploy.sh and by nothing else.
+#
+# Deliberately NOT part of the kustomize base. Two reasons, both of which bite
+# in practice:
+#
+#   * A Job's pod template is immutable, so a Job in the base makes the second
+#     `kubectl apply -k` fail with a field-immutable error rather than run a
+#     migration. Hence __JOB_NAME__, substituted per run.
+#   * The migration must run while the API is scaled to zero. SQLite tolerates
+#     one writer; a migration racing a serving API is the corruption case, and
+#     `local-shared` being ReadWriteOnce does not prevent it, because both pods
+#     land on the same node and RWO permits that.
+#
+# It is also why migrations are not an initContainer and not a startup hook,
+# per backend/Dockerfile: on boot, a failed migration and a failed rollout look
+# identical, and a rollback becomes undiagnosable.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __JOB_NAME__
+  labels:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/part-of: almagest
+    app.kubernetes.io/component: migrate
+spec:
+  # One attempt. A migration that failed once will fail the same way again, and
+  # a retry only adds a second half-applied attempt to reason about.
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: almagest
+        app.kubernetes.io/part-of: almagest
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: __IMAGE__
+          command: ["alembic", "upgrade", "head"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          envFrom:
+            - configMapRef:
+                name: almagest-config
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: almagest-data

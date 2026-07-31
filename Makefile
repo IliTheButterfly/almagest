@@ -9,7 +9,9 @@ IC    := idcodec
 .PHONY: help bootstrap sync test test-live lint fmt typecheck check migrate revision \
         check-migrations run openapi clean fe-install fe-dev fe-check fe-api \
         agent-sync agent-lint agent-typecheck agent-test agent-test-live agent-check agent-run \
-        idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check
+        idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check \
+        k8s-tls k8s-secrets k8s-deploy k8s-status k8s-logs k8s-shell k8s-diff \
+        k8s-backup-now k8s-backup-pull
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -142,3 +144,52 @@ clean: ## Remove caches and build artefacts
 
 certs: ## Generate a local private CA + dev certificate (ADR 0001; certs/ is gitignored)
 	@./scripts/make-certs.sh
+
+# --- Kubernetes (cluster `aether`, namespace `ili`) -------------------------
+# `ili` is shared with unrelated production workloads, so every target below
+# names its resources explicitly. Never add one that uses a bare selector,
+# `--all`, or `--prune`.
+
+k8s-tls: ## Push certs/ into secret/almagest-tls (run `make certs` first)
+	@test -f certs/server.crt || { echo "certs/ is missing — run 'make certs'"; exit 1; }
+	kubectl create secret tls almagest-tls \
+	  --cert=certs/server.crt --key=certs/server.key \
+	  --dry-run=client -o yaml | kubectl apply -n ili -f -
+	@echo "certificate updated; roll nginx with: kubectl rollout restart deployment/almagest-web"
+
+k8s-secrets: ## Push the provider API keys from .env into secret/almagest-secrets
+	@test -f .env || { echo ".env is missing — copy .env.example and fill it in"; exit 1; }
+	@# Only the keys the API actually reads in-cluster. Deliberately not the
+	@# whole file: DEVICEAGENT_* belongs to the Pi, and the ALMAGEST_* paths are
+	@# set by the ConfigMap.
+	kubectl create secret generic almagest-secrets \
+	  $$(grep -hE '^(MOUSER_API_KEY|DIGIKEY_|NEXAR_|ANTHROPIC_API_KEY)' .env \
+	     | grep -v '=$$' | sed 's/^/--from-literal=/') \
+	  --dry-run=client -o yaml | kubectl apply -n ili -f -
+
+k8s-deploy: ## Deploy/update the cluster (make k8s-deploy TAG=sha-... to pin)
+	@./scripts/k8s-deploy.sh $(TAG)
+
+k8s-diff: ## Show what a deploy would change, without changing it
+	kubectl diff -k deploy/overlays/aether || true
+
+k8s-status: ## Everything Almagest owns in the shared namespace
+	kubectl get all,pvc,cm,secret,ingress -n ili -l app.kubernetes.io/part-of=almagest
+
+k8s-logs: ## Follow the API log
+	kubectl logs -n ili -f deployment/almagest-api
+
+k8s-shell: ## Shell into the running API pod
+	kubectl exec -n ili -it deployment/almagest-api -- bash
+
+k8s-backup-now: ## Run the nightly backup immediately
+	kubectl create job -n ili --from=cronjob/almagest-backup \
+	  almagest-backup-manual-$$(date +%s)
+
+k8s-backup-pull: ## Copy the newest backup off the cluster into ./data/backups/
+	@mkdir -p data/backups
+	@pod=$$(kubectl get pod -n ili -l app.kubernetes.io/component=api \
+	         -o jsonpath='{.items[0].metadata.name}'); \
+	 latest=$$(kubectl exec -n ili $$pod -- sh -c 'ls -1 /data/backups/*.db | tail -1'); \
+	 echo "pulling $$latest"; \
+	 kubectl cp -n ili "$$pod:$$latest" "data/backups/$$(basename $$latest)"

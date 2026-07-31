@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The `aether` cluster, namespace `ili`. This is the only overlay; a second one
+# would need a different hostname and therefore a different ALMAGEST_BASE_URL,
+# which is not a thing that can be varied casually — see config.yaml.
+
+resources:
+  - ../../base
+
+# Rewritten in place by scripts/k8s-deploy.sh. Keeping the deployed tag in a
+# tracked file rather than passing it to `kubectl set image` is deliberate:
+# `git log deploy/overlays/aether/kustomization.yaml` is then an honest record
+# of what has been on the cluster, and a re-apply is idempotent instead of
+# silently reverting to whatever the file last said.
+images:
+  - name: ghcr.io/ilithebutterfly/almagest-api
+    newTag: sha-f307983894c3
+  - name: ghcr.io/ilithebutterfly/almagest-web
+    newTag: sha-f307983894c3

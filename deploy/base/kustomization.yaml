@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# `ili` is shared with unrelated production workloads (an octans runner, a
+# KubeVirt builder VM). This cluster cannot give Almagest a namespace of its
+# own — namespaces are cluster-scoped and the service account cannot create
+# them, and there is no Hierarchical Namespace Controller — so the separation
+# is by name and by label instead. Every resource here is prefixed `almagest-`,
+# and the label below makes
+#
+#     kubectl get all -l app.kubernetes.io/part-of=almagest
+#
+# behave like a namespace filter. Never `kubectl delete` here with a bare
+# selector, `--all`, or a namespace scope, and never `kubectl apply --prune`:
+# all three would reach the co-tenant workloads.
+namespace: ili
+
+resources:
+  - config.yaml
+  - pvc.yaml
+  - api.yaml
+  - web.yaml
+  - backup.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: almagest
+      app.kubernetes.io/part-of: almagest
+    # Applied to resource metadata and pod templates, but NOT merged into
+    # Deployment selectors. A selector is immutable after creation, so folding
+    # generated labels into one turns any future label change into "delete the
+    # Deployment and recreate it". The Deployments declare their own selectors
+    # explicitly for the same reason.
+    includeSelectors: false
+    includeTemplates: true

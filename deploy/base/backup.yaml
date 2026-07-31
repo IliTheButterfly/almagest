@@ -1,0 +1,128 @@
+# Nightly logical backup.
+#
+# Two distinct failures need covering and only one of them is disk loss. A
+# WAL-replication tool (Litestream, later) protects against the disk going
+# away, but it replicates corruption just as faithfully as it replicates good
+# pages. A separate-format logical dump is the one that survives the database
+# being wrong rather than gone. This is the second kind.
+#
+# `Connection.backup` is SQLite's online backup API, so it is safe to run while
+# the API is serving — it is not `cp`, and it does not need the writer stopped.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: almagest-backup-script
+data:
+  backup.py: |
+    """Copy the live database to a timestamped file, then prune old ones."""
+
+    import datetime
+    import pathlib
+    import sqlite3
+    import sys
+
+    SOURCE = pathlib.Path("/data/almagest.db")
+    DEST_DIR = pathlib.Path("/data/backups")
+    KEEP = 14
+
+    if not SOURCE.exists():
+        # A cluster that has been deployed but never migrated is not a failure
+        # worth alerting on at 03:00.
+        print(f"{SOURCE} does not exist yet; nothing to back up")
+        sys.exit(0)
+
+    DEST_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+    dest = DEST_DIR / f"almagest-{stamp}.db"
+
+    # Read-only source: this job must never be the thing that writes to the
+    # database, whatever else goes wrong in it.
+    src = sqlite3.connect(f"file:{SOURCE}?mode=ro", uri=True)
+    try:
+        out = sqlite3.connect(dest)
+        try:
+            src.backup(out)
+        finally:
+            out.close()
+    finally:
+        src.close()
+
+    # Integrity-check the copy rather than the original. A backup that cannot
+    # be opened is worse than no backup, because it looks like one.
+    check = sqlite3.connect(f"file:{dest}?mode=ro", uri=True)
+    try:
+        result = check.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        check.close()
+    if result != "ok":
+        dest.unlink(missing_ok=True)
+        sys.exit(f"integrity_check on the copy returned {result!r}; discarded it")
+
+    print(f"wrote {dest} ({dest.stat().st_size} bytes)")
+
+    stale = sorted(DEST_DIR.glob("almagest-*.db"))[:-KEEP]
+    for old in stale:
+        old.unlink()
+        print(f"pruned {old}")
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: almagest-backup
+  labels:
+    app.kubernetes.io/component: backup
+spec:
+  # 03:17 rather than 03:00, so it does not contend with every other cron on
+  # the box that someone set to the top of the hour.
+  schedule: "17 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: almagest
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              # The API image, purely because it already has a Python with the
+              # right uid — no new image to build, patch or trust.
+              image: ghcr.io/ilithebutterfly/almagest-api
+              command: ["python", "/opt/backup/backup.py"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                - name: script
+                  mountPath: /opt/backup
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: almagest-data
+            - name: script
+              configMap:
+                name: almagest-backup-script
