@@ -105,7 +105,7 @@ const MOUNTING = parameterField({
   ],
 });
 
-function stubApi(options: { createStatus?: number } = {}): void {
+function stubApi(options: { createStatus?: number; unitInUse?: boolean } = {}): void {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
@@ -125,6 +125,75 @@ function stubApi(options: { createStatus?: number } = {}): void {
       }
       if (url.pathname === "/api/parameter-fields/base-units" && request.method === "GET") {
         return json(UNITS);
+      }
+      if (url.pathname === "/api/parameter-quantities" && request.method === "GET") {
+        return json([
+          { name: "ohm", symbol: "Ω", display_name: "ohm", custom: false, field_count: 0 },
+          { name: "lumen", symbol: "lm", display_name: "lumen", custom: false, field_count: 0 },
+          {
+            id: 5,
+            name: "byte",
+            symbol: "B",
+            display_name: "Bytes of flash",
+            custom: true,
+            field_count: options.unitInUse === true ? 2 : 0,
+          },
+        ]);
+      }
+      if (url.pathname === "/api/parameter-quantities" && request.method === "POST") {
+        return json(
+          {
+            quantity: {
+              id: 9,
+              name: body["name"],
+              symbol: body["symbol"],
+              display_name: body["display_name"],
+              custom: true,
+              field_count: 0,
+            },
+          },
+          201,
+        );
+      }
+      if (url.pathname === "/api/parameter-quantities/5" && request.method === "DELETE") {
+        return json({ quantity_id: 5, name: "byte" });
+      }
+      if (url.pathname === "/api/part-categories" && request.method === "POST") {
+        return json(
+          {
+            part_category: {
+              id: 30,
+              slug: body["slug"],
+              name: body["name"],
+              parent_id: body["parent_id"] ?? null,
+              description: null,
+              depth: body["parent_id"] === undefined || body["parent_id"] === null ? 0 : 2,
+              label_path: String(body["name"]),
+              default_size_class: null,
+              default_fill_factor: null,
+              own_part_count: 0,
+            },
+            replayed: false,
+          },
+          201,
+        );
+      }
+      if (url.pathname === "/api/part-categories/2/move" && request.method === "POST") {
+        return json({
+          part_category: {
+            id: 2,
+            slug: "capacitors",
+            name: "Capacitors",
+            parent_id: body["parent_id"] ?? null,
+            description: null,
+            depth: 0,
+            label_path: "Capacitors",
+            default_size_class: null,
+            default_fill_factor: null,
+            own_part_count: 12,
+          },
+          replayed: false,
+        });
       }
       if (url.pathname === "/api/parameter-fields" && request.method === "GET") {
         return json(
@@ -366,5 +435,123 @@ describe("PartTypesScreen", () => {
     // IntegrityError the user reads as a 500 with no number in it.
     expect(screen.getByText(/22 parts filed under it/)).toBeTruthy();
     expect(screen.getByText(/8 parts filed under it/)).toBeTruthy();
+  });
+
+  // -------------------------------------------------------------- units ----
+
+  it("offers a unit of your own, and says the shipped ones cannot be changed", async () => {
+    stubApi();
+    renderScreen();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Units" })).toBeTruthy());
+
+    expect(textSomewhere(/ship with Almagest — they cannot be changed/)).toBe(true);
+    expect(screen.getByText("Bytes of flash")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /new unit/i }));
+    fireEvent.change(screen.getByLabelText(/what this unit measures/i), {
+      target: { value: "Turns of wire" },
+    });
+    fireEvent.change(screen.getByLabelText(/^symbol/i), { target: { value: "turns" } });
+    // Counted, not measured — so prefixes off, or a stray k means a thousandfold.
+    fireEvent.click(screen.getByLabelText(/accepts SI prefixes/i));
+    fireEvent.click(screen.getByRole("button", { name: /create the unit/i }));
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) => call.url === "/api/parameter-quantities" && call.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const posted = calls.find(
+      (call) => call.url === "/api/parameter-quantities" && call.method === "POST",
+    );
+    expect(posted?.body).toMatchObject({
+      name: "turns_of_wire",
+      symbol: "turns",
+      display_name: "Turns of wire",
+      allow_prefix: false,
+    });
+  });
+
+  it("will not offer to remove a unit that fields are measured in", async () => {
+    stubApi({ unitInUse: true });
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Bytes of flash")).toBeTruthy());
+
+    // Deleting it would leave those fields unable to read any value at all.
+    expect(textSomewhere(/2 fields are measured in it/)).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Remove$/ })).toBeNull();
+  });
+
+  // --------------------------------------------------------- categories ----
+
+  it("asks where a new category goes, instead of inferring it from the selection", async () => {
+    stubApi();
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Capacitance")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /new category/i }));
+    // The parent is a control, defaulted to what is selected but visible and
+    // changeable before saving — the first thing a real user did with the old
+    // version was create a top-level category they meant to nest.
+    const parent = screen.getByLabelText(/^inside/i) as HTMLSelectElement;
+    expect(parent.value).toBe("2");
+    expect(textSomewhere(/inherits every field authored on Capacitors/)).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: "Ceramic" } });
+    fireEvent.click(screen.getByRole("button", { name: /create the category/i }));
+
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.url === "/api/part-categories" && call.method === "POST"),
+      ).toBe(true),
+    );
+    const posted = calls.find(
+      (call) => call.url === "/api/part-categories" && call.method === "POST",
+    );
+    expect(posted?.body).toMatchObject({ name: "Ceramic", slug: "ceramic", parent_id: 2 });
+  });
+
+  it("can file a new category at the top level, which is a real answer", async () => {
+    stubApi();
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Capacitance")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /new category/i }));
+    fireEvent.change(screen.getByLabelText(/^inside/i), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: "Optoelectronics" } });
+    fireEvent.click(screen.getByRole("button", { name: /create the category/i }));
+
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.url === "/api/part-categories" && call.method === "POST"),
+      ).toBe(true),
+    );
+    const posted = calls.find(
+      (call) => call.url === "/api/part-categories" && call.method === "POST",
+    );
+    expect(posted?.body["parent_id"]).toBeUndefined();
+  });
+
+  it("moves a category that was filed in the wrong place", async () => {
+    stubApi();
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Capacitance")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /move Capacitors/i }));
+    // The subtree comes along, and what these parts can be filtered by changes to
+    // match the new place — said while the choice is still being made, because
+    // neither is obvious from the word "move".
+    expect(textSomewhere(/moves with it/)).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/put Capacitors inside/i), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: /move it/i }));
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.url === "/api/part-categories/2/move")).toBe(true),
+    );
+    const posted = calls.find((call) => call.url === "/api/part-categories/2/move");
+    expect(posted?.body["parent_id"]).toBe(1);
   });
 });

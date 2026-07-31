@@ -11,6 +11,8 @@ filtered.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import (
     Boolean,
     Float,
@@ -25,7 +27,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.enums import Provenance, SubstitutionDirection, ValueType
-from app.models.types import StrEnumType
+from app.models.types import StrEnumType, UtcDateTime, utcnow
 
 
 class ParameterTemplate(Base):
@@ -82,6 +84,77 @@ class ParameterTemplate(Base):
     is_seed: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="0"
     )
+
+
+class ParameterQuantity(Base):
+    """A physical quantity this install defines itself, for a numeric field's
+    `base_unit`.
+
+    The shipped quantities live in `elec-value-parser`, which is deliberately
+    standalone and knows nothing about this schema. They cover the electrical
+    ones plus light, mass, length and a few ratios — but an inventory is allowed
+    to care about something nobody anticipated (bytes of flash, turns of wire,
+    hours of runtime), and before this table the only way to add one was to edit
+    the library.
+
+    **This table is the source of truth and the parser's registry is a view of
+    it.** Every process that parses values registers these rows at startup
+    (`app.services.quantities.load_into_parser`); a name that is stored here but
+    unregistered in some process raises `UnknownQuantityError` there rather than
+    being read under a different definition, which is the failure mode to want.
+
+    A row here can never take a name the library already answers to — including
+    an alias like `resistance`. Every `parameter_value` already stored was
+    computed under the shipped definition of its quantity, so a local
+    redefinition of `farad` would silently change what those numbers mean.
+    """
+
+    __tablename__ = "parameter_quantity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    #: The string a numeric field's `base_unit` holds, and therefore what every
+    #: stored value of such a field was parsed under. Not editable: renaming it
+    #: would orphan every field naming it, exactly as renaming a template's
+    #: `name` would break the decoders.
+    name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+
+    #: What a value prints with — `B`, `turns`, `px`. Also an accepted spelling on
+    #: input, and the one checked *before* an SI prefix, so a symbol that is also
+    #: a prefix letter still reads as the unit.
+    symbol: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    display_name: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    #: JSON array. Case-**sensitive**, because SI case carries meaning: `m` is
+    #: milli and `M` is mega, `s` is seconds and `S` is siemens.
+    symbol_aliases_json: Mapped[str | None] = mapped_column(Text)
+
+    #: JSON array. Case-**insensitive** — a spelled-out word carries no SI case
+    #: convention, so refusing `Bytes` for `bytes` is pedantry.
+    word_aliases_json: Mapped[str | None] = mapped_column(Text)
+
+    #: The parser-level plausibility window, inclusive. Null means unbounded on
+    #: that side. This is the *quantity's* window, the universal one; a field may
+    #: still narrow it with its own `plausible_min`/`plausible_max`.
+    low: Mapped[float | None] = mapped_column(Float)
+    high: Mapped[float | None] = mapped_column(Float)
+
+    allow_zero: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    allow_negative: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+
+    #: Whether `10k` means ten thousand of these. Off for anything counted or
+    #: written out in full — kilo-turns is not a thing, and leaving prefixes on
+    #: would make the `k` in a typo silently mean a thousandfold.
+    allow_prefix: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
 
 
 class ParameterChoice(Base):

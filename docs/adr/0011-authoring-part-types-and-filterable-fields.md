@@ -169,6 +169,80 @@ the one shape that column cannot be: `POST /api/parts` refuses anything that is
 not a `part_kinds.slug`, so every typo was a refusal discovered after the form was
 filled in, with nothing on screen listing the accepted answers.
 
+## Decision 6 — the unit list is extensible, and the table is the source of truth
+
+`base_unit` has to name a quantity the value grammar can read, which is why
+`ohms` and `µF` are refused at authoring time. But "the parser has to know it" is
+not the same as "a developer has to add it", and the nine shipped quantities were
+all electrical — an inventory holding LEDs, batteries or anything with a mass had
+no unit for the thing it actually cared about.
+
+Two halves, and they are different in kind:
+
+**Eleven more shipped quantities** (`elec-value-parser` 0.2.0): lumen, candela,
+lux, kelvin, siemens, joule, ampere_hour, decibel, gram, metre, percent. Each
+carries the window its own domain writes and the spellings datasheets use, so
+`850mcd`, `2000mAh` and `2700K` land with no special case. Kelvin and percent are
+**prefix-free on purpose**: `K` is this grammar's kilo infix letter, so a
+prefixable kelvin would read `4K7` as 4700 K — plausible, and a coincidence rather
+than an intent.
+
+Adding `metre` exposed a real bug, and it is the kind this project exists to
+prevent: `10m` came out as ten *millimetres*. The infix path (`4k7`, `0R22`)
+treated a trailing letter as a multiplier without asking whether it was the
+quantity's own symbol, while the scalar path resolves the unit first — so the two
+paths disagreed by a factor of a thousand, inside the plausible window, silently.
+The rule is now general: a trailing letter with nothing after it that the quantity
+accepts as a unit *is* the unit. `47R` and `0R22` still take their old paths to
+their old answers.
+
+**Custom quantities** (`parameter_quantity`, `/api/parameter-quantities`) for the
+unit nobody anticipated — bytes of flash, turns of wire, hours of runtime. Three
+things are decided rather than merely built:
+
+* **The table is the source of truth and the parser's registry is a per-process
+  view of it.** Every process that parses registers the rows at startup;
+  `create` also registers inside the write, so the request after it can author a
+  field against the new unit. A quantity stored but unregistered in some process
+  raises `UnknownQuantityError` *there* rather than falling back to anything —
+  loud, because the alternative is a value parsed under a definition that is not
+  the one it was written for.
+* **A custom quantity can never take a name the library answers to**, alias
+  included: `resistance` is `ohm`. Every `parameter_value` in the database was
+  computed under the shipped definition of its quantity, so a local redefinition
+  of `farad` would change what stored numbers mean without touching a row. The
+  library refuses it, not just the service.
+* **A definition that cannot parse its own unit is refused at authoring time**,
+  and refused by *parsing a probe value*, not by inspecting the symbol — the same
+  reason `base_unit` is validated through the parser rather than a regex. A symbol
+  the grammar cannot read gives you a field that looks like it works, accepts
+  nothing and matches nothing.
+
+Deleting one is refused while any field is measured in it (`quantity_in_use`),
+because a field whose `base_unit` named a quantity that had gone would refuse
+every value from then on and its stored numbers would have no defined unit. There
+is no *edit*: the name, symbol and window are the terms every existing value was
+parsed under, so changing them is a data migration wearing an edit's clothes —
+the same argument `parameter_template`'s frozen columns make.
+
+## Decision 7 — a sub-category's parent is a control, not a consequence
+
+The create-a-category form inferred its parent from whatever was selected in the
+rail, and said so only in the button's label: "New category under Capacitors" when
+something was highlighted, "New top-level category" when nothing was. The first
+thing a real user did with the screen was create a top-level category they meant
+to nest, and then have no way to fix it — reported as "I don't see any way to add
+sub-categories", which is exactly right: the capability was there and the control
+was not.
+
+So the parent is a **select**, defaulted to the selection but visible and
+changeable before saving, listing the tree indented; and `POST .../move` is
+exposed as its own control, because a parent chosen wrong has to be fixable and
+"delete it and start again" stops being an option the moment fields hang off it.
+Move is deliberately not a field on an edit form: it takes the whole subtree with
+it and rebuilds the path cache for the table, and a `parent_id` sitting quietly
+among renames would not say so.
+
 ## Consequences
 
 * Nothing in this diff writes `parameter_value`. Values still go through

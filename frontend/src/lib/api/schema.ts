@@ -1660,6 +1660,65 @@ export interface paths {
         patch: operations["update_parameter_choice"];
         trace?: never;
     };
+    "/api/parameter-quantities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Parameter Quantities
+         * @description Every quantity a numeric field may name, shipped and custom together.
+         *
+         *     Read through `supported_quantities()` rather than by listing the library's
+         *     table here, so this and the field-authoring guard can never disagree about
+         *     what is namable — and a custom quantity that failed to register in this
+         *     process is absent from both rather than offered by one and refused by the
+         *     other.
+         */
+        get: operations["list_parameter_quantities"];
+        put?: never;
+        /**
+         * Create Parameter Quantity
+         * @description Define a quantity.
+         *
+         *     Registered with this process's parser inside the write, so the very next
+         *     request can author a field against it — the field guard asks the parser, and a
+         *     row that were stored but unregistered would be refused as `unknown_base_unit`
+         *     by the process that had just created it.
+         *
+         *     No idempotency key: `name` is UNIQUE and the duplicate is a clean 409 naming
+         *     the existing quantity, which is a better answer to a doubled tap than a replay
+         *     of a create — there is nothing here a second press could half-do.
+         */
+        post: operations["create_parameter_quantity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parameter-quantities/{quantity_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Parameter Quantity
+         * @description Remove a definition, refused while any field is measured in it.
+         */
+        delete: operations["delete_parameter_quantity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/parameter-templates": {
         parameters: {
             query?: never;
@@ -6240,6 +6299,91 @@ export interface components {
             state: components["schemas"]["ProvisioningState"];
             undone: components["schemas"]["UndoneRead"];
         };
+        /** QuantityCreate */
+        QuantityCreate: {
+            /**
+             * Allow Negative
+             * @description Also switches the window to the **signed** reading, because that is the only one that means anything once negatives are allowed: [-40, 125] compared against magnitudes would accept -200.
+             * @default false
+             */
+            allow_negative?: boolean;
+            /**
+             * Allow Prefix
+             * @description Whether '10k' means ten thousand of these. Turn it off for anything counted or written out in full — kilo-turns is not a thing, and leaving it on makes a stray 'k' silently mean a thousandfold.
+             * @default true
+             */
+            allow_prefix?: boolean;
+            /**
+             * Allow Zero
+             * @default false
+             */
+            allow_zero?: boolean;
+            /** Display Name */
+            display_name: string;
+            /** High */
+            high?: number | null;
+            /**
+             * Low
+             * @description Inclusive plausibility bound, null for unbounded. This is the quantity's universal window; a field may narrow it further with its own.
+             */
+            low?: number | null;
+            /**
+             * Name
+             * @description What a numeric field's `base_unit` will hold — so it is what every value of every field using it is parsed under. It cannot be a name Almagest already ships, or another name for one: `resistance` is `ohm`, and redefining it would change what stored numbers mean.
+             */
+            name: string;
+            /**
+             * Symbol
+             * @description What a value is written and printed with — 'B', 'turns', 'px'. Checked *before* any SI prefix, so a one-letter symbol that collides with a prefix letter still reads as the unit: under a quantity whose symbol is 'm', '10m' is ten of them and '10mm' is ten milli of them.
+             */
+            symbol: string;
+            /**
+             * Symbol Aliases
+             * @description Case-sensitive alternative symbols. SI case carries meaning.
+             */
+            symbol_aliases?: string[];
+            /**
+             * Word Aliases
+             * @description Case-insensitive spelled-out names — 'bytes', 'turns'.
+             */
+            word_aliases?: string[];
+        };
+        /** QuantityCreated */
+        QuantityCreated: {
+            quantity: components["schemas"]["QuantityRead"];
+        };
+        /** QuantityDeleted */
+        QuantityDeleted: {
+            /** Name */
+            name: string;
+            /** Quantity Id */
+            quantity_id: number;
+        };
+        /**
+         * QuantityRead
+         * @description One quantity a numeric field may be measured in.
+         *
+         *     Shipped and custom ones are reported through the same shape so a picker can
+         *     list them together, with `custom` as the only difference: a shipped quantity
+         *     cannot be deleted, and neither can a custom one that fields are using.
+         */
+        QuantityRead: {
+            /** Custom */
+            custom: boolean;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Field Count
+             * @default 0
+             */
+            field_count?: number;
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name: string;
+            /** Symbol */
+            symbol: string;
+        };
         /** QuantityRequest */
         QuantityRequest: {
             /**
@@ -10227,6 +10371,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParameterFieldEdited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_parameter_quantities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuantityRead"][];
+                };
+            };
+        };
+    };
+    create_parameter_quantity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuantityCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuantityCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_parameter_quantity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quantity_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuantityDeleted"];
                 };
             };
             /** @description Validation Error */

@@ -10687,6 +10687,168 @@
         "title": "ProvisioningUndoResponse",
         "type": "object"
       },
+      "QuantityCreate": {
+        "properties": {
+          "allow_negative": {
+            "default": false,
+            "description": "Also switches the window to the **signed** reading, because that is the only one that means anything once negatives are allowed: [-40, 125] compared against magnitudes would accept -200.",
+            "title": "Allow Negative",
+            "type": "boolean"
+          },
+          "allow_prefix": {
+            "default": true,
+            "description": "Whether '10k' means ten thousand of these. Turn it off for anything counted or written out in full \u2014 kilo-turns is not a thing, and leaving it on makes a stray 'k' silently mean a thousandfold.",
+            "title": "Allow Prefix",
+            "type": "boolean"
+          },
+          "allow_zero": {
+            "default": false,
+            "title": "Allow Zero",
+            "type": "boolean"
+          },
+          "display_name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive plausibility bound, null for unbounded. This is the quantity's universal window; a field may narrow it further with its own.",
+            "title": "Low"
+          },
+          "name": {
+            "description": "What a numeric field's `base_unit` will hold \u2014 so it is what every value of every field using it is parsed under. It cannot be a name Almagest already ships, or another name for one: `resistance` is `ohm`, and redefining it would change what stored numbers mean.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "What a value is written and printed with \u2014 'B', 'turns', 'px'. Checked *before* any SI prefix, so a one-letter symbol that collides with a prefix letter still reads as the unit: under a quantity whose symbol is 'm', '10m' is ten of them and '10mm' is ten milli of them.",
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Symbol",
+            "type": "string"
+          },
+          "symbol_aliases": {
+            "description": "Case-sensitive alternative symbols. SI case carries meaning.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbol Aliases",
+            "type": "array"
+          },
+          "word_aliases": {
+            "description": "Case-insensitive spelled-out names \u2014 'bytes', 'turns'.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Word Aliases",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "symbol",
+          "display_name"
+        ],
+        "title": "QuantityCreate",
+        "type": "object"
+      },
+      "QuantityCreated": {
+        "properties": {
+          "quantity": {
+            "$ref": "#/components/schemas/QuantityRead"
+          }
+        },
+        "required": [
+          "quantity"
+        ],
+        "title": "QuantityCreated",
+        "type": "object"
+      },
+      "QuantityDeleted": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "quantity_id": {
+            "title": "Quantity Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quantity_id",
+          "name"
+        ],
+        "title": "QuantityDeleted",
+        "type": "object"
+      },
+      "QuantityRead": {
+        "description": "One quantity a numeric field may be measured in.\n\nShipped and custom ones are reported through the same shape so a picker can\nlist them together, with `custom` as the only difference: a shipped quantity\ncannot be deleted, and neither can a custom one that fields are using.",
+        "properties": {
+          "custom": {
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "field_count": {
+            "default": 0,
+            "title": "Field Count",
+            "type": "integer"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "symbol",
+          "display_name",
+          "custom"
+        ],
+        "title": "QuantityRead",
+        "type": "object"
+      },
       "QuantityRequest": {
         "properties": {
           "client_op_id": {
@@ -18878,6 +19040,117 @@
         "summary": "Update Parameter Choice",
         "tags": [
           "parameter-fields"
+        ]
+      }
+    },
+    "/api/parameter-quantities": {
+      "get": {
+        "description": "Every quantity a numeric field may name, shipped and custom together.\n\nRead through `supported_quantities()` rather than by listing the library's\ntable here, so this and the field-authoring guard can never disagree about\nwhat is namable \u2014 and a custom quantity that failed to register in this\nprocess is absent from both rather than offered by one and refused by the\nother.",
+        "operationId": "list_parameter_quantities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QuantityRead"
+                  },
+                  "title": "Response List Parameter Quantities",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Parameter Quantities",
+        "tags": [
+          "parameter-quantities"
+        ]
+      },
+      "post": {
+        "description": "Define a quantity.\n\nRegistered with this process's parser inside the write, so the very next\nrequest can author a field against it \u2014 the field guard asks the parser, and a\nrow that were stored but unregistered would be refused as `unknown_base_unit`\nby the process that had just created it.\n\nNo idempotency key: `name` is UNIQUE and the duplicate is a clean 409 naming\nthe existing quantity, which is a better answer to a doubled tap than a replay\nof a create \u2014 there is nothing here a second press could half-do.",
+        "operationId": "create_parameter_quantity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuantityCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuantityCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Parameter Quantity",
+        "tags": [
+          "parameter-quantities"
+        ]
+      }
+    },
+    "/api/parameter-quantities/{quantity_id}": {
+      "delete": {
+        "description": "Remove a definition, refused while any field is measured in it.",
+        "operationId": "delete_parameter_quantity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quantity_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Quantity Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuantityDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Parameter Quantity",
+        "tags": [
+          "parameter-quantities"
         ]
       }
     },

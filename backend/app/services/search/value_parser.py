@@ -159,15 +159,26 @@ def supported_quantities() -> tuple[str, ...]:
     reason authoring offers a **select** instead of a free-text box. `µF` and
     `ohms` are not in here, and that is the point: both are refused at authoring
     time rather than on the first value somebody tries to enter.
+
+    Asked of the library on **every call**, not captured at import: an install may
+    define quantities of its own (`app.services.quantities`), and those are
+    registered while this module is already loaded. A snapshot taken at import
+    would leave every custom quantity out of the picker and out of the sweep
+    below — which would not fail, it would just quietly never match.
     """
-    return _ALL_QUANTITIES
+    return tuple(sorted(known_quantities()))
 
 
-#: Every quantity the library knows, for the sweep in `reads_as_a_quantity`.
-#: Read off the library rather than listed here, so a quantity added there
-#: strengthens the sweep instead of leaving a hole in it. Sorted for a
-#: deterministic answer to "which quantity read it".
-_ALL_QUANTITIES: tuple[str, ...] = tuple(sorted(known_quantities()))
+def forget_quantity_cache() -> None:
+    """Drop the memoised sweep, because the set of quantities just changed.
+
+    `reads_as_a_quantity` is memoised on the text alone — which is right, since
+    for a fixed registry the answer is a property of the grammar. Registering a
+    custom quantity changes the registry, so every cached "nothing reads this"
+    becomes a maybe. Not clearing it would make a newly defined unit work for
+    strings nobody had asked about yet and fail for the ones they had.
+    """
+    reads_as_a_quantity.cache_clear()
 
 
 @functools.lru_cache(maxsize=4096)
@@ -202,7 +213,7 @@ def reads_as_a_quantity(text: str) -> str | None:
     a BOM repeats its values (a hundred `100nF` lines is one decoupling net) and
     `_mpn_candidates` runs twice per line.
     """
-    for quantity in _ALL_QUANTITIES:
+    for quantity in supported_quantities():
         try:
             parse_value(text, quantity)
         except ValueParseError:

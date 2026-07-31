@@ -40,18 +40,23 @@ import {
   createParameterField,
   createPartCategory,
   createPartKind,
+  createParameterQuantity,
   deleteParameterChoice,
   deleteParameterField,
+  deleteParameterQuantity,
   listBaseUnits,
   listParameterFields,
   listPartCategories,
+  listParameterQuantities,
   listPartKinds,
+  movePartCategory,
   updateParameterField,
   type BaseUnitOption,
   type CategoryNode,
   type NameConflictPolicy,
   type ParameterFieldRead,
   type PartKindRead,
+  type QuantityRead,
 } from "../lib/api/client";
 import { existingFieldOf, problemOf } from "../lib/api/errors";
 import { useAsync } from "../lib/hooks/useAsync";
@@ -63,6 +68,8 @@ import {
   draftFromField,
   frozenColumns,
   isEmptyUpdate,
+  fieldKey,
+  splitAliases,
   toFieldCreateRequest,
   toFieldUpdateRequest,
   type DraftAnchor,
@@ -81,9 +88,12 @@ export function PartTypesScreen() {
   const categories = useAsync<CategoryNode[]>(() => listPartCategories(), []);
   const fields = useAsync<ParameterFieldRead[]>(() => listParameterFields(selected), [selected]);
   const kinds = useAsync<PartKindRead[]>(() => listPartKinds(), []);
-  // Loaded once for the whole screen: the quantity list is what every numeric
-  // field's unit select offers, and it does not change while the screen is open.
+  // The field form's unit select is built from `base-units`; this is the same set
+  // with the custom ones marked and counted, which is what the Units panel needs
+  // and what a select does not. Both are reloaded when a unit is defined, or the
+  // new unit is missing from the form that sent the user to define it.
   const units = useAsync<BaseUnitOption[]>(() => listBaseUnits(), []);
+  const quantities = useAsync<QuantityRead[]>(() => listParameterQuantities(), []);
 
   function select(slug: string): void {
     const next = new URLSearchParams(params);
@@ -102,7 +112,8 @@ export function PartTypesScreen() {
       <div className="card">
         <h3>Categories</h3>
         <p className="muted-note" style={{ margin: 0 }}>
-          Where a part sits, and the only one of the two that carries fields.
+          Where a part sits, and the only one of the two that carries fields. A category can go
+          inside another — and the deeper one is offered everything authored above it.
         </p>
         <ul className="rail" aria-label="Part categories">
           <li>
@@ -131,14 +142,31 @@ export function PartTypesScreen() {
         {categories.loading && <Loading what="categories" />}
         <ErrorBanner error={categories.error} fallback="The categories could not be loaded." />
         <NewCategory
-          parent={category}
+          categories={categories.data ?? []}
+          selected={category}
           onCreated={(slug) => {
             categories.reload();
             select(slug);
           }}
         />
+        {category !== null && (
+          <MoveCategory
+            category={category}
+            categories={categories.data ?? []}
+            onMoved={() => categories.reload()}
+          />
+        )}
       </div>
       <Kinds state={kinds} />
+      <Units
+        quantities={quantities.data}
+        loading={quantities.loading}
+        error={quantities.error}
+        onChanged={() => {
+          quantities.reload();
+          units.reload();
+        }}
+      />
     </>
   );
 
@@ -655,19 +683,47 @@ function NewField({
 
 // -------------------------------------------------------------- categories ----
 
+/**
+ * Author a category, with the parent as a **control** rather than as a consequence
+ * of what happened to be selected.
+ *
+ * It was the selection: the button read "New category under Capacitors" when a
+ * category was highlighted and "New top-level category" when none was, and that is
+ * how a sub-category gets filed at the root — the label is the only hint, it is
+ * read after the decision to press, and nothing on the form says what will happen.
+ * The first thing a real user did with this screen was create a top-level category
+ * they meant to nest.
+ *
+ * So the parent is a select, defaulted to the selection but visible and editable
+ * before saving, and it lists the whole tree indented. `MoveCategory` below is the
+ * other half: a parent chosen wrong has to be fixable, and "delete it and start
+ * again" is not a fix once fields hang off it.
+ */
 function NewCategory({
-  parent,
+  categories,
+  selected,
   onCreated,
 }: {
-  readonly parent: CategoryNode | null;
+  readonly categories: readonly CategoryNode[];
+  readonly selected: CategoryNode | null;
   readonly onCreated: (slug: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
+  // "" is the top level, which is a real answer and not an absent one.
+  const [parentId, setParentId] = useState<string>(selected === null ? "" : String(selected.id));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  function start(): void {
+    // Re-read the selection on open rather than on render: the rail may have moved
+    // since this component mounted, and the default should be what is highlighted
+    // *now*.
+    setParentId(selected === null ? "" : String(selected.id));
+    setOpen(true);
+  }
 
   async function save(): Promise<void> {
     setBusy(true);
@@ -676,7 +732,7 @@ function NewCategory({
       const response = await createPartCategory({
         name: name.trim(),
         slug: slug.trim(),
-        ...(parent === null ? {} : { parent_id: parent.id }),
+        ...(parentId === "" ? {} : { parent_id: Number(parentId) }),
         client_op_id: uuid4(),
       });
       setOpen(false);
@@ -694,12 +750,14 @@ function NewCategory({
   if (!open) {
     return (
       <div className="row">
-        <button type="button" onClick={() => setOpen(true)}>
-          {parent === null ? "New top-level category" : `New category under ${parent.name}`}
+        <button type="button" onClick={start}>
+          New category…
         </button>
       </div>
     );
   }
+
+  const parent = categories.find((node) => String(node.id) === parentId) ?? null;
 
   return (
     <form
@@ -709,11 +767,6 @@ function NewCategory({
         void save();
       }}
     >
-      <p className="muted-note" style={{ margin: 0 }}>
-        {parent === null
-          ? "At the top of the tree, because nothing is selected. Select a category first to file this one under it."
-          : `Under ${parent.name}. It inherits every field authored above it.`}
-      </p>
       <label className="field">
         <span>Name</span>
         <input
@@ -727,6 +780,23 @@ function NewCategory({
           placeholder="Ceramic"
         />
       </label>
+      <label className="field">
+        <span>Inside</span>
+        <select value={parentId} onChange={(event) => setParentId(event.target.value)}>
+          <option value="">Top level — not inside anything</option>
+          {categories.map((node) => (
+            <option key={node.id} value={String(node.id)}>
+              {"\u00a0".repeat(node.depth * 2)}
+              {node.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted-note" style={{ margin: 0 }}>
+        {parent === null
+          ? "A new branch of the taxonomy. It inherits only the fields that apply to every part."
+          : `Inside ${parent.name}, so it inherits every field authored on ${parent.name} and above it.`}
+      </p>
       <label className="field">
         <span>Slug — what a search URL names, and permanent</span>
         <input
@@ -753,6 +823,438 @@ function NewCategory({
           disabled={busy || name.trim() === "" || slug.trim() === ""}
         >
           {busy ? "Saving…" : "Create the category"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Move a category — the fix for one filed in the wrong place.
+ *
+ * Its own control rather than a field on an edit form, because it is a different
+ * operation: it rebuilds the path cache for the whole table and it takes the
+ * category's **whole subtree** with it, and a `parent_id` sitting quietly among
+ * renames would not say so. The API refuses a move into the category's own subtree
+ * as `would_create_cycle`, walked over `parent_id` rather than the cache, so this
+ * offers every category and lets the server be the one that knows.
+ */
+function MoveCategory({
+  category,
+  categories,
+  onMoved,
+}: {
+  readonly category: CategoryNode;
+  readonly categories: readonly CategoryNode[];
+  readonly onMoved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [parentId, setParentId] = useState<string>(
+    category.parent_slug === null
+      ? ""
+      : String(categories.find((node) => node.slug === category.parent_slug)?.id ?? ""),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await movePartCategory(category.id, {
+        parent_id: parentId === "" ? null : Number(parentId),
+        client_op_id: uuid4(),
+      });
+      setOpen(false);
+      onMoved();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="row">
+        <button type="button" onClick={() => setOpen(true)}>
+          Move {category.name}…
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="stack"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <label className="field">
+        <span>Put {category.name} inside</span>
+        <select value={parentId} onChange={(event) => setParentId(event.target.value)}>
+          <option value="">Top level — not inside anything</option>
+          {categories
+            .filter((node) => node.id !== category.id)
+            .map((node) => (
+              <option key={node.id} value={String(node.id)}>
+                {"\u00a0".repeat(node.depth * 2)}
+                {node.name}
+              </option>
+            ))}
+        </select>
+      </label>
+      <p className="muted-note" style={{ margin: 0 }}>
+        Anything already inside {category.name} moves with it, and what these parts can be
+        filtered by changes to match the new place — inheritance is read from the tree as it is
+        now, not copied when a field is authored.
+      </p>
+      <ErrorBanner error={error} fallback="That category could not be moved." />
+      <div className="row">
+        <button type="button" onClick={() => setOpen(false)} disabled={busy}>
+          Cancel
+        </button>
+        <span className="spacer" />
+        <button type="submit" className="primary" disabled={busy}>
+          {busy ? "Moving…" : "Move it"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ------------------------------------------------------------------- units ----
+
+/**
+ * The quantities a numeric field can be measured in, and how to add one.
+ *
+ * Almagest ships the ones an electronics inventory needs — the electrical set plus
+ * light, mass, length and a few ratios — and those cannot be redefined here: every
+ * value already stored was read under the shipped definition of its quantity, so a
+ * local `farad` meaning something else would change what those numbers mean without
+ * touching a single one of them. What this panel is for is the unit nobody
+ * anticipated: bytes of flash, turns of wire, hours of runtime.
+ *
+ * A definition is refused if the grammar cannot read a value written in its symbol,
+ * checked by actually parsing one. That refusal is the point of the whole control:
+ * a unit that stores fine and then reads nothing gives you a field that looks like
+ * it works, accepts nothing, and matches nothing.
+ */
+function Units({
+  quantities,
+  loading,
+  error,
+  onChanged,
+}: {
+  readonly quantities: readonly QuantityRead[] | null;
+  readonly loading: boolean;
+  readonly error: unknown;
+  readonly onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const custom = (quantities ?? []).filter((quantity) => quantity.custom);
+  const shipped = (quantities ?? []).filter((quantity) => !quantity.custom);
+
+  return (
+    <div className="card">
+      <h3>Units</h3>
+      <p className="muted-note" style={{ margin: 0 }}>
+        What a number field can be measured in. Choosing one is what makes{" "}
+        <span className="mono">20–30µF</span> mean something and{" "}
+        <span className="mono">1M</span> under capacitance a refusal.
+      </p>
+
+      <details>
+        <summary>
+          {shipped.length} that ship with Almagest — they cannot be changed
+        </summary>
+        <ul className="list">
+          {shipped.map((quantity) => (
+            <li key={quantity.name} className="list-item">
+              <div className="row">
+                <span className="mono">{quantity.symbol}</span>
+                <span>{quantity.display_name}</span>
+                <span className="spacer" />
+                <span className="mono dim">{quantity.name}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <p className="muted-note" style={{ margin: 0 }}>
+          Frozen because every value already recorded was read under these
+          definitions — a redefined farad would change what stored numbers mean
+          without touching them.
+        </p>
+      </details>
+
+      {loading && <Loading what="units" />}
+      <ErrorBanner error={error} fallback="The units could not be loaded." />
+
+      {custom.length > 0 && (
+        <ul className="list">
+          {custom.map((quantity) => (
+            <CustomUnitRow key={quantity.name} quantity={quantity} onChanged={onChanged} />
+          ))}
+        </ul>
+      )}
+
+      {open ? (
+        <NewUnit
+          onDone={(created) => {
+            setOpen(false);
+            if (created) {
+              onChanged();
+            }
+          }}
+        />
+      ) : (
+        <div className="row">
+          <button type="button" onClick={() => setOpen(true)}>
+            New unit…
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomUnitRow({
+  quantity,
+  onChanged,
+}: {
+  readonly quantity: QuantityRead;
+  readonly onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  // Defaulted rather than optional-chained at each use: the count is absent from
+  // the response only for a shipped quantity, and this row is only ever a custom
+  // one — a shipped one has no id to delete by either.
+  const used = quantity.field_count ?? 0;
+
+  async function remove(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteParameterQuantity(quantity.id ?? 0);
+      onChanged();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="list-item">
+      <div className="row">
+        <span className="mono">{quantity.symbol}</span>
+        <span className="title">{quantity.display_name}</span>
+        <span className="spacer" />
+        <span className="mono dim">{quantity.name}</span>
+      </div>
+      <div className="row">
+        {used > 0 ? (
+          <span className="muted-note">
+            {used} {used === 1 ? "field is" : "fields are"} measured in it, so it cannot be
+            removed — those fields could no longer read a value.
+          </span>
+        ) : (
+          <>
+            <span className="spacer" />
+            <button type="button" disabled={busy} onClick={() => void remove()}>
+              Remove
+            </button>
+          </>
+        )}
+      </div>
+      <ErrorBanner error={error} fallback="That unit could not be removed." />
+    </li>
+  );
+}
+
+/**
+ * The form for a unit of your own.
+ *
+ * Four questions, and the last two are the ones with teeth. **Prefixes** decide
+ * whether `10k` of this is ten thousand — right for anything measured, wrong for
+ * anything counted, and left on for something counted it makes a stray `k` mean a
+ * thousandfold. **Negatives** switch the sanity window to its signed reading,
+ * because a window of [-40, 125] compared against magnitudes would accept -200.
+ */
+function NewUnit({ onDone }: { readonly onDone: (created: boolean) => void }) {
+  const [name, setName] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [nameTouched, setNameTouched] = useState(false);
+  const [low, setLow] = useState("");
+  const [high, setHigh] = useState("");
+  const [aliases, setAliases] = useState("");
+  const [allowPrefix, setAllowPrefix] = useState(true);
+  const [allowNegative, setAllowNegative] = useState(false);
+  const [allowZero, setAllowZero] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  function numberOrNull(raw: string): number | null {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      return null;
+    }
+    const value = Number(trimmed);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await createParameterQuantity({
+        name: name.trim(),
+        symbol: symbol.trim(),
+        display_name: displayName.trim() === "" ? name.trim() : displayName.trim(),
+        word_aliases: splitAliases(aliases),
+        low: numberOrNull(low),
+        high: numberOrNull(high),
+        allow_zero: allowZero,
+        allow_negative: allowNegative,
+        allow_prefix: allowPrefix,
+      });
+      onDone(true);
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      className="stack"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <label className="field">
+        {/* Not "what it measures": the field form's unit select already says that,
+            and two controls with one label on a screen is ambiguous to read. */}
+        <span>What this unit measures</span>
+        <input
+          value={displayName}
+          onChange={(event) => {
+            setDisplayName(event.target.value);
+            if (!nameTouched) {
+              setName(fieldKey(event.target.value));
+            }
+          }}
+          placeholder="Bytes of flash"
+        />
+      </label>
+      <label className="field">
+        <span>Symbol — what a value is written and printed with</span>
+        <input
+          className="mono"
+          value={symbol}
+          onChange={(event) => setSymbol(event.target.value)}
+          placeholder="B"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </label>
+      <label className="field">
+        <span>Key — what a field stores, and permanent</span>
+        <input
+          className="mono"
+          value={name}
+          onChange={(event) => {
+            setNameTouched(true);
+            setName(event.target.value);
+          }}
+          placeholder="byte"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </label>
+      <label className="field">
+        <span>Other spellings, comma separated — matched whatever the case</span>
+        <input
+          value={aliases}
+          onChange={(event) => setAliases(event.target.value)}
+          placeholder="byte, bytes"
+          autoComplete="off"
+        />
+      </label>
+      <div className="fields">
+        <label className="field">
+          <span>Lowest plausible value</span>
+          <input inputMode="decimal" value={low} onChange={(event) => setLow(event.target.value)} />
+        </label>
+        <label className="field">
+          <span>Highest plausible value</span>
+          <input
+            inputMode="decimal"
+            value={high}
+            onChange={(event) => setHigh(event.target.value)}
+          />
+        </label>
+      </div>
+      <label className="choice">
+        <input
+          type="checkbox"
+          checked={allowPrefix}
+          onChange={(event) => setAllowPrefix(event.target.checked)}
+        />
+        <span>
+          <span className="title">Accepts SI prefixes</span>
+          <span className="sub">
+            So <span className="mono">10k</span> of this means ten thousand. Right for anything
+            measured; turn it off for anything counted, or a stray k silently means a
+            thousandfold.
+          </span>
+        </span>
+      </label>
+      <label className="choice">
+        <input
+          type="checkbox"
+          checked={allowNegative}
+          onChange={(event) => setAllowNegative(event.target.checked)}
+        />
+        <span>
+          <span className="title">Can be negative</span>
+          <span className="sub">
+            Also makes the window above read as signed rather than as a magnitude, which is the
+            only reading that means anything once below zero is allowed.
+          </span>
+        </span>
+      </label>
+      <label className="choice">
+        <input
+          type="checkbox"
+          checked={allowZero}
+          onChange={(event) => setAllowZero(event.target.checked)}
+        />
+        <span>
+          <span className="title">Can be zero</span>
+          <span className="sub">
+            A 0 Ω jumper is a real part, and a zero of something counted usually is not.
+          </span>
+        </span>
+      </label>
+      <ErrorBanner error={error} fallback="That unit could not be created." />
+      <div className="row">
+        <button type="button" onClick={() => onDone(false)} disabled={busy}>
+          Cancel
+        </button>
+        <span className="spacer" />
+        <button
+          type="submit"
+          className="primary"
+          disabled={busy || name.trim() === "" || symbol.trim() === ""}
+        >
+          {busy ? "Saving…" : "Create the unit"}
         </button>
       </div>
     </form>

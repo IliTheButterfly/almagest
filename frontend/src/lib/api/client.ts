@@ -66,6 +66,8 @@ export type PartKindCreated = Schemas["PartKindCreated"];
 export type PartCategoryRead = Schemas["PartCategoryRead"];
 export type PartCategoryCreate = Schemas["PartCategoryCreate"];
 export type PartCategoryCreated = Schemas["PartCategoryCreated"];
+export type PartCategoryMove = Schemas["PartCategoryMove"];
+export type PartCategoryEdited = Schemas["PartCategoryEdited"];
 export type ParameterFieldRead = Schemas["ParameterFieldRead"];
 export type ParameterFieldCreate = Schemas["ParameterFieldCreate"];
 export type ParameterFieldCreated = Schemas["ParameterFieldCreated"];
@@ -79,6 +81,12 @@ export type ChoiceIn = Schemas["ChoiceIn"];
 /** One pickable physical quantity for a numeric field's `base_unit`. */
 export type BaseUnitOption = Schemas["BaseUnitOption"];
 export type NameConflictPolicy = Schemas["NameConflictPolicy"];
+/** A physical quantity a numeric field may be measured in — shipped or this
+ * install's own. `custom` is the only difference the UI has to care about. */
+export type QuantityRead = Schemas["QuantityRead"];
+export type QuantityCreate = Schemas["QuantityCreate"];
+export type QuantityCreated = Schemas["QuantityCreated"];
+export type QuantityDeleted = Schemas["QuantityDeleted"];
 export type SubstitutionDirection = Schemas["SubstitutionDirection"];
 export type ValueType = Schemas["ValueType"];
 
@@ -399,6 +407,31 @@ export async function createPartCategory(
 }
 
 /**
+ * Reparent a category, subtree and all.
+ *
+ * Exposed because the create form's parent is a *choice*, and a choice made wrong
+ * needs an undo that is not "delete it and lose the fields hanging off it". An
+ * explicit null promotes the category to the top level, which is a real edit and
+ * not a no-op. A move that would make a category its own ancestor is refused
+ * server-side as `would_create_cycle`, walked over `parent_id` rather than the
+ * path cache — a cycle admitted through a stale cache makes the rebuild recurse
+ * forever.
+ */
+export async function movePartCategory(
+  categoryId: number,
+  request: PartCategoryMove,
+): Promise<PartCategoryEdited> {
+  const { data, error, response } = await api.POST("/api/part-categories/{category_id}/move", {
+    params: { path: { category_id: categoryId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not move that category", error, response);
+  }
+  return data;
+}
+
+/**
  * The fields offered on a category: the ones authored on it, the ones authored on
  * any **ancestor** of it, and the global ones. `inherited` says which, because
  * editing an inherited field affects every sibling category too.
@@ -409,6 +442,54 @@ export async function listParameterFields(category?: string): Promise<ParameterF
   });
   if (error !== undefined) {
     fail("could not load the fields", error, response);
+  }
+  return data;
+}
+
+/**
+ * Every quantity a numeric field may be measured in, shipped and custom together.
+ *
+ * The same list the field form's unit select is built from, with `custom` and a
+ * `field_count` the shipped ones do not need — a shipped quantity cannot be
+ * deleted, and neither can a custom one that fields are already using.
+ */
+export async function listParameterQuantities(): Promise<QuantityRead[]> {
+  const { data, error, response } = await api.GET("/api/parameter-quantities", {});
+  if (error !== undefined) {
+    fail("could not load the units", error, response);
+  }
+  return data;
+}
+
+/**
+ * Define a quantity of this install's own.
+ *
+ * The name cannot be one the parser already answers to, alias included: every
+ * value already stored was parsed under the shipped definition of its quantity, so
+ * redefining `farad` would change what those numbers mean without touching a row.
+ * The symbol is validated by actually parsing a value with it, because a symbol the
+ * grammar cannot read would make every value of every field using it unfilterable —
+ * silently, and only discovered by the person entering the first one.
+ */
+export async function createParameterQuantity(
+  request: QuantityCreate,
+): Promise<QuantityCreated> {
+  const { data, error, response } = await api.POST("/api/parameter-quantities", {
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not create that unit", error, response);
+  }
+  return data;
+}
+
+/** Remove a definition. Refused while any field is measured in it. */
+export async function deleteParameterQuantity(quantityId: number): Promise<QuantityDeleted> {
+  const { data, error, response } = await api.DELETE("/api/parameter-quantities/{quantity_id}", {
+    params: { path: { quantity_id: quantityId } },
+  });
+  if (error !== undefined) {
+    fail("could not delete that unit", error, response);
   }
   return data;
 }
