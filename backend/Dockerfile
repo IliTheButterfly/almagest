@@ -33,12 +33,24 @@ COPY ecia-barcode/ /app/ecia-barcode/
 # dependency of backend/pyproject.toml and has to actually be a sibling.
 COPY idcodec/ /app/idcodec/
 COPY backend/pyproject.toml backend/uv.lock backend/README.md ./
+# `--extra labels`, and deliberately not `--all-extras`.
+#
+# The `labels` extra (reportlab, segno, pillow) was kept out of the default
+# install to hold the image down, but `app/api/routes/labels.py` imports Pillow
+# at module scope and `app.main` always includes that router — so without it the
+# API cannot import itself at all. Nothing caught this because the only thing CI
+# ran inside the image was `alembic upgrade head`, which never touches `app`.
+#
+# `--all-extras` would also pull `datasheets`, which
+# docs/adr/0005 forbids in this image: extraction is a separate process with its
+# own image, precisely so a route that streams a PDF cannot drag a parser — or a
+# multi-gigabyte model runtime — into the single-replica API.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-install-project --no-dev
+    uv sync --locked --no-install-project --no-dev --extra labels
 
 COPY backend/ ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+    uv sync --locked --no-dev --extra labels
 
 # /data is the mount point for the SQLite database and the content-addressed
 # datasheet store. It must be on a local volume — never network storage.

@@ -4,12 +4,16 @@ BE    := backend
 FE    := frontend
 AG    := deviceagent
 IC    := idcodec
+MCP   := mcpserver
 
 .DEFAULT_GOAL := help
 .PHONY: help bootstrap sync test test-live lint fmt typecheck check migrate revision \
         check-migrations run openapi clean fe-install fe-dev fe-check fe-api \
         agent-sync agent-lint agent-typecheck agent-test agent-test-live agent-check agent-run \
-        idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check
+        idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check \
+        mcp-sync mcp-lint mcp-typecheck mcp-test mcp-test-live mcp-check mcp-run \
+        k8s-tls k8s-secrets k8s-deploy k8s-status k8s-logs k8s-shell k8s-diff \
+        k8s-backup-now k8s-backup-pull
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -22,6 +26,7 @@ bootstrap: ## Clone submodules, create the venv, install deps, seed .env
 	$(MAKE) idcodec-sync
 	$(MAKE) sync
 	$(MAKE) agent-sync
+	$(MAKE) mcp-sync
 	$(MAKE) fe-install
 
 sync: ## Install/refresh backend dependencies
@@ -50,13 +55,15 @@ lint: ## ruff check + format check
 	cd $(BE) && $(UV) run ruff check .
 	cd $(BE) && $(UV) run ruff format --check .
 
-fmt: ## Autoformat and autofix (idcodec + backend + deviceagent)
+fmt: ## Autoformat and autofix (idcodec + backend + deviceagent + mcpserver)
 	cd $(IC) && $(UV) run ruff check --fix .
 	cd $(IC) && $(UV) run ruff format .
 	cd $(BE) && $(UV) run ruff check --fix .
 	cd $(BE) && $(UV) run ruff format .
 	cd $(AG) && $(UV) run ruff check --fix .
 	cd $(AG) && $(UV) run ruff format .
+	cd $(MCP) && $(UV) run ruff check --fix .
+	cd $(MCP) && $(UV) run ruff format .
 
 typecheck: ## mypy
 	cd $(BE) && $(UV) run mypy app
@@ -70,7 +77,7 @@ typecheck: ## mypy
 # `idcodec-check` goes **first**: it is the fastest of the three by an order of
 # magnitude and both others depend on it, so a broken codec should be named as
 # such rather than as fifty failing backend tests.
-check: idcodec-check lint typecheck test agent-check ## Everything CI runs
+check: idcodec-check lint typecheck test agent-check mcp-check ## Everything CI runs
 
 migrate: ## Apply migrations up to head
 	cd $(BE) && $(UV) run alembic upgrade head
@@ -102,6 +109,39 @@ idcodec-test: ## idcodec tests
 	cd $(IC) && $(UV) run pytest -q
 
 idcodec-check: idcodec-lint idcodec-typecheck idcodec-test ## Everything CI runs for idcodec
+
+# ---------------------------------------------------------------------------
+# mcpserver — the inventory as tools an agent can call. Its own venv because the
+# MCP SDK has no business in the API image, and because it needs no submodules:
+# it talks to the API over HTTP and its tests read the committed openapi.json.
+#
+# `mcp-check` is what keeps the tool surface honest as the API grows —
+# `tests/test_coverage_manifest.py` fails when a route is added, renamed or
+# removed without a decision in `mcpserver/almagest_mcp/coverage.py`. That is why
+# it is folded into `check` rather than left a sibling: forgetting to run it is
+# exactly the failure it exists to prevent.
+# ---------------------------------------------------------------------------
+
+mcp-sync: ## Install/refresh mcpserver dependencies
+	cd $(MCP) && $(UV) sync --all-extras --dev
+
+mcp-lint: ## ruff check + format check for the MCP server
+	cd $(MCP) && $(UV) run ruff check .
+	cd $(MCP) && $(UV) run ruff format --check .
+
+mcp-typecheck: ## mypy for the MCP server
+	cd $(MCP) && $(UV) run mypy almagest_mcp
+
+mcp-test: ## MCP server tests (the live API test excluded)
+	cd $(MCP) && $(UV) run pytest -q
+
+mcp-test-live: ## Only the tests that need a running API
+	cd $(MCP) && $(UV) run pytest -q -m live
+
+mcp-check: mcp-lint mcp-typecheck mcp-test ## Everything CI runs for the MCP server
+
+mcp-run: ## Run the MCP server on stdio (an MCP client normally launches this itself)
+	cd $(MCP) && $(UV) run almagest-mcp
 
 # ---------------------------------------------------------------------------
 # deviceagent — runs on the station Pi, not in the cluster
@@ -139,6 +179,56 @@ clean: ## Remove caches and build artefacts
 	rm -rf $(BE)/.pytest_cache $(BE)/.ruff_cache $(BE)/.mypy_cache
 	rm -rf $(AG)/.pytest_cache $(AG)/.ruff_cache $(AG)/.mypy_cache
 	rm -rf $(IC)/.pytest_cache $(IC)/.ruff_cache $(IC)/.mypy_cache
+	rm -rf $(MCP)/.pytest_cache $(MCP)/.ruff_cache $(MCP)/.mypy_cache
 
 certs: ## Generate a local private CA + dev certificate (ADR 0001; certs/ is gitignored)
 	@./scripts/make-certs.sh
+
+# --- Kubernetes (cluster `aether`, namespace `ili`) -------------------------
+# `ili` is shared with unrelated production workloads, so every target below
+# names its resources explicitly. Never add one that uses a bare selector,
+# `--all`, or `--prune`.
+
+k8s-tls: ## Push certs/ into secret/almagest-tls (run `make certs` first)
+	@test -f certs/server.crt || { echo "certs/ is missing — run 'make certs'"; exit 1; }
+	kubectl create secret tls almagest-tls \
+	  --cert=certs/server.crt --key=certs/server.key \
+	  --dry-run=client -o yaml | kubectl apply -n ili -f -
+	@echo "certificate updated; roll nginx with: kubectl rollout restart deployment/almagest-web"
+
+k8s-secrets: ## Push the provider API keys from .env into secret/almagest-secrets
+	@test -f .env || { echo ".env is missing — copy .env.example and fill it in"; exit 1; }
+	@# Only the keys the API actually reads in-cluster. Deliberately not the
+	@# whole file: DEVICEAGENT_* belongs to the Pi, and the ALMAGEST_* paths are
+	@# set by the ConfigMap.
+	kubectl create secret generic almagest-secrets \
+	  $$(grep -hE '^(MOUSER_API_KEY|DIGIKEY_|NEXAR_|ANTHROPIC_API_KEY)' .env \
+	     | grep -v '=$$' | sed 's/^/--from-literal=/') \
+	  --dry-run=client -o yaml | kubectl apply -n ili -f -
+
+k8s-deploy: ## Deploy/update the cluster (make k8s-deploy TAG=sha-... to pin)
+	@./scripts/k8s-deploy.sh $(TAG)
+
+k8s-diff: ## Show what a deploy would change, without changing it
+	kubectl diff -k deploy/overlays/aether || true
+
+k8s-status: ## Everything Almagest owns in the shared namespace
+	kubectl get all,pvc,cm,secret,ingress -n ili -l app.kubernetes.io/part-of=almagest
+
+k8s-logs: ## Follow the API log
+	kubectl logs -n ili -f deployment/almagest-api
+
+k8s-shell: ## Shell into the running API pod
+	kubectl exec -n ili -it deployment/almagest-api -- bash
+
+k8s-backup-now: ## Run the nightly backup immediately
+	kubectl create job -n ili --from=cronjob/almagest-backup \
+	  almagest-backup-manual-$$(date +%s)
+
+k8s-backup-pull: ## Copy the newest backup off the cluster into ./data/backups/
+	@mkdir -p data/backups
+	@pod=$$(kubectl get pod -n ili -l app.kubernetes.io/component=api \
+	         -o jsonpath='{.items[0].metadata.name}'); \
+	 latest=$$(kubectl exec -n ili $$pod -- sh -c 'ls -1 /data/backups/*.db | tail -1'); \
+	 echo "pulling $$latest"; \
+	 kubectl cp -n ili "$$pod:$$latest" "data/backups/$$(basename $$latest)"

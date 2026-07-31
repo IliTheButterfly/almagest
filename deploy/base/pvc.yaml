@@ -1,0 +1,23 @@
+# The SQLite database and the content-addressed datasheet blob store.
+#
+# ReadWriteOnce is not a limitation to work around, it is the correct access
+# mode: SQLite tolerates exactly one writer, and the volume enforcing that is a
+# second line of defence behind `replicas: 1` and `strategy: Recreate`.
+#
+# Sizing: the database itself stays small — it is rows, not blobs. Datasheets
+# dominate, and a few hundred PDFs is comfortably under 1 GiB. 5 Gi leaves room
+# to be wrong by a factor of five before anyone has to think about it again.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: almagest-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # Must be local storage, never network storage. SQLite over NFS/CIFS has
+  # broken locking, and broken locking on a single-writer database is silent
+  # corruption rather than an error.
+  storageClassName: local-shared
+  resources:
+    requests:
+      storage: 5Gi

@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: almagest-web
+  labels:
+    app.kubernetes.io/component: web
+spec:
+  # Stateless — it holds no volume and no session — so unlike the API this one
+  # may safely roll, and may safely be scaled up if it ever needs to be.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: almagest
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: almagest
+        app.kubernetes.io/component: web
+      annotations:
+        # Rolls the pods when the certificate changes. Without this, renewing
+        # the cert updates the Secret but leaves nginx serving the old one from
+        # memory until something unrelated happens to restart it — the classic
+        # "I replaced the cert and nothing changed" afternoon.
+        almagest.local/tls-secret: almagest-tls
+    spec:
+      # 101 is the uid baked into nginxinc/nginx-unprivileged. Both listeners
+      # are above 1024, so nothing here needs a capability to bind them.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: ghcr.io/ilithebutterfly/almagest-web
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: https
+              containerPort: 8443
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/almagest/tls
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          # Probes go to the cleartext port on purpose. Probing 8443 would make
+          # pod health depend on the kubelet trusting our private CA, which it
+          # does not — a perfectly healthy pod would be killed forever.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: tls
+          secret:
+            # Created by `make k8s-tls` from the gitignored certs/ directory.
+            # Deliberately not `optional: true`: a missing certificate should
+            # stop the pod with an obvious mount error, not start an nginx that
+            # cannot serve the only scheme the PWA works over.
+            secretName: almagest-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: almagest-web
+  labels:
+    app.kubernetes.io/component: web
+spec:
+  # NodePort 30443, because this cluster offers nothing better and cannot offer
+  # 443 itself. What was ruled out, and how (see ADR 0009):
+  #
+  #   * No LoadBalancer provider — a LoadBalancer Service sits at <pending>
+  #     indefinitely and emits no events at all.
+  #   * No ingress controller — nine common class names (nginx, traefik,
+  #     haproxy, contour, istio, kong, cilium, openshift-default, public) were
+  #     each given an Ingress and not one was ever claimed or addressed.
+  #   * `hostPort` and `hostNetwork` are rejected by PodSecurity `baseline`,
+  #     which the namespace enforces and which we cannot relabel.
+  #   * `nodePort: 443` is rejected: the range is the standard 30000-32767.
+  #
+  # That last one is worth a warning to anyone extending this file. A
+  # server-side dry run **accepts** an out-of-range nodePort — the range is
+  # enforced by the service port allocator, which `--dry-run=server` bypasses
+  # entirely. `kubectl apply --dry-run=server` is therefore not a valid test of
+  # a nodePort value; only a real apply is.
+  #
+  # The consequence is that something outside this cluster has to answer on 443
+  # and forward here, because every NFC tag and printed QR carries
+  # `https://almagest.lan/s/{short_id}` with no port in it. Note that a router
+  # port-forward does NOT solve it for LAN clients: DNS hands them the node's
+  # address and they connect to it directly, so the router is never in the
+  # path. It has to be a reverse proxy at whatever address `almagest.lan`
+  # resolves to. See deploy/README.md.
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: web
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      nodePort: 30443

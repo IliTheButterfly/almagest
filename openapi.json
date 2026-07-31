@@ -549,6 +549,25 @@
         "title": "AllocationRead",
         "type": "object"
       },
+      "BaseUnitOption": {
+        "description": "One pickable quantity for a numeric field.\n\nServed rather than hardcoded in the client for the same reason the parser owns\nthe list: a quantity added to the library becomes authorable without a second\nedit, and the UI can offer a **select** instead of a free-text box that\nproduces `\u00b5F` and `ohms`.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "symbol"
+        ],
+        "title": "BaseUnitOption",
+        "type": "object"
+      },
       "BatchMovementRequest": {
         "description": "A cart's worth of takes and returns, in one request (ADR 0007).\n\nThe bound is the cart's: five hundred lines is already past what anybody\ngathers by hand, and it keeps the stored idempotency response a sane size.",
         "properties": {
@@ -1791,6 +1810,10 @@
             "title": "Depth",
             "type": "integer"
           },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -1816,6 +1839,7 @@
           }
         },
         "required": [
+          "id",
           "slug",
           "name",
           "parent_slug",
@@ -1958,6 +1982,89 @@
         "title": "ChildView",
         "type": "string"
       },
+      "ChoiceAdd": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "sort_order": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "ChoiceAdd",
+        "type": "object"
+      },
+      "ChoiceDeleted": {
+        "properties": {
+          "choice_id": {
+            "title": "Choice Id",
+            "type": "integer"
+          },
+          "field_id": {
+            "title": "Field Id",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field_id",
+          "choice_id",
+          "key"
+        ],
+        "title": "ChoiceDeleted",
+        "type": "object"
+      },
       "ChoiceFacet": {
         "properties": {
           "count": {
@@ -1979,6 +2086,135 @@
           "count"
         ],
         "title": "ChoiceFacet",
+        "type": "object"
+      },
+      "ChoiceIn": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "sort_order": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "ChoiceIn",
+        "type": "object"
+      },
+      "ChoiceUpdate": {
+        "properties": {
+          "aliases": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aliases"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": -1000000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          }
+        },
+        "title": "ChoiceUpdate",
+        "type": "object"
+      },
+      "ChoiceValueRead": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "label"
+        ],
+        "title": "ChoiceValueRead",
         "type": "object"
       },
       "CloneRequest": {
@@ -6959,6 +7195,16 @@
         "title": "MovementResponse",
         "type": "object"
       },
+      "NameConflictPolicy": {
+        "description": "What to do when the requested `name` is already a field.\n\nNot a silent choice, because all three answers are reasonable and they differ\nin what the user ends up with:\n\n* `fail` \u2014 refuse with 409 and hand back the existing field, so the UI can ask\n  \"did you mean this one?\". The default, since the honest answer to a\n  collision is usually \"the field you want already exists\".\n* `reuse` \u2014 adopt the existing field instead of creating one, provided it is\n  *compatible* (same value type, same quantity). Any option the request names\n  that the existing list field lacks is added, which is additive and safe.\n  This is the right answer for \"capacitors and inductors both have a voltage\n  rating\": one template, and substitution stays coherent because there is only\n  one declared direction for the concept.\n* `namespace` \u2014 create a genuinely separate field named\n  `<category>.<name>`, for when the collision is an accident of vocabulary\n  rather than the same concept. Requires `applies_to_category`, because\n  without one there is no namespace to put it in.",
+        "enum": [
+          "fail",
+          "reuse",
+          "namespace"
+        ],
+        "title": "NameConflictPolicy",
+        "type": "string"
+      },
       "NewSiblingRead": {
         "properties": {
           "based_on_location_id": {
@@ -7014,6 +7260,495 @@
           "max"
         ],
         "title": "NumericRange",
+        "type": "object"
+      },
+      "ParameterChoiceRead": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "use_count": {
+            "title": "Use Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "label",
+          "aliases",
+          "sort_order",
+          "use_count"
+        ],
+        "title": "ParameterChoiceRead",
+        "type": "object"
+      },
+      "ParameterFieldCreate": {
+        "properties": {
+          "allow_multiple": {
+            "default": false,
+            "description": "Whether one part may hold several of these options at once \u2014 a connector that is both through-hole and surface-mount. Only meaningful for value_type='enum'. Filtering is unchanged either way: ticking two options matches a part holding either.",
+            "title": "Allow Multiple",
+            "type": "boolean"
+          },
+          "applies_to_category": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Category slug. The field is then offered on that category **and every descendant of it**. Leave it null for a field every part has, like a package, which is offered everywhere.",
+            "title": "Applies To Category"
+          },
+          "base_unit": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required for a numeric field, forbidden otherwise. The name of a physical quantity, not a unit symbol: 'ohm', not 'ohms' and not '\u03a9'. GET /api/parameter-fields/base-units lists every accepted value. It is what makes a bare '1M' read as 1 M\u03a9 under resistance and be refused under capacitance.",
+            "title": "Base Unit"
+          },
+          "choices": {
+            "description": "The complete option list of a list field, authored in this one request. Required for value_type='enum', forbidden otherwise.",
+            "items": {
+              "$ref": "#/components/schemas/ChoiceIn"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "The filter key, globally unique \u2014 this is the string a search request and a shared search URL name. See `on_name_conflict` for what happens when it is taken.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "on_name_conflict": {
+            "$ref": "#/components/schemas/NameConflictPolicy",
+            "default": "fail"
+          },
+          "plausible_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plausible Max"
+          },
+          "plausible_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plausible Min"
+          },
+          "sort_order": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "substitution_direction": {
+            "$ref": "#/components/schemas/SubstitutionDirection",
+            "description": "Required, and not cosmetic: it is what a substitution search means. 'higher_ok' for a rating (a 50 V part satisfies a 25 V requirement), 'lower_ok' for a tolerance, 'range_overlap' for a value like capacitance, 'exact' for a package. There is no default \u2014 defaulting a voltage rating to 'exact' would silently make substitution wrong."
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/ValueType"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "value_type",
+          "substitution_direction"
+        ],
+        "title": "ParameterFieldCreate",
+        "type": "object"
+      },
+      "ParameterFieldCreated": {
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/ParameterFieldRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "reused": {
+            "default": false,
+            "title": "Reused",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "field"
+        ],
+        "title": "ParameterFieldCreated",
+        "type": "object"
+      },
+      "ParameterFieldDeleted": {
+        "properties": {
+          "field_id": {
+            "title": "Field Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field_id",
+          "name"
+        ],
+        "title": "ParameterFieldDeleted",
+        "type": "object"
+      },
+      "ParameterFieldEdited": {
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/ParameterFieldRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "field"
+        ],
+        "title": "ParameterFieldEdited",
+        "type": "object"
+      },
+      "ParameterFieldRead": {
+        "properties": {
+          "allow_multiple": {
+            "default": false,
+            "title": "Allow Multiple",
+            "type": "boolean"
+          },
+          "applies_to_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applies To Category"
+          },
+          "base_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Unit"
+          },
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterChoiceRead"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inherited": {
+            "default": false,
+            "title": "Inherited",
+            "type": "boolean"
+          },
+          "is_seed": {
+            "title": "Is Seed",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plausible_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plausible Max"
+          },
+          "plausible_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plausible Min"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "substitution_direction": {
+            "title": "Substitution Direction",
+            "type": "string"
+          },
+          "value_count": {
+            "title": "Value Count",
+            "type": "integer"
+          },
+          "value_type": {
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "display_name",
+          "value_type",
+          "base_unit",
+          "substitution_direction",
+          "applies_to_category",
+          "sort_order",
+          "plausible_min",
+          "plausible_max",
+          "is_seed",
+          "value_count"
+        ],
+        "title": "ParameterFieldRead",
+        "type": "object"
+      },
+      "ParameterFieldUpdate": {
+        "description": "Every field of a definition that can change, with the three that cannot\nguarded rather than omitted \u2014 a client sending `value_type` deserves the\nreason, not a silently ignored key.",
+        "properties": {
+          "allow_multiple": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Multiple"
+          },
+          "applies_to_category": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applies To Category"
+          },
+          "base_unit": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Unit"
+          },
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "plausible_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plausible Max"
+          },
+          "plausible_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plausible Min"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": -1000000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          },
+          "substitution_direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubstitutionDirection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "value_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValueType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ParameterFieldUpdate",
         "type": "object"
       },
       "PartCandidateRead": {
@@ -7134,6 +7869,342 @@
           "reasons"
         ],
         "title": "PartCandidateRead",
+        "type": "object"
+      },
+      "PartCategoryCreate": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "default_fill_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Fill Factor"
+          },
+          "default_size_class": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SizeClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "slug": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slug"
+        ],
+        "title": "PartCategoryCreate",
+        "type": "object"
+      },
+      "PartCategoryCreated": {
+        "properties": {
+          "part_category": {
+            "$ref": "#/components/schemas/PartCategoryRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "part_category"
+        ],
+        "title": "PartCategoryCreated",
+        "type": "object"
+      },
+      "PartCategoryEdited": {
+        "properties": {
+          "part_category": {
+            "$ref": "#/components/schemas/PartCategoryRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "part_category"
+        ],
+        "title": "PartCategoryEdited",
+        "type": "object"
+      },
+      "PartCategoryMove": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          }
+        },
+        "title": "PartCategoryMove",
+        "type": "object"
+      },
+      "PartCategoryRead": {
+        "properties": {
+          "default_fill_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Fill Factor"
+          },
+          "default_size_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Size Class"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "own_part_count": {
+            "title": "Own Part Count",
+            "type": "integer"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "parent_id",
+          "description",
+          "depth",
+          "label_path",
+          "default_size_class",
+          "default_fill_factor",
+          "own_part_count"
+        ],
+        "title": "PartCategoryRead",
+        "type": "object"
+      },
+      "PartCategoryUpdate": {
+        "description": "Rename, re-describe, re-default. Reparenting is `POST .../move`.\n\nNo `slug`: like a part kind's, it is an addressing key that already appears in\nsaved search URLs. No `parent_id` either \u2014 a move rebuilds the path cache for\nthe whole table, which is a different operation from an edit and deserves to\nlook like one.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "default_fill_factor": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Fill Factor"
+          },
+          "default_size_class": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SizeClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "PartCategoryUpdate",
         "type": "object"
       },
       "PartCreate": {
@@ -7399,6 +8470,462 @@
           "part"
         ],
         "title": "PartCreated",
+        "type": "object"
+      },
+      "PartKindCreate": {
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "slug": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          },
+          "sort_order": {
+            "default": 0,
+            "maximum": 1000000.0,
+            "minimum": -1000000.0,
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "slug",
+          "display_name"
+        ],
+        "title": "PartKindCreate",
+        "type": "object"
+      },
+      "PartKindCreated": {
+        "properties": {
+          "part_kind": {
+            "$ref": "#/components/schemas/PartKindRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "part_kind"
+        ],
+        "title": "PartKindCreated",
+        "type": "object"
+      },
+      "PartKindEdited": {
+        "properties": {
+          "part_kind": {
+            "$ref": "#/components/schemas/PartKindRead"
+          },
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "part_kind"
+        ],
+        "title": "PartKindEdited",
+        "type": "object"
+      },
+      "PartKindRead": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "part_count": {
+            "title": "Part Count",
+            "type": "integer"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "display_name",
+          "sort_order",
+          "part_count"
+        ],
+        "title": "PartKindRead",
+        "type": "object"
+      },
+      "PartKindUpdate": {
+        "description": "No `slug` \u2014 see the module docstring: it is a search parameter, not a label.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "sort_order": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": -1000000.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Order"
+          }
+        },
+        "title": "PartKindUpdate",
+        "type": "object"
+      },
+      "PartParameterCleared": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "boolean"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "template_id",
+          "name",
+          "removed"
+        ],
+        "title": "PartParameterCleared",
+        "type": "object"
+      },
+      "PartParameterRead": {
+        "description": "One field this part could have a value for, and the value if it has one.",
+        "properties": {
+          "allow_multiple": {
+            "title": "Allow Multiple",
+            "type": "boolean"
+          },
+          "base_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Unit"
+          },
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/ChoiceValueRead"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "display": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "inherited": {
+            "title": "Inherited",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ChoiceValueRead"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          },
+          "raw_input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Input"
+          },
+          "sort_order": {
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          },
+          "value_bool": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Bool"
+          },
+          "value_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Max"
+          },
+          "value_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Min"
+          },
+          "value_nominal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Nominal"
+          },
+          "value_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Text"
+          },
+          "value_type": {
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "name",
+          "display_name",
+          "value_type",
+          "base_unit",
+          "allow_multiple",
+          "inherited",
+          "sort_order"
+        ],
+        "title": "PartParameterRead",
+        "type": "object"
+      },
+      "PartParameterWrite": {
+        "description": "The value, in whichever shape the field's type takes.\n\nSeparate optional members rather than one `Any`: a bool is not the string\n'true', and a list field takes a *set*. Sending the wrong one for the type is a\n422 that names the mismatch instead of a coercion nobody asked for.",
+        "properties": {
+          "checked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a yes/no field.",
+            "title": "Checked"
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a list field: the complete set of options, by key or by any alias. One entry unless the field allows several. The whole set, never a delta, so 'now only SMD' is sayable.",
+            "title": "Choices"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a numeric field the shorthand to parse \u2014 '22uF', '20-30uF', '>=50V'. For a text field the text itself, stored verbatim.",
+            "title": "Value"
+          }
+        },
+        "title": "PartParameterWrite",
+        "type": "object"
+      },
+      "PartParameterWritten": {
+        "properties": {
+          "parameter": {
+            "$ref": "#/components/schemas/PartParameterRead"
+          }
+        },
+        "required": [
+          "parameter"
+        ],
+        "title": "PartParameterWritten",
+        "type": "object"
+      },
+      "PartParametersResponse": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "filed": {
+            "title": "Filed",
+            "type": "boolean"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/components/schemas/PartParameterRead"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "category",
+          "filed",
+          "parameters"
+        ],
+        "title": "PartParametersResponse",
         "type": "object"
       },
       "PartRead": {
@@ -9480,6 +11007,168 @@
           "state"
         ],
         "title": "ProvisioningUndoResponse",
+        "type": "object"
+      },
+      "QuantityCreate": {
+        "properties": {
+          "allow_negative": {
+            "default": false,
+            "description": "Also switches the window to the **signed** reading, because that is the only one that means anything once negatives are allowed: [-40, 125] compared against magnitudes would accept -200.",
+            "title": "Allow Negative",
+            "type": "boolean"
+          },
+          "allow_prefix": {
+            "default": true,
+            "description": "Whether '10k' means ten thousand of these. Turn it off for anything counted or written out in full \u2014 kilo-turns is not a thing, and leaving it on makes a stray 'k' silently mean a thousandfold.",
+            "title": "Allow Prefix",
+            "type": "boolean"
+          },
+          "allow_zero": {
+            "default": false,
+            "title": "Allow Zero",
+            "type": "boolean"
+          },
+          "display_name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inclusive plausibility bound, null for unbounded. This is the quantity's universal window; a field may narrow it further with its own.",
+            "title": "Low"
+          },
+          "name": {
+            "description": "What a numeric field's `base_unit` will hold \u2014 so it is what every value of every field using it is parsed under. It cannot be a name Almagest already ships, or another name for one: `resistance` is `ohm`, and redefining it would change what stored numbers mean.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "symbol": {
+            "description": "What a value is written and printed with \u2014 'B', 'turns', 'px'. Checked *before* any SI prefix, so a one-letter symbol that collides with a prefix letter still reads as the unit: under a quantity whose symbol is 'm', '10m' is ten of them and '10mm' is ten milli of them.",
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Symbol",
+            "type": "string"
+          },
+          "symbol_aliases": {
+            "description": "Case-sensitive alternative symbols. SI case carries meaning.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Symbol Aliases",
+            "type": "array"
+          },
+          "word_aliases": {
+            "description": "Case-insensitive spelled-out names \u2014 'bytes', 'turns'.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Word Aliases",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "symbol",
+          "display_name"
+        ],
+        "title": "QuantityCreate",
+        "type": "object"
+      },
+      "QuantityCreated": {
+        "properties": {
+          "quantity": {
+            "$ref": "#/components/schemas/QuantityRead"
+          }
+        },
+        "required": [
+          "quantity"
+        ],
+        "title": "QuantityCreated",
+        "type": "object"
+      },
+      "QuantityDeleted": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "quantity_id": {
+            "title": "Quantity Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quantity_id",
+          "name"
+        ],
+        "title": "QuantityDeleted",
+        "type": "object"
+      },
+      "QuantityRead": {
+        "description": "One quantity a numeric field may be measured in.\n\nShipped and custom ones are reported through the same shape so a picker can\nlist them together, with `custom` as the only difference: a shipped quantity\ncannot be deleted, and neither can a custom one that fields are using.",
+        "properties": {
+          "custom": {
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "field_count": {
+            "default": 0,
+            "title": "Field Count",
+            "type": "integer"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "symbol",
+          "display_name",
+          "custom"
+        ],
+        "title": "QuantityRead",
         "type": "object"
       },
       "QuantityRequest": {
@@ -12808,6 +14497,17 @@
         "title": "StartSessionRequest",
         "type": "object"
       },
+      "SubstitutionDirection": {
+        "description": "What satisfies a requirement when searching for a substitute.\n\nSubstitution search reuses the identical filter executor with a swapped\noperator table, so there is no second query engine \u2014 and it stays\ndeterministic. An LLM returns plausible substitutes; a plausible substitute\nwith the wrong voltage rating is a field failure.",
+        "enum": [
+          "higher_ok",
+          "lower_ok",
+          "range_overlap",
+          "exact"
+        ],
+        "title": "SubstitutionDirection",
+        "type": "string"
+      },
       "SubstitutionReasonRead": {
         "description": "Why one predicate is satisfied \u2014 a rendering of the predicate SQL applied.\n\nNot an independent judgement and not a model's opinion: `direction` is the\ntemplate's own `substitution_direction`, `offered` is read off the candidate's\n`parameter_value`, and the executor had already proved the predicate before\nthis sentence was written. That is what makes a suggestion trustworthy instead\nof magical.",
         "properties": {
@@ -13675,6 +15375,16 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "ValueType": {
+        "enum": [
+          "numeric",
+          "enum",
+          "bool",
+          "text"
+        ],
+        "title": "ValueType",
+        "type": "string"
       },
       "VerificationStarted": {
         "properties": {
@@ -17219,6 +18929,553 @@
         ]
       }
     },
+    "/api/parameter-fields": {
+      "get": {
+        "operationId": "list_parameter_fields",
+        "parameters": [
+          {
+            "description": "Category slug. Returns the fields authored on it, **the fields authored on any ancestor of it**, and the global ones. Inheritance is the point: a field added to 'Capacitors' has to be offered under 'Capacitors > Ceramic', which is the node parts are actually filed under.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Category slug. Returns the fields authored on it, **the fields authored on any ancestor of it**, and the global ones. Inheritance is the point: a field added to 'Capacitors' has to be offered under 'Capacitors > Ceramic', which is the node parts are actually filed under.",
+              "title": "Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ParameterFieldRead"
+                  },
+                  "title": "Response List Parameter Fields",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Parameter Fields",
+        "tags": [
+          "parameter-fields"
+        ]
+      },
+      "post": {
+        "description": "Author one filterable field, options and all.\n\nThe name collision is resolved *before the insert and inside `work`*, and both\nhalves of that matter:\n\n* **before the insert**, never caught after, because `idempotency.run` rolls\n  back on `IntegrityError` to absorb a duplicate *client_op_id*, so a\n  unique-name violation reaching that handler conflates two unrelated\n  conditions and returns a bare 500 \u2014 the trap `create_container_type`\n  documents;\n* **inside `work`**, because a *retry* of a request that already succeeded has\n  to replay, not collide. Checked ahead of `idempotency.run` the second POST of\n  one flaky-wifi submission would 409 on the field its own first attempt\n  created, which is exactly the failure the idempotency guard exists to\n  prevent. `clone_container_type` puts its duplicate-slug check inside `work`\n  for the same reason.",
+        "operationId": "create_parameter_field",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParameterFieldCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParameterFieldCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Parameter Field",
+        "tags": [
+          "parameter-fields"
+        ]
+      }
+    },
+    "/api/parameter-fields/base-units": {
+      "get": {
+        "description": "Every quantity a numeric field's `base_unit` may name.\n\nDeclared above `/{field_id}` so the literal path wins the match \u2014 a\n`RowId`-typed path parameter would reject 'base-units' as a 422 rather than\nfalling through.",
+        "operationId": "list_base_units",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BaseUnitOption"
+                  },
+                  "title": "Response List Base Units",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Base Units",
+        "tags": [
+          "parameter-fields"
+        ]
+      }
+    },
+    "/api/parameter-fields/{field_id}": {
+      "delete": {
+        "description": "Remove a field. Refused while any part holds a value for it.\n\n`parameter_value.template_id` is `ON DELETE CASCADE`, so without the guard this\nwould silently delete every value of the field along with it.",
+        "operationId": "delete_parameter_field",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Field Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParameterFieldDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Parameter Field",
+        "tags": [
+          "parameter-fields"
+        ]
+      },
+      "get": {
+        "operationId": "read_parameter_field",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Field Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParameterFieldRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Parameter Field",
+        "tags": [
+          "parameter-fields"
+        ]
+      },
+      "patch": {
+        "description": "Edit a definition.\n\nWhat is refused, and why, is in `app.services.parameter_fields`: `value_type`\nand `base_unit` once any part holds a value (a data migration, not an edit),\nand all three identity fields on a shared-library field.",
+        "operationId": "update_parameter_field",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Field Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParameterFieldUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParameterFieldEdited"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Parameter Field",
+        "tags": [
+          "parameter-fields"
+        ]
+      }
+    },
+    "/api/parameter-fields/{field_id}/choices": {
+      "post": {
+        "description": "Add one option to a list field. Additive, so allowed on a shared field too.",
+        "operationId": "add_parameter_choice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Field Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChoiceAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParameterFieldEdited"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Parameter Choice",
+        "tags": [
+          "parameter-fields"
+        ]
+      }
+    },
+    "/api/parameter-fields/{field_id}/choices/{choice_id}": {
+      "delete": {
+        "description": "Remove an option. Refused while parts are filed under it, naming how many.\n\n`parameter_value.choice_id` is `ON DELETE RESTRICT`, so the database already\nrefuses \u2014 but it refuses as an `IntegrityError`, which reaches the client as a\n500 with no number in it.",
+        "operationId": "delete_parameter_choice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Field Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "choice_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Choice Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChoiceDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Parameter Choice",
+        "tags": [
+          "parameter-fields"
+        ]
+      },
+      "patch": {
+        "description": "Relabel, reorder, or re-alias one option.\n\n**`key` is not editable.** It is what `parameter_value.raw_input` recorded and\nwhat a filter value names, so renaming it would rewrite the meaning of every\nrow already filed under it. A wrong label is fixed here; a wrong key is a new\noption and a re-file.",
+        "operationId": "update_parameter_choice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Field Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "choice_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Choice Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChoiceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParameterFieldEdited"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Parameter Choice",
+        "tags": [
+          "parameter-fields"
+        ]
+      }
+    },
+    "/api/parameter-quantities": {
+      "get": {
+        "description": "Every quantity a numeric field may name, shipped and custom together.\n\nRead through `supported_quantities()` rather than by listing the library's\ntable here, so this and the field-authoring guard can never disagree about\nwhat is namable \u2014 and a custom quantity that failed to register in this\nprocess is absent from both rather than offered by one and refused by the\nother.",
+        "operationId": "list_parameter_quantities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/QuantityRead"
+                  },
+                  "title": "Response List Parameter Quantities",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Parameter Quantities",
+        "tags": [
+          "parameter-quantities"
+        ]
+      },
+      "post": {
+        "description": "Define a quantity.\n\nRegistered with this process's parser inside the write, so the very next\nrequest can author a field against it \u2014 the field guard asks the parser, and a\nrow that were stored but unregistered would be refused as `unknown_base_unit`\nby the process that had just created it.\n\nNo idempotency key: `name` is UNIQUE and the duplicate is a clean 409 naming\nthe existing quantity, which is a better answer to a doubled tap than a replay\nof a create \u2014 there is nothing here a second press could half-do.",
+        "operationId": "create_parameter_quantity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuantityCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuantityCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Parameter Quantity",
+        "tags": [
+          "parameter-quantities"
+        ]
+      }
+    },
+    "/api/parameter-quantities/{quantity_id}": {
+      "delete": {
+        "description": "Remove a definition, refused while any field is measured in it.",
+        "operationId": "delete_parameter_quantity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "quantity_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Quantity Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuantityDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Parameter Quantity",
+        "tags": [
+          "parameter-quantities"
+        ]
+      }
+    },
     "/api/parameter-templates": {
       "post": {
         "description": "Every filterable attribute, with counts against the current filter set.",
@@ -17284,6 +19541,276 @@
         "summary": "List Part Categories",
         "tags": [
           "facets"
+        ]
+      },
+      "post": {
+        "description": "Add a category, optionally under a parent.\n\nThe path cache is rebuilt immediately, so the row comes back with a correct\n`label_path` and a field authored on an ancestor is inherited by it on the very\nnext request rather than after some later job.",
+        "operationId": "create_part_category",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartCategoryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartCategoryCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Part Category",
+        "tags": [
+          "part-categories"
+        ]
+      }
+    },
+    "/api/part-categories/{category_id}": {
+      "patch": {
+        "description": "Rename a category. The rename propagates into every descendant's\n`label_path`, which is exactly why the rebuild runs here rather than nightly.",
+        "operationId": "update_part_category",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Category Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartCategoryUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartCategoryEdited"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Part Category",
+        "tags": [
+          "part-categories"
+        ]
+      }
+    },
+    "/api/part-categories/{category_id}/move": {
+      "post": {
+        "description": "Reparent a category and its whole subtree.\n\n`TreeRepository.move` walks `parent_id` \u2014 the authoritative adjacency list, not\nthe cache \u2014 to refuse a cycle, then rebuilds every path. A cycle admitted\nthrough a stale cache would make the rebuild CTE recurse forever.",
+        "operationId": "move_part_category",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Category Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartCategoryMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartCategoryEdited"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Part Category",
+        "tags": [
+          "part-categories"
+        ]
+      }
+    },
+    "/api/part-kinds": {
+      "get": {
+        "description": "Every kind, in the order the picker should show them.",
+        "operationId": "list_part_kinds",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PartKindRead"
+                  },
+                  "title": "Response List Part Kinds",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Part Kinds",
+        "tags": [
+          "part-kinds"
+        ]
+      },
+      "post": {
+        "operationId": "create_part_kind",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartKindCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartKindCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Part Kind",
+        "tags": [
+          "part-kinds"
+        ]
+      }
+    },
+    "/api/part-kinds/{part_kind_id}": {
+      "patch": {
+        "description": "Rename a kind, or move it in the picker. Its slug stays put.",
+        "operationId": "update_part_kind",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_kind_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Kind Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartKindUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartKindEdited"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Part Kind",
+        "tags": [
+          "part-kinds"
         ]
       }
     },
@@ -17614,6 +20141,167 @@
         "summary": "Detach Part Document",
         "tags": [
           "documents"
+        ]
+      }
+    },
+    "/api/parts/{part_id}/parameters": {
+      "get": {
+        "description": "Every field this part could have a value for, with the values it has.\n\nFields with no value are returned too, and that is the point: this is an\neditor, and a field you cannot see is a field you will not fill in.",
+        "operationId": "list_part_parameters",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParametersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Part Parameters",
+        "tags": [
+          "part-parameters"
+        ]
+      }
+    },
+    "/api/parts/{part_id}/parameters/{name}": {
+      "delete": {
+        "description": "Remove this part's value for one field.\n\nThe row is deleted rather than blanked: a `parameter_value` with every value\ncolumn null is a part claiming an attribute it has no answer for, which is\ncounted as populated and matches no query \u2014 indistinguishable from a bug.",
+        "operationId": "clear_part_parameter",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParameterCleared"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Part Parameter",
+        "tags": [
+          "part-parameters"
+        ]
+      },
+      "put": {
+        "description": "Set this part's value for one field.\n\nEvery refusal here is one the search path would otherwise hit later: an\nunparseable value, a one-sided limit that no range query can match, several\noptions on a field that holds one. The reason codes are the parser's own, so the\nUI can put the message against the box that caused it.",
+        "operationId": "set_part_parameter",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartParameterWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartParameterWritten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Part Parameter",
+        "tags": [
+          "part-parameters"
         ]
       }
     },

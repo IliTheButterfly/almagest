@@ -10,3 +10,6 @@
 [submodule "elec-value-parser"]
 	path = elec-value-parser
 	url = https://github.com/IliTheButterfly/elec-value-parser.git
+[submodule "antlia"]
+	path = antlia
+	url = https://github.com/IliTheButterfly/antlia.git

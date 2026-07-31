@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "almagest": {
+      "command": "uv",
+      "args": ["run", "--directory", "mcpserver", "almagest-mcp"],
+      "env": {}
+    }
+  }
+}

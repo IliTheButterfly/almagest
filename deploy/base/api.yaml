@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: almagest-api
+  labels:
+    app.kubernetes.io/component: api
+spec:
+  # Exactly one. Never raise this. Two SQLite writers on one file is corruption,
+  # not contention, and it will not announce itself.
+  replicas: 1
+  strategy:
+    # Recreate, never RollingUpdate. A rolling update tries to attach the
+    # ReadWriteOnce volume to a second pod before releasing the first, which
+    # deadlocks on volume attach — and if it somehow succeeded it would be the
+    # two-writer corruption above. The cost is a few seconds of downtime on
+    # every deploy, which is the right trade for a single-user inventory system.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: almagest
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: almagest
+        app.kubernetes.io/component: api
+    spec:
+      # Satisfies PodSecurity `restricted`, though this namespace only enforces
+      # `baseline`. Free to comply with here, and it means a future tightening
+      # of the namespace label is a no-op rather than an outage.
+      securityContext:
+        # Matches the uid the image creates and chowns /data to. Setting fsGroup
+        # as well means the mounted volume is group-owned correctly on first
+        # attach, when the directory is created by the kubelet rather than by
+        # the Dockerfile.
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          # Tag is set by the overlay; `latest` here would be a footgun.
+          image: ghcr.io/ilithebutterfly/almagest-api
+          # Migrations are applied explicitly by scripts/k8s-deploy.sh, never on
+          # startup. An automatic migration on boot makes a failed rollout and a
+          # failed migration look identical, and makes a rollback undiagnosable.
+          command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: almagest-config
+            # Distributor and LLM API keys. Optional on purpose: the system is
+            # designed to work with no data-provider credentials at all, so a
+            # missing Secret must not stop the API from starting.
+            - secretRef:
+                name: almagest-secrets
+                optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          # There is no ResourceQuota in this namespace, so nothing but these
+          # limits stops a runaway process from starving the co-tenant
+          # workloads. Always set them.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          startupProbe:
+            httpGet: { path: /api/system/health, port: http }
+            periodSeconds: 3
+            # 30 x 3s. Generous because the first boot on a fresh volume does
+            # more work than a restart, and a startupProbe that gives up early
+            # turns a slow start into a crash loop.
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /api/system/health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/system/health, port: http }
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: almagest-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: almagest-api
+  labels:
+    app.kubernetes.io/component: api
+spec:
+  # Cluster-internal only. The API is reached through almagest-web, which is
+  # what makes the PWA and the API one origin — see frontend/nginx.conf.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

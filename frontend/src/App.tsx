@@ -32,6 +32,7 @@ import { NewContainersScreen } from "./screens/NewContainersScreen";
 import { NewContainerTypeScreen } from "./screens/NewContainerTypeScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
 import { PartScreen } from "./screens/PartScreen";
+import { PartTypesScreen } from "./screens/PartTypesScreen";
 import { ProjectScreen } from "./screens/ProjectScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
 import { ProvisionScreen } from "./screens/ProvisionScreen";
@@ -111,6 +112,10 @@ export function App() {
             for; the URL stays `/container-types`, which nothing physical points
             at. */}
         <NavLink to="/container-types">Containers</NavLink>
+        {/* Beside Containers, because they are the same sort of job — authoring
+            the vocabulary rather than moving stock — and because the two read as
+            a pair: what a container is, and what a part is. */}
+        <NavLink to="/part-types">Part types</NavLink>
         <NavLink to="/projects">Projects</NavLink>
         <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
@@ -155,6 +160,7 @@ export function App() {
                 screen, never from a scanned tag. `/container-types/new` is listed
                 before the parameterised route for readability only: React Router
                 ranks a static segment above a dynamic one whatever the order. */}
+            <Route path="/part-types" element={<PartTypesScreen />} />
             <Route path="/container-types" element={<ContainerTypesScreen />} />
             <Route path="/container-types/new" element={<NewContainerTypeScreen />} />
             <Route path="/container-types/:containerTypeId" element={<ContainerTypeScreen />} />

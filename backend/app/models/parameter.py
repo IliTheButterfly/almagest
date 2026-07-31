@@ -11,12 +11,23 @@ filtered.
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.enums import Provenance, SubstitutionDirection, ValueType
-from app.models.types import StrEnumType
+from app.models.types import StrEnumType, UtcDateTime, utcnow
 
 
 class ParameterTemplate(Base):
@@ -55,6 +66,109 @@ class ParameterTemplate(Base):
     #: the single most expensive class of error: a unit misread.
     plausible_min: Mapped[float | None] = mapped_column(Float)
     plausible_max: Mapped[float | None] = mapped_column(Float)
+
+    #: Whether one part may hold **several** of this field's options at once — a
+    #: connector that is both through-hole and surface-mount, a module with two
+    #: interfaces. Only meaningful for `enum`.
+    #:
+    #: The multiplicity lives in `parameter_value_choice`, **never** in extra
+    #: `parameter_value` rows: `UNIQUE(part_id, template_id)` is what guarantees a
+    #: multi-predicate search joins without fanning out, and a second value row
+    #: per part would turn every parametric query into a cross product. So a
+    #: multi-valued field is still exactly one value row, with a set hanging off
+    #: it, and search asks `EXISTS` rather than joining wider.
+    allow_multiple: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+
+    #: Part of the shared definition library every install starts with, so
+    #: `name`, `value_type` and `base_unit` are frozen — the MPN decoders, the
+    #: datasheet extractors and the demo data all name `capacitance` and mean
+    #: farads.
+    #:
+    #: **Deliberately not the clone-on-edit treatment `container_types` has.**
+    #: `name` is globally UNIQUE, so a clone would have to be called something
+    #: else — `capacitance-copy` — which no decoder, no saved search URL and no
+    #: extractor refers to, while both rows would then appear side by side in
+    #: every facet panel as two fields meaning the same thing. For a *type* a
+    #: divergent copy is the point; for a *field definition* it is the failure.
+    #: So a seed refuses the three identity-bearing edits and permits the rest
+    #: (display name, ordering, plausibility window, substitution direction),
+    #: none of which can invalidate a stored value.
+    is_seed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+
+
+class ParameterQuantity(Base):
+    """A physical quantity this install defines itself, for a numeric field's
+    `base_unit`.
+
+    The shipped quantities live in `elec-value-parser`, which is deliberately
+    standalone and knows nothing about this schema. They cover the electrical
+    ones plus light, mass, length and a few ratios — but an inventory is allowed
+    to care about something nobody anticipated (bytes of flash, turns of wire,
+    hours of runtime), and before this table the only way to add one was to edit
+    the library.
+
+    **This table is the source of truth and the parser's registry is a view of
+    it.** Every process that parses values registers these rows at startup
+    (`app.services.quantities.load_into_parser`); a name that is stored here but
+    unregistered in some process raises `UnknownQuantityError` there rather than
+    being read under a different definition, which is the failure mode to want.
+
+    A row here can never take a name the library already answers to — including
+    an alias like `resistance`. Every `parameter_value` already stored was
+    computed under the shipped definition of its quantity, so a local
+    redefinition of `farad` would silently change what those numbers mean.
+    """
+
+    __tablename__ = "parameter_quantity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    #: The string a numeric field's `base_unit` holds, and therefore what every
+    #: stored value of such a field was parsed under. Not editable: renaming it
+    #: would orphan every field naming it, exactly as renaming a template's
+    #: `name` would break the decoders.
+    name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+
+    #: What a value prints with — `B`, `turns`, `px`. Also an accepted spelling on
+    #: input, and the one checked *before* an SI prefix, so a symbol that is also
+    #: a prefix letter still reads as the unit.
+    symbol: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    display_name: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    #: JSON array. Case-**sensitive**, because SI case carries meaning: `m` is
+    #: milli and `M` is mega, `s` is seconds and `S` is siemens.
+    symbol_aliases_json: Mapped[str | None] = mapped_column(Text)
+
+    #: JSON array. Case-**insensitive** — a spelled-out word carries no SI case
+    #: convention, so refusing `Bytes` for `bytes` is pedantry.
+    word_aliases_json: Mapped[str | None] = mapped_column(Text)
+
+    #: The parser-level plausibility window, inclusive. Null means unbounded on
+    #: that side. This is the *quantity's* window, the universal one; a field may
+    #: still narrow it with its own `plausible_min`/`plausible_max`.
+    low: Mapped[float | None] = mapped_column(Float)
+    high: Mapped[float | None] = mapped_column(Float)
+
+    allow_zero: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    allow_negative: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+
+    #: Whether `10k` means ten thousand of these. Off for anything counted or
+    #: written out in full — kilo-turns is not a thing, and leaving prefixes on
+    #: would make the `k` in a typo silently mean a thousandfold.
+    allow_prefix: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utcnow)
 
 
 class ParameterChoice(Base):
@@ -154,4 +268,42 @@ class ParameterValue(Base):
             "value_max",
             sqlite_where=value_min.isnot(None),
         ),
+    )
+
+
+class ParameterValueChoice(Base):
+    """One option a part holds for an enum field — the set, for a multi-valued one.
+
+    **Why a child table and not more `parameter_value` rows.**
+    `UNIQUE(part_id, template_id)` on `parameter_value` is load-bearing: it is what
+    lets a multi-predicate parametric query be plain `JOIN`s that contribute at
+    most one row each. Storing a second option as a second value row would make
+    every such query a cross product — silently, and worse the more attributes are
+    filtered on. So the value row stays unique per (part, field) and the
+    multiplicity lives here, matched with `EXISTS`, which is a semi-join and cannot
+    fan out.
+
+    Written for **every** enum value, single- or multi-valued, so search and facet
+    counting have one code path rather than one per arity.
+    `parameter_value.choice_id` remains the single-valued answer and is left null
+    for a multi-valued field, which is what stops a consumer reading one option out
+    of several and believing it is the whole answer.
+
+    `RESTRICT` on the choice, like `parameter_value.choice_id`: deleting an option
+    parts are filed under is refused with a count rather than cascading their
+    values away.
+    """
+
+    __tablename__ = "parameter_value_choice"
+
+    value_id: Mapped[int] = mapped_column(
+        ForeignKey("parameter_value.id", ondelete="CASCADE"), primary_key=True
+    )
+    choice_id: Mapped[int] = mapped_column(
+        ForeignKey("parameter_choice.id", ondelete="RESTRICT"), primary_key=True
+    )
+
+    __table_args__ = (
+        # The direction search asks in: "which values hold this choice".
+        Index("ix_pvc_choice", "choice_id"),
     )

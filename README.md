@@ -22,6 +22,7 @@ summarised in **[CLAUDE.md](CLAUDE.md)**.
 | `frontend/` | React + Vite PWA, mobile-first *(not started)* |
 | `deviceagent/` | Runs on the Pi: PN532 NFC, camera, ESP32 serial |
 | `idcodec/` | `almagest-idcodec` — the short-ID codec and tag payload rules, **stdlib only**. Shared by the backend and the agent |
+| `mcpserver/` | `almagest-mcp` — the inventory as tools an agent can call: 25 curated tools over the HTTP API |
 | `mensa/` | Submodule — bench station firmware (ESP-IDF) |
 | `circinus/` | Submodule — CAD (OpenSCAD) |
 | `ecia-barcode/` | Submodule — MH10.8.2 / EIGP-114 barcode parser |
@@ -34,6 +35,13 @@ the backend and the agent must fold *identically* — a split would let the two
 versions drift by a release. API clients are **generated** from the OpenAPI schema
 (`make openapi`), never hand-written. `idcodec` keeps its own venv and declares no
 dependencies, so depending on it does not put the API's runtime on the Pi.
+
+`mcpserver` is in the same repo for the same reason and enforces it harder: every
+`openapi.json` operation must have a line in `mcpserver/almagest_mcp/coverage.py`
+saying whether an agent may call it, so **adding a backend route turns `make check`
+red until somebody decides**. `Excluded` is a fine answer — most routes are — but
+the decision cannot be skipped, which is what stops the agent-facing surface
+quietly going stale. See [ADR 0012](docs/adr/0012-the-mcp-server-and-a-forced-coverage-decision.md).
 
 ## Getting started
 

@@ -234,8 +234,18 @@ function PlanEditor({
     if (wanted === null) {
       return;
     }
+    const target = surface.current?.querySelector<HTMLElement>(`[data-placement="${wanted}"]`);
+    if (target === null || target === undefined) {
+      // **Do not consume the intent yet.** This effect runs after every render, and
+      // the render that sets `wantsFocus` is not guaranteed to be the one that has
+      // the new box in the DOM — an unrelated state change (a load resolving) can
+      // render first. Clearing the ref here would drop the caret to `<body>`
+      // permanently, which is exactly the failure the effect exists to prevent, and
+      // it showed up as a test that failed about one full run in three.
+      return;
+    }
     wantsFocus.current = null;
-    surface.current?.querySelector<HTMLElement>(`[data-placement="${wanted}"]`)?.focus();
+    target.focus();
   });
 
   function patch(locationId: number, changes: Partial<PlacementDraft>): void {

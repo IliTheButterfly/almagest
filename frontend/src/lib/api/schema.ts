@@ -1515,6 +1515,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/parameter-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Parameter Fields */
+        get: operations["list_parameter_fields"];
+        put?: never;
+        /**
+         * Create Parameter Field
+         * @description Author one filterable field, options and all.
+         *
+         *     The name collision is resolved *before the insert and inside `work`*, and both
+         *     halves of that matter:
+         *
+         *     * **before the insert**, never caught after, because `idempotency.run` rolls
+         *       back on `IntegrityError` to absorb a duplicate *client_op_id*, so a
+         *       unique-name violation reaching that handler conflates two unrelated
+         *       conditions and returns a bare 500 — the trap `create_container_type`
+         *       documents;
+         *     * **inside `work`**, because a *retry* of a request that already succeeded has
+         *       to replay, not collide. Checked ahead of `idempotency.run` the second POST of
+         *       one flaky-wifi submission would 409 on the field its own first attempt
+         *       created, which is exactly the failure the idempotency guard exists to
+         *       prevent. `clone_container_type` puts its duplicate-slug check inside `work`
+         *       for the same reason.
+         */
+        post: operations["create_parameter_field"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parameter-fields/base-units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Base Units
+         * @description Every quantity a numeric field's `base_unit` may name.
+         *
+         *     Declared above `/{field_id}` so the literal path wins the match — a
+         *     `RowId`-typed path parameter would reject 'base-units' as a 422 rather than
+         *     falling through.
+         */
+        get: operations["list_base_units"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parameter-fields/{field_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Parameter Field */
+        get: operations["read_parameter_field"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Parameter Field
+         * @description Remove a field. Refused while any part holds a value for it.
+         *
+         *     `parameter_value.template_id` is `ON DELETE CASCADE`, so without the guard this
+         *     would silently delete every value of the field along with it.
+         */
+        delete: operations["delete_parameter_field"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Parameter Field
+         * @description Edit a definition.
+         *
+         *     What is refused, and why, is in `app.services.parameter_fields`: `value_type`
+         *     and `base_unit` once any part holds a value (a data migration, not an edit),
+         *     and all three identity fields on a shared-library field.
+         */
+        patch: operations["update_parameter_field"];
+        trace?: never;
+    };
+    "/api/parameter-fields/{field_id}/choices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Parameter Choice
+         * @description Add one option to a list field. Additive, so allowed on a shared field too.
+         */
+        post: operations["add_parameter_choice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parameter-fields/{field_id}/choices/{choice_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Parameter Choice
+         * @description Remove an option. Refused while parts are filed under it, naming how many.
+         *
+         *     `parameter_value.choice_id` is `ON DELETE RESTRICT`, so the database already
+         *     refuses — but it refuses as an `IntegrityError`, which reaches the client as a
+         *     500 with no number in it.
+         */
+        delete: operations["delete_parameter_choice"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Parameter Choice
+         * @description Relabel, reorder, or re-alias one option.
+         *
+         *     **`key` is not editable.** It is what `parameter_value.raw_input` recorded and
+         *     what a filter value names, so renaming it would rewrite the meaning of every
+         *     row already filed under it. A wrong label is fixed here; a wrong key is a new
+         *     option and a re-file.
+         */
+        patch: operations["update_parameter_choice"];
+        trace?: never;
+    };
+    "/api/parameter-quantities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Parameter Quantities
+         * @description Every quantity a numeric field may name, shipped and custom together.
+         *
+         *     Read through `supported_quantities()` rather than by listing the library's
+         *     table here, so this and the field-authoring guard can never disagree about
+         *     what is namable — and a custom quantity that failed to register in this
+         *     process is absent from both rather than offered by one and refused by the
+         *     other.
+         */
+        get: operations["list_parameter_quantities"];
+        put?: never;
+        /**
+         * Create Parameter Quantity
+         * @description Define a quantity.
+         *
+         *     Registered with this process's parser inside the write, so the very next
+         *     request can author a field against it — the field guard asks the parser, and a
+         *     row that were stored but unregistered would be refused as `unknown_base_unit`
+         *     by the process that had just created it.
+         *
+         *     No idempotency key: `name` is UNIQUE and the duplicate is a clean 409 naming
+         *     the existing quantity, which is a better answer to a doubled tap than a replay
+         *     of a create — there is nothing here a second press could half-do.
+         */
+        post: operations["create_parameter_quantity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parameter-quantities/{quantity_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Parameter Quantity
+         * @description Remove a definition, refused while any field is measured in it.
+         */
+        delete: operations["delete_parameter_quantity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/parameter-templates": {
         parameters: {
             query?: never;
@@ -1552,11 +1756,105 @@ export interface paths {
          */
         get: operations["list_part_categories"];
         put?: never;
-        post?: never;
+        /**
+         * Create Part Category
+         * @description Add a category, optionally under a parent.
+         *
+         *     The path cache is rebuilt immediately, so the row comes back with a correct
+         *     `label_path` and a field authored on an ancestor is inherited by it on the very
+         *     next request rather than after some later job.
+         */
+        post: operations["create_part_category"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/part-categories/{category_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Part Category
+         * @description Rename a category. The rename propagates into every descendant's
+         *     `label_path`, which is exactly why the rebuild runs here rather than nightly.
+         */
+        patch: operations["update_part_category"];
+        trace?: never;
+    };
+    "/api/part-categories/{category_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Part Category
+         * @description Reparent a category and its whole subtree.
+         *
+         *     `TreeRepository.move` walks `parent_id` — the authoritative adjacency list, not
+         *     the cache — to refuse a cycle, then rebuilds every path. A cycle admitted
+         *     through a stale cache would make the rebuild CTE recurse forever.
+         */
+        post: operations["move_part_category"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/part-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Part Kinds
+         * @description Every kind, in the order the picker should show them.
+         */
+        get: operations["list_part_kinds"];
+        put?: never;
+        /** Create Part Kind */
+        post: operations["create_part_kind"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/part-kinds/{part_kind_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Part Kind
+         * @description Rename a kind, or move it in the picker. Its slug stays put.
+         */
+        patch: operations["update_part_kind"];
         trace?: never;
     };
     "/api/parts": {
@@ -1693,6 +1991,62 @@ export interface paths {
          *     a client that thinks it removed something is right.
          */
         delete: operations["detach_part_document"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parts/{part_id}/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Part Parameters
+         * @description Every field this part could have a value for, with the values it has.
+         *
+         *     Fields with no value are returned too, and that is the point: this is an
+         *     editor, and a field you cannot see is a field you will not fill in.
+         */
+        get: operations["list_part_parameters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/parts/{part_id}/parameters/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Part Parameter
+         * @description Set this part's value for one field.
+         *
+         *     Every refusal here is one the search path would otherwise hit later: an
+         *     unparseable value, a one-sided limit that no range query can match, several
+         *     options on a field that holds one. The reason codes are the parser's own, so the
+         *     UI can put the message against the box that caused it.
+         */
+        put: operations["set_part_parameter"];
+        post?: never;
+        /**
+         * Clear Part Parameter
+         * @description Remove this part's value for one field.
+         *
+         *     The row is deleted rather than blanked: a `parameter_value` with every value
+         *     column null is a part claiming an attribute it has no answer for, which is
+         *     counted as populated and matches no query — indistinguishable from a bug.
+         */
+        delete: operations["clear_part_parameter"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2663,6 +3017,21 @@ export interface components {
             state: string;
         };
         /**
+         * BaseUnitOption
+         * @description One pickable quantity for a numeric field.
+         *
+         *     Served rather than hardcoded in the client for the same reason the parser owns
+         *     the list: a quantity added to the library becomes authorable without a second
+         *     edit, and the UI can offer a **select** instead of a free-text box that
+         *     produces `µF` and `ohms`.
+         */
+        BaseUnitOption: {
+            /** Name */
+            name: string;
+            /** Symbol */
+            symbol: string;
+        };
+        /**
          * BatchMovementRequest
          * @description A cart's worth of takes and returns, in one request (ADR 0007).
          *
@@ -3129,6 +3498,8 @@ export interface components {
         CategoryNode: {
             /** Depth */
             depth: number;
+            /** Id */
+            id: number;
             /** Name */
             name: string;
             /** Parent Slug */
@@ -3223,10 +3594,73 @@ export interface components {
          * @enum {string}
          */
         ChildView: "floor_plan" | "shelf_run" | "cabinet_face" | "grid_cells" | "list";
+        /** ChoiceAdd */
+        ChoiceAdd: {
+            /** Aliases */
+            aliases?: string[];
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order?: number;
+        };
+        /** ChoiceDeleted */
+        ChoiceDeleted: {
+            /** Choice Id */
+            choice_id: number;
+            /** Field Id */
+            field_id: number;
+            /** Key */
+            key: string;
+        };
         /** ChoiceFacet */
         ChoiceFacet: {
             /** Count */
             count: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+        };
+        /** ChoiceIn */
+        ChoiceIn: {
+            /** Aliases */
+            aliases?: string[];
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order?: number;
+        };
+        /** ChoiceUpdate */
+        ChoiceUpdate: {
+            /** Aliases */
+            aliases?: string[] | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Label */
+            label?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+        };
+        /** ChoiceValueRead */
+        ChoiceValueRead: {
+            /** Id */
+            id: number;
             /** Key */
             key: string;
             /** Label */
@@ -4860,6 +5294,29 @@ export interface components {
             /** Seqs */
             seqs: number[];
         };
+        /**
+         * NameConflictPolicy
+         * @description What to do when the requested `name` is already a field.
+         *
+         *     Not a silent choice, because all three answers are reasonable and they differ
+         *     in what the user ends up with:
+         *
+         *     * `fail` — refuse with 409 and hand back the existing field, so the UI can ask
+         *       "did you mean this one?". The default, since the honest answer to a
+         *       collision is usually "the field you want already exists".
+         *     * `reuse` — adopt the existing field instead of creating one, provided it is
+         *       *compatible* (same value type, same quantity). Any option the request names
+         *       that the existing list field lacks is added, which is additive and safe.
+         *       This is the right answer for "capacitors and inductors both have a voltage
+         *       rating": one template, and substitution stays coherent because there is only
+         *       one declared direction for the concept.
+         *     * `namespace` — create a genuinely separate field named
+         *       `<category>.<name>`, for when the collision is an accident of vocabulary
+         *       rather than the same concept. Requires `applies_to_category`, because
+         *       without one there is no namespace to put it in.
+         * @enum {string}
+         */
+        NameConflictPolicy: "fail" | "reuse" | "namespace";
         /** NewSiblingRead */
         NewSiblingRead: {
             /** Based On Location Id */
@@ -4884,6 +5341,171 @@ export interface components {
             min: number;
             /** Unit Symbol */
             unit_symbol?: string | null;
+        };
+        /** ParameterChoiceRead */
+        ParameterChoiceRead: {
+            /** Aliases */
+            aliases: string[];
+            /** Id */
+            id: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Sort Order */
+            sort_order: number;
+            /** Use Count */
+            use_count: number;
+        };
+        /** ParameterFieldCreate */
+        ParameterFieldCreate: {
+            /**
+             * Allow Multiple
+             * @description Whether one part may hold several of these options at once — a connector that is both through-hole and surface-mount. Only meaningful for value_type='enum'. Filtering is unchanged either way: ticking two options matches a part holding either.
+             * @default false
+             */
+            allow_multiple?: boolean;
+            /**
+             * Applies To Category
+             * @description Category slug. The field is then offered on that category **and every descendant of it**. Leave it null for a field every part has, like a package, which is offered everywhere.
+             */
+            applies_to_category?: string | null;
+            /**
+             * Base Unit
+             * @description Required for a numeric field, forbidden otherwise. The name of a physical quantity, not a unit symbol: 'ohm', not 'ohms' and not 'Ω'. GET /api/parameter-fields/base-units lists every accepted value. It is what makes a bare '1M' read as 1 MΩ under resistance and be refused under capacitance.
+             */
+            base_unit?: string | null;
+            /**
+             * Choices
+             * @description The complete option list of a list field, authored in this one request. Required for value_type='enum', forbidden otherwise.
+             */
+            choices?: components["schemas"]["ChoiceIn"][];
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Name
+             * @description The filter key, globally unique — this is the string a search request and a shared search URL name. See `on_name_conflict` for what happens when it is taken.
+             */
+            name: string;
+            /** @default fail */
+            on_name_conflict?: components["schemas"]["NameConflictPolicy"];
+            /** Plausible Max */
+            plausible_max?: number | null;
+            /** Plausible Min */
+            plausible_min?: number | null;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order?: number;
+            /** @description Required, and not cosmetic: it is what a substitution search means. 'higher_ok' for a rating (a 50 V part satisfies a 25 V requirement), 'lower_ok' for a tolerance, 'range_overlap' for a value like capacitance, 'exact' for a package. There is no default — defaulting a voltage rating to 'exact' would silently make substitution wrong. */
+            substitution_direction: components["schemas"]["SubstitutionDirection"];
+            value_type: components["schemas"]["ValueType"];
+        };
+        /** ParameterFieldCreated */
+        ParameterFieldCreated: {
+            field: components["schemas"]["ParameterFieldRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            /**
+             * Reused
+             * @default false
+             */
+            reused?: boolean;
+        };
+        /** ParameterFieldDeleted */
+        ParameterFieldDeleted: {
+            /** Field Id */
+            field_id: number;
+            /** Name */
+            name: string;
+        };
+        /** ParameterFieldEdited */
+        ParameterFieldEdited: {
+            field: components["schemas"]["ParameterFieldRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** ParameterFieldRead */
+        ParameterFieldRead: {
+            /**
+             * Allow Multiple
+             * @default false
+             */
+            allow_multiple?: boolean;
+            /** Applies To Category */
+            applies_to_category: string | null;
+            /** Base Unit */
+            base_unit: string | null;
+            /** Choices */
+            choices?: components["schemas"]["ParameterChoiceRead"][];
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: number;
+            /**
+             * Inherited
+             * @default false
+             */
+            inherited?: boolean;
+            /** Is Seed */
+            is_seed: boolean;
+            /** Name */
+            name: string;
+            /** Plausible Max */
+            plausible_max: number | null;
+            /** Plausible Min */
+            plausible_min: number | null;
+            /** Sort Order */
+            sort_order: number;
+            /** Substitution Direction */
+            substitution_direction: string;
+            /** Value Count */
+            value_count: number;
+            /** Value Type */
+            value_type: string;
+        };
+        /**
+         * ParameterFieldUpdate
+         * @description Every field of a definition that can change, with the three that cannot
+         *     guarded rather than omitted — a client sending `value_type` deserves the
+         *     reason, not a silently ignored key.
+         */
+        ParameterFieldUpdate: {
+            /** Allow Multiple */
+            allow_multiple?: boolean | null;
+            /** Applies To Category */
+            applies_to_category?: string | null;
+            /** Base Unit */
+            base_unit?: string | null;
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Plausible Max */
+            plausible_max?: number | null;
+            /** Plausible Min */
+            plausible_min?: number | null;
+            /** Sort Order */
+            sort_order?: number | null;
+            substitution_direction?: components["schemas"]["SubstitutionDirection"] | null;
+            value_type?: components["schemas"]["ValueType"] | null;
         };
         /**
          * PartCandidateRead
@@ -4922,6 +5544,98 @@ export interface components {
             rank: number;
             /** Reasons */
             reasons: components["schemas"]["SubstitutionReasonRead"][];
+        };
+        /** PartCategoryCreate */
+        PartCategoryCreate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Default Fill Factor */
+            default_fill_factor?: number | null;
+            default_size_class?: components["schemas"]["SizeClass"] | null;
+            /** Description */
+            description?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id?: number | null;
+            /** Slug */
+            slug: string;
+        };
+        /** PartCategoryCreated */
+        PartCategoryCreated: {
+            part_category: components["schemas"]["PartCategoryRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** PartCategoryEdited */
+        PartCategoryEdited: {
+            part_category: components["schemas"]["PartCategoryRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** PartCategoryMove */
+        PartCategoryMove: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Parent Id */
+            parent_id?: number | null;
+        };
+        /** PartCategoryRead */
+        PartCategoryRead: {
+            /** Default Fill Factor */
+            default_fill_factor: number | null;
+            /** Default Size Class */
+            default_size_class: string | null;
+            /** Depth */
+            depth: number;
+            /** Description */
+            description: string | null;
+            /** Id */
+            id: number;
+            /** Label Path */
+            label_path: string;
+            /** Name */
+            name: string;
+            /** Own Part Count */
+            own_part_count: number;
+            /** Parent Id */
+            parent_id: number | null;
+            /** Slug */
+            slug: string;
+        };
+        /**
+         * PartCategoryUpdate
+         * @description Rename, re-describe, re-default. Reparenting is `POST .../move`.
+         *
+         *     No `slug`: like a part kind's, it is an addressing key that already appears in
+         *     saved search URLs. No `parent_id` either — a move rebuilds the path cache for
+         *     the whole table, which is a different operation from an edit and deserves to
+         *     look like one.
+         */
+        PartCategoryUpdate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Default Fill Factor */
+            default_fill_factor?: number | null;
+            default_size_class?: components["schemas"]["SizeClass"] | null;
+            /** Description */
+            description?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Name */
+            name?: string | null;
         };
         /** PartCreate */
         PartCreate: {
@@ -4994,6 +5708,160 @@ export interface components {
              * @default false
              */
             replayed?: boolean;
+        };
+        /** PartKindCreate */
+        PartKindCreate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order?: number;
+        };
+        /** PartKindCreated */
+        PartKindCreated: {
+            part_kind: components["schemas"]["PartKindRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** PartKindEdited */
+        PartKindEdited: {
+            part_kind: components["schemas"]["PartKindRead"];
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+        };
+        /** PartKindRead */
+        PartKindRead: {
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: number;
+            /** Part Count */
+            part_count: number;
+            /** Slug */
+            slug: string;
+            /** Sort Order */
+            sort_order: number;
+        };
+        /**
+         * PartKindUpdate
+         * @description No `slug` — see the module docstring: it is a search parameter, not a label.
+         */
+        PartKindUpdate: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+        };
+        /** PartParameterCleared */
+        PartParameterCleared: {
+            /** Name */
+            name: string;
+            /** Removed */
+            removed: boolean;
+            /** Template Id */
+            template_id: number;
+        };
+        /**
+         * PartParameterRead
+         * @description One field this part could have a value for, and the value if it has one.
+         */
+        PartParameterRead: {
+            /** Allow Multiple */
+            allow_multiple: boolean;
+            /** Base Unit */
+            base_unit: string | null;
+            /** Choices */
+            choices?: components["schemas"]["ChoiceValueRead"][];
+            /** Display */
+            display?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Inherited */
+            inherited: boolean;
+            /** Name */
+            name: string;
+            /** Options */
+            options?: components["schemas"]["ChoiceValueRead"][];
+            /** Provenance */
+            provenance?: string | null;
+            /** Raw Input */
+            raw_input?: string | null;
+            /** Sort Order */
+            sort_order: number;
+            /** Template Id */
+            template_id: number;
+            /** Value Bool */
+            value_bool?: boolean | null;
+            /** Value Max */
+            value_max?: number | null;
+            /** Value Min */
+            value_min?: number | null;
+            /** Value Nominal */
+            value_nominal?: number | null;
+            /** Value Text */
+            value_text?: string | null;
+            /** Value Type */
+            value_type: string;
+        };
+        /**
+         * PartParameterWrite
+         * @description The value, in whichever shape the field's type takes.
+         *
+         *     Separate optional members rather than one `Any`: a bool is not the string
+         *     'true', and a list field takes a *set*. Sending the wrong one for the type is a
+         *     422 that names the mismatch instead of a coercion nobody asked for.
+         */
+        PartParameterWrite: {
+            /**
+             * Checked
+             * @description For a yes/no field.
+             */
+            checked?: boolean | null;
+            /**
+             * Choices
+             * @description For a list field: the complete set of options, by key or by any alias. One entry unless the field allows several. The whole set, never a delta, so 'now only SMD' is sayable.
+             */
+            choices?: string[] | null;
+            /**
+             * Value
+             * @description For a numeric field the shorthand to parse — '22uF', '20-30uF', '>=50V'. For a text field the text itself, stored verbatim.
+             */
+            value?: string | null;
+        };
+        /** PartParameterWritten */
+        PartParameterWritten: {
+            parameter: components["schemas"]["PartParameterRead"];
+        };
+        /** PartParametersResponse */
+        PartParametersResponse: {
+            /** Category */
+            category: string | null;
+            /** Filed */
+            filed: boolean;
+            /** Parameters */
+            parameters: components["schemas"]["PartParameterRead"][];
+            /** Part Id */
+            part_id: number;
         };
         /** PartRead */
         PartRead: {
@@ -5599,6 +6467,91 @@ export interface components {
             restored_tag: components["schemas"]["TagRead"] | null;
             state: components["schemas"]["ProvisioningState"];
             undone: components["schemas"]["UndoneRead"];
+        };
+        /** QuantityCreate */
+        QuantityCreate: {
+            /**
+             * Allow Negative
+             * @description Also switches the window to the **signed** reading, because that is the only one that means anything once negatives are allowed: [-40, 125] compared against magnitudes would accept -200.
+             * @default false
+             */
+            allow_negative?: boolean;
+            /**
+             * Allow Prefix
+             * @description Whether '10k' means ten thousand of these. Turn it off for anything counted or written out in full — kilo-turns is not a thing, and leaving it on makes a stray 'k' silently mean a thousandfold.
+             * @default true
+             */
+            allow_prefix?: boolean;
+            /**
+             * Allow Zero
+             * @default false
+             */
+            allow_zero?: boolean;
+            /** Display Name */
+            display_name: string;
+            /** High */
+            high?: number | null;
+            /**
+             * Low
+             * @description Inclusive plausibility bound, null for unbounded. This is the quantity's universal window; a field may narrow it further with its own.
+             */
+            low?: number | null;
+            /**
+             * Name
+             * @description What a numeric field's `base_unit` will hold — so it is what every value of every field using it is parsed under. It cannot be a name Almagest already ships, or another name for one: `resistance` is `ohm`, and redefining it would change what stored numbers mean.
+             */
+            name: string;
+            /**
+             * Symbol
+             * @description What a value is written and printed with — 'B', 'turns', 'px'. Checked *before* any SI prefix, so a one-letter symbol that collides with a prefix letter still reads as the unit: under a quantity whose symbol is 'm', '10m' is ten of them and '10mm' is ten milli of them.
+             */
+            symbol: string;
+            /**
+             * Symbol Aliases
+             * @description Case-sensitive alternative symbols. SI case carries meaning.
+             */
+            symbol_aliases?: string[];
+            /**
+             * Word Aliases
+             * @description Case-insensitive spelled-out names — 'bytes', 'turns'.
+             */
+            word_aliases?: string[];
+        };
+        /** QuantityCreated */
+        QuantityCreated: {
+            quantity: components["schemas"]["QuantityRead"];
+        };
+        /** QuantityDeleted */
+        QuantityDeleted: {
+            /** Name */
+            name: string;
+            /** Quantity Id */
+            quantity_id: number;
+        };
+        /**
+         * QuantityRead
+         * @description One quantity a numeric field may be measured in.
+         *
+         *     Shipped and custom ones are reported through the same shape so a picker can
+         *     list them together, with `custom` as the only difference: a shipped quantity
+         *     cannot be deleted, and neither can a custom one that fields are using.
+         */
+        QuantityRead: {
+            /** Custom */
+            custom: boolean;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Field Count
+             * @default 0
+             */
+            field_count?: number;
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name: string;
+            /** Symbol */
+            symbol: string;
         };
         /** QuantityRequest */
         QuantityRequest: {
@@ -6721,6 +7674,17 @@ export interface components {
             note?: string | null;
         };
         /**
+         * SubstitutionDirection
+         * @description What satisfies a requirement when searching for a substitute.
+         *
+         *     Substitution search reuses the identical filter executor with a swapped
+         *     operator table, so there is no second query engine — and it stays
+         *     deterministic. An LLM returns plausible substitutes; a plausible substitute
+         *     with the wrong voltage rating is a field failure.
+         * @enum {string}
+         */
+        SubstitutionDirection: "higher_ok" | "lower_ok" | "range_overlap" | "exact";
+        /**
          * SubstitutionReasonRead
          * @description Why one predicate is satisfied — a rendering of the predicate SQL applied.
          *
@@ -7063,6 +8027,11 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * ValueType
+         * @enum {string}
+         */
+        ValueType: "numeric" | "enum" | "bool" | "text";
         /** VerificationStarted */
         VerificationStarted: {
             /**
@@ -9299,6 +10268,375 @@ export interface operations {
             };
         };
     };
+    list_parameter_fields: {
+        parameters: {
+            query?: {
+                /** @description Category slug. Returns the fields authored on it, **the fields authored on any ancestor of it**, and the global ones. Inheritance is the point: a field added to 'Capacitors' has to be offered under 'Capacitors > Ceramic', which is the node parts are actually filed under. */
+                category?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParameterFieldRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_parameter_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParameterFieldCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParameterFieldCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_base_units: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaseUnitOption"][];
+                };
+            };
+        };
+    };
+    read_parameter_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                field_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParameterFieldRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_parameter_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                field_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParameterFieldDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_parameter_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                field_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParameterFieldUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParameterFieldEdited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_parameter_choice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                field_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChoiceAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParameterFieldEdited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_parameter_choice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                field_id: number;
+                choice_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChoiceDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_parameter_choice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                field_id: number;
+                choice_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChoiceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParameterFieldEdited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_parameter_quantities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuantityRead"][];
+                };
+            };
+        };
+    };
+    create_parameter_quantity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuantityCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuantityCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_parameter_quantity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quantity_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuantityDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     parameter_facets: {
         parameters: {
             query?: never;
@@ -9348,6 +10686,197 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CategoryNode"][];
+                };
+            };
+        };
+    };
+    create_part_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartCategoryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartCategoryCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_part_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartCategoryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartCategoryEdited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_part_category: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartCategoryMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartCategoryEdited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_part_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartKindRead"][];
+                };
+            };
+        };
+    };
+    create_part_kind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartKindCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartKindCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_part_kind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_kind_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartKindUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartKindEdited"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -9565,6 +11094,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentDetachResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_part_parameters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParametersResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_part_parameter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartParameterWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParameterWritten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_part_parameter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartParameterCleared"];
                 };
             };
             /** @description Validation Error */

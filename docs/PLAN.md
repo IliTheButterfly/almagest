@@ -239,7 +239,15 @@ Containers identify themselves by NFC, so camera scanning has exactly one job le
 
 Decode runs **in the browser**: `getUserMedia` + `zxing-wasm`, enabling exactly four symbologies (QR, DataMatrix, Code128, EAN-13) because each additional format costs a finder-pattern pass per frame. Center-ROI crop, 3-frame voting (accept on 2-of-3 identical), and a 3-second payload-hash hold-off so one label held in front of the camera doesn't fire five resolves.
 
-If bulk intake of many reels ever gets tedious, a **USB HID wedge scanner needs no code at all** — it's a keyboard. A focused input field plus a timing heuristic (>50 chars/sec with a terminator distinguishes a scanner from typing) covers it, so buying one stays a config change rather than a rewrite.
+### The keyboard wedge — one input path, several carriers
+
+If bulk intake of many reels ever gets tedious, a **USB HID wedge scanner needs no code at all** — it's a keyboard. Accept it on a focused input field and buying one stays a config change rather than a rewrite.
+
+**Detect the wedge by its terminator, never by typing speed.** A >50 chars/sec heuristic looks appealing and is wrong: it silently excludes every *slow* keyboard-like source. A Flipper Zero acting as a USB keyboard ([`antlia/`](../antlia/README.md)) types at a deliberately configurable 5–60 ms per key — squarely inside human range — so a speed gate would classify it as manual typing and never fire the scan. The same goes for a phone HID app or a BLE keyboard on a weak link. So: a CR/LF-terminated line is a scan; an explicit scan-mode toggle or a hidden always-focused capture field is what collects it. Inter-key timing may be a *hint* for UI affordances, never the gate.
+
+The wedge parser must accept **either a bare `4K7T-92M8` or a full `/s/{short_id}` URL**, because different carriers naturally emit different forms — and both already resolve at step 1 of the resolver chain, so this costs nothing.
+
+Carriers this admits, in rough order of how much they are worth: a **$25 USB barcode scanner** (bulk reel intake, the original motivation); **Antlia on a Flipper Zero** (the laptop's only NFC reader — the phone already has Web NFC and the station has its PN532, so this covers the one device with neither); and **typing an ID by hand off a printed label**, which is the fallback that must always work and is the reason the check symbol exists.
 
 ### Resolver chain
 

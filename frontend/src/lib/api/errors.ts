@@ -12,7 +12,7 @@
  * the user what to do next in a way no generic validation message can.
  */
 
-import { ApiError } from "./client";
+import { ApiError, type ParameterFieldRead } from "./client";
 
 /**
  * One slot a layout change could not delete — `app.services.layout_authoring
@@ -55,11 +55,15 @@ export interface ErrorReport {
  */
 export const REASON_HINTS: Readonly<Record<string, string>> = {
   // --- value parser, via the search filter executor -----------------------
+  // The capacitance case is marked as an example rather than asserted. This used
+  // to state it outright, which reads as nonsense against a field measured in bytes
+  // or lumens — and with units now authorable, the set of quantities this can fire
+  // for is open-ended. The server's own message, which names the actual field and
+  // its window, is shown underneath.
   implausible:
-    "That value is outside the physically plausible range for this parameter. " +
-    "Case matters: a bare `1M` means one mega-, so under capacitance it reads as " +
-    "megafarads, which are not a thing — `1u`, `1uF` or `1000n` is probably what " +
-    "was meant.",
+    "That value is outside the plausible range for this field. Case often matters: " +
+    "a bare `1M` means one mega-, which under capacitance would be megafarads — not " +
+    "a thing — where `1u`, `1uF` or `1000n` was meant.",
   unit_mismatch:
     "That is a real unit, but of the wrong physical quantity. Usually the value " +
     "is filed under the wrong parameter rather than mistyped.",
@@ -224,6 +228,37 @@ function readAffectedSlots(source: Record<string, unknown>): AffectedSlotProblem
     });
   }
   return slots.length > 0 ? slots : null;
+}
+
+/**
+ * The field a `duplicate_name` refusal collided with, embedded in its own 409.
+ *
+ * Carried like `affected_slots` above, and for the same reason: the refusal is
+ * only actionable if the thing in the way is on screen. `parameter_template.name`
+ * is globally unique because one real-world concept should be one field with one
+ * substitution rule, so the answer to this collision is usually "yes, that is the
+ * field I meant" — which the user can only say if they can see it.
+ *
+ * Tolerant rather than strict: an unrecognised shape reads as "no field", and the
+ * server's own message still carries the refusal.
+ */
+export function existingFieldOf(error: unknown): ParameterFieldRead | null {
+  if (!(error instanceof ApiError) || error.detail === null || typeof error.detail !== "object") {
+    return null;
+  }
+  const body = error.detail as { detail?: unknown };
+  const detail = body.detail ?? error.detail;
+  if (detail === null || typeof detail !== "object") {
+    return null;
+  }
+  const existing = (detail as Record<string, unknown>)["existing"];
+  if (existing === null || typeof existing !== "object") {
+    return null;
+  }
+  const record = existing as Record<string, unknown>;
+  return typeof record["id"] === "number" && typeof record["name"] === "string"
+    ? (existing as ParameterFieldRead)
+    : null;
 }
 
 /**
