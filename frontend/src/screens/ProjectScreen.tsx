@@ -17,6 +17,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { PathBar } from "../components/PathBar";
 import {
   createBuild,
   getProject,
@@ -78,6 +79,13 @@ function ProjectDetail({
   return (
     <div className="stack">
       <div className="card">
+        <PathBar
+          trail={[
+            { key: "projects", label: "Projects", to: "/projects" },
+            { key: `project-${project.id}`, label: project.name },
+          ]}
+          label="Project path"
+        />
         <div className="row">
           <h1 style={{ flex: 1 }}>
             {project.name}

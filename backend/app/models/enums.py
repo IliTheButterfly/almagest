@@ -985,3 +985,41 @@ class ShortageKind(StrEnum):
     #: `is_dnp` — in the file, not on the board. Generates no demand, and is
     #: reported rather than dropped so the BOM the user sees is the whole BOM.
     NOT_FITTED = "not_fitted"
+
+
+class PlanShapeKind(StrEnum):
+    """What one drawn line on a room's floor plan *is* — ADR 0009.
+
+    Every member is a polyline in the room's own millimetre coordinates, and the
+    kind changes only how it is drawn and what it means to a human. **None of
+    them is a `location`**: a wall holds no stock, gets no `short_id`, never
+    appears in the tree, and must never be findable by a scan. That is the whole
+    reason `location_plan_shapes` is its own table rather than a polygon column
+    on `locations` — the moment a drawn wall became a location row, the tree
+    would contain furniture nobody can put anything in.
+
+    Adding a member here is one line and a branch in the renderer, because the
+    column is a plain `VARCHAR` with no `CHECK`.
+    """
+
+    #: The room's usable floor boundary, closed. The reason this is a polyline
+    #: and not a width/depth pair: rooms have alcoves, and the alcove is often
+    #: exactly where the bench goes.
+    OUTLINE = "outline"
+    #: A wall, partition or stud wall *inside* the outline. `thickness_mm` is
+    #: what makes it a wall rather than a line.
+    WALL = "wall"
+    #: A doorway, drawn as the segment it swings through — so the floor plan can
+    #: show why nothing may stand there.
+    DOOR = "door"
+    #: A window. Relevant to storage because sunlight ages components and a sill
+    #: is not a shelf.
+    WINDOW = "window"
+    #: Drawn furniture that is **not** a container: a bench, a sink, a pillar,
+    #: the fridge. It occupies floor and holds nothing this system tracks, which
+    #: is precisely why it must not be a `location`.
+    FIXTURE = "fixture"
+    #: An annotated area — "ESD bench", "keep clear", "solder fume zone". Closed,
+    #: advisory, and enforced by nothing: capacity is advisory everywhere else in
+    #: this schema and a drawn zone is weaker than capacity.
+    ZONE = "zone"

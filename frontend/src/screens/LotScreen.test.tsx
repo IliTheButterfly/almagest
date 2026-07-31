@@ -133,8 +133,15 @@ describe("take / return", () => {
     stubApi();
     renderScreen();
 
-    expect(await screen.findByText("22uF 25V ceramic, through-hole")).toBeTruthy();
-    expect(screen.getByText("Cabinet A / Drawer A1")).toBeTruthy();
+    // By role, because the part's name now appears twice on purpose: as the
+    // heading, and as the last step of the trail above it.
+    expect(
+      await screen.findByRole("heading", { name: "22uF 25V ceramic, through-hole" }),
+    ).toBeTruthy();
+    // The derived path is a link to the container, not the dead text it was.
+    expect(
+      screen.getByRole("link", { name: "Cabinet A / Drawer A1" }).getAttribute("href"),
+    ).toBe("/locations/11");
     expect(screen.getByText("1,200")).toBeTruthy();
   });
 

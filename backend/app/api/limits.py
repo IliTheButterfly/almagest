@@ -116,6 +116,36 @@ ResultOffset = Annotated[int, Field(ge=0, le=1_000_000)]
 #: amortise the round trip, not to reserve the queue.
 ClaimLimit = Annotated[int, Field(ge=1, le=50)]
 
+#: A millimetre coordinate on a room's floor plan (ADR 0009). **Signed**: the
+#: origin is wherever the person drawing put it, and forcing it to a corner of
+#: the room would make the first wall they drew the wrong one. A kilometre in
+#: either direction is far past any room; the bound exists so a fat-fingered
+#: coordinate is a 422 rather than a canvas nobody can find their furniture on.
+PlanCoordMm = Annotated[int, Field(ge=-1_000_000, le=1_000_000)]
+
+#: A drawn extent — a footprint's width or depth, a wall's thickness. Positive,
+#: because a zero-width cabinet is not a cabinet and a negative one is a bug that
+#: renders as nothing. Null, not zero, is how "unknown size" is said.
+PlanExtentMm = Annotated[int, Field(ge=1, le=1_000_000)]
+
+#: Clockwise degrees. Whole degrees only: a cabinet stands square, across a
+#: corner, or the difference does not matter at the scale a room is drawn at.
+PlanRotationDeg = Annotated[int, Field(ge=0, le=359)]
+
+#: Vertices in one drawn shape — a `min_length`/`max_length` pair rather than an
+#: `Annotated[int]`, because it bounds a list and not a field. Two is the minimum
+#: that is a line at all; two hundred is far past hand-drawing a room, and the
+#: ceiling is what stops a runaway client writing a million point rows in one
+#: request.
+PLAN_MIN_POINTS = 2
+PLAN_MAX_POINTS = 200
+
+#: How many shapes one room's plan may hold, and how many placements one batched
+#: save may carry. Bounded for the same reason: both writes replace or apply the
+#: whole set in one request, so the request size *is* the whole thing.
+PLAN_MAX_SHAPES = 500
+PLAN_MAX_PLACEMENTS = 500
+
 #: How many candidate parts one requirement is answered with, per availability
 #: list. Bounded low on purpose rather than for safety: a suggestion is read by a
 #: human, and fifty options is not a shortlist, it is the search results — which
@@ -125,6 +155,10 @@ CandidateLimit = Annotated[int, Field(ge=1, le=50)]
 __all__ = [
     "MASS_MG_MAX",
     "MONEY_MICRO_MAX",
+    "PLAN_MAX_PLACEMENTS",
+    "PLAN_MAX_POINTS",
+    "PLAN_MAX_SHAPES",
+    "PLAN_MIN_POINTS",
     "QTY_MILLI_MAX",
     "AssemblyCount",
     "CandidateLimit",
@@ -137,6 +171,9 @@ __all__ = [
     "LabelDpi",
     "MassMg",
     "MoneyMicro",
+    "PlanCoordMm",
+    "PlanExtentMm",
+    "PlanRotationDeg",
     "QtyMilli",
     "ResultOffset",
 ]

@@ -1,32 +1,77 @@
 /**
- * The instance layout editor, against a stubbed `fetch`.
+ * One container's own slots, edited in place — against a stubbed `fetch`.
  *
- * The three behaviours under test are the ones ADR 0002 and
- * `app.services.layout_authoring` name explicitly: *safe*, *guarded* and
- * *refused* must read as three different things on screen, not shades of
- * the same "it didn't save" message — and loading a type's current layout
- * into the draft must never itself reach `reapply-layout`, because pushing
- * a type's change into one instance is a separate, explicit step through
- * the same guard as any hand-drawn edit.
+ * **This file used to be `screens/LocationLayoutScreen.test.tsx`.** The screen it
+ * tested is gone: editing a container's slots is a panel on the container's own
+ * page now (Iliana asked to lose the page-per-editing-task), and the coverage was
+ * moved rather than deleted because not one of the behaviours below was about the
+ * URL. They are about `app.services.layout_authoring` and ADR 0002, and they would
+ * have been the most expensive assertions on the branch to lose:
+ *
+ * - *safe*, *guarded* and *refused* must read as three different things on screen,
+ *   not as shades of one "it didn't save" — a user told "blocked, A2 holds stock"
+ *   knows which drawer to walk to, and a user told "error" does not;
+ * - loading a **type**'s current layout must never itself reach `reapply-layout`.
+ *   Pushing a type's change into one instance is a separate, explicit step through
+ *   the same guard as any hand-drawn edit — that is what "templates are only a
+ *   starting point" has to mean once the template changes later;
+ * - and the picture a container draws its children as saves on its own, because a
+ *   picture cannot swallow a neighbour's stock.
+ *
+ * The only thing the port changed is the mount: the panel is handed the
+ * `LocationRead` its page already loaded, so there is no `GET /api/locations/11`
+ * to stub and no route to render.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { LocationLayoutScreen } from "./LocationLayoutScreen";
+import { SlotLayoutPanel } from "./SlotLayoutPanel";
+import type { LocationRead } from "../lib/api/client";
 
 const LOCATION = {
   id: 11,
+  parent_id: 2,
   name: "Drawer bank",
+  slot_label: null,
+  short_id: null,
+  display: null,
   label_path: "Workshop / Cabinet A / Drawer bank",
+  description: null,
+  depth: 2,
+  id_path: "/1/2/11/",
   container_type_id: 7,
   child_count: 2,
+  is_staging: false,
+  is_overfull: false,
+  is_placeable: true,
+  esd_safe: null,
+  effective_esd_safe: null,
   // ADR 0006: nothing pinned here, so this instance draws whatever its type
   // draws — which the API has already resolved into `effective_child_view`.
   child_view: null,
   effective_child_view: "cabinet_face",
-};
+  glyph: null,
+  effective_glyph: null,
+  photo: null,
+  effective_photo: null,
+  placement: null,
+  access_score: 0.5,
+  tare_mg: null,
+  last_printed_at: null,
+  retired_at: null,
+  lots: [],
+  capacity: {
+    model: "slots",
+    used: 0,
+    capacity: 2,
+    unit: "slots",
+    fill_ratio: 0,
+    is_full: false,
+    is_overfull: false,
+  },
+} as unknown as LocationRead;
 
 function slotState(overrides: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -71,7 +116,10 @@ interface Call {
 const calls: Call[] = [];
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 function errorJson(detail: Record<string, unknown>, status: number): Response {
@@ -90,10 +138,12 @@ function clickCell(label: string, options: { shiftKey?: boolean } = {}): void {
   fireEvent.click(button, options);
 }
 
-function stubApi(options: {
-  reapplyResponse?: () => Response;
-  typeSlotTemplate?: Record<string, unknown>;
-} = {}): void {
+function stubApi(
+  options: {
+    reapplyResponse?: () => Response;
+    typeSlotTemplate?: Record<string, unknown>;
+  } = {},
+): void {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
@@ -102,9 +152,6 @@ function stubApi(options: {
       const body = raw === "" ? {} : (JSON.parse(raw) as Record<string, unknown>);
       calls.push({ url: url.pathname, method: request.method, body });
 
-      if (url.pathname === "/api/locations/11" && request.method === "GET") {
-        return json(LOCATION);
-      }
       if (url.pathname === "/api/locations/11/layout" && request.method === "GET") {
         return json(layoutRead());
       }
@@ -136,27 +183,57 @@ function stubApi(options: {
             slot_label_scheme: "row_alpha_col_num",
             slot_label_params: null,
             slots: [
-              { row_idx: 0, col_idx: 0, row_span: 1, col_span: 1, slot_label: "A1", size_class: null, inner_volume_mm3: null, sort_order: 0 },
-              { row_idx: 0, col_idx: 1, row_span: 1, col_span: 1, slot_label: "A2", size_class: null, inner_volume_mm3: null, sort_order: 10 },
-              { row_idx: 0, col_idx: 2, row_span: 1, col_span: 1, slot_label: "A3", size_class: null, inner_volume_mm3: null, sort_order: 20 },
+              {
+                row_idx: 0,
+                col_idx: 0,
+                row_span: 1,
+                col_span: 1,
+                slot_label: "A1",
+                size_class: null,
+                inner_volume_mm3: null,
+                sort_order: 0,
+              },
+              {
+                row_idx: 0,
+                col_idx: 1,
+                row_span: 1,
+                col_span: 1,
+                slot_label: "A2",
+                size_class: null,
+                inner_volume_mm3: null,
+                sort_order: 10,
+              },
+              {
+                row_idx: 0,
+                col_idx: 2,
+                row_span: 1,
+                col_span: 1,
+                slot_label: "A3",
+                size_class: null,
+                inner_volume_mm3: null,
+                sort_order: 20,
+              },
             ],
           },
         );
       }
       if (url.pathname === "/api/locations/11/reapply-layout" && request.method === "POST") {
-        return options.reapplyResponse?.() ?? json({ created: 0, updated: 1, deleted: 0, layout: layoutRead(), replayed: false });
+        return (
+          options.reapplyResponse?.() ??
+          json({ created: 0, updated: 1, deleted: 0, layout: layoutRead(), replayed: false })
+        );
       }
       throw new Error(`unstubbed request: ${request.method} ${url.pathname}`);
     }),
   );
 }
 
-function renderScreen() {
+function renderPanel(
+  options: { location?: LocationRead; onSaved?: () => void } = {},
+) {
   return render(
-    <MemoryRouter initialEntries={["/locations/11/layout"]}>
-      <Routes>
-        <Route path="/locations/:locationId/layout" element={<LocationLayoutScreen />} />
-      </Routes>
+    <MemoryRouter>
+      <SlotLayoutPanel location={options.location ?? LOCATION} onSaved={options.onSaved} />
     </MemoryRouter>,
   );
 }
@@ -172,7 +249,7 @@ afterEach(() => {
 describe("loading the current layout", () => {
   it("shows each slot's physical content, so the guard's stakes are visible before any edit", async () => {
     stubApi();
-    renderScreen();
+    renderPanel();
 
     await screen.findByText("A1", { selector: ".cell-slot" });
     expect(screen.getByText("2 lot(s)")).toBeTruthy();
@@ -185,7 +262,7 @@ describe("a safe change", () => {
       reapplyResponse: () =>
         json({ created: 0, updated: 1, deleted: 0, layout: layoutRead(), replayed: false }),
     });
-    renderScreen();
+    renderPanel();
     await screen.findByText("A1", { selector: ".cell-slot" });
 
     clickCell("A1");
@@ -195,17 +272,40 @@ describe("a safe change", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(calls.some((call) => call.method === "POST" && call.url.endsWith("/reapply-layout"))).toBe(
-        true,
-      ),
+      expect(
+        calls.some((call) => call.method === "POST" && call.url.endsWith("/reapply-layout")),
+      ).toBe(true),
     );
-    const post = calls.find((call) => call.method === "POST" && call.url.endsWith("/reapply-layout"));
+    const post = calls.find(
+      (call) => call.method === "POST" && call.url.endsWith("/reapply-layout"),
+    );
     expect(post?.body["slots"]).toEqual(
       expect.arrayContaining([expect.objectContaining({ slot_label: "shelf-1" })]),
     );
 
     const saved = await screen.findByText(/created, 1 updated, 0 removed/);
     expect(saved.closest(".notice")?.className).toContain("notice-ok");
+  });
+
+  it("reports the unsent edit upward, so the panel's frame can say so too", async () => {
+    stubApi();
+    const dirtyStates: boolean[] = [];
+    render(
+      <MemoryRouter>
+        <SlotLayoutPanel location={LOCATION} onDirtyChange={(next) => dirtyStates.push(next)} />
+      </MemoryRouter>,
+    );
+    await screen.findByText("A1", { selector: ".cell-slot" });
+    await waitFor(() => expect(dirtyStates.at(-1)).toBe(false));
+
+    clickCell("A1");
+    fireEvent.change(await screen.findByLabelText(/Label \(required\)/), {
+      target: { value: "shelf-1" },
+    });
+    await waitFor(() => expect(dirtyStates.at(-1)).toBe(true));
+
+    // And it says so about itself, in a word rather than only a hue.
+    expect(screen.getByText("unsaved").className).toContain("badge-warn");
   });
 });
 
@@ -222,7 +322,7 @@ describe("a guarded change", () => {
           409,
         ),
     });
-    renderScreen();
+    renderPanel();
     await screen.findByText("A2", { selector: ".cell-slot" });
 
     // Select A2 (which holds a lot) and remove it.
@@ -244,7 +344,7 @@ describe("a guarded change", () => {
 describe("a refused change", () => {
   it("disables Save when reusing an existing slot's label would reinterpret its identity", async () => {
     stubApi();
-    renderScreen();
+    renderPanel();
     await screen.findByText("A1", { selector: ".cell-slot" });
 
     // Rename A1 to "A2" — the label A2's own region already owns.
@@ -262,7 +362,7 @@ describe("a refused change", () => {
 describe("loading a type's current layout into the draft", () => {
   it("never calls reapply-layout by itself — it only replaces the draft, which must still be saved", async () => {
     stubApi();
-    renderScreen();
+    renderPanel();
     await screen.findByText("A1", { selector: ".cell-slot" });
 
     fireEvent.click(await screen.findByRole("button", { name: "Load the type's current layout" }));
@@ -275,9 +375,9 @@ describe("loading a type's current layout into the draft", () => {
     // the instance through the guard.
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
-      expect(calls.some((call) => call.method === "POST" && call.url.endsWith("/reapply-layout"))).toBe(
-        true,
-      ),
+      expect(
+        calls.some((call) => call.method === "POST" && call.url.endsWith("/reapply-layout")),
+      ).toBe(true),
     );
   });
 
@@ -286,16 +386,13 @@ describe("loading a type's current layout into the draft", () => {
       "fetch",
       vi.fn(async (request: Request) => {
         const url = new URL(request.url);
-        if (url.pathname === "/api/locations/11" && request.method === "GET") {
-          return json({ ...LOCATION, container_type_id: null });
-        }
         if (url.pathname === "/api/locations/11/layout" && request.method === "GET") {
           return json(layoutRead({ container_type_id: null }));
         }
         throw new Error(`unstubbed request: ${request.method} ${url.pathname}`);
       }),
     );
-    renderScreen();
+    renderPanel({ location: { ...LOCATION, container_type_id: null } as LocationRead });
     await screen.findByText("A1", { selector: ".cell-slot" });
     expect(screen.queryByRole("button", { name: /Load the type's current layout/ })).toBeNull();
   });
@@ -308,7 +405,7 @@ describe("loading a type's current layout into the draft", () => {
 describe("how this one container is drawn", () => {
   it("starts on the type's answer and says nobody has overridden it", async () => {
     stubApi();
-    renderScreen();
+    renderPanel();
 
     const picker = (await screen.findByLabelText("Picture")) as HTMLSelectElement;
     expect(picker.value).toBe("");
@@ -318,7 +415,7 @@ describe("how this one container is drawn", () => {
 
   it("pins one, and reports back what it is now drawn as", async () => {
     stubApi();
-    renderScreen();
+    renderPanel();
     fireEvent.change(await screen.findByLabelText("Picture"), {
       target: { value: "grid_cells" },
     });
@@ -338,7 +435,7 @@ describe("how this one container is drawn", () => {
     // the change guard protects: routing it through there would imply a risk it
     // does not carry.
     stubApi();
-    renderScreen();
+    renderPanel();
     fireEvent.change(await screen.findByLabelText("Picture"), { target: { value: "list" } });
 
     await waitFor(() =>
@@ -349,19 +446,41 @@ describe("how this one container is drawn", () => {
 
   it("sends an explicit null to hand the drawing back to the type", async () => {
     stubApi();
-    renderScreen();
+    renderPanel();
     const picker = await screen.findByLabelText("Picture");
     fireEvent.change(picker, { target: { value: "list" } });
     await waitFor(() => expect(screen.getByText(/Overridden for this container only/)).toBeTruthy());
 
     fireEvent.change(picker, { target: { value: "" } });
     await waitFor(() =>
-      expect(
-        calls.filter((call) => call.url === "/api/locations/11/child-view"),
-      ).toHaveLength(2),
+      expect(calls.filter((call) => call.url === "/api/locations/11/child-view")).toHaveLength(2),
     );
     const last = calls.filter((call) => call.url === "/api/locations/11/child-view").at(-1);
     expect(last?.body).toHaveProperty("child_view", null);
     expect(await screen.findByText(/Not overridden here/)).toBeTruthy();
   });
+});
+
+/**
+ * The picture control saves immediately, and the page *behind* the panel is what
+ * decides which picture to draw — from `effective_child_view` on its own
+ * `LocationRead`, and, for a floor plan, whether to fetch a room plan at all. So a
+ * save nobody upstream hears about is a save that does not change the picture.
+ */
+it("tells the page behind, so the picture it draws actually changes", async () => {
+  stubApi();
+  const saved = vi.fn();
+  renderPanel({ onSaved: saved });
+
+  fireEvent.change(await screen.findByLabelText("Picture"), {
+    target: { value: "floor_plan" },
+  });
+
+  await waitFor(() =>
+    expect(calls.some((call) => call.url === "/api/locations/11/child-view")).toBe(true),
+  );
+  // Without this the write succeeded, the container page kept drawing drawer
+  // fronts, `GET …/plan` was never issued, and reopening this panel re-read the
+  // select from the stale row and showed the *old* choice.
+  await waitFor(() => expect(saved).toHaveBeenCalled());
 });

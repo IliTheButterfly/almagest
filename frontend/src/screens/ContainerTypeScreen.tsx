@@ -33,6 +33,7 @@ import { ContainerPhotoPanel } from "../components/ContainerPhotoPanel";
 import { ContainerTypeForm } from "../components/ContainerTypeForm";
 import { LayoutEditor } from "../components/LayoutEditor";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { PathBar } from "../components/PathBar";
 import {
   cloneContainerType,
   detachContainerTypeDocument,
@@ -155,9 +156,13 @@ function TypeEditor({
   return (
     <div className="stack">
       <div className="card">
-        <div className="row">
-          <Link to="/container-types">← types</Link>
-        </div>
+        <PathBar
+          trail={[
+            { key: "types", label: "Container types", to: "/container-types" },
+            { key: `type-${type.id}`, label: type.display_name },
+          ]}
+          label="Container type path"
+        />
         <div className="row">
           <h1 style={{ flex: 1 }}>{type.display_name}</h1>
           {type.is_seed && <span className="badge badge-warn">seed</span>}
@@ -254,8 +259,8 @@ function TypeEditor({
       <Notice kind="info" title="This never reaches into an already-built container">
         A cabinet already stamped from this type keeps whatever layout it had at the moment
         it was created — nothing saved here touches it. To push a change into one specific
-        cabinet, open that cabinet's own "Edit layout" screen and choose to load this type's
-        current layout there, which goes through its own change guard.
+        cabinet, open that cabinet, press "Edit this container", then "Slots inside…" and load
+        this type's current layout there — which goes through its own change guard.
       </Notice>
 
       <div className="card">

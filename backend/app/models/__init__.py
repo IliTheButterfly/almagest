@@ -46,6 +46,8 @@ from app.models.storage import (
     ContainerTypeSlotTemplate,
     Location,
     LocationOccupancy,
+    LocationPlanShape,
+    LocationPlanShapePoint,
     LocationTag,
 )
 from app.models.system import CacheState, ClientOperation, Setting
@@ -66,6 +68,8 @@ __all__ = [
     "LayoutSuggestion",
     "Location",
     "LocationOccupancy",
+    "LocationPlanShape",
+    "LocationPlanShapePoint",
     "LocationTag",
     "Manufacturer",
     "ObjectId",
