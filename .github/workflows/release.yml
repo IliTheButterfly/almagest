@@ -66,8 +66,13 @@ jobs:
           # the deploy script's registry preflight fails and says so — which is
           # the intended failure, not a silent mismatch.
           short=$(printf '%s' "${{ github.sha }}" | cut -c1-12)
+          # Branch names routinely contain `/` (feat/..., fix/...), which is not
+          # legal in an image tag — buildx rejects the whole build with
+          # "invalid reference format" rather than skipping the tag.
+          branch=$(printf '%s' "${{ github.ref_name }}" | tr '/' '-')
           echo "repo=ghcr.io/$owner/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
           echo "sha=sha-$short" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -90,9 +95,11 @@ jobs:
           # agent from a checkout, not from an image, so there is nothing arm64
           # would be for and it would roughly double every build.
           platforms: linux/amd64
+          # The immutable one is what deploys pin; the branch tag is a
+          # convenience for "whatever is newest on this branch".
           tags: |
             ${{ steps.tags.outputs.repo }}:${{ steps.tags.outputs.sha }}
-            ${{ steps.tags.outputs.repo }}:${{ github.ref_name == 'main' && 'main' || github.ref_name }}
+            ${{ steps.tags.outputs.repo }}:${{ steps.tags.outputs.branch }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
