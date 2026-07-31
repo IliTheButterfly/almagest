@@ -1355,6 +1355,118 @@ button.tall {
 }
 
 /*
+ * The page and the running record, side by side.
+ *
+ * Same two-column shape as `.workspace` below and for the same reason, with one
+ * difference that matters: this one wraps *every* screen, so `.app-main`'s
+ * `max-width` has to move onto the grid or the panel would be pushed off centre
+ * on a wide monitor. Below 60rem it is one column with the panel after the page —
+ * on a phone you navigated to a screen, and a panel above it would hide the thing
+ * you came for. The panel is capped rather than proportional so it stays a
+ * companion instead of becoming a second page.
+ */
+.app-body {
+  flex: 1;
+  width: 100%;
+  max-width: 60rem;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+/* `.app-main`'s own centring now belongs to the grid above it. */
+.app-body > .app-main {
+  max-width: none;
+  margin: 0;
+  padding-inline: 0;
+}
+
+@media (min-width: 60rem) {
+  .app-body {
+    max-width: 78rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+  }
+
+  /* Sticks while the page scrolls: the strip says where a take is going to be
+     attributed, and a mitigation that scrolls off the top of the screen is not
+     one. */
+  .app-body > .work-panel {
+    position: sticky;
+    top: calc(var(--header-h) + var(--gap));
+  }
+}
+
+.work-panel {
+  padding: 0 0.75rem 6rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  /* Its own edge, the same statement `.detail-panel` makes: a shape rather than
+     a hue, so it survives a monochrome screen. */
+  border-left: 3px solid var(--line-strong);
+}
+
+@media (min-width: 60rem) {
+  .work-panel {
+    padding-bottom: var(--gap);
+  }
+}
+
+.work-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/*
+ * A tab is two controls in one shape: focus it, or close it. Separate buttons
+ * rather than one with a hit region, because the close is destructive-ish and a
+ * mis-tap on it is exactly the accident the close rule exists to catch.
+ */
+.work-tab {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.work-tab > button {
+  border: 0;
+  border-radius: 0;
+  min-height: var(--touch);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent;
+}
+
+.work-tab-name {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The focused tab is marked by weight and by a filled edge, not by colour alone. */
+.work-tab.is-focused {
+  border-color: var(--line-strong);
+}
+
+.work-tab.is-focused > button[role="tab"] {
+  font-weight: 650;
+  background: var(--bg-raised);
+  box-shadow: inset 0 -2px 0 0 var(--line-strong);
+}
+
+.work-tab-close {
+  padding-inline: 0.6rem;
+  border-inline-start: 1px solid var(--line) !important;
+}
+
+/*
  * Master and detail: the map, and the container you pressed on it.
  *
  * The map keeps the wide column because it is the drawing — a cabinet squashed to

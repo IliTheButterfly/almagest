@@ -14,6 +14,7 @@ import { NavLink, Navigate, Route, Routes, useParams } from "react-router-dom";
 
 import { Logo } from "./components/Logo";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { WorkPanel } from "./components/WorkPanel";
 import { carts } from "./lib/cart/registry";
 import { describeTarget } from "./lib/cart/describe";
 import { useCartSize } from "./lib/cart/useCart";
@@ -120,56 +121,68 @@ export function App() {
         <NavLink to="/review">Review</NavLink>
       </nav>
 
-      <main className="app-main">
-        <Routes>
-          <Route index element={<SearchScreen />} />
-          <Route path="/search" element={<SearchScreen />} />
-          {/* Phase 4's standalone value: full-text search over every stored
-              PDF's extracted text, not part fields — a different question
-              from `/search`, not a mode of it. Not a scan target. */}
-          <Route path="/datasheets" element={<DatasheetSearchScreen />} />
-          <Route path="/tree" element={<TreeScreen />} />
-          <Route path="/scan" element={<ScanScreen />} />
-          <Route path="/intake" element={<IntakeQueueScreen />} />
-          {/* Emptying the inbox. Not a scan target — reached from the tab, and from
-              intake once a part has been parked there. */}
-          <Route path="/staging" element={<StagingScreen />} />
-          <Route path="/review" element={<ReviewScreen />} />
-          {/* The `/s/{short_id}` redirect targets — these paths are physical. */}
-          <Route path="/parts/:partId" element={<PartScreen />} />
-          <Route path="/locations/:locationId" element={<LocationScreen />} />
-          <Route path="/lots/:lotId" element={<LotScreen />} />
-          <Route path="/provision" element={<ProvisionScreen />} />
-          {/* Layout authoring — reached from the tab and from a container's own
-              screen, never from a scanned tag. `/container-types/new` is listed
-              before the parameterised route for readability only: React Router
-              ranks a static segment above a dynamic one whatever the order. */}
-          <Route path="/container-types" element={<ContainerTypesScreen />} />
-          <Route path="/container-types/new" element={<NewContainerTypeScreen />} />
-          <Route path="/container-types/:containerTypeId" element={<ContainerTypeScreen />} />
-          {/* Collapsed into the container's own page's edit mode — Iliana asked
-              to lose the page-per-editing-task. Kept as a redirect rather than
-              deleted: the link is in browser histories and in her notes, and
-              landing on "not found" would read as the feature having been
-              removed. `?panel=layout` opens the panel it used to be. */}
-          <Route path="/locations/:locationId/layout" element={<LayoutRedirect />} />
-          {/* Creating real containers out of a *type*, which is the one create
-              path that has no container page to live on: it is reached from the
-              type library and from a type's own page, which know what to stamp and
-              not where it goes, and from the empty tree, where no container exists
-              yet. Adding into a container you are looking at is that container's
-              own edit mode instead. Deliberately **not** under `/locations/...`:
-              every path in that space is a `/s/{short_id}` redirect target, and
-              this one is never reached from a tag. */}
-          <Route path="/containers/new" element={<NewContainersScreen />} />
-          {/* Projects, BOMs and builds — not a scan target; reached from the tab. */}
-          <Route path="/projects" element={<ProjectsScreen />} />
-          <Route path="/projects/:projectId" element={<ProjectScreen />} />
-          <Route path="/projects/:projectId/bom" element={<BomScreen />} />
-          <Route path="/builds/:buildId" element={<BuildScreen />} />
-          <Route path="*" element={<NotFoundScreen />} />
-        </Routes>
-      </main>
+      {/*
+        * The page and the panel, side by side from 60rem up and stacked below it.
+        *
+        * The panel comes *after* the page in the DOM on purpose: it is a
+        * companion to whatever screen you are on, so a phone should reach the
+        * screen it navigated to first and the running record under it. On a wide
+        * screen the grid puts it on the right without changing that order, which
+        * is also the reading order a screen reader gets.
+        */}
+      <div className="app-body">
+        <main className="app-main">
+          <Routes>
+            <Route index element={<SearchScreen />} />
+            <Route path="/search" element={<SearchScreen />} />
+            {/* Phase 4's standalone value: full-text search over every stored
+                PDF's extracted text, not part fields — a different question
+                from `/search`, not a mode of it. Not a scan target. */}
+            <Route path="/datasheets" element={<DatasheetSearchScreen />} />
+            <Route path="/tree" element={<TreeScreen />} />
+            <Route path="/scan" element={<ScanScreen />} />
+            <Route path="/intake" element={<IntakeQueueScreen />} />
+            {/* Emptying the inbox. Not a scan target — reached from the tab, and from
+                intake once a part has been parked there. */}
+            <Route path="/staging" element={<StagingScreen />} />
+            <Route path="/review" element={<ReviewScreen />} />
+            {/* The `/s/{short_id}` redirect targets — these paths are physical. */}
+            <Route path="/parts/:partId" element={<PartScreen />} />
+            <Route path="/locations/:locationId" element={<LocationScreen />} />
+            <Route path="/lots/:lotId" element={<LotScreen />} />
+            <Route path="/provision" element={<ProvisionScreen />} />
+            {/* Layout authoring — reached from the tab and from a container's own
+                screen, never from a scanned tag. `/container-types/new` is listed
+                before the parameterised route for readability only: React Router
+                ranks a static segment above a dynamic one whatever the order. */}
+            <Route path="/container-types" element={<ContainerTypesScreen />} />
+            <Route path="/container-types/new" element={<NewContainerTypeScreen />} />
+            <Route path="/container-types/:containerTypeId" element={<ContainerTypeScreen />} />
+            {/* Collapsed into the container's own page's edit mode — Iliana asked
+                to lose the page-per-editing-task. Kept as a redirect rather than
+                deleted: the link is in browser histories and in her notes, and
+                landing on "not found" would read as the feature having been
+                removed. `?panel=layout` opens the panel it used to be. */}
+            <Route path="/locations/:locationId/layout" element={<LayoutRedirect />} />
+            {/* Creating real containers out of a *type*, which is the one create
+                path that has no container page to live on: it is reached from the
+                type library and from a type's own page, which know what to stamp and
+                not where it goes, and from the empty tree, where no container exists
+                yet. Adding into a container you are looking at is that container's
+                own edit mode instead. Deliberately **not** under `/locations/...`:
+                every path in that space is a `/s/{short_id}` redirect target, and
+                this one is never reached from a tag. */}
+            <Route path="/containers/new" element={<NewContainersScreen />} />
+            {/* Projects, BOMs and builds — not a scan target; reached from the tab. */}
+            <Route path="/projects" element={<ProjectsScreen />} />
+            <Route path="/projects/:projectId" element={<ProjectScreen />} />
+            <Route path="/projects/:projectId/bom" element={<BomScreen />} />
+            <Route path="/builds/:buildId" element={<BuildScreen />} />
+            <Route path="*" element={<NotFoundScreen />} />
+          </Routes>
+        </main>
+        <WorkPanel />
+      </div>
     </div>
   );
 }
