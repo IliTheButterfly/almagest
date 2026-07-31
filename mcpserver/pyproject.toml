@@ -1,0 +1,96 @@
+[project]
+name = "almagest-mcp"
+version = "0.1.0"
+description = "Almagest — the MCP server: the inventory as tools an agent can call."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+
+# Small on purpose, and for a different reason than `deviceagent`'s. That one is
+# tiny because it runs on a Pi; this one is tiny because it is a *translation
+# layer* with no state of its own. It holds no database handle, opens no PDF and
+# owns no schema — everything it answers, it answers by calling the HTTP API that
+# the PWA and the station already call.
+dependencies = [
+    # The Model Context Protocol server SDK. `mcp>=2` is where `MCPServer`
+    # replaced `FastMCP`; the import path in `server.py` is `mcp.server.mcpserver`,
+    # which does not exist before 2.0, so the floor is real rather than cautious.
+    "mcp>=2.0",
+    "pydantic-settings>=2.6",
+    # Short-id normalisation *before* the request leaves. A model transcribing
+    # `4K7T-92M8` from a photo or a chat message gets O/0 and I/1 wrong, and the
+    # Crockford alphabet plus the mod-37 check symbol catches almost all of it —
+    # so a typo becomes "that is not a valid code" here rather than a 404 from the
+    # API that reads as "no such container". Same rule as both other components
+    # apply, because it is the same package; see `idcodec/README.md`.
+    "almagest-idcodec",
+]
+
+[project.scripts]
+almagest-mcp = "almagest_mcp.server:main"
+
+[tool.uv.sources]
+almagest-idcodec = { path = "../idcodec", editable = true }
+
+[dependency-groups]
+# NOTE: no `almagest-backend`. The tests here never start the API — the contract
+# test reads the committed `openapi.json`, and the tool tests drive a fake
+# transport. That is a deliberate difference from `deviceagent`, which does take
+# a backend dev dependency so `test_session_ledger.py` can assert against real
+# migrations. Nothing in this package writes a row directly, so there is no
+# ledger behaviour here to assert against a real database that the backend's own
+# suite does not already cover — and keeping the backend out means this venv
+# needs no submodules and installs in seconds.
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["almagest_mcp"]
+
+# ---------------------------------------------------------------------------
+# ruff — same configuration as the backend and the agent, deliberately
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "ARG", "PTH", "RUF"]
+ignore = [
+    # See `backend/pyproject.toml`: in prose RUF002 only ever objects to
+    # deliberate typography (en dashes, µ, Ω), all of which this repo uses on
+    # purpose. RUF001 and RUF003 stay on.
+    "RUF002",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG001", "ARG002"]  # pytest fixtures are injected, not called
+
+[tool.ruff.lint.isort]
+known-first-party = ["almagest_mcp"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["almagest_mcp"]
+strict = true
+plugins = ["pydantic.mypy"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "live: talks to a real running Almagest API; skipped unless -m live is passed",
+]
+filterwarnings = ["error"]

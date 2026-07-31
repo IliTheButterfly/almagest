@@ -147,6 +147,49 @@ jobs:
       - name: pytest
         run: uv run pytest -q
 
+  # Its own job for the same reasons as `deviceagent`: a separate venv with its own
+  # lock, so it caches and runs in parallel, and a red X names the component that
+  # broke. No `submodules: recursive` — this package talks to the API over HTTP and
+  # its tests read the committed `openapi.json`, so it needs neither the backend nor
+  # the submodule libraries.
+  #
+  # **This job is what keeps the agent-facing tool surface current.**
+  # `tests/test_coverage_manifest.py` diffs `almagest_mcp/coverage.py` against
+  # `openapi.json` and fails when a route is added, renamed or removed without a
+  # decision recorded. A backend PR that adds a route therefore goes red here until
+  # somebody says whether an agent should be able to call it — which is the whole
+  # design, not an inconvenience. See `mcpserver/almagest_mcp/coverage.py`.
+  mcpserver:
+    name: mcpserver
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcpserver
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: mcpserver/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy almagest_mcp
+
+      # The `live` test needs a running API and is skipped by the marker, so it
+      # stays visible in the summary as an unexercised contract.
+      - name: pytest
+        run: uv run pytest -q
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest
