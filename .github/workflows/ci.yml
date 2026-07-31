@@ -249,6 +249,10 @@ jobs:
           openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
             -subj /CN=almagest.lan \
             -keyout /tmp/tls/tls.key -out /tmp/tls/tls.crt 2>/dev/null
+          # openssl writes the key 0600 owned by the runner's uid, and the
+          # image runs as uid 101, so without this nginx fails to open it. In
+          # the cluster this does not arise: a Secret volume mounts 0644.
+          chmod a+r /tmp/tls/tls.key
           docker run --rm \
             -v /tmp/tls:/etc/almagest/tls:ro \
             --add-host almagest-api:127.0.0.1 \
