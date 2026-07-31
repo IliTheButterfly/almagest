@@ -322,7 +322,10 @@ function Section({
   return (
     <section className="card">
       <div className="row">
-        <h3 style={{ margin: 0 }}>{title}</h3>
+        {/* Takes the slack so the toggle stays on the heading's line: a real
+            target is named "Build #1 — rev B x3", which is long enough to push a
+            button onto its own row and make the panel look broken. */}
+        <h3 style={{ margin: 0, flex: 1, minWidth: 0 }}>{title}</h3>
         {count !== undefined && count > 0 && <span className="badge badge-accent">{count}</span>}
         <span className="spacer" />
         <button type="button" aria-expanded={open} onClick={onToggle}>
