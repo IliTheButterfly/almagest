@@ -12,7 +12,7 @@
  * the user what to do next in a way no generic validation message can.
  */
 
-import { ApiError } from "./client";
+import { ApiError, type ParameterFieldRead } from "./client";
 
 /**
  * One slot a layout change could not delete — `app.services.layout_authoring
@@ -224,6 +224,37 @@ function readAffectedSlots(source: Record<string, unknown>): AffectedSlotProblem
     });
   }
   return slots.length > 0 ? slots : null;
+}
+
+/**
+ * The field a `duplicate_name` refusal collided with, embedded in its own 409.
+ *
+ * Carried like `affected_slots` above, and for the same reason: the refusal is
+ * only actionable if the thing in the way is on screen. `parameter_template.name`
+ * is globally unique because one real-world concept should be one field with one
+ * substitution rule, so the answer to this collision is usually "yes, that is the
+ * field I meant" — which the user can only say if they can see it.
+ *
+ * Tolerant rather than strict: an unrecognised shape reads as "no field", and the
+ * server's own message still carries the refusal.
+ */
+export function existingFieldOf(error: unknown): ParameterFieldRead | null {
+  if (!(error instanceof ApiError) || error.detail === null || typeof error.detail !== "object") {
+    return null;
+  }
+  const body = error.detail as { detail?: unknown };
+  const detail = body.detail ?? error.detail;
+  if (detail === null || typeof detail !== "object") {
+    return null;
+  }
+  const existing = (detail as Record<string, unknown>)["existing"];
+  if (existing === null || typeof existing !== "object") {
+    return null;
+  }
+  const record = existing as Record<string, unknown>;
+  return typeof record["id"] === "number" && typeof record["name"] === "string"
+    ? (existing as ParameterFieldRead)
+    : null;
 }
 
 /**

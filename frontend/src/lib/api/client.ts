@@ -69,6 +69,11 @@ export type PartCategoryCreated = Schemas["PartCategoryCreated"];
 export type ParameterFieldRead = Schemas["ParameterFieldRead"];
 export type ParameterFieldCreate = Schemas["ParameterFieldCreate"];
 export type ParameterFieldCreated = Schemas["ParameterFieldCreated"];
+export type ParameterFieldUpdate = Schemas["ParameterFieldUpdate"];
+export type ParameterFieldEdited = Schemas["ParameterFieldEdited"];
+export type ParameterFieldDeleted = Schemas["ParameterFieldDeleted"];
+export type ChoiceAdd = Schemas["ChoiceAdd"];
+export type ChoiceDeleted = Schemas["ChoiceDeleted"];
 export type ParameterChoiceRead = Schemas["ParameterChoiceRead"];
 export type ChoiceIn = Schemas["ChoiceIn"];
 /** One pickable physical quantity for a numeric field's `base_unit`. */
@@ -441,6 +446,82 @@ export async function createParameterField(
   const { data, error, response } = await api.POST("/api/parameter-fields", { body: request });
   if (error !== undefined) {
     fail("could not create that field", error, response);
+  }
+  return data;
+}
+
+/**
+ * Edit a definition. What the API refuses here is the point of the route:
+ * `value_type` and `base_unit` are frozen once any part holds a value, because
+ * every stored `value_min`/`value_max` was computed under the old quantity and
+ * would keep answering range queries in it, and all three identity columns are
+ * frozen on a seeded field. Everything else — the display name, the ordering, the
+ * plausibility window, the substitution rule — is editable at any time and cannot
+ * invalidate a stored value.
+ */
+export async function updateParameterField(
+  fieldId: number,
+  request: ParameterFieldUpdate,
+): Promise<ParameterFieldEdited> {
+  const { data, error, response } = await api.PATCH("/api/parameter-fields/{field_id}", {
+    params: { path: { field_id: fieldId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not save that field", error, response);
+  }
+  return data;
+}
+
+/**
+ * Delete a definition.
+ *
+ * Refused with `field_in_use` while any part holds a value, and that refusal is
+ * the whole reason this goes through the API rather than a cascade: the FK is
+ * `ON DELETE CASCADE`, so an unguarded delete would take every stored value with
+ * it without asking.
+ */
+export async function deleteParameterField(fieldId: number): Promise<ParameterFieldDeleted> {
+  const { data, error, response } = await api.DELETE("/api/parameter-fields/{field_id}", {
+    params: { path: { field_id: fieldId } },
+  });
+  if (error !== undefined) {
+    fail("could not delete that field", error, response);
+  }
+  return data;
+}
+
+/** Add one option to an existing list field. Additive, so always safe. */
+export async function addParameterChoice(
+  fieldId: number,
+  request: ChoiceAdd,
+): Promise<ParameterFieldEdited> {
+  const { data, error, response } = await api.POST("/api/parameter-fields/{field_id}/choices", {
+    params: { path: { field_id: fieldId } },
+    body: request,
+  });
+  if (error !== undefined) {
+    fail("could not add that option", error, response);
+  }
+  return data;
+}
+
+/**
+ * Remove one option. Refused with `choice_in_use` while parts are filed under it
+ * — `parameter_value.choice_id` is `RESTRICT`, so without the guard the database
+ * says no as an `IntegrityError`, which reaches the user as a 500 with no number
+ * in it.
+ */
+export async function deleteParameterChoice(
+  fieldId: number,
+  choiceId: number,
+): Promise<ChoiceDeleted> {
+  const { data, error, response } = await api.DELETE(
+    "/api/parameter-fields/{field_id}/choices/{choice_id}",
+    { params: { path: { field_id: fieldId, choice_id: choiceId } } },
+  );
+  if (error !== undefined) {
+    fail("could not delete that option", error, response);
   }
   return data;
 }

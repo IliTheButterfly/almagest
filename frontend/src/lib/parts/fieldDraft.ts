@@ -27,6 +27,8 @@
 import type {
   NameConflictPolicy,
   ParameterFieldCreate,
+  ParameterFieldRead,
+  ParameterFieldUpdate,
   SubstitutionDirection,
   ValueType,
 } from "../api/client";
@@ -192,6 +194,11 @@ export function fieldKey(displayName: string): string {
   return displayName
     .toLowerCase()
     .normalize("NFKD")
+    // The decomposed accents themselves, dropped rather than left to the class
+    // below: NFKD turns "é" into "e" plus a combining mark, and a mark that
+    // survives to the next step becomes a separator — `resistance` would go into
+    // the search URL as `re_sistance`.
+    .replace(/\p{M}+/gu, "")
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 128);
@@ -340,4 +347,118 @@ export function toFieldCreateRequest(
     on_name_conflict: draft.onNameConflict,
     client_op_id: options.clientOpId,
   };
+}
+
+// ---------------------------------------------------------------- editing ----
+
+/**
+ * A saved field, back as a draft.
+ *
+ * The options come back as their own rows with their own ids, so they are *not*
+ * editable through this draft: adding and removing one are separate requests
+ * (`POST`/`DELETE .../choices`) because a delete has a real refusal behind it —
+ * parts filed under an option cannot lose it silently. So the draft carries the
+ * options only so the form can show what is already there.
+ */
+export function draftFromField(field: ParameterFieldRead): FieldDraft {
+  return {
+    name: field.name,
+    displayName: field.display_name,
+    valueType: field.value_type as ValueType,
+    baseUnit: field.base_unit ?? "",
+    substitutionDirection: field.substitution_direction as SubstitutionDirection,
+    plausibleMin: field.plausible_min === null ? "" : String(field.plausible_min),
+    plausibleMax: field.plausible_max === null ? "" : String(field.plausible_max),
+    choices: (field.choices ?? []).map((choice) => ({
+      key: choice.key,
+      label: choice.label,
+      aliases: choice.aliases.join(", "),
+    })),
+    onNameConflict: "fail",
+  };
+}
+
+/**
+ * Which of a saved field's columns this user cannot change, and the reason to
+ * show against each.
+ *
+ * Two independent freezes, and they are worth telling apart on screen because
+ * one of them lifts and the other never does: a **seeded** field's identity is
+ * frozen forever (the MPN decoders name it), while `value_type` and `base_unit`
+ * are frozen only *while parts hold values* — clearing those values makes the
+ * field editable again, which is a thing a user can actually do.
+ */
+export interface FrozenColumns {
+  readonly name: string | null;
+  readonly valueType: string | null;
+  readonly baseUnit: string | null;
+}
+
+export function frozenColumns(field: ParameterFieldRead): FrozenColumns {
+  const seeded =
+    "Part of the shared field library. Its name, type and quantity are frozen — the MPN " +
+    "decoders and every saved search name this field.";
+  const held =
+    field.value_count === 1
+      ? "One part holds a value for this field."
+      : `${field.value_count} parts hold a value for this field.`;
+  const inUse = `${held} Changing this would leave those values in place meaning something else, so it is a data migration rather than an edit.`;
+  return {
+    name: field.is_seed ? seeded : null,
+    valueType: field.is_seed ? seeded : field.value_count > 0 ? inUse : null,
+    baseUnit: field.is_seed ? seeded : field.value_count > 0 ? inUse : null,
+  };
+}
+
+/**
+ * The PATCH body: **only what actually changed**.
+ *
+ * A diff rather than the whole draft, because the server refuses a frozen column
+ * the moment it is *assigned* rather than only when it differs — `rename_template`
+ * checks the seed freeze before it compares. Sending an unchanged `name` back on a
+ * seeded field would therefore be refused as `seed_immutable` for an edit the user
+ * never made, against a form they only used to fix a typo in the display name.
+ */
+export function toFieldUpdateRequest(
+  draft: FieldDraft,
+  original: ParameterFieldRead,
+  options: { categorySlug: string | null; clientOpId: string },
+): ParameterFieldUpdate {
+  const request: Record<string, unknown> = { client_op_id: options.clientOpId };
+  const numeric = draft.valueType === "numeric";
+
+  if (draft.name.trim() !== original.name) {
+    request["name"] = draft.name.trim();
+  }
+  if (draft.displayName.trim() !== original.display_name) {
+    request["display_name"] = draft.displayName.trim();
+  }
+  if (draft.valueType !== original.value_type) {
+    request["value_type"] = draft.valueType;
+  }
+  const unit = numeric ? draft.baseUnit.trim() : null;
+  if (unit !== (original.base_unit ?? null)) {
+    request["base_unit"] = unit;
+  }
+  if (draft.substitutionDirection !== original.substitution_direction) {
+    request["substitution_direction"] = draft.substitutionDirection;
+  }
+  const category = options.categorySlug === "" ? null : options.categorySlug;
+  if (category !== (original.applies_to_category ?? null)) {
+    request["applies_to_category"] = category;
+  }
+  const low = numberOrNull(draft.plausibleMin);
+  const high = numberOrNull(draft.plausibleMax);
+  if (low !== original.plausible_min) {
+    request["plausible_min"] = low;
+  }
+  if (high !== original.plausible_max) {
+    request["plausible_max"] = high;
+  }
+  return request as ParameterFieldUpdate;
+}
+
+/** True when nothing but the idempotency key would be sent. */
+export function isEmptyUpdate(request: ParameterFieldUpdate): boolean {
+  return Object.keys(request).filter((key) => key !== "client_op_id").length === 0;
 }

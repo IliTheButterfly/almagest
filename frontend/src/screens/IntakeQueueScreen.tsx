@@ -21,6 +21,7 @@ import { useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { PartKindPicker } from "../components/PartKindPicker";
 import {
   bindScanAlias,
   createPart,
@@ -346,14 +347,7 @@ function PendingRow({ entry }: { entry: PendingScan }) {
             <span>Name (the only required field)</span>
             <input value={name} onChange={(event) => setName(event.target.value)} />
           </label>
-          <label className="field">
-            <span>Part kind</span>
-            <input
-              value={partKind}
-              onChange={(event) => setPartKind(event.target.value)}
-              autoComplete="off"
-            />
-          </label>
+          <PartKindPicker value={partKind} onChange={setPartKind} />
           <details>
             <summary>Raw payload</summary>
             <p className="muted-note mono" style={{ overflowWrap: "anywhere" }}>

@@ -139,6 +139,36 @@ substitution search correct by construction, and silently defaulting a voltage
 rating to `exact` would mean a 50 V part no longer satisfies a 25 V requirement
 with nothing to say so.
 
+## Decision 5 — the screen is shaped around the ambiguity, not around the tables
+
+`/part-types` is one workspace: the **category** rail is the whole left column and
+the fields of whatever is selected are the whole right one, because that is the
+path for the thing the user actually asked for ("capacitors need an ESR"). **Kinds
+are last, behind their own heading that says they carry no fields** — there are
+three or four kinds in the lifetime of an inventory, and a user who found that
+panel first would conclude the app cannot do what they came for.
+
+Three consequences of the decisions above that only exist on the client:
+
+* The detail column separates **authored here** from **inherited**, and says that
+  editing an inherited field changes every category that inherits it. Decision 2
+  makes a field on Capacitors reach Capacitors > Ceramic; without that heading, the
+  same list would read as "these are all mine to change freely".
+* The 409 from Decision 3 is **kept in the form**, with the existing field's
+  quantity and use count on screen, and the two policies as buttons. `namespace` is
+  offered only when a category is selected, since it names the field
+  `<category>.<name>` and would otherwise be a 422.
+* The PATCH body is a **diff of the draft against the saved field**, because
+  `rename_template` checks the seed freeze the moment `name` is *assigned* rather
+  than when it differs. Echoing the whole draft back would refuse a display-name
+  fix on a seeded field as `seed_immutable` for an edit nobody made.
+
+The part-kind control on the create-a-part forms (scan, intake) became a picker
+over the real kinds at the same time, and links here. It was free text, which is
+the one shape that column cannot be: `POST /api/parts` refuses anything that is
+not a `part_kinds.slug`, so every typo was a refusal discovered after the form was
+filled in, with nothing on screen listing the accepted answers.
+
 ## Consequences
 
 * Nothing in this diff writes `parameter_value`. Values still go through

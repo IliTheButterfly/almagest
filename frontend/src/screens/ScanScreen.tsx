@@ -26,6 +26,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { AssignStock } from "../components/AssignStock";
 import { CodeEntry } from "../components/CodeEntry";
 import { ErrorBanner, Notice } from "../components/Feedback";
+import { PartKindPicker } from "../components/PartKindPicker";
 import { Viewfinder } from "../components/Viewfinder";
 import {
   bindScanAlias,
@@ -675,15 +676,7 @@ function BindOrCreate({
         <span>Name (the only required field)</span>
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="what it is" />
       </label>
-      <label className="field">
-        <span>Part kind</span>
-        <input
-          value={partKind}
-          onChange={(event) => setPartKind(event.target.value)}
-          placeholder="component"
-          autoComplete="off"
-        />
-      </label>
+      <PartKindPicker value={partKind} onChange={setPartKind} />
       <button type="button" className="primary wide" onClick={() => void create()} disabled={busy}>
         {busy ? "Creating…" : "Create a stub part and bind this code"}
       </button>
