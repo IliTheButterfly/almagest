@@ -220,3 +220,36 @@ jobs:
           docker run --rm \
             -e ALMAGEST_DB_PATH=/tmp/ci.db \
             almagest-api:ci alembic upgrade head
+
+      # The other half of what release.yml publishes. Built here without
+      # pushing, so a broken nginx config or a frontend that no longer compiles
+      # fails on the pull request rather than at deploy time.
+      - name: Build the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          push: false
+          load: true
+          tags: almagest-web:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # `nginx -t` parses the config for real, including the regex location that
+      # carries the tag-tap path. It needs two things the image deliberately
+      # does not contain, both supplied here rather than weakened in the config:
+      #
+      #   * the TLS keypair, which lives in a Secret at runtime and must never
+      #     be baked into an image — a throwaway one proves the paths are right;
+      #   * a resolvable `almagest-api`, because nginx resolves a literal
+      #     proxy_pass hostname at startup and `-t` is no exception.
+      - name: nginx config is valid
+        run: |
+          mkdir -p /tmp/tls
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -subj /CN=almagest.lan \
+            -keyout /tmp/tls/tls.key -out /tmp/tls/tls.crt 2>/dev/null
+          docker run --rm \
+            -v /tmp/tls:/etc/almagest/tls:ro \
+            --add-host almagest-api:127.0.0.1 \
+            almagest-web:ci nginx -t

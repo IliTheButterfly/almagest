@@ -1,0 +1,26 @@
+# Non-secret configuration. Anything with a credential in it belongs in
+# secret/almagest-secrets instead, which `make k8s-secrets` builds from the
+# gitignored .env and which the API mounts with `optional: true` — the system
+# is designed to work with no data-provider keys at all.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: almagest-config
+data:
+  # Absolute paths, pointing into the mounted volume. They must be absolute:
+  # app.config anchors *relative* paths against the repo root, which is a
+  # development convenience that means nothing inside the image.
+  ALMAGEST_DB_PATH: /data/almagest.db
+  ALMAGEST_DATASHEET_DIR: /data/datasheets
+  ALMAGEST_LABEL_OUTPUT_DIR: /data/labels
+
+  # The origin stamped into every NFC tag and printed QR as {base}/s/{short_id}.
+  # Settled in docs/adr/0001. Changing this after any tag has been provisioned
+  # does not migrate those tags — they keep pointing at the old origin, because
+  # a tag is a physical object and nothing in software can reach it. Treat this
+  # value as permanent.
+  ALMAGEST_BASE_URL: https://almagest.lan
+
+  # Not ALMAGEST_LOG_LEVEL — this one key is deliberately unprefixed in
+  # app/config.py.
+  LOG_LEVEL: INFO

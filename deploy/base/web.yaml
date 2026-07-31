@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: almagest-web
+  labels:
+    app.kubernetes.io/component: web
+spec:
+  # Stateless — it holds no volume and no session — so unlike the API this one
+  # may safely roll, and may safely be scaled up if it ever needs to be.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: almagest
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: almagest
+        app.kubernetes.io/component: web
+      annotations:
+        # Rolls the pods when the certificate changes. Without this, renewing
+        # the cert updates the Secret but leaves nginx serving the old one from
+        # memory until something unrelated happens to restart it — the classic
+        # "I replaced the cert and nothing changed" afternoon.
+        almagest.local/tls-secret: almagest-tls
+    spec:
+      # 101 is the uid baked into nginxinc/nginx-unprivileged. Both listeners
+      # are above 1024, so nothing here needs a capability to bind them.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: ghcr.io/ilithebutterfly/almagest-web
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: https
+              containerPort: 8443
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/almagest/tls
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          # Probes go to the cleartext port on purpose. Probing 8443 would make
+          # pod health depend on the kubelet trusting our private CA, which it
+          # does not — a perfectly healthy pod would be killed forever.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: tls
+          secret:
+            # Created by `make k8s-tls` from the gitignored certs/ directory.
+            # Deliberately not `optional: true`: a missing certificate should
+            # stop the pod with an obvious mount error, not start an nginx that
+            # cannot serve the only scheme the PWA works over.
+            secretName: almagest-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: almagest-web
+  labels:
+    app.kubernetes.io/component: web
+spec:
+  # NodePort, and the node port is the real 443.
+  #
+  # This cluster has no LoadBalancer provider (a LoadBalancer Service sits at
+  # <pending> forever, with no events) and no default IngressClass (a Service-
+  # less Ingress is admitted but never claimed or given an address). What it
+  # does have is an API server whose --service-node-port-range is extended
+  # below the usual 30000-32767 floor, which a server-side dry run confirms by
+  # accepting nodePort 443.
+  #
+  # That is what makes this work at all: every NFC tag and printed QR carries
+  # `https://almagest.lan/s/{short_id}` with **no port in it**. A tag is a
+  # physical object that cannot be re-issued cheaply, so the deployment has to
+  # meet the URL rather than the other way round. 30443 plus a router DNAT rule
+  # would also reach 443, but it puts a silent, undocumented dependency in a
+  # box that is not in this repository.
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: web
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      nodePort: 443

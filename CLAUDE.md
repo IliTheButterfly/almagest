@@ -178,3 +178,9 @@ Encode these in user-facing text; do not let the UI imply more precision than ex
 Secrets go in `.env` (gitignored); `.env.example` documents every key. Machine- and cluster-specific context lives in `CLAUDE.local.md`, which is also gitignored — **do not move cluster names, hostnames or namespaces into this file or any other committed file.**
 
 Deployment target is Kubernetes. One architectural consequence matters here regardless of cluster: the datastore is SQLite on a ReadWriteOnce volume, so the API runs **exactly one replica with `strategy: Recreate`**. A `RollingUpdate` would try to attach a second pod to the same RWO volume and deadlock, and two SQLite writers is corruption. See `CLAUDE.local.md` for concrete cluster details.
+
+The manifests live in **`deploy/`** and the operational half is **[deploy/README.md](deploy/README.md)**; the shape and the cluster probing behind it are in **[docs/adr/0009](docs/adr/0009-cluster-deployment-nodeport-443.md)**. Three things about it are easy to get wrong:
+
+- **Images are built only by `.github/workflows/release.yml`.** There is no container runtime on the dev box, so there is no local build target and never should be a Makefile target pretending otherwise.
+- **`make k8s-deploy` scales the API to zero before migrating**, then applies. That downtime is deliberate — RWO does not prevent two writers, because both pods land on the same node.
+- **`nodePort: 443` is exact, not a default.** Every provisioned NFC tag and printed QR carries `https://almagest.lan/s/{short_id}` with no port in it, and a tag is a physical object no migration can reach.

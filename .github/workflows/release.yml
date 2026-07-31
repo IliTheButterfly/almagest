@@ -1,0 +1,97 @@
+# Builds and publishes the two deployable images.
+#
+# This box has no container runtime at all, so GitHub Actions is not a
+# convenience here — it is the only place images can be built. `make k8s-deploy`
+# deliberately refuses to take anything offline until it has confirmed the tag
+# it wants is actually in the registry, so a failed run here is a no-op rather
+# than an outage.
+#
+# ci.yml also builds the API image on every pull request, without pushing. That
+# job stays: it is the one that proves a change still builds *before* it lands.
+name: release
+
+on:
+  push:
+    branches: [main]
+  # So a branch can be built and deployed before it is merged, which is the
+  # only way to exercise a deployment change end to end.
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: almagest-api
+            dockerfile: backend/Dockerfile
+          - image: almagest-web
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # backend/Dockerfile copies elec-value-parser/ and ecia-barcode/ into
+          # the image as path dependencies; without this the API build fails at
+          # `uv sync` with an unresolvable local package.
+          submodules: recursive
+
+      - name: Compute tags
+        id: tags
+        run: |
+          # GHCR rejects uppercase in a repository path, and the owner here is
+          # mixed case.
+          owner=$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          # 12 characters, matching what scripts/k8s-deploy.sh derives from a
+          # local `git rev-parse --short=12 HEAD`. If these two ever disagree,
+          # the deploy script's registry preflight fails and says so — which is
+          # the intended failure, not a silent mismatch.
+          short=$(printf '%s' "${{ github.sha }}" | cut -c1-12)
+          echo "repo=ghcr.io/$owner/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+          echo "sha=sha-$short" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          # Repo root for both images: the API needs the submodules and
+          # idcodec/ as siblings, and keeping the frontend on the same context
+          # means one rule rather than two.
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          # amd64 only. The cluster is one x86 node; the Pi runs the device
+          # agent from a checkout, not from an image, so there is nothing arm64
+          # would be for and it would roughly double every build.
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.tags.outputs.repo }}:${{ steps.tags.outputs.sha }}
+            ${{ steps.tags.outputs.repo }}:${{ github.ref_name == 'main' && 'main' || github.ref_name }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### \`${{ matrix.image }}\`"
+            echo
+            echo '```'
+            echo "scripts/k8s-deploy.sh ${{ steps.tags.outputs.sha }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
