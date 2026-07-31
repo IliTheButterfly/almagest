@@ -218,8 +218,12 @@ it("places a container with the keyboard alone, and says where it went", async (
   // The caret follows the box it just created: the button that created it is gone
   // from the tray, and a keyboard user whose focus fell to <body> has lost the
   // thing they placed.
+  // Awaited rather than sampled: focus lands in the effect after the render that
+  // creates the box, which is not necessarily the render the click produced. A
+  // keyboard user sees it a frame later and notices nothing; a single synchronous
+  // read of `activeElement` is what made this test flaky.
+  await waitFor(() => expect(document.activeElement).toBe(box("Bench")));
   const bench = box("Bench");
-  expect(document.activeElement).toBe(bench);
   expect(bench.getAttribute("aria-label")).toContain("at 2 m across, 2 m down");
   expect(screen.getByRole("heading", { name: "Not placed yet (1)" })).toBeTruthy();
 
