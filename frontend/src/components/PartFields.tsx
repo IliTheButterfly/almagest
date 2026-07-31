@@ -179,10 +179,17 @@ function FieldRow({
 
       {field.value_type === "numeric" && (
         <label className="field">
+          {/* The examples are unit-free on purpose. Naming µF here printed "22uF,
+              4k7, 20-30uF" under a field measured in bytes — the same mistake the
+              `implausible` hint used to make, and units being authorable means any
+              hard-coded example is wrong for somebody's field. What is worth saying
+              is the grammar (a prefix, an infix, a range) and which quantity the
+              number is read as. */}
           <span>
-            Value in {field.base_unit} — shorthand works, and so does a range:{" "}
-            <span className="mono">22uF</span>, <span className="mono">4k7</span>,{" "}
-            <span className="mono">20-30uF</span>
+            Read as {field.base_unit}. Shorthand works — a prefix (
+            <span className="mono">22u</span>), an infix (<span className="mono">4k7</span>) or a
+            range (<span className="mono">20-30</span>) — and the unit may be written or left
+            off
           </span>
           <input
             value={text}
