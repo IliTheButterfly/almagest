@@ -110,14 +110,29 @@ const FALLBACK_NOTE: Readonly<Record<FallbackReason, string>> = {
  * and not a link: a picker runs inside a form on the way to a commit, and routing
  * away would discard the quantity already typed. Issue #43.
  *
- * `onPick` is the cell body. `onDrill` is a separate control on a cell that has
- * children, because in a picker "choose this drawer" and "look inside this
- * cabinet" are both wanted and a single press cannot mean both — a shelf holds
- * stock as well as bins.
+ * `onPick` is the cell body, and what it *means* is the caller's business — the
+ * two callers want opposite things from the same drawing:
+ *
+ * - The **workspace** opens it. Pressing a container is how you get into it, which
+ *   is the ordinary reading of pressing a thing, and it is what Iliana asked for:
+ *   "I don't like that I need to click on the arrows next to the containers to open
+ *   them. I would rather have click on the container."
+ * - The **picker** chooses it, terminally. Choosing is the whole point of that
+ *   screen, so there the body cannot also mean "go deeper" — hence `onDrill`, a
+ *   separate control, still available and still needed: a shelf holds stock as
+ *   well as bins, and you must be able to pick the shelf *or* open it.
+ *
+ * So `onDrill` is optional, and its strip is drawn only where it is passed.
+ * `editTo` is the other side of the same split: where the body opens rather than
+ * chooses, modifying the container needs its own affordance, and it is a link
+ * because it goes to the container's own page.
  */
 export interface CellPicking {
   readonly onPick: (node: LocationNode) => void;
-  readonly onDrill: (node: LocationNode) => void;
+  /** Draws a strip that goes deeper. Omit where the body already opens. */
+  readonly onDrill?: ((node: LocationNode) => void) | undefined;
+  /** Draws a pencil linking to where this container is modified. */
+  readonly editTo?: ((node: LocationNode) => string) | undefined;
   /** Already chosen, so the cell can say so. */
   readonly pickedId?: number | null | undefined;
   /** Containers that cannot be chosen — the bin being emptied. */
@@ -561,7 +576,7 @@ function Cell({
   // press cannot mean two things.
   if (pick !== undefined) {
     return (
-      <span className="cell-pick">
+      <span className={`cell-pick cell-pick-${view}`}>
         <button
           type="button"
           className={classes.join(" ")}
@@ -578,15 +593,32 @@ function Cell({
           {excluded && <span className="cell-sub">where it is now</span>}
           {chosen && <span className="cell-sub">chosen</span>}
         </button>
-        {inside.length > 0 && (
+        {/* One side control at most, and never both: a cell whose body opens it
+            does not also need a "go deeper", and a cell whose body chooses it is
+            not somewhere to start editing from. */}
+        {pick.onDrill !== undefined && inside.length > 0 && (
           <button
             type="button"
-            className="cell-open"
+            /* Louder than the pencil: in a picker this strip is the *only* way
+               to get deeper, so it cannot be a hint you have to hunt for. */
+            className="cell-side cell-side-strong"
             aria-label={`Look inside ${node.name}`}
-            onClick={() => pick.onDrill(node)}
+            onClick={() => pick.onDrill?.(node)}
           >
             <span aria-hidden="true">&rsaquo;</span>
           </button>
+        )}
+        {pick.editTo !== undefined && (
+          <Link
+            className="cell-side"
+            to={pick.editTo(node)}
+            aria-label={`Edit ${node.name}`}
+            title={`Edit ${node.name}`}
+          >
+            {/* A pencil, and a real label on it: an icon alone is a guess, and
+                this one sits next to a control that does something else. */}
+            <span aria-hidden="true">&#9998;</span>
+          </Link>
         )}
       </span>
     );

@@ -119,7 +119,7 @@ afterEach(() => {
 
 it("lists a removed container, and links to the page that brings it back", async () => {
   renderTree();
-  await screen.findByRole("button", { name: /^Show: Cabinet A/ });
+  await screen.findByRole("button", { name: /^Open: Cabinet A/ });
 
   // Not asked for yet, so not fetched: the ordinary tree read stays one request.
   expect(queries.every((search) => !search.includes("include_retired"))).toBe(true);
