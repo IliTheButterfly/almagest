@@ -297,7 +297,7 @@ export function FieldForm({
         <ul className="list">
           {(Object.keys(SUBSTITUTION_COPY) as SubstitutionDirection[]).map((value) => (
             <li key={value} className="list-item">
-              <label className="check">
+              <label className="choice">
                 <input
                   type="radio"
                   name="substitution-direction"
