@@ -134,18 +134,18 @@ const url = (): string => screen.getByTestId("url").textContent ?? "";
 /**
  * A cell on the map.
  *
- * A button rather than a link: the map is a master/detail workspace now, so
- * pressing a cell fills the panel beside it instead of navigating away.
+ * A button rather than a link: the map is a master/detail workspace, so pressing a
+ * cell opens the container in place instead of navigating away.
  */
 /**
  * Matches the cell *body* only.
  *
- * A cell with children carries two controls — the body ("Show: <container>...")
- * and the strip that looks inside it ("Look inside <container>") — so a bare name
- * match finds both. The body's accessible name begins with the map's action verb,
- * which is what distinguishes them.
+ * Every cell carries two controls — the body ("Open: <container>...") and the
+ * pencil beside it ("Edit <container>") — so a bare name match finds both. The
+ * body's accessible name begins with the map's action verb, which is what
+ * distinguishes them.
  */
-const cellName = (name: RegExp): RegExp => new RegExp(`^Show: ${name.source}`);
+const cellName = (name: RegExp): RegExp => new RegExp(`^Open: ${name.source}`);
 const cellFor = (name: RegExp): HTMLElement =>
   screen.getByRole("button", { name: cellName(name) });
 const findCell = (name: RegExp): Promise<HTMLElement> =>
@@ -179,13 +179,25 @@ describe("the top level", () => {
   });
 });
 
-describe("selecting and drilling", () => {
-  it("puts the drilled position in the URL, so the view is still a link", async () => {
+describe("opening a container", () => {
+  it("opens it on one press of the container itself, with no arrow to find", async () => {
+    // The revision this replaces: opening used to need a separate arrow beside the
+    // cell, and pressing the container merely selected it.
     renderTree();
-    fireEvent.click(await screen.findByRole("button", { name: "Look inside Cabinet A" }));
+    fireEvent.click(await findCell(/Cabinet A/));
 
     await waitFor(() => expect(url()).toContain("at=1"));
     expect(await findCell(/Drawer A1/)).toBeTruthy();
+    // Opened *and* selected, so the panel describes what was just opened.
+    expect(url()).toContain("sel=1");
+  });
+
+  it("offers a pencil per container, straight into its edit mode", async () => {
+    renderTree();
+    const edit = await screen.findByRole("link", { name: "Edit Cabinet A" });
+
+    // Editing is the container's own page, not a second editor on the map.
+    expect(edit.getAttribute("href")).toBe("/locations/1?edit=1");
   });
 
   it("opens a shared position directly", async () => {
@@ -193,39 +205,26 @@ describe("selecting and drilling", () => {
     expect(await findCell(/Drawer A1/)).toBeTruthy();
   });
 
-  it("selects a container into the panel instead of leaving the map", async () => {
-    // The whole point of the workspace: pressing a cell does not navigate. The
-    // map is still on screen afterwards, and the selection is in the URL so the
-    // position can be shared and the Back button restores it.
+  it("keeps a leaf's siblings on screen instead of emptying the map", async () => {
+    // Drawer B2 has nothing inside it. Going *into* it would replace a readable
+    // row of siblings with "nothing is in here", so a leaf is selected where it
+    // stands and the panel does the talking.
     renderTree("/tree?at=1");
     fireEvent.click(await findCell(/Drawer B2/));
 
     await waitFor(() => expect(url()).toContain("sel=3"));
-    // Still on the map, not on a second page.
+    expect(url()).toContain("at=1");
+    // Still on the map, not on a second page and not on an empty level.
     expect(cellFor(/Drawer A1/)).toBeTruthy();
     expect(await screen.findByRole("complementary", { name: /Drawer B2 details/ })).toBeTruthy();
   });
 
-  it("keeps the two verbs apart on a container that has children", async () => {
-    // A shelf holds stock as well as bins, so "choose this" and "look inside"
-    // cannot be the same press.
+  it("goes into a container that has children, in the same one press", async () => {
     renderTree("/tree?at=1");
     fireEvent.click(await findCell(/Drawer A1/));
 
-    await waitFor(() => expect(url()).toContain("sel=2"));
-    // Selecting did not drill: Bin 1 is not on screen.
-    expect(screen.queryByRole("button", { name: /Bin 1/ })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Look inside Drawer A1" }));
     await waitFor(() => expect(url()).toContain("at=2"));
     expect(await findCell(/Bin 1/)).toBeTruthy();
-  });
-
-  it("drops the selection when the map drills, so the panel matches the level", async () => {
-    renderTree("/tree?at=1&sel=3");
-    fireEvent.click(await screen.findByRole("button", { name: "Look inside Drawer A1" }));
-
-    await waitFor(() => expect(url()).not.toContain("sel="));
   });
 
   it("falls back to the top level for a position that no longer exists", async () => {

@@ -13,12 +13,21 @@
  * stop leaving the map at all: press a cell and *this* opens next to the drawing,
  * with the map still on screen and still showing where you are.
  *
- * **Deliberately not a copy of `LocationScreen`.** It answers "what is this and
- * what is in it", and hands off for everything else: editing, the room plan, the
- * printed id, emptying a bin all live on the container's own page, one link away.
- * A second editor would be the exact duplication this exists to remove — and the
- * one-line rule for what belongs here is: things you want *while comparing
- * containers*, which is what a map is for.
+ * **What it lists is the immediate contents of the open container** — the stock
+ * actually in it, not counting anything in the containers below it. That division
+ * is what keeps it from repeating the map: the map draws the child *containers* as
+ * furniture, and this says what is loose inside the one you opened. The roll-up
+ * over everything beneath ("5 lots in here and below") stays above the map, where
+ * it describes the level rather than the container.
+ *
+ * "Immediate" is the load-bearing word. A container showing its descendants' stock
+ * as though it were its own is how somebody comes to look for a resistor in a
+ * cabinet and find it is really three drawers down.
+ *
+ * **Deliberately not a copy of `LocationScreen`.** It hands off for everything
+ * else: editing, the room plan, the printed id, emptying a bin all live on the
+ * container's own page, one link away. A second editor would be the exact
+ * duplication this exists to remove.
  *
  * The full page keeps existing regardless of this component, and not for
  * politeness: `/s/{short_id}` redirects a scanned tag to `/locations/{id}`, and
@@ -39,15 +48,18 @@ import { FillMeter } from "./FillMeter";
 
 export interface ContainerDetailPanelProps {
   readonly locationId: number;
-  /** Drills the map into this container, without leaving the page. */
-  readonly onLookInside?: ((locationId: number) => void) | undefined;
-  /** How many containers the map knows are in here. */
+  /**
+   * How many containers are in here, per the tree the map already holds.
+   *
+   * Stated rather than listed: they are the cells next to this panel, and listing
+   * them here would be the second representation of the same shelf that the map
+   * exists to avoid.
+   */
   readonly childCount?: number | undefined;
 }
 
 export function ContainerDetailPanel({
   locationId,
-  onLookInside,
   childCount = 0,
 }: ContainerDetailPanelProps) {
   const location = useAsync<LocationRead | null>(() => getLocation(locationId), [locationId]);
@@ -66,16 +78,14 @@ export function ContainerDetailPanel({
       </div>
     );
   }
-  return <Detail location={location.data} onLookInside={onLookInside} childCount={childCount} />;
+  return <Detail location={location.data} childCount={childCount} />;
 }
 
 function Detail({
   location,
-  onLookInside,
   childCount,
 }: {
   location: LocationRead;
-  onLookInside: ((locationId: number) => void) | undefined;
   childCount: number;
 }) {
   const { capacity } = location;
@@ -119,13 +129,18 @@ function Detail({
       )}
 
       <div className="row">
-        <h3 style={{ margin: 0, fontSize: "0.9rem" }}>Contents</h3>
+        <h3 style={{ margin: 0, fontSize: "0.9rem" }}>In here</h3>
         <span className="spacer" />
         <span className="muted-note">{location.lots.length} lot(s)</span>
       </div>
+      {childCount > 0 && (
+        <p className="muted-note" style={{ margin: 0 }}>
+          {childCount} container(s) inside, drawn on the map. Press one to open it.
+        </p>
+      )}
       {location.lots.length === 0 ? (
         <p className="dim" style={{ margin: 0 }}>
-          Empty.
+          {childCount > 0 ? "No stock loose in here itself." : "Empty."}
         </p>
       ) : (
         <ul className="list">
@@ -147,11 +162,6 @@ function Detail({
       )}
 
       <div className="row">
-        {childCount > 0 && onLookInside !== undefined && (
-          <button type="button" onClick={() => onLookInside(location.id)}>
-            Look inside ({childCount})
-          </button>
-        )}
         <span className="spacer" />
         {/* The one link off the map, and it is named for what is there rather
             than "open this container": everything this panel does not do —

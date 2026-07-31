@@ -185,10 +185,24 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
               index={index}
               parentId={at}
               pick={{
-                onPick: (node) => go({ sel: node.id }),
-                onDrill: (node) => go({ at: node.id }),
+                /**
+                 * Pressing a container **opens** it, which is the ordinary reading
+                 * of pressing a thing. No arrow to hunt for.
+                 *
+                 * "Open" means one act with two visible halves: the map goes into
+                 * it when there is anything to go into, and the panel lists what is
+                 * in it either way. A leaf has no inside for the map to show, so
+                 * there the map stays where it is and the cell is simply marked —
+                 * drilling into a bin would empty the screen to say "nothing here",
+                 * throwing away the row of siblings you were reading.
+                 */
+                onPick: (node) =>
+                  childrenOf(index, node.id).length > 0
+                    ? go({ at: node.id, sel: node.id })
+                    : go({ sel: node.id }),
+                editTo: (node) => `/locations/${node.id}?edit=1`,
                 pickedId: sel,
-                actionLabel: "Show",
+                actionLabel: "Open",
               }}
             />
           </div>
@@ -196,7 +210,6 @@ function Storage({ nodes }: { nodes: readonly LocationNode[] }) {
             <ContainerDetailPanel
               locationId={subject}
               childCount={childrenOf(index, subject).length}
-              onLookInside={(id) => go({ at: id })}
             />
           )}
         </div>

@@ -1512,27 +1512,70 @@ button.tall {
 }
 
 /*
- * The secondary verb, as a full-height strip down the edge of the cell.
+ * A square level stays square — and it is the *cell* that is square, not the pair.
+ *
+ * A Gridfinity unit is 42mm square in real life, so `aspect-ratio` stays on the
+ * cell where it already was. Putting it on the wrapper instead (tried first) makes
+ * the wrapper square, and since the wrapper also holds the pencil strip the cell
+ * inside comes out narrower than it is tall — a tray of portrait boxes, which is a
+ * lie about the furniture. The column is simply a strip wider than the bin.
+ */
+.cell-pick-grid_cells > .cell {
+  min-width: 0;
+}
+
+/*
+ * The cell's side control, as a full-height strip down its edge.
+ *
+ * One of two things depending on the caller: a pencil to the container's own page
+ * where the body already opens it (the workspace), or a "go deeper" where the body
+ * chooses it terminally (the picker). Never both on one cell.
  *
  * Narrower than `--touch` in one dimension on purpose: it spans the whole cell
  * height (never less than 4.5rem), so the target is about 28x72px, and a
  * `--touch`-wide strip would eat half of a 5.5rem square grid cell. The cell body
- * beside it — choosing, the primary verb — keeps the full touch area.
+ * beside it — the primary verb — keeps the full touch area.
  */
-.cell-open {
-  min-width: 1.75rem;
-  padding: 0 0.2rem;
+.cell-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+/*
+ * Quiet until wanted.
+ *
+ * A 24-cell Gridfinity tray carries 24 of these, and the first version gave each
+ * one a border and an inset background — so the tray read as 24 boxes and 24
+ * *more* boxes, and stopped looking like a tray at all. It stays in the layout
+ * rather than appearing on hover, because a control that only exists on hover does
+ * not exist on a phone; it just stops competing with the container it belongs to.
+ */
+/* The drill strip earns a permanent edge — see its call site. */
+.cell-side-strong {
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: var(--bg-inset);
   color: var(--accent);
-  font-size: 1.1rem;
-  line-height: 1;
+  min-width: 1.75rem;
 }
 
-.cell-open:hover {
-  border-color: var(--accent);
+.cell-side:hover,
+.cell-side:focus-visible {
+  color: var(--accent);
+  background: var(--bg-inset);
+  border-radius: 6px;
 }
+
+
 
 /* Cannot be chosen — it is where the stock already is. Dimmed *and* labelled in
    words inside the cell, because a disabled control that only looks faded reads
