@@ -2459,3 +2459,122 @@ button.tall {
     top: calc(var(--header-h) + var(--touch));
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Capture — the frozen still, its outlines, and the values tapped out of it.
+ *
+ * The frame is `position: relative` and every outline is a percentage-positioned
+ * child, which is what lets one overlay serve a phone in portrait and a desktop
+ * panel with no measurement (see `components/CaptureOverlay.tsx`). Nothing here
+ * sets a width: the card it sits in decides that, and the intrinsic
+ * `aspect-ratio` is set inline from the capture's own dimensions.
+ * ------------------------------------------------------------------------- */
+
+.capture {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.capture-frame {
+  position: relative;
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.capture-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* `contain`, not `cover`: an outline is a claim about where something is, and
+   * a cropped image would put every box in the wrong place. */
+  object-fit: contain;
+}
+
+/* A real <button>, so the outlines are tabbable and announce themselves — the
+ * values behind them are the whole point of the screen and must not be
+ * mouse-only. Transparent fill so the thing being outlined stays visible. */
+.capture-region {
+  position: absolute;
+  padding: 0;
+  min-width: 12px;
+  min-height: 12px;
+  background: transparent;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background var(--dur) ease;
+}
+
+/* Barcode and text are drawn differently on purpose: one was checksummed and the
+ * other was guessed at, and that difference has to survive into the picture, not
+ * only into the chip list. Dashed reads as provisional. */
+.capture-region.is-text {
+  border-style: dashed;
+  border-color: var(--accent-2);
+}
+
+.capture-region:hover,
+.capture-region:focus-visible {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.capture-region.is-selected {
+  border-width: 3px;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.capture-region.is-text.is-selected {
+  background: color-mix(in srgb, var(--accent-2) 30%, transparent);
+}
+
+.capture-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.capture-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+/* A read value is tinted with the same hue its dashed outline uses, so "this one
+ * was guessed" is the same signal in both places. */
+.capture-chip.is-read {
+  background: var(--accent-2-soft);
+}
+
+.capture-chip.is-resolved {
+  background: var(--good-soft);
+}
+
+.capture-chip-label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.capture-chip-value {
+  flex: 1 1 8ch;
+  /* A long ECIA payload must not push the actions off the row on a phone. */
+  overflow-wrap: anywhere;
+}
+
+.capture-chip-action {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}

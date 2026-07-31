@@ -7,6 +7,7 @@ autogenerate — it silently produces an empty migration instead of an error.
 
 from __future__ import annotations
 
+from app.models.captures import Capture, CaptureRegion
 from app.models.catalog import (
     Manufacturer,
     PackageType,
@@ -57,6 +58,8 @@ __all__ = [
     "BomLine",
     "BomLineSubstitute",
     "CacheState",
+    "Capture",
+    "CaptureRegion",
     "ClientOperation",
     "ContainerType",
     "ContainerTypePhysical",

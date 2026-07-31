@@ -579,6 +579,58 @@ class ScanDecodedKind(StrEnum):
     UNKNOWN = "unknown"
 
 
+class CaptureRegionKind(StrEnum):
+    """What kind of thing one `capture_regions` row is an outline around.
+
+    Deliberately about *how it was read*, not about what the value means. A reel
+    label's DataMatrix and the same MPN printed in ink beside it are a `BARCODE`
+    and a `TEXT` region respectively, and the difference matters: one was decoded
+    by a checksummed symbology and the other was guessed at by an OCR pass. What
+    the value then turns out to *be* — an MPN, a quantity, a short ID — is the
+    resolver's answer, recorded against `scan_events`, and it is allowed to
+    disagree between two regions of the same capture.
+    """
+
+    #: Decoded by `zxing-wasm` from the still. Carries a `symbology` and, because
+    #: every symbology worth reading is checksummed, is trustworthy enough to
+    #: hand straight to the resolver.
+    BARCODE = "barcode"
+    #: One line read by an OCR pass. **Never authority** — `docs/PLAN.md` is
+    #: explicit that a model-read part number is never auto-accepted, and this
+    #: enum member is the flag that keeps that rule checkable rather than a
+    #: convention. Carries a `confidence`; a barcode does not.
+    TEXT = "text"
+
+
+class CaptureTextStatus(StrEnum):
+    """Whether anyone has tried to read the writing in a capture, and how it went.
+
+    Exists for the same reason `ExtractionState.PENDING` does (ADR 0005): the
+    image is stored, served and outlined by its barcodes whether or not an OCR
+    pass ever ran, so "no text" has to be distinguishable from "text was never
+    looked for". Collapsing the two would make a capture taken on a browser that
+    could not load the OCR model look identical to one of a blank label, and the
+    honest UI caption differs completely between them.
+
+    Recorded per capture rather than per region for the obvious reason: a failed
+    pass produces no rows to record it on.
+    """
+
+    #: No OCR pass has run. Normal, and the state every capture starts in.
+    NOT_ATTEMPTED = "not_attempted"
+    #: A pass ran and produced at least one line.
+    OK = "ok"
+    #: A pass ran and found no legible text. A genuine answer, not a failure.
+    EMPTY = "empty"
+    #: The OCR model could not be loaded at all — no network on first use, a
+    #: browser without the APIs, a stripped WebView. A deployment fact about the
+    #: reader, not about the image, so re-capturing would not help.
+    UNAVAILABLE = "unavailable"
+    #: A pass ran and threw. Distinct from `UNAVAILABLE` because retrying this
+    #: one is reasonable.
+    FAILED = "failed"
+
+
 class ScanAction(StrEnum):
     """What the system did with a scan.
 
@@ -940,6 +992,13 @@ class DocumentRole(StrEnum):
     #: is that an OCR'd part number is **never** auto-accepted, and the image is
     #: the evidence a human needs in order to close it.
     MARKING = "marking"
+    #: A still taken at the scanner and kept, with what was read off it recorded
+    #: in `capture_regions`. Distinct from `MARKING`, which is specifically an IC
+    #: top marking headed for review, and from `PHOTO`, which is what the thing
+    #: *looks like*: a capture is a photograph of **writing** — a reel label, a
+    #: bag print, a hand-written note on a drawer — kept because it is the
+    #: evidence behind every value that got copied out of it.
+    CAPTURE = "capture"
     OTHER = "other"
 
 

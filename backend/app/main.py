@@ -16,6 +16,7 @@ from fastapi.routing import APIRoute
 
 from app import __version__
 from app.api.routes import (
+    captures,
     container_types,
     documents,
     enrichment,
@@ -103,6 +104,11 @@ def create_app() -> FastAPI:
     # Next to scan because it is the same workflow: a payload the resolver
     # returned is parked here, and the desk pass reads it back.
     app.include_router(intake.router)
+    # Also the same workflow: the frame the decode loop would otherwise have
+    # thrown away, kept with what was read off it. Stores an interpretation the
+    # browser made and never performs one — no image library is imported here,
+    # for the same ADR 0005 reason the extraction queue lives in its own process.
+    app.include_router(captures.router)
     app.include_router(parts.router)
     # The document store, plus its own `/api/parts/{id}/documents` routes — kept
     # in the documents module because what they return belongs to the store rather

@@ -294,6 +294,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/captures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Captures
+         * @description Recent captures, newest first — the desk pass's way back to a photograph.
+         */
+        get: operations["list_captures"];
+        put?: never;
+        /**
+         * Create Capture
+         * @description Record a still and whatever was read off it in the same breath.
+         */
+        post: operations["create_capture"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/captures/{capture_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Capture */
+        get: operations["read_capture"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete Capture
+         * @description Throw away a blurry one.
+         *
+         *     A hard delete, unlike anything in the stock path. This is a notebook, not a
+         *     ledger — no `RAISE(ABORT)` trigger guards it — and a photograph the user
+         *     judged useless has no history worth compensating for. The blob itself stays:
+         *     it is content-addressed and may be another capture's image, and reclaiming it
+         *     is the scrub job's business (`app.services.documents`), not this route's.
+         */
+        delete: operations["delete_capture"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/captures/{capture_id}/regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Append Capture Regions
+         * @description Add what turned up after the fact — in practice, the OCR pass finishing.
+         *
+         *     Appends rather than replaces, and continues `order_index` from wherever the
+         *     existing rows stopped, so the barcode regions posted at capture time keep
+         *     both their identity and their place at the top of the chip list.
+         */
+        post: operations["append_capture_regions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/container-types": {
         parameters: {
             query?: never;
@@ -3548,6 +3623,130 @@ export interface components {
             /** Used */
             used: number;
         };
+        /** CaptureCreate */
+        CaptureCreate: {
+            /** Device Id */
+            device_id?: string | null;
+            /** Height Px */
+            height_px: number;
+            /** Note */
+            note?: string | null;
+            /** Regions */
+            regions?: components["schemas"]["CaptureRegionIn"][];
+            /** Sha256 */
+            sha256: string;
+            /** Source Slug */
+            source_slug?: string | null;
+            /** @default not_attempted */
+            text_status?: components["schemas"]["CaptureTextStatus"];
+            /** Width Px */
+            width_px: number;
+        };
+        /** CaptureList */
+        CaptureList: {
+            /** Items */
+            items: components["schemas"]["CaptureRead"][];
+            /** Total */
+            total: number;
+        };
+        /** CaptureRead */
+        CaptureRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Device Id */
+            device_id: string | null;
+            document: components["schemas"]["DocumentRead"];
+            /** Height Px */
+            height_px: number;
+            /** Id */
+            id: number;
+            /** Note */
+            note: string | null;
+            /** Regions */
+            regions: components["schemas"]["CaptureRegionRead"][];
+            /** Text Status */
+            text_status: string;
+            /** Width Px */
+            width_px: number;
+        };
+        /** CaptureRegionIn */
+        CaptureRegionIn: {
+            /** Confidence */
+            confidence?: number | null;
+            /** Corners */
+            corners: components["schemas"]["Point"][];
+            kind: components["schemas"]["CaptureRegionKind"];
+            /** Scan Event Id */
+            scan_event_id?: number | null;
+            /** Symbology */
+            symbology?: string | null;
+            /** Text */
+            text: string;
+        };
+        /**
+         * CaptureRegionKind
+         * @description What kind of thing one `capture_regions` row is an outline around.
+         *
+         *     Deliberately about *how it was read*, not about what the value means. A reel
+         *     label's DataMatrix and the same MPN printed in ink beside it are a `BARCODE`
+         *     and a `TEXT` region respectively, and the difference matters: one was decoded
+         *     by a checksummed symbology and the other was guessed at by an OCR pass. What
+         *     the value then turns out to *be* — an MPN, a quantity, a short ID — is the
+         *     resolver's answer, recorded against `scan_events`, and it is allowed to
+         *     disagree between two regions of the same capture.
+         * @enum {string}
+         */
+        CaptureRegionKind: "barcode" | "text";
+        /** CaptureRegionRead */
+        CaptureRegionRead: {
+            /** Confidence */
+            confidence: number | null;
+            /** Corners */
+            corners: components["schemas"]["Point"][];
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Order Index */
+            order_index: number;
+            /** Scan Event Id */
+            scan_event_id: number | null;
+            /** Symbology */
+            symbology: string | null;
+            /** Text */
+            text: string;
+        };
+        /**
+         * CaptureRegionsAppend
+         * @description A later instalment — in practice, the OCR pass finishing.
+         *
+         *     `text_status` is optional because appending barcodes (a re-decode at higher
+         *     effort, say) must not silently claim anything about whether text was read.
+         */
+        CaptureRegionsAppend: {
+            /** Regions */
+            regions?: components["schemas"]["CaptureRegionIn"][];
+            text_status?: components["schemas"]["CaptureTextStatus"] | null;
+        };
+        /**
+         * CaptureTextStatus
+         * @description Whether anyone has tried to read the writing in a capture, and how it went.
+         *
+         *     Exists for the same reason `ExtractionState.PENDING` does (ADR 0005): the
+         *     image is stored, served and outlined by its barcodes whether or not an OCR
+         *     pass ever ran, so "no text" has to be distinguishable from "text was never
+         *     looked for". Collapsing the two would make a capture taken on a browser that
+         *     could not load the OCR model look identical to one of a blank label, and the
+         *     honest UI caption differs completely between them.
+         *
+         *     Recorded per capture rather than per region for the obvious reason: a failed
+         *     pass produces no rows to record it on.
+         * @enum {string}
+         */
+        CaptureTextStatus: "not_attempted" | "ok" | "empty" | "unavailable" | "failed";
         /** CategoryNode */
         CategoryNode: {
             /** Depth */
@@ -4222,7 +4421,7 @@ export interface components {
          *     redirects to.
          * @enum {string}
          */
-        DocumentRole: "datasheet" | "reference" | "photo" | "count_evidence" | "marking" | "other";
+        DocumentRole: "datasheet" | "reference" | "photo" | "count_evidence" | "marking" | "capture" | "other";
         /**
          * DocumentTextRead
          * @description One document's text and the judgement about it. Every field but `state` and
@@ -6061,6 +6260,8 @@ export interface components {
          * @description One parked scan, as the device recorded it.
          */
         PendingIntakeIn: {
+            /** Capture Id */
+            capture_id?: number | null;
             /** Client Op Id */
             client_op_id: string;
             /** Date Code */
@@ -6102,6 +6303,8 @@ export interface components {
         };
         /** PendingIntakeRead */
         PendingIntakeRead: {
+            /** Capture Id */
+            capture_id: number | null;
             /** Client Op Id */
             client_op_id: string;
             /**
@@ -6360,6 +6563,21 @@ export interface components {
             sort_order: number;
             /** Thickness Mm */
             thickness_mm: number | null;
+        };
+        /**
+         * Point
+         * @description One corner, in the captured image's own pixel space.
+         *
+         *     Not normalised to 0-1. The overlay has to scale onto whatever size the image
+         *     is *rendered* at anyway, so it divides by `width_px`/`height_px` at draw
+         *     time; storing pre-divided floats would lose precision to buy nothing and
+         *     would make a region unreadable without also fetching the capture.
+         */
+        Point: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
         };
         /** ProjectCreate */
         ProjectCreate: {
@@ -8564,6 +8782,166 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnstageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_captures: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_capture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_capture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capture_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_capture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capture_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    append_capture_regions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capture_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureRegionsAppend"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureRead"];
                 };
             };
             /** @description Validation Error */

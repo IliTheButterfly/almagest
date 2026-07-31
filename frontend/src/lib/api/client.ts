@@ -2300,3 +2300,72 @@ export async function getVerificationSession(sessionId: number): Promise<Verific
   }
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Captures — the still the scanner kept, and what was read off it
+// ---------------------------------------------------------------------------
+
+export type CaptureRead = Schemas["CaptureRead"];
+export type CaptureRegionRead = Schemas["CaptureRegionRead"];
+export type CaptureRegionIn = Schemas["CaptureRegionIn"];
+export type CaptureCreate = Schemas["CaptureCreate"];
+export type CaptureList = Schemas["CaptureList"];
+
+export async function createCapture(request: CaptureCreate): Promise<CaptureRead> {
+  const { data, error, response } = await api.POST("/api/captures", { body: request });
+  if (error !== undefined) {
+    fail("could not save that capture", error, response);
+  }
+  return data;
+}
+
+/**
+ * Add regions found after the capture was saved — in practice the OCR pass
+ * finishing, seconds after the barcodes were already on screen.
+ *
+ * `textStatus` is optional on purpose: appending barcodes alone must not claim
+ * anything about whether the text was read.
+ */
+export async function appendCaptureRegions(
+  captureId: number,
+  regions: CaptureRegionIn[],
+  textStatus?: CaptureCreate["text_status"],
+): Promise<CaptureRead> {
+  const { data, error, response } = await api.POST("/api/captures/{capture_id}/regions", {
+    params: { path: { capture_id: captureId } },
+    body: { regions, ...(textStatus === undefined ? {} : { text_status: textStatus }) },
+  });
+  if (error !== undefined) {
+    fail("could not save what was read off that capture", error, response);
+  }
+  return data;
+}
+
+export async function readCapture(captureId: number): Promise<CaptureRead> {
+  const { data, error, response } = await api.GET("/api/captures/{capture_id}", {
+    params: { path: { capture_id: captureId } },
+  });
+  if (error !== undefined) {
+    fail("could not load that capture", error, response);
+  }
+  return data;
+}
+
+export async function listCaptures(limit = 20, offset = 0): Promise<CaptureList> {
+  const { data, error, response } = await api.GET("/api/captures", {
+    params: { query: { limit, offset } },
+  });
+  if (error !== undefined) {
+    fail("could not list captures", error, response);
+  }
+  return data;
+}
+
+export async function deleteCapture(captureId: number): Promise<void> {
+  const { error, response } = await api.DELETE("/api/captures/{capture_id}", {
+    params: { path: { capture_id: captureId } },
+  });
+  if (error !== undefined) {
+    fail("could not delete that capture", error, response);
+  }
+}

@@ -266,6 +266,16 @@ class PendingIntake(Base, TimestampMixin):
         ForeignKey("scan_events.id", ondelete="SET NULL"), index=True
     )
 
+    #: The still taken alongside this scan, when one was. This is what makes the
+    #: deferral honest: the desk pass happens hours later, at a machine with no
+    #: reel in front of it, and until now everything not encoded in the barcode —
+    #: the printed manufacturer, a hand-written count, the packaging — was gone
+    #: by then. `SET NULL` rather than cascade, because deleting a blurry photo
+    #: must not delete the worklist entry it was attached to.
+    capture_id: Mapped[int | None] = mapped_column(
+        ForeignKey("captures.id", ondelete="SET NULL"), index=True
+    )
+
     #: Verbatim, control characters and all. Same reasoning as
     #: `scan_events.raw_payload` — stripping the GS/RS separators is the lossy
     #: step that would make an ECIA payload unmineable later.
