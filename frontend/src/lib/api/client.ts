@@ -55,6 +55,28 @@ export type TemplateFacets = Schemas["TemplateFacets"];
 export type ChoiceFacet = Schemas["ChoiceFacet"];
 export type NumericRange = Schemas["NumericRange"];
 
+// --- authoring a part type: the kind, the category, and the fields you
+// filter on. Three tables, and the UI has to keep them apart: a *kind* is what
+// something fundamentally is, a *category* is where it sits in the taxonomy and
+// is the only one of the two that carries fields
+// (`parameter_template.applies_to_category`).
+export type PartKindRead = Schemas["PartKindRead"];
+export type PartKindCreate = Schemas["PartKindCreate"];
+export type PartKindCreated = Schemas["PartKindCreated"];
+export type PartCategoryRead = Schemas["PartCategoryRead"];
+export type PartCategoryCreate = Schemas["PartCategoryCreate"];
+export type PartCategoryCreated = Schemas["PartCategoryCreated"];
+export type ParameterFieldRead = Schemas["ParameterFieldRead"];
+export type ParameterFieldCreate = Schemas["ParameterFieldCreate"];
+export type ParameterFieldCreated = Schemas["ParameterFieldCreated"];
+export type ParameterChoiceRead = Schemas["ParameterChoiceRead"];
+export type ChoiceIn = Schemas["ChoiceIn"];
+/** One pickable physical quantity for a numeric field's `base_unit`. */
+export type BaseUnitOption = Schemas["BaseUnitOption"];
+export type NameConflictPolicy = Schemas["NameConflictPolicy"];
+export type SubstitutionDirection = Schemas["SubstitutionDirection"];
+export type ValueType = Schemas["ValueType"];
+
 export type PartRead = Schemas["PartRead"];
 export type PartCreate = Schemas["PartCreate"];
 export type PartCreated = Schemas["PartCreated"];
@@ -322,6 +344,103 @@ export async function listPartCategories(): Promise<CategoryNode[]> {
   const { data, error, response } = await api.GET("/api/part-categories", {});
   if (error !== undefined) {
     fail("could not load the categories", error, response);
+  }
+  return data;
+}
+
+// -------------------------------------------------- authoring a part type ----
+// Until these routes landed every kind, category and filterable field came out
+// of a migration, so "capacitors also have an ESR" was a code change.
+
+/** Every part kind, in the order a picker should offer them. */
+export async function listPartKinds(): Promise<PartKindRead[]> {
+  const { data, error, response } = await api.GET("/api/part-kinds", {});
+  if (error !== undefined) {
+    fail("could not load the part kinds", error, response);
+  }
+  return data;
+}
+
+/**
+ * Author a kind — what something fundamentally *is*.
+ *
+ * A kind carries **no** fields. Its `slug` is what `part_kind=` takes in a search
+ * request and therefore in every shared search URL, which is why the API has no
+ * way to change it later.
+ */
+export async function createPartKind(request: PartKindCreate): Promise<PartKindCreated> {
+  const { data, error, response } = await api.POST("/api/part-kinds", { body: request });
+  if (error !== undefined) {
+    fail("could not create that part kind", error, response);
+  }
+  return data;
+}
+
+/**
+ * Author a category — the node that *carries* the filterable fields, and the one
+ * to reach for when the user wants somewhere to put an "ESR".
+ *
+ * The path cache is rebuilt server-side before the response, so a field authored
+ * on an ancestor is inherited by this category on the very next request.
+ */
+export async function createPartCategory(
+  request: PartCategoryCreate,
+): Promise<PartCategoryCreated> {
+  const { data, error, response } = await api.POST("/api/part-categories", { body: request });
+  if (error !== undefined) {
+    fail("could not create that category", error, response);
+  }
+  return data;
+}
+
+/**
+ * The fields offered on a category: the ones authored on it, the ones authored on
+ * any **ancestor** of it, and the global ones. `inherited` says which, because
+ * editing an inherited field affects every sibling category too.
+ */
+export async function listParameterFields(category?: string): Promise<ParameterFieldRead[]> {
+  const { data, error, response } = await api.GET("/api/parameter-fields", {
+    params: { query: category === undefined || category === "" ? {} : { category } },
+  });
+  if (error !== undefined) {
+    fail("could not load the fields", error, response);
+  }
+  return data;
+}
+
+/**
+ * Every quantity a numeric field's `base_unit` may name.
+ *
+ * Served rather than hardcoded: the parser owns the list, so a quantity added to
+ * the library becomes authorable without a second edit here. These are quantity
+ * *names* — `ohm`, not `ohms` and not `Ω`.
+ */
+export async function listBaseUnits(): Promise<BaseUnitOption[]> {
+  const { data, error, response } = await api.GET("/api/parameter-fields/base-units", {});
+  if (error !== undefined) {
+    fail("could not load the units", error, response);
+  }
+  return data;
+}
+
+/**
+ * Author one filterable field, options and all, in one request.
+ *
+ * One request rather than two because a list field with no options matches
+ * nothing while looking like a working filter — the API refuses `value_type:
+ * "enum"` with an empty `choices` for exactly that reason.
+ *
+ * `name` is globally unique, so a collision is a real decision and
+ * `on_name_conflict` is how the caller makes it: `fail` hands the existing field
+ * back in the 409 so the UI can offer it, `reuse` adopts it, `namespace` files a
+ * separate `<category>.<name>`.
+ */
+export async function createParameterField(
+  request: ParameterFieldCreate,
+): Promise<ParameterFieldCreated> {
+  const { data, error, response } = await api.POST("/api/parameter-fields", { body: request });
+  if (error !== undefined) {
+    fail("could not create that field", error, response);
   }
   return data;
 }

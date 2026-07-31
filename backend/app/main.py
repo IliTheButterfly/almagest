@@ -23,6 +23,9 @@ from app.api.routes import (
     labels,
     location_tags,
     locations,
+    parameter_fields,
+    part_categories,
+    part_kinds,
     parts,
     projects,
     provisioning,
@@ -96,6 +99,19 @@ def create_app() -> FastAPI:
     app.include_router(stock.router)
     app.include_router(facets.router)
     app.include_router(facets.categories_router)
+    # Authoring the things the facet panel is built from. Three routers, because
+    # "part type" names two different objects and only one of them owns fields:
+    # a *kind* is what something fundamentally is, a *category* is where it sits
+    # and what fields hang off it, and a *field* is one filterable attribute.
+    # `part_categories` rides the same prefix as `facets.categories_router` —
+    # that one is the read rail with its descendant counts, this one is the write
+    # half, the same split `documents.parts_router` makes.
+    app.include_router(part_kinds.router)
+    app.include_router(part_categories.router)
+    # Not `POST /api/parameter-templates`: that path is the facet *reader*, which
+    # has to be a POST because it carries the whole filter set in its body. See
+    # the module docstring.
+    app.include_router(parameter_fields.router)
     app.include_router(projects.router)
     app.include_router(projects.builds_router)
     app.include_router(requirements.router)

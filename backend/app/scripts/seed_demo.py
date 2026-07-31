@@ -244,6 +244,12 @@ def seed_parameter_templates(session: Session) -> tuple[int, int]:
                 applies_to_category=spec.applies_to_category,
                 plausible_min=spec.plausible_min,
                 plausible_max=spec.plausible_max,
+                # The shared library. `capacitance` means farads to the MPN
+                # decoders, the datasheet extractors and every saved search, so
+                # authoring refuses to rename it or change its quantity — see
+                # `ParameterTemplate.is_seed`. Everything else about it stays
+                # editable, and a user's own fields are never marked.
+                is_seed=True,
             )
             session.add(template)
             session.flush()

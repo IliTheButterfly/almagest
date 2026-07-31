@@ -28,7 +28,8 @@ from app.api.schemas import PartQueryRequest
 from app.db.session import get_db
 from app.models.catalog import Part, PartCategory
 from app.models.enums import ValueType
-from app.models.parameter import ParameterChoice, ParameterTemplate, ParameterValue
+from app.models.parameter import ParameterChoice, ParameterValue
+from app.services import parameter_fields as fields
 from app.services.search import query_builder
 
 router = APIRouter(prefix="/api/parameter-templates", tags=["facets"])
@@ -122,18 +123,14 @@ def parameter_facets(request: FacetsRequest, db: Session = Depends(get_db)) -> F
             detail={"template": error.template, "reason": error.reason, "message": str(error)},
         ) from error
 
-    templates = list(
-        db.execute(select(ParameterTemplate).order_by(ParameterTemplate.sort_order)).scalars()
-    )
-    if request.category:
-        # `applies_to_category` is advisory: a template that names a category is
-        # offered first, but one that names none applies everywhere. Filtering
-        # strictly would hide `package` and `mounting_type` from every category.
-        templates = [
-            template
-            for template in templates
-            if template.applies_to_category in (None, request.category)
-        ]
+    # Category *and its ancestors*, plus every template that names no category at
+    # all. Both halves matter and only one of them used to be here: the exact
+    # `applies_to_category == request.category` test hid a field authored on
+    # "Capacitors" from "Capacitors > Ceramic", which is the node parts are
+    # actually filed under — so a user's own new field silently failed to appear.
+    # The "no category means everywhere" half is deliberate and kept: `package`
+    # and `mounting_type` are things every part has.
+    templates = fields.templates_for_category(db, request.category)
 
     populated: dict[int, int] = {
         row[0]: row[1]
@@ -228,6 +225,9 @@ def _unit_symbol(db: Session, template_id: int) -> str | None:
 
 
 class CategoryNode(BaseModel):
+    #: Reported so the authoring routes are addressable from the rail — they take
+    #: an id in the path, and a client that only had slugs could not reach them.
+    id: int
     slug: str
     name: str
     parent_slug: str | None
@@ -267,6 +267,7 @@ def list_part_categories(db: Session = Depends(get_db)) -> list[CategoryNode]:
 
     return [
         CategoryNode(
+            id=category.id,
             slug=category.slug,
             name=category.name,
             parent_slug=(
