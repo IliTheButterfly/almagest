@@ -175,7 +175,10 @@ describe("creating a stub part", () => {
 
     // The suggestion fetches itself; nothing to click to discover it exists.
     await waitFor(() => expect(callTo("/api/locations/suggest")).toBeDefined());
-    expect(await screen.findByText("Cabinet B / Drawer B3")).toBeTruthy();
+    // `findAll`, because the suggested container is now named twice on purpose:
+    // once as the proposal, and once by the scan check that asks whether the
+    // drawer in your hand is that one.
+    expect((await screen.findAllByText("Cabinet B / Drawer B3")).length).toBeGreaterThan(0);
     expect(
       screen.getByText(/does not exist anywhere until some\s*quantity of it is put in a lot at a location/),
     ).toBeTruthy();
@@ -187,7 +190,7 @@ describe("creating a stub part", () => {
     await scanUnknownCode();
     fireEvent.click(screen.getByRole("button", { name: /Create a stub part and bind this code/ }));
 
-    await screen.findByText("Cabinet B / Drawer B3");
+    await screen.findAllByText("Cabinet B / Drawer B3");
     fireEvent.click(await screen.findByRole("button", { name: /^Put 1 in Cabinet B/ }));
 
     await waitFor(() => expect(callTo("/api/stock/receive")).toBeDefined());

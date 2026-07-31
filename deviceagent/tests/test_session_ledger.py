@@ -30,12 +30,12 @@ from alembic import command
 from alembic.config import Config
 from app.db.session import get_session_factory, reset_engine_for_testing
 from app.models.catalog import Part, PartKind
-from app.models.enums import LedgerSource
+from app.models.enums import LedgerSource, NdefState, ProvisioningKind
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import Location, LocationTag
 from app.models.system import ClientOperation
 from app.models.types import utcnow
-from app.services import ledger, shortid
+from app.services import ledger, provisioning, shortid
 from app.services.ledger import Attribution
 from fastapi import FastAPI
 from sqlalchemy import func, select
@@ -366,3 +366,53 @@ def test_an_unprovisioned_tag_falls_through_to_provisioning(
     assert unbound["reason"] == "unknown_tag"
     assert unbound["tag_uid"] == "0455555555555555"
     assert unbound["offers"] == ["manual_search", "provision"]
+
+
+def test_a_drawer_provisioned_from_a_phone_identifies_itself_at_the_station(
+    db: Session, seeded: tuple[Location, StockLot], bench: Station
+) -> None:
+    """The seam between the two halves of the tag story, closed.
+
+    Every other test here seeds `location_tags` directly, which proves the station
+    reads a binding but says nothing about whether the *provisioning walk* writes
+    the binding the station will look for. Those are different code paths in
+    different processes — a phone running the walk, a Pi running the agent — and
+    the only thing that makes them agree is that both fold a UID through
+    `idcodec.tagpayload.normalize_tag_uid`.
+
+    So this binds through `app.services.provisioning`, exactly as
+    `POST /api/provisioning-sessions/{id}/bind` does, and then places the drawer on
+    the bench. The UID is written in the colon-separated form a PN532 library
+    prints and bound in the bare form a phone reports, because that mismatch is
+    precisely what a second, subtly different normalisation would hide: the
+    binding would look perfect in the database and the station would report an
+    unknown tag forever.
+    """
+    location, lot = seeded
+    existing = db.execute(
+        select(LocationTag).where(LocationTag.location_id == location.id)
+    ).scalar_one()
+    db.delete(existing)
+    db.flush()
+
+    cabinet = Location(name="Bench cabinet")
+    db.add(cabinet)
+    db.flush()
+    location.parent_id = cabinet.id
+    db.flush()
+
+    walk = provisioning.open_session(db, cabinet, kind=ProvisioningKind.PROVISION)
+    outcome = provisioning.bind(db, walk, tag_uid="041a2b3c4d5e6f", location_id=location.id)
+    db.commit()
+
+    assert outcome.status == "bound"
+    assert outcome.tag is not None
+    # Nothing has written the sticker yet, and the record says so rather than
+    # assuming the phone succeeded.
+    assert outcome.tag.ndef_state == NdefState.UNVERIFIED
+
+    ready = body(bench.place(tag()), events.STATION_READY)
+    assert ready["location_id"] == location.id
+    assert ready["matched_by"] == "uid"
+    assert ready["total_qty_milli"] == STARTING_QTY_MILLI
+    assert ready["lots"][0]["lot_id"] == lot.id

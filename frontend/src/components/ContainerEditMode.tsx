@@ -44,6 +44,7 @@ import { ErrorBanner, Loading, Notice } from "./Feedback";
 import { RemoveContainer } from "./RemoveContainer";
 import { RoomPlanPanel } from "./RoomPlanPanel";
 import { SlotLayoutPanel } from "./SlotLayoutPanel";
+import { TagWalkDialog } from "./TagWalkPanel";
 import { AddContainersPanel } from "./AddContainers";
 import {
   detachLocationDocument,
@@ -59,7 +60,7 @@ import { useAsync } from "../lib/hooks/useAsync";
 import { ALL_GLYPHS, glyphLabel } from "../lib/locations/glyphs";
 import { uuid4 } from "../lib/scan/session";
 
-const PANELS = ["details", "picture", "layout", "plan", "add"] as const;
+const PANELS = ["details", "picture", "layout", "plan", "add", "tags", "verify"] as const;
 
 export type EditPanel = (typeof PANELS)[number];
 
@@ -178,6 +179,16 @@ export function ContainerEditMode({
         <button type="button" onClick={() => openPanel("add")}>
           Add containers inside…
         </button>
+        {/* The two walks. Separate buttons rather than one screen with a mode
+            switch, because they are opposite acts — one writes bindings and one
+            refuses to — and PLAN.md is explicit that verification is "not
+            optional busywork" that a mode toggle would make easy to skip. */}
+        <button type="button" onClick={() => openPanel("tags")}>
+          Bind NFC tags…
+        </button>
+        <button type="button" onClick={() => openPanel("verify")}>
+          Verify NFC tags…
+        </button>
       </div>
 
       <RemoveContainer location={location} onChanged={onChanged} />
@@ -193,6 +204,17 @@ export function ContainerEditMode({
       )}
       {panel === "plan" && <PlanDialog location={location} onClose={close} onSaved={onChanged} />}
       {panel === "add" && <AddDialog location={location} onClose={close} onCreated={onChanged} />}
+      {panel === "tags" && (
+        <TagWalkDialog
+          location={location}
+          kind="provision"
+          onClose={close}
+          onChanged={onChanged}
+        />
+      )}
+      {panel === "verify" && (
+        <TagWalkDialog location={location} kind="verify" onClose={close} onChanged={onChanged} />
+      )}
     </div>
   );
 }

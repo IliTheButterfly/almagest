@@ -2088,3 +2088,215 @@ export async function bulkAcceptEnrichmentCandidates(
   }
   return data;
 }
+
+// ------------------------------------------- tag provisioning and verifying ----
+//
+// PLAN.md's two walks along a cabinet, and the three tag routes that exist
+// outside them. Every response here carries the *whole* next step — advanced
+// cursor, progress counters, the payload to write, the undo label — so a walk is
+// one round trip per drawer at a 2-3 s per drawer budget, not two.
+
+export type ProvisioningState = Schemas["ProvisioningState"];
+export type VerificationState = Schemas["VerificationState"];
+export type ProvisioningStarted = Schemas["SessionStarted"];
+export type VerificationStarted = Schemas["VerificationStarted"];
+export type SlotCursorRead = Schemas["SlotCursorRead"];
+export type TagRead = Schemas["TagRead"];
+export type BindResponse = Schemas["BindResponse"];
+export type SkipResponse = Schemas["SkipResponse"];
+/** Named for the walk, because `UndoResponse` is already the *ledger*'s undo. */
+export type ProvisioningUndoResponse = Schemas["ProvisioningUndoResponse"];
+export type CheckResponse = Schemas["CheckResponse"];
+export type MismatchRead = Schemas["MismatchRead"];
+export type ConflictRead = Schemas["ConflictRead"];
+export type TagResolveResponse = Schemas["TagResolveResponse"];
+export type WriteResultResponse = Schemas["WriteResultResponse"];
+export type ProvisioningDevice = Schemas["ProvisioningDevice"];
+
+export async function startProvisioningSession(
+  locationId: number,
+  body: { device_kind?: ProvisioningDevice | null; client_op_id?: string; device_id?: string },
+): Promise<ProvisioningStarted> {
+  const { data, error, response } = await api.POST(
+    "/api/locations/{location_id}/provisioning-sessions",
+    { params: { path: { location_id: locationId } }, body },
+  );
+  if (error !== undefined) {
+    fail("could not start provisioning", error, response);
+  }
+  return data;
+}
+
+/**
+ * Resume, or report that nothing is open.
+ *
+ * There is no cursor to restore — it is `MIN(sort_order)` among the untagged
+ * children, derived fresh — so a browser killed mid-walk costs nothing at all.
+ */
+export async function getCurrentProvisioningSession(
+  locationId: number,
+): Promise<ProvisioningState> {
+  const { data, error, response } = await api.GET(
+    "/api/locations/{location_id}/provisioning-sessions/current",
+    { params: { path: { location_id: locationId } } },
+  );
+  if (error !== undefined) {
+    fail("could not read the provisioning session", error, response);
+  }
+  return data;
+}
+
+/**
+ * Bind one tag to one slot.
+ *
+ * "Already bound elsewhere" comes back as a **200 with a `conflict`**, not an
+ * error: it is an ordinary branch with a two-button answer (Move here / Cancel),
+ * and `move: true` is the second press.
+ */
+export async function bindTag(
+  sessionId: number,
+  body: {
+    tag_uid: string;
+    location_id?: number | null;
+    move?: boolean;
+    client_op_id?: string;
+    device_id?: string;
+  },
+): Promise<BindResponse> {
+  const { data, error, response } = await api.POST(
+    "/api/provisioning-sessions/{session_id}/bind",
+    { params: { path: { session_id: sessionId } }, body },
+  );
+  if (error !== undefined) {
+    fail("could not bind that tag", error, response);
+  }
+  return data;
+}
+
+export async function skipSlot(
+  sessionId: number,
+  body: { location_id?: number | null; client_op_id?: string; device_id?: string },
+): Promise<SkipResponse> {
+  const { data, error, response } = await api.POST(
+    "/api/provisioning-sessions/{session_id}/skip",
+    { params: { path: { session_id: sessionId } }, body },
+  );
+  if (error !== undefined) {
+    fail("could not skip that slot", error, response);
+  }
+  return data;
+}
+
+export async function undoProvisioningAction(
+  sessionId: number,
+  body: { client_op_id?: string; device_id?: string } = {},
+): Promise<ProvisioningUndoResponse> {
+  const { data, error, response } = await api.POST(
+    "/api/provisioning-sessions/{session_id}/undo",
+    { params: { path: { session_id: sessionId } }, body },
+  );
+  if (error !== undefined) {
+    fail("could not undo that", error, response);
+  }
+  return data;
+}
+
+/**
+ * Report what the tag holds after a write attempt.
+ *
+ * The server cannot see this for itself: `bind` stamps `written_at` before any
+ * device has touched the sticker. Sending the read-back URI rather than a boolean
+ * keeps the host-agnostic comparison on the server, where a hostname change
+ * cannot turn three hundred working tags into three hundred rewrites.
+ */
+export async function recordTagWriteResult(
+  tagId: number,
+  body: { read_back_url?: string | null; client_op_id?: string; device_id?: string },
+): Promise<WriteResultResponse> {
+  const { data, error, response } = await api.POST("/api/location-tags/{tag_id}/write-result", {
+    params: { path: { tag_id: tagId } },
+    body,
+  });
+  if (error !== undefined) {
+    fail("could not record the write result", error, response);
+  }
+  return data;
+}
+
+export async function unbindLocationTag(
+  tagId: number,
+  body: { reason?: string; client_op_id?: string; device_id?: string } = {},
+): Promise<Schemas["UnbindResponse"]> {
+  const { data, error, response } = await api.POST("/api/location-tags/{tag_id}/unbind", {
+    params: { path: { tag_id: tagId } },
+    body,
+  });
+  if (error !== undefined) {
+    fail("could not unbind that tag", error, response);
+  }
+  return data;
+}
+
+/** What is this tag? NDEF-first, UID fallback, and both reported when they disagree. */
+export async function resolveLocationTag(body: {
+  tag_uid?: string | null;
+  ndef_url?: string | null;
+}): Promise<TagResolveResponse> {
+  const { data, error, response } = await api.POST("/api/location-tags/resolve", { body });
+  if (error !== undefined) {
+    fail("could not resolve that tag", error, response);
+  }
+  return data;
+}
+
+export async function startVerificationSession(
+  locationId: number,
+  body: { device_kind?: ProvisioningDevice | null; client_op_id?: string; device_id?: string },
+): Promise<VerificationStarted> {
+  const { data, error, response } = await api.POST(
+    "/api/locations/{location_id}/verification-sessions",
+    { params: { path: { location_id: locationId } }, body },
+  );
+  if (error !== undefined) {
+    fail("could not start the verification walk", error, response);
+  }
+  return data;
+}
+
+/**
+ * Re-read one tag and compare.
+ *
+ * `carries_ndef` says whether the reader looked at user memory at all. It must be
+ * false for a hand-typed UID, or a keyboard can mark a perfectly good sticker as
+ * needing a rewrite.
+ */
+export async function checkTag(
+  sessionId: number,
+  body: {
+    tag_uid: string;
+    location_id?: number | null;
+    ndef_url?: string | null;
+    carries_ndef?: boolean;
+    client_op_id?: string;
+    device_id?: string;
+  },
+): Promise<CheckResponse> {
+  const { data, error, response } = await api.POST(
+    "/api/verification-sessions/{session_id}/check",
+    { params: { path: { session_id: sessionId } }, body },
+  );
+  if (error !== undefined) {
+    fail("could not check that tag", error, response);
+  }
+  return data;
+}
+
+export async function getVerificationSession(sessionId: number): Promise<VerificationState> {
+  const { data, error, response } = await api.GET("/api/verification-sessions/{session_id}", {
+    params: { path: { session_id: sessionId } },
+  });
+  if (error !== undefined) {
+    fail("could not read the verification walk", error, response);
+  }
+  return data;
+}

@@ -21,6 +21,7 @@ from app.api.routes import (
     enrichment,
     extraction,
     facets,
+    handoff,
     intake,
     labels,
     location_tags,
@@ -130,6 +131,7 @@ def create_app() -> FastAPI:
     app.include_router(provisioning.router)
     app.include_router(provisioning.verification_router)
     app.include_router(location_tags.router)
+    app.include_router(handoff.router)
     app.include_router(labels.router)
     app.include_router(stock.router)
     app.include_router(facets.router)

@@ -26,9 +26,11 @@
  */
 
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { GuidedPickStop } from "../components/GuidedPick";
+import { HandoffQr } from "../components/HandoffQr";
 import { PathBar } from "../components/PathBar";
 import {
   allocateStock,
@@ -52,7 +54,6 @@ import {
   type PartRead,
   type PickGapRead,
   type PickListResponse,
-  type PickStopRead,
   type RosterEntryRead,
   type RosterLineRead,
   type RosterResponse,
@@ -108,7 +109,23 @@ function Build({ build, onChanged }: { build: BuildRead; onChanged: () => void }
     () => getProject(build.project_id),
     [build.project_id],
   );
-  const [tab, setTab] = useState<Tab>("shortages");
+  /**
+   * Which view is open lives in `?tab=`, not in component state.
+   *
+   * Because a pick walk is handed to a phone by scanning a QR of this page's URL
+   * (`HandoffQr`), and a link that always lands on Shortages hands over the wrong
+   * screen. `replace` so switching tabs does not fill the back stack — Back should
+   * leave the build, as it did when this was `useState`.
+   */
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = TABS.includes((params.get("tab") ?? "") as Tab)
+    ? (params.get("tab") as Tab)
+    : "shortages";
+  const setTab = (next: Tab): void => {
+    const updated = new URLSearchParams(params);
+    updated.set("tab", next);
+    setParams(updated, { replace: true });
+  };
   const shortages = useAsync<ShortageResponse>(() => getShortages(build.id), [build.id]);
   // Release-all had no rejection path at all: a 409 (a staged row that cannot be
   // given back) surfaced as an uncaught promise and the button simply sat there,
@@ -884,9 +901,18 @@ function PickListView({ build }: { build: BuildRead }) {
       )}
 
       {stops.length > 0 && (
+        <HandoffQr path={`/builds/${build.id}?tab=pick`} what="this pick walk" />
+      )}
+
+      {stops.length > 0 && (
         <ol className="list">
           {stops.map((stop, index) => (
-            <PickStop key={stop.location_id} stop={stop} index={index + 1} />
+            <GuidedPickStop
+              key={stop.location_id}
+              stop={stop}
+              index={index + 1}
+              onPicked={() => plan.reload()}
+            />
           ))}
         </ol>
       )}
@@ -902,44 +928,6 @@ function PickListView({ build }: { build: BuildRead }) {
         </div>
       )}
     </div>
-  );
-}
-
-function PickStop({ stop, index }: { stop: PickStopRead; index: number }) {
-  return (
-    <li>
-      <div className="list-item">
-        <div className="row">
-          <span className="title" style={{ flex: 1 }}>
-            {index}. <Link to={`/locations/${stop.location_id}`}>{stop.label_path}</Link>
-          </span>
-          <span className="big-number">{formatQty(stop.qty_milli)}</span>
-        </div>
-        {/* The printed code, when the bin has one, so the stop can be scanned
-            rather than matched by eye. Most generated grid cells carry no label
-            at all, so its absence is normal and never an error. */}
-        {stop.short_id !== null && <div className="sub mono">{stop.short_id}</div>}
-        <ul className="list" style={{ marginTop: "0.4rem" }}>
-          {stop.takes.map((take) => (
-            <li key={`${take.lot_id}-${take.bom_line_id ?? "none"}-${take.part_id}`} className="sub">
-              <strong>{formatQty(take.qty_milli)}</strong> of{" "}
-              <Link to={`/parts/${take.part_id}`}>{take.part_name}</Link>
-              {take.part_mpn !== null && ` (${take.part_mpn})`} from{" "}
-              <Link to={`/lots/${take.lot_id}`}>lot #{take.lot_id}</Link>
-              {take.line_no !== null && ` · line ${take.line_no}`}
-              {take.designators !== null && ` · ${take.designators}`}{" "}
-              {/* Two badges that change what the hand does, so both are words and
-                  glyphs rather than a colour: an emptied lot is carried away whole
-                  with no count to get wrong, and a substitute is a decision
-                  somebody made once that is now being acted on blind at a drawer. */}
-              {take.whole_lot && <span className="badge badge-good">whole lot</span>}
-              {take.is_substitute && <span className="badge badge-info">substitute</span>}
-              {take.allocation_id !== null && <span className="badge">already held</span>}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </li>
   );
 }
 

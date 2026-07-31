@@ -86,7 +86,15 @@ class TagRead(BaseModel):
     ndef_url: str
     bind_source: str | None
     is_read_only: bool
+    #: When the *binding* was recorded, which is necessarily before any device
+    #: tried to write the sticker. `ndef_state` is the claim about the sticker.
     written_at: datetime
+    #: `unverified` (no device has reported back), `verified` (written and read
+    #: back), `degraded` (a write was attempted and no matching URI came back —
+    #: UID-only from here, so the station still identifies it and a phone tap
+    #: does not, which is a rewrite to offer rather than a binding to drop).
+    ndef_state: str
+    ndef_checked_at: datetime | None
     last_verified_at: datetime | None
 
 
@@ -285,6 +293,16 @@ class VerificationStarted(ReplayableResponse):
 class CheckRequest(BaseModel):
     tag_uid: str = TagUidField
     location_id: RowId | None = None
+    #: The URI record the *same* reading returned, when the reader read both
+    #: carriers. This is what lets one walk catch a bad write as well as a bad
+    #: sticker: the right tag on the right drawer with no readable URI is a
+    #: `match` that still needs rewriting before a phone tap will work.
+    ndef_url: str | None = Field(default=None, max_length=2048)
+    #: Did this reader look at user memory at all? A UID typed in by hand did
+    #: not, and must not be allowed to mark a working tag degraded, so absence of
+    #: `ndef_url` only means "unreadable" when this is true. Web NFC and the
+    #: PN532 always look; a keyboard never does.
+    carries_ndef: bool = False
     client_op_id: str | None = Field(default=None, max_length=36)
     device_id: str | None = Field(default=None, max_length=64)
 
@@ -296,6 +314,9 @@ class CheckResponse(ReplayableResponse):
     location_id: RowId
     expected_tag_uid: str | None
     scanned_tag_uid: str
+    #: The tag's NDEF state after this reading, or null when the reader did not
+    #: look at user memory. `match` plus `degraded` is a real and useful answer.
+    ndef_state: str | None
     mismatch: MismatchRead | None
     state: VerificationState
 
@@ -390,6 +411,8 @@ def tag_read(db: Session, tag: LocationTag | None) -> TagRead | None:
         bind_source=tag.bind_source,
         is_read_only=tag.is_read_only,
         written_at=tag.written_at,
+        ndef_state=tag.ndef_state,
+        ndef_checked_at=tag.ndef_checked_at,
         last_verified_at=tag.last_verified_at,
     )
 
@@ -735,7 +758,12 @@ def check_tag(
     def work() -> CheckResponse:
         try:
             outcome = provisioning.check(
-                db, walk, tag_uid=request.tag_uid, location_id=request.location_id
+                db,
+                walk,
+                tag_uid=request.tag_uid,
+                location_id=request.location_id,
+                ndef_url=request.ndef_url,
+                carries_ndef=request.carries_ndef,
             )
         except ProvisioningError as error:
             raise _provisioning_error(error) from error
@@ -744,6 +772,7 @@ def check_tag(
             location_id=outcome.location.id,
             expected_tag_uid=outcome.expected_tag_uid,
             scanned_tag_uid=outcome.scanned_tag_uid,
+            ndef_state=outcome.ndef_state,
             mismatch=(None if outcome.mismatch is None else _mismatch_read(db, outcome.mismatch)),
             state=_verification_state(db, walk),
         )

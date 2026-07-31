@@ -733,6 +733,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/handoff/qr.svg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Handoff Qr
+         * @description A QR encoding `{base_url}{path}`.
+         */
+        get: operations["handoff_qr"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/intake/pending": {
         parameters: {
             query?: never;
@@ -940,6 +960,40 @@ export interface paths {
          *     hands to a human, the other being a swap.
          */
         post: operations["unbind_location_tag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/location-tags/{tag_id}/write-result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Tag Write Result
+         * @description Report what the tag holds after a write attempt.
+         *
+         *     The one fact about a tag the server cannot observe. `bind` records the
+         *     binding and stamps `written_at` at that moment, which is necessarily *before*
+         *     any device has tried to write — so a binding whose write silently failed would
+         *     otherwise look identical to one that worked, and PLAN.md's "write the NDEF URI
+         *     → read back to verify" would have nowhere to report the second half.
+         *
+         *     A failed write is never a failed bind. The UID lives in factory-locked pages
+         *     0-2, so the tag still identifies itself at the station and only a phone tap is
+         *     lost; the binding stays and the walk offers a rewrite.
+         *
+         *     Idempotent by `client_op_id`, like every other write here — a phone that
+         *     loses wifi mid-report retries the same key rather than second-guessing which
+         *     of two states it left the record in.
+         */
+        post: operations["record_tag_write_result"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3511,12 +3565,19 @@ export interface components {
         };
         /** CheckRequest */
         CheckRequest: {
+            /**
+             * Carries Ndef
+             * @default false
+             */
+            carries_ndef?: boolean;
             /** Client Op Id */
             client_op_id?: string | null;
             /** Device Id */
             device_id?: string | null;
             /** Location Id */
             location_id?: number | null;
+            /** Ndef Url */
+            ndef_url?: string | null;
             /** Tag Uid */
             tag_uid: string;
         };
@@ -3530,6 +3591,8 @@ export interface components {
             /** Location Id */
             location_id: number;
             mismatch: components["schemas"]["MismatchRead"] | null;
+            /** Ndef State */
+            ndef_state: string | null;
             /**
              * Replayed
              * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
@@ -7843,6 +7906,10 @@ export interface components {
             last_verified_at: string | null;
             /** Location Id */
             location_id: number;
+            /** Ndef Checked At */
+            ndef_checked_at: string | null;
+            /** Ndef State */
+            ndef_state: string;
             /** Ndef Url */
             ndef_url: string;
             /** Tag Uid */
@@ -8062,6 +8129,40 @@ export interface components {
             remaining: number;
             /** Total Tagged */
             total_tagged: number;
+        };
+        /**
+         * WriteResultRequest
+         * @description What the device found on the tag after trying to write it.
+         *
+         *     Deliberately the read-back URI rather than a boolean the client computed: the
+         *     comparison is host-agnostic (a tag written before a hostname change is still
+         *     correct), and that rule belongs in one place on the server rather than in
+         *     every client that ever writes a tag. `read_back_url: null` covers both "the
+         *     write threw" and "the read-back found no URI record", which are the same fact
+         *     about the tag.
+         */
+        WriteResultRequest: {
+            /** Client Op Id */
+            client_op_id?: string | null;
+            /** Device Id */
+            device_id?: string | null;
+            /**
+             * Read Back Url
+             * @description The URI record read back off the tag immediately after writing, verbatim. Null when the write failed or user memory came back empty.
+             */
+            read_back_url?: string | null;
+        };
+        /** WriteResultResponse */
+        WriteResultResponse: {
+            /**
+             * Replayed
+             * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
+             * @default false
+             */
+            replayed?: boolean;
+            tag: components["schemas"]["TagRead"];
+            /** Verified */
+            verified: boolean;
         };
     };
     responses: never;
@@ -9200,6 +9301,38 @@ export interface operations {
             };
         };
     };
+    handoff_qr: {
+        parameters: {
+            query: {
+                /** @description Same-origin absolute path to open on the phone, e.g. `/builds/12?tab=pick`. Absolute URLs are refused. */
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/svg+xml": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_pending: {
         parameters: {
             query?: {
@@ -9488,6 +9621,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnbindResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_tag_write_result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tag_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteResultRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WriteResultResponse"];
                 };
             };
             /** @description Validation Error */

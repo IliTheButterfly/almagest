@@ -52,6 +52,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.enums import (
     EntityType,
+    NdefState,
     ProvisioningActionKind,
     ProvisioningDevice,
     ProvisioningKind,
@@ -725,6 +726,11 @@ class CheckOutcome:
     expected_tag_uid: str | None
     scanned_tag_uid: str
     mismatch: VerificationMismatch | None = None
+    #: The tag's NDEF state after this reading. On a UID match with both carriers
+    #: read, a walk that finds the right tag with an unreadable URI reports
+    #: `match` *and* `degraded` — the binding is fine and the sticker needs
+    #: rewriting, which are two independent facts.
+    ndef_state: str | None = None
     #: Which slot the scanned tag actually belongs to. "You have swapped B2 and
     #: B3" is actionable in a way that "something is wrong" is not.
     scanned_belongs_to: Location | None = None
@@ -756,12 +762,21 @@ def check(
     *,
     tag_uid: str,
     location_id: int | None = None,
+    ndef_url: str | None = None,
+    carries_ndef: bool = False,
 ) -> CheckOutcome:
     """Re-read one tag and compare it to the expected UID.
 
     Writes no binding on either branch. `last_verified_at` moves, which is a
     record of the reading rather than a change to what the tag means — the
     binding's `location_id`, `tag_uid` and `ndef_url` are never touched here.
+
+    `ndef_url` is what the same read returned from user memory, and it is how a
+    walk catches a *bad write* as well as a bad sticker. A reader that read both
+    carriers passes `carries_ndef=True`, which makes `ndef_url=None` mean "this
+    tag has no readable URI" — a degraded tag — rather than "this reader did not
+    look". The station's PN532 and Web NFC both always look; a UID typed in by
+    hand does not, and must not be allowed to mark a working tag degraded.
     """
     _require_kind(walk, ProvisioningKind.VERIFY)
 
@@ -781,6 +796,15 @@ def check(
         )
         expected.last_verified_at = now
         target.last_verified_at = now
+        if carries_ndef:
+            # The right UID on the right drawer, so this says nothing about the
+            # binding — only about whether a phone tap would still open anything.
+            expected.ndef_state = (
+                NdefState.VERIFIED
+                if ndef_matches(expected.ndef_url, ndef_url)
+                else NdefState.DEGRADED
+            )
+            expected.ndef_checked_at = now
         # A slot that now reads correctly closes its own earlier finding,
         # whichever of the two repairs the human chose.
         for finding in mismatches(session, walk, unresolved_only=True):
@@ -793,6 +817,7 @@ def check(
             location=target,
             expected_tag_uid=expected.tag_uid,
             scanned_tag_uid=uid,
+            ndef_state=expected.ndef_state,
         )
 
     scanned_elsewhere = tag_with_uid(session, uid)
@@ -887,6 +912,45 @@ def resolve_tag(
     return TagResolution(
         status="unknown", matched_by="none", location=None, tag=None, disagreement=False
     )
+
+
+def ndef_matches(expected_url: str, read_back_url: str | None) -> bool:
+    """Does `read_back_url` carry the same short id as `expected_url`?
+
+    Compared by short id rather than by string, for the same reason
+    `/api/location-tags/resolve` matches host-agnostically: a tag written before
+    a hostname change carries a different URL and is still perfectly correct, and
+    calling that a failed write would send someone rewriting three hundred
+    working stickers.
+    """
+    if not read_back_url:
+        return False
+    expected = parse_ndef_url(expected_url)
+    return expected is not None and parse_ndef_url(read_back_url) == expected
+
+
+def record_write_result(
+    session: Session, tag: LocationTag, *, read_back_url: str | None
+) -> LocationTag:
+    """Record what a device found on the tag *after* trying to write it.
+
+    The one thing the server cannot observe for itself. `bind` stamps
+    `written_at` at the moment the binding is recorded, which is necessarily
+    before any write has been attempted — so without this call every binding
+    claims a successful write, including the ones where the phone was pulled away
+    mid-write.
+
+    `read_back_url=None` means the write threw, or the read-back returned no URI
+    record at all. Both land on `degraded`: the UID lives in factory-locked pages
+    0-2 and is untouched, so the tag still identifies at the station and only a
+    phone tap is lost. That is a rewrite to offer, never a binding to drop.
+    """
+    tag.ndef_state = (
+        NdefState.VERIFIED if ndef_matches(tag.ndef_url, read_back_url) else NdefState.DEGRADED
+    )
+    tag.ndef_checked_at = utcnow()
+    session.flush()
+    return tag
 
 
 def unbind(session: Session, tag: LocationTag) -> None:

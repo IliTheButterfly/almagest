@@ -207,7 +207,10 @@ describe("a part with no stock", () => {
     // No click anywhere — the suggestion is fetched because there is no
     // stock yet, not because someone found a "Suggest" button.
     await waitFor(() => expect(callTo("/api/locations/suggest")).toBeDefined());
-    expect(await screen.findByText("Cabinet B / Drawer B3")).toBeTruthy();
+    // `findAll`, because the suggested container is now named twice on purpose:
+    // once as the proposal, and once by the scan check that asks whether the
+    // drawer in your hand is that one.
+    expect((await screen.findAllByText("Cabinet B / Drawer B3")).length).toBeGreaterThan(0);
     expect(screen.getByText(/This part has no stock yet/)).toBeTruthy();
   });
 
@@ -215,7 +218,7 @@ describe("a part with no stock", () => {
     stubApi(ZERO_STOCK_PART);
     renderPart(9);
 
-    await screen.findByText("Cabinet B / Drawer B3");
+    await screen.findAllByText("Cabinet B / Drawer B3");
     // Default quantity is one whole unit (1000 milli); commit as-is.
     fireEvent.click(await screen.findByRole("button", { name: /^Put 1 in Cabinet B/ }));
 
@@ -230,7 +233,7 @@ describe("a part with no stock", () => {
     stubApi(ZERO_STOCK_PART);
     renderPart(9);
 
-    await screen.findByText("Cabinet B / Drawer B3");
+    await screen.findAllByText("Cabinet B / Drawer B3");
     // The override used to want `location_id`, a row id nobody can know, which
     // made it no override at all. It is the container picker now.
     fireEvent.click(screen.getByText("Use a different container instead"));

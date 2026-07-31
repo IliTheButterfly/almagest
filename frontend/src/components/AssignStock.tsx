@@ -31,6 +31,7 @@ import {
 } from "../lib/api/client";
 import { formatQty } from "../lib/format";
 import { uuid4 } from "../lib/scan/session";
+import { ConfirmScan, type ScanVerdict } from "./ConfirmScan";
 import { ContainerPicker, type PickedContainer } from "./ContainerPicker";
 import { ErrorBanner, Notice } from "./Feedback";
 import { QuantityPad } from "./Quantity";
@@ -58,6 +59,18 @@ export function AssignStock({
   const [qtyMilli, setQtyMilli] = useState(1000);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  /**
+   * Whether the drawer in your hand is the drawer on screen.
+   *
+   * > *I got some new parts, I scan them, I see the reference and am directed to
+   * > take the right container. I scan it and it confirms if I got the right one.*
+   *
+   * The put-away half of the same loop the pick walk does: the destination is
+   * *proposed* by the suggester, and the scan is what turns a proposal into a
+   * checked fact. It never blocks the commit — a scan is never rejected — it
+   * records whether anybody actually looked.
+   */
+  const [verdict, setVerdict] = useState<ScanVerdict>({ kind: "idle" });
 
   const ask = useCallback(async () => {
     setStarted(true);
@@ -190,9 +203,22 @@ export function AssignStock({
         />
       </details>
 
+      {targetLocationId !== null && targetLabel !== null && (
+        <ConfirmScan
+          expected={{ locationId: targetLocationId, labelPath: targetLabel, shortId: null }}
+          onConfirmed={setVerdict}
+        />
+      )}
+
       <QuantityPad valueMilli={qtyMilli} onChange={setQtyMilli} caption="how many are going there" />
 
       <ErrorBanner error={error} fallback="That could not be recorded." />
+
+      {verdict.kind !== "right" && targetLocationId !== null && (
+        <p className="muted-note" style={{ margin: 0 }}>
+          Not scanned — this will be recorded against {targetLabel} on your word alone.
+        </p>
+      )}
 
       <button
         type="button"
