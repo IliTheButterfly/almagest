@@ -15,6 +15,10 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 - `services/search/` — the value-parser adapter and the parametric filter executor
 - `/api/search/parts`, `/api/resolve/{short_id}`, `/s/{short_id}`, `/api/system/health`
 - both submodule libraries (`elec-value-parser`, `ecia-barcode`), tagged and pinned
+- `mcpserver/` — the MCP server: 25 curated tools over the HTTP API, writes gated
+  behind `ALMAGEST_MCP_ALLOW_WRITES`, and `coverage.py` + its manifest test forcing
+  a disposition for **every** route so the tool surface cannot silently go stale.
+  See ADR 0012
 - `deviceagent/` — the `TagSource` protocol, the fake that replays a scripted
   session, NDEF decoding, NDEF-first/UID-fallback resolution, tag presence, the
   **station session** (PLAN.md workflow 5: identify → ready → propose → confirm →
@@ -56,7 +60,7 @@ backend command runs through `uv run`; there is no venv to activate.
 make bootstrap        # submodules, venv, deps, .env from .env.example
 make migrate          # alembic upgrade head
 make run              # API with autoreload on :8000
-make check            # everything CI runs: lint, mypy --strict, pytest (idcodec + backend + deviceagent)
+make check            # everything CI runs: lint, mypy --strict, pytest (idcodec + backend + deviceagent + mcpserver)
 make help             # all targets
 
 # Backend, directly
@@ -71,6 +75,12 @@ make agent-check      # ruff, mypy --strict, pytest; folded into `make check`
 make agent-run        # the agent against the fake reader, no hardware needed
 cd deviceagent && uv run pytest -q
 cd deviceagent && uv run pytest -m live      # needs a real PN532; skipped by default
+
+# MCP server — the inventory as tools an agent can call
+make mcp-check        # ruff, mypy --strict, pytest; folded into `make check`
+make mcp-run          # the stdio server (an MCP client normally launches this itself)
+cd mcpserver && uv run pytest -q
+cd mcpserver && uv run pytest -m live    # needs a running API; skipped by default
 
 # idcodec — no dependencies at all, so its own venv is the point
 make idcodec-check    # ruff, mypy --strict, pytest; folded into `make check`
@@ -100,6 +110,14 @@ Learn these before writing code — each has a test that fails loudly.
   `StrEnumType(SomeStrEnum)` from `app/models/types.py`.
 - **Integration tests run real Alembic migrations**, never `create_all()` — that
   is the only way model/migration drift and the ledger triggers are exercised.
+- **Every backend route needs a line in `mcpserver/almagest_mcp/coverage.py`.**
+  That file maps every `openapi.json` operation id to `Exposed("tool")` or
+  `Excluded(Reason.X, "why")`, and `mcpserver/tests/test_coverage_manifest.py`
+  diffs it against the committed schema in both directions. **Adding, renaming or
+  deleting a route turns `make check` red until you decide** whether an agent
+  should be able to call it — `Excluded` is a fine answer, and most routes are. Do
+  not delete the test to get green; the whole design is that nobody has to
+  remember. See ADR 0012 and `mcpserver/README.md`.
 - **Migrations must not import from `app`.** `alembic/env.py` renders custom
   types as `sa.String` so a migration never depends on application code.
 - **Every numeric `parameter_value` needs `value_min`/`value_max`**, equal for a
@@ -120,6 +138,7 @@ Master repo (**Almagest**) plus submodules, split only where coupling is genuine
 
 - `backend/`, `frontend/`, `deviceagent/` — **one repo, kept together.** All three are bound by the API contract; a route signature change touches all of them and must be one atomic commit.
 - `idcodec/` — same repo, its own distribution (`almagest-idcodec`) and its own venv. The short-ID codec and the tag payload rules, **standard library only**. Both the API and the agent depend on it by path — the API re-exports it through `app.services.shortid` and `app.services.provisioning` so existing call sites are untouched, the agent imports it directly — so the two can never fold a tag UID differently. It exists because the agent runs on a Pi 4 and used to pull the whole API runtime in for two pure functions. Nothing that needs a `Session`, `app.models` or `app.config` may go in it; `idcodec/tests/test_stdlib_only.py` fails if anything non-stdlib is imported.
+- `mcpserver/` — same repo, its own distribution (`almagest-mcp`) and its own venv. The inventory as tools an agent can call: 25 curated tools over the HTTP API, stdio transport, `.mcp.json` at the repo root wires it up. **A translation layer, not a second API** — whole units instead of `qty_milli`, a `{template: value}` mapping instead of the API's list of pairs, and nothing that imports `app.models` or opens the database. Writes are off unless `ALMAGEST_MCP_ALLOW_WRITES` is set, and go through the same `/api/stock/...` routes the PWA uses. Its own venv because the MCP SDK has no business in the API image, and it needs no submodules: the contract test reads the committed `openapi.json` and the tool tests drive a fake transport. **`almagest_mcp/coverage.py` is the map — read it before adding a tool.**
 - `mensa/` — submodule. The bench station firmware: ESP-IDF, separate toolchain.
 - `antlia/` — submodule, **public**. A Flipper Zero app that reads a container tag and types its short ID into the connected computer as a USB keyboard, so a laptop can identify a bin. Split for the same reason as `mensa/`: its own toolchain (`ufbt`, the Flipper SDK) and no coupling to the API contract — it needs no network at all. It carries a **second implementation of the short-ID codec, in C**, which is the one risk worth knowing about: `antlia/tests/vectors.h` is generated from `idcodec/` by `antlia/tools/gen_vectors.py`, so a divergence fails Antlia's CI. Change `idcodec/shortid.py` or `tagpayload.py` and you must run `make vectors` there too.
 - `circinus/` — submodule. OpenSCAD/CAD; binary-ish files that would bloat every clone forever.
