@@ -394,6 +394,18 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "start_verification_session": Excluded(Reason.HANDS_ON, _WALK),
         "read_verification_session": Excluded(Reason.HANDS_ON, _WALK),
         "check_tag": Excluded(Reason.HANDS_ON, _WALK),
+        "record_tag_write_result": Excluded(
+            Reason.MACHINE_DOOR,
+            "Reports what a device read back off a tag after writing it. The "
+            "whole point of the call is that only the device physically holding "
+            "the tag can know; a process with no reader answering it would be "
+            "inventing the one fact the server cannot observe.",
+        ),
+        "handoff_qr": Excluded(
+            Reason.BINARY_PAYLOAD,
+            "Renders an SVG for a human to point a phone camera at. Nothing to "
+            "hand a model, which already has the URL it would encode.",
+        ),
         "create_label_sheet": Excluded(Reason.HANDS_ON, _LABELS),
         "read_label_sheet": Excluded(Reason.HANDS_ON, _LABELS),
         # -- documents ---------------------------------------------------------

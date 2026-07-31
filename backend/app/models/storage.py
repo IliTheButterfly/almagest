@@ -23,6 +23,7 @@ from app.models.enums import (
     ChildLayout,
     ChildView,
     ContainerGlyph,
+    NdefState,
     PlanShapeKind,
     SizeClass,
     SlotLabelScheme,
@@ -425,7 +426,27 @@ class LocationTag(Base):
     )
 
     bind_source: Mapped[str | None] = mapped_column(String(32))
+
+    #: When the *binding* was recorded. Deliberately not renamed despite the
+    #: name reading like a claim about the sticker: a bind is a row this server
+    #: writes, and the server never holds the tag. What the tag actually holds is
+    #: `ndef_state`, reported afterwards by the device that did the writing.
     written_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+
+    #: Whether user memory is known to carry `ndef_url`. Defaults to
+    #: `unverified` because that is the honest answer at bind time — the write
+    #: has not happened yet, and a reader that cannot write never makes it
+    #: happen at all.
+    ndef_state: Mapped[str] = mapped_column(
+        StrEnumType(NdefState),
+        nullable=False,
+        default=NdefState.UNVERIFIED,
+        server_default=NdefState.UNVERIFIED.value,
+    )
+    #: When `ndef_state` was last established, by a write read-back or by a
+    #: verification walk re-reading the tag. NULL while still `unverified`.
+    ndef_checked_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+
     last_verified_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
 
 

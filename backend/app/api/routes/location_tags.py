@@ -1,9 +1,11 @@
-"""`/api/location-tags` — reading a tag back, and forgetting a binding.
+"""`/api/location-tags` — reading a tag back, reporting what a write achieved, and
+forgetting a binding.
 
-Two routes, both outside any walk, because both are needed when a walk has gone
+Three routes, all outside any walk, because each is needed when a walk has gone
 wrong: `resolve` is what a bench-station or phone tap calls to ask "what is
-this?", and `unbind` is one of the two repairs a verification mismatch leaves to
-a human.
+this?", `write-result` is the second half of "write the NDEF URI → read back to
+verify" and the only way the server learns a write failed, and `unbind` is one of
+the two repairs a verification mismatch leaves to a human.
 
 **Resolution is NDEF-first with a UID fallback.** The NDEF URI record is the
 payload this system authored (`{base_url}/s/{short_id}`), so it is what a tag
@@ -29,6 +31,7 @@ from app.api.limits import RowId
 from app.api.routes.provisioning import TagRead, tag_read
 from app.api.schemas import ReplayableResponse
 from app.db.session import get_db
+from app.models.enums import NdefState
 from app.models.storage import LocationTag
 from app.services import provisioning
 from app.services.provisioning import ProvisioningError
@@ -81,6 +84,34 @@ class TagResolveResponse(BaseModel):
     #: another. Surfaced rather than resolved: that is a mis-bound tag, and only
     #: a human standing at the drawers can say which of the two is right.
     disagreement: bool
+
+
+class WriteResultRequest(BaseModel):
+    """What the device found on the tag after trying to write it.
+
+    Deliberately the read-back URI rather than a boolean the client computed: the
+    comparison is host-agnostic (a tag written before a hostname change is still
+    correct), and that rule belongs in one place on the server rather than in
+    every client that ever writes a tag. `read_back_url: null` covers both "the
+    write threw" and "the read-back found no URI record", which are the same fact
+    about the tag.
+    """
+
+    read_back_url: str | None = Field(
+        default=None,
+        max_length=2048,
+        description="The URI record read back off the tag immediately after writing, "
+        "verbatim. Null when the write failed or user memory came back empty.",
+    )
+    client_op_id: str | None = Field(default=None, max_length=36)
+    device_id: str | None = Field(default=None, max_length=64)
+
+
+class WriteResultResponse(ReplayableResponse):
+    tag: TagRead
+    #: True when the tag now carries a readable URI matching its binding — the
+    #: only state in which tapping it with a phone opens anything.
+    verified: bool
 
 
 class UnbindRequest(BaseModel):
@@ -138,6 +169,56 @@ def resolve_location_tag(
     )
 
 
+def _require_tag(db: Session, tag_id: RowId) -> LocationTag:
+    tag = db.get(LocationTag, tag_id)
+    if tag is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={"reason": "unknown_tag", "message": f"no location tag with id {tag_id}"},
+        )
+    return tag
+
+
+@router.post("/{tag_id}/write-result", response_model=WriteResultResponse)
+def record_tag_write_result(
+    tag_id: RowId, request: WriteResultRequest, db: Session = Depends(get_db)
+) -> WriteResultResponse:
+    """Report what the tag holds after a write attempt.
+
+    The one fact about a tag the server cannot observe. `bind` records the
+    binding and stamps `written_at` at that moment, which is necessarily *before*
+    any device has tried to write — so a binding whose write silently failed would
+    otherwise look identical to one that worked, and PLAN.md's "write the NDEF URI
+    → read back to verify" would have nowhere to report the second half.
+
+    A failed write is never a failed bind. The UID lives in factory-locked pages
+    0-2, so the tag still identifies itself at the station and only a phone tap is
+    lost; the binding stays and the walk offers a rewrite.
+
+    Idempotent by `client_op_id`, like every other write here — a phone that
+    loses wifi mid-report retries the same key rather than second-guessing which
+    of two states it left the record in.
+    """
+    tag = _require_tag(db, tag_id)
+
+    def work() -> WriteResultResponse:
+        updated = provisioning.record_write_result(db, tag, read_back_url=request.read_back_url)
+        snapshot = tag_read(db, updated)
+        if snapshot is None:  # pragma: no cover - `updated` is not None here
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"reason": "unknown_tag"})
+        return WriteResultResponse(tag=snapshot, verified=updated.ndef_state == NdefState.VERIFIED)
+
+    return idempotency.run(
+        db,
+        client_op_id=request.client_op_id,
+        device_id=request.device_id,
+        endpoint="POST /api/location-tags/{id}/write-result",
+        payload=request,
+        response_model=WriteResultResponse,
+        work=work,
+    )
+
+
 @router.post("/{tag_id}/unbind", response_model=UnbindResponse)
 def unbind_location_tag(
     tag_id: RowId, request: UnbindRequest, db: Session = Depends(get_db)
@@ -153,12 +234,7 @@ def unbind_location_tag(
     the next walk. This is also one of the two repairs a verification mismatch
     hands to a human, the other being a swap.
     """
-    tag = db.get(LocationTag, tag_id)
-    if tag is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            detail={"reason": "unknown_tag", "message": f"no location tag with id {tag_id}"},
-        )
+    tag = _require_tag(db, tag_id)
 
     def work() -> UnbindResponse:
         snapshot = tag_read(db, tag)

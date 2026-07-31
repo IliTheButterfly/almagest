@@ -669,6 +669,37 @@ class ProvisioningDevice(StrEnum):
     MANUAL = "manual"
 
 
+class NdefState(StrEnum):
+    """Whether the tag's *user memory* is known to hold the payload we intended.
+
+    Distinct from the binding itself, and the distinction is the whole point.
+    Binding is a row this server owns and can always write; the NDEF record is
+    bytes on a sticker the server never touches — only the device physically
+    holding the tag can write it, and only that device can read it back. So a
+    bind necessarily records an intention, and a second call records what the
+    tag actually ended up holding.
+
+    Why three values and not a boolean: the 7-byte UID lives in factory-locked
+    pages 0-2, physically separate from user memory at page 4, so a write that
+    fails partway leaves a tag that is still perfectly identifiable by UID and
+    no longer carries a readable URI. `DEGRADED` is exactly that tag — usable at
+    the station (which polls both carriers), useless for a phone tap (which
+    needs a URI to open), and therefore a rewrite the verify screen must offer
+    rather than a failure that lost anything.
+    """
+
+    #: Bound, but no device has reported back what the tag holds. The state of
+    #: every binding made by a reader that cannot write — the station's PN532
+    #: today, and every manually entered UID.
+    UNVERIFIED = "unverified"
+    #: Written and read back, and the read-back matched `ndef_url`. The only
+    #: state in which a phone tap is known to work.
+    VERIFIED = "verified"
+    #: A write was attempted and the read-back did not return our URI. UID-only
+    #: from here on: flag for a rewrite, never treat as unbound.
+    DEGRADED = "degraded"
+
+
 class TagGranularity(StrEnum):
     """Per-instantiation choice of which new locations get a printed
     `short_id` (and are therefore taggable) when a container type is

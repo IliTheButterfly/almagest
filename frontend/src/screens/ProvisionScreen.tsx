@@ -5,25 +5,33 @@
  * but resolves to no row. That is the blank-tag case — a tag written before its
  * container existed, or one from a batch pre-written at a desk.
  *
- * **What this screen cannot do yet, and says so.** Adopting a pre-written code as a
- * container's own short ID means writing an `object_ids` row, and no endpoint does
- * that: `POST /api/locations` mints its own code server-side, which by definition
- * cannot be the one already on the tag. Layout authoring and bulk tag provisioning
- * are named in Phase 1 but are not in the API on this branch.
+ * **Two ways out, and they are genuinely different.**
  *
- * **What it can do, and it is not a workaround.** Binding the payload as a barcode
- * alias to an existing container makes the tag resolve from the next tap onward, via
- * step 2 of the resolver chain. Step 1 deliberately *yields* on a well-formed but
- * unbound code precisely so that binding stays reachable — if it claimed the code and
- * stopped, no alias could ever fix it. So this is the designed route, not a hack; the
- * tag simply resolves through the learning loop rather than through `object_ids`.
+ * *Adopt* makes the code the container's **own** short ID (`POST
+ * /api/locations/{id}/short-id`), so the tag resolves through `object_ids` like
+ * any minted code — the printed card, the tag and the database then agree, and the
+ * container has one identity rather than an identity plus a redirect. This is the
+ * right answer for a tag written at a desk before its drawer existed, which is the
+ * usual reason to be on this screen. The server verifies the check symbol and
+ * refuses a code held by something else rather than quietly substituting a free
+ * one, because a substitute would leave the sticker permanently lying.
+ *
+ * *Bind as an alias* points the payload at a container that already has its own
+ * code, through step 2 of the resolver chain. Right when the tag is a *second*
+ * carrier for a container that is already labelled — a drawer whose printed card
+ * says one thing and whose tag was written from a different batch. Step 1
+ * deliberately yields on a well-formed but unbound code so this stays reachable.
+ *
+ * Adopting is offered first because it produces one identity instead of two.
  */
 
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
+import { ContainerPicker, type PickedContainer } from "../components/ContainerPicker";
 import { ErrorBanner, Notice } from "../components/Feedback";
-import { bindScanAlias, resolveShortId } from "../lib/api/client";
+import { assignLocationShortId, bindScanAlias, resolveShortId } from "../lib/api/client";
+import { uuid4 } from "../lib/scan/session";
 import { formatShortId, looksLikeShortId, normalizeShortId } from "../lib/shortid";
 
 interface BoundTo {
@@ -40,6 +48,21 @@ export function ProvisionScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [bound, setBound] = useState<BoundTo | null>(null);
+  const [adopted, setAdopted] = useState<{ locationId: number; label: string } | null>(null);
+  const [showAlias, setShowAlias] = useState(false);
+
+  async function adopt(picked: PickedContainer): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await assignLocationShortId(picked.id, { short_id: code, client_op_id: uuid4() });
+      setAdopted({ locationId: picked.id, label: picked.label });
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function bind(): Promise<void> {
     setBusy(true);
@@ -95,16 +118,41 @@ export function ProvisionScreen() {
         </p>
       </div>
 
-      <Notice kind="info" title="Adopting this code is not wired up yet">
-        <p style={{ margin: 0 }}>
-          Making this the container&apos;s own short ID needs an endpoint that writes
-          the ID table, and there is not one on this build: creating a container mints a
-          fresh code server-side, which cannot be the code already written to this tag.
-          Layout authoring and bulk provisioning land with that endpoint.
-        </p>
-      </Notice>
+      {adopted !== null ? (
+        <Notice kind="ok" title="Adopted">
+          <p style={{ margin: 0 }}>
+            {adopted.label} now carries this code as its own. The tag, the printed card and
+            the database all say the same thing.
+          </p>
+          <p style={{ margin: 0 }}>
+            <Link to={`/locations/${adopted.locationId}`}>Open it →</Link>
+          </p>
+        </Notice>
+      ) : showAlias ? null : (
+        <div className="card">
+          <h3>Give this code to a container</h3>
+          <p className="muted-note" style={{ margin: 0 }}>
+            Makes it that container&apos;s own short ID, so the tag resolves like any minted
+            code rather than through a redirect. Refused if the code already names something
+            else — a substitute would leave the sticker lying.
+          </p>
+          <ContainerPicker
+            onPick={(picked) => void adopt(picked)}
+            actionLabel={busy ? "Adopting…" : "Adopt this code"}
+          />
+          <ErrorBanner error={error} fallback="Nothing was adopted." />
+        </div>
+      )}
 
-      {bound === null ? (
+      {adopted !== null ? null : !showAlias && bound === null ? (
+        <p className="muted-note">
+          Already labelled with a different code?{" "}
+          <button type="button" className="button-link" onClick={() => setShowAlias(true)}>
+            Point this tag at it instead
+          </button>{" "}
+          — the container keeps its own code and this payload becomes a second way in.
+        </p>
+      ) : bound === null ? (
         <form
           className="card"
           onSubmit={(event) => {

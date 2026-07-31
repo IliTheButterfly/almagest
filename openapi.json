@@ -1851,6 +1851,11 @@
       },
       "CheckRequest": {
         "properties": {
+          "carries_ndef": {
+            "default": false,
+            "title": "Carries Ndef",
+            "type": "boolean"
+          },
           "client_op_id": {
             "anyOf": [
               {
@@ -1887,6 +1892,18 @@
               }
             ],
             "title": "Location Id"
+          },
+          "ndef_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ndef Url"
           },
           "tag_uid": {
             "maxLength": 64,
@@ -1931,6 +1948,17 @@
               }
             ]
           },
+          "ndef_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ndef State"
+          },
           "replayed": {
             "default": false,
             "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
@@ -1954,6 +1982,7 @@
           "location_id",
           "expected_tag_uid",
           "scanned_tag_uid",
+          "ndef_state",
           "mismatch",
           "state"
         ],
@@ -14842,6 +14871,22 @@
             "title": "Location Id",
             "type": "integer"
           },
+          "ndef_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ndef Checked At"
+          },
+          "ndef_state": {
+            "title": "Ndef State",
+            "type": "string"
+          },
           "ndef_url": {
             "title": "Ndef Url",
             "type": "string"
@@ -14872,6 +14917,8 @@
           "bind_source",
           "is_read_only",
           "written_at",
+          "ndef_state",
+          "ndef_checked_at",
           "last_verified_at"
         ],
         "title": "TagRead",
@@ -15477,6 +15524,73 @@
           "mismatches"
         ],
         "title": "VerifyProgressRead",
+        "type": "object"
+      },
+      "WriteResultRequest": {
+        "description": "What the device found on the tag after trying to write it.\n\nDeliberately the read-back URI rather than a boolean the client computed: the\ncomparison is host-agnostic (a tag written before a hostname change is still\ncorrect), and that rule belongs in one place on the server rather than in\nevery client that ever writes a tag. `read_back_url: null` covers both \"the\nwrite threw\" and \"the read-back found no URI record\", which are the same fact\nabout the tag.",
+        "properties": {
+          "client_op_id": {
+            "anyOf": [
+              {
+                "maxLength": 36,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Op Id"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "read_back_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The URI record read back off the tag immediately after writing, verbatim. Null when the write failed or user memory came back empty.",
+            "title": "Read Back Url"
+          }
+        },
+        "title": "WriteResultRequest",
+        "type": "object"
+      },
+      "WriteResultResponse": {
+        "properties": {
+          "replayed": {
+            "default": false,
+            "description": "True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.",
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "tag": {
+            "$ref": "#/components/schemas/TagRead"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tag",
+          "verified"
+        ],
+        "title": "WriteResultResponse",
         "type": "object"
       }
     }
@@ -17282,6 +17396,48 @@
         ]
       }
     },
+    "/api/handoff/qr.svg": {
+      "get": {
+        "description": "A QR encoding `{base_url}{path}`.",
+        "operationId": "handoff_qr",
+        "parameters": [
+          {
+            "description": "Same-origin absolute path to open on the phone, e.g. `/builds/12?tab=pick`. Absolute URLs are refused.",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "Same-origin absolute path to open on the phone, e.g. `/builds/12?tab=pick`. Absolute URLs are refused.",
+              "maxLength": 512,
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/svg+xml": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Handoff Qr",
+        "tags": [
+          "handoff"
+        ]
+      }
+    },
     "/api/intake/pending": {
       "get": {
         "description": "The worklist, **oldest first** \u2014 a box of reels is walked in scan order.\n\nOrdered by `id`, not `queued_at`: `id` is server-assigned and monotonic, and a\nclient syncing a batch posts it in scan order, so this is both the order the\nuser experienced and immune to a device clock that is wrong.",
@@ -17748,6 +17904,61 @@
           }
         },
         "summary": "Unbind Location Tag",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/location-tags/{tag_id}/write-result": {
+      "post": {
+        "description": "Report what the tag holds after a write attempt.\n\nThe one fact about a tag the server cannot observe. `bind` records the\nbinding and stamps `written_at` at that moment, which is necessarily *before*\nany device has tried to write \u2014 so a binding whose write silently failed would\notherwise look identical to one that worked, and PLAN.md's \"write the NDEF URI\n\u2192 read back to verify\" would have nowhere to report the second half.\n\nA failed write is never a failed bind. The UID lives in factory-locked pages\n0-2, so the tag still identifies itself at the station and only a phone tap is\nlost; the binding stays and the walk offers a rewrite.\n\nIdempotent by `client_op_id`, like every other write here \u2014 a phone that\nloses wifi mid-report retries the same key rather than second-guessing which\nof two states it left the record in.",
+        "operationId": "record_tag_write_result",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tag_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Tag Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Tag Write Result",
         "tags": [
           "provisioning"
         ]
