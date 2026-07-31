@@ -377,7 +377,18 @@ function FieldRow({
       </p>
 
       {field.value_type === "enum" && (
-        <Options field={field} onChanged={onChanged} />
+        /* Collapsed by default: a field's options are its *contents*, and six
+           dielectrics unfolded on every list field turn a page about which
+           fields exist into a wall of options. The count is already in the line
+           above, so the summary says what opening it is for. */
+        <details>
+          <summary>
+            {options.length === 0
+              ? "No options yet — this filter matches nothing"
+              : `Options — ${options.length}, and where one is added or removed`}
+          </summary>
+          <Options field={field} onChanged={onChanged} />
+        </details>
       )}
 
       <div className="row">
