@@ -81,10 +81,34 @@ provisioned**, because a tag written now would carry an origin that never
 resolves. Nothing has been provisioned yet — this is a first install — so the
 cost of the delay is zero, which is the only reason it is acceptable.
 
+### What is known about how it will be closed
+
+Settled in conversation on 2026-07-31, and deliberately **not built yet** —
+nothing needs the name until tags are provisioned, and building it early would be
+guessing at a configuration nobody has asked for:
+
+- **The phones will be on the same subnet as the server.** So they reach
+  `192.168.85.101:30443` directly, and none of this depends on the WireGuard
+  tunnel. That tunnel is only how a developer workstation off that subnet reaches
+  the cluster; it is out of scope here and must not be modified.
+- **`almagest.lan` resolves to nothing today**, and does not need to. The
+  deployment is reached by address until someone wants the name.
+- **OpenWRT on the router can supply both halves** when the time comes: a DNS
+  entry for `almagest.lan`, and a reverse proxy listening on 443 that forwards to
+  `192.168.85.101:30443`. A 10 GbE firewall is also available and could host the
+  proxy instead. Either way the proxy needs `certs/server.crt` and its key, or it
+  can pass TLS through untouched to our nginx, which already holds the same
+  certificate.
+
 Cleaner escapes, if either becomes available: an ingress controller on the
 cluster, or an extended `--service-node-port-range` so 443 can be taken directly.
-Both are cluster-admin changes, and either would let the base URL lose its port
-with no change to anything in this repository beyond one ConfigMap value.
+Both are cluster-admin changes, and either would remove the need for an external
+proxy entirely.
+
+Whichever route is taken, the change inside this repository is **one ConfigMap
+value** — dropping `:30443` from `ALMAGEST_BASE_URL` — and a redeploy. Nothing
+about the manifests, the certificate or the tag payload moves. That is the
+property the one-origin design was chosen for.
 
 ## Why one origin, rather than splitting the PWA and the API
 

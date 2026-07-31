@@ -66,6 +66,15 @@ resolves to**, forwarding 443 to `192.168.85.101:30443`. Failing that, an ingres
 controller or an extended node-port range — both cluster-admin changes — would
 let `ALMAGEST_BASE_URL` drop the port with no other change here.
 
+**This is deferred on purpose, not forgotten.** Nothing resolves `almagest.lan`
+today and nothing needs to until tags are provisioned; the deployment is reached
+by address. The intended fix is OpenWRT on the router providing both the DNS
+entry and the 443 reverse proxy (a 10 GbE firewall could host the proxy instead).
+Phones will be on the same subnet as the server, so they reach the node directly
+— the WireGuard tunnel is only how an off-subnet workstation gets in, is out of
+scope here, and must not be modified. When the proxy exists, the change on this
+side is one ConfigMap value and a redeploy.
+
 ## Updating
 
 Images are built by `.github/workflows/release.yml` on every push to `main`, and
