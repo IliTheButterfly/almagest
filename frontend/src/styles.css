@@ -1433,13 +1433,17 @@ button.tall {
   overflow: hidden;
 }
 
+/* The two controls read as one tab: the border and the rounding belong to the
+   wrapper, so the buttons inside give up both rather than drawing two chips. */
 .work-tab > button {
   border: 0;
   border-radius: 0;
   min-height: var(--touch);
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  padding: 0.5rem 0.7rem;
   background: transparent;
 }
 
@@ -1462,8 +1466,13 @@ button.tall {
 }
 
 .work-tab-close {
-  padding-inline: 0.6rem;
-  border-inline-start: 1px solid var(--line) !important;
+  border-inline-start: 1px solid var(--line);
+  /* The one control here that throws work away, so it is not the one a thumb
+     lands on by accident: it keeps the full touch target but stays visually
+     quieter than the name beside it. */
+  min-width: var(--touch);
+  justify-content: center;
+  color: var(--text-dim);
 }
 
 /*

@@ -144,18 +144,26 @@ describe("with a tab focused", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Take 1 for rev B ×3" }));
 
-    const lines = carts.for(BUILD).lines();
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({
-      partId: 3,
-      partName: "22uF 25V ceramic, through-hole",
-      mpn: "DEMO-CAP-THT-22U",
-      qtyMilli: 1_000,
-      lotId: 7,
-      locationId: 11,
-      locationLabel: "Cabinet A / Drawer A1",
-      direction: "take",
-    });
+    expect(carts.for(BUILD).lines()).toHaveLength(1);
+    /*
+     * `waitFor`, because the name is allowed to arrive late and by design does.
+     * The take control is live before the part fetch lands, so a row can be added
+     * carrying the `Lot 7` fallback and be relabelled a moment later — asserting
+     * synchronously here passes or fails on which of the two won the race, which
+     * is a coin toss under load rather than a statement about the screen.
+     */
+    await waitFor(() =>
+      expect(carts.for(BUILD).lines()[0]).toMatchObject({
+        partId: 3,
+        partName: "22uF 25V ceramic, through-hole",
+        mpn: "DEMO-CAP-THT-22U",
+        qtyMilli: 1_000,
+        lotId: 7,
+        locationId: 11,
+        locationLabel: "Cabinet A / Drawer A1",
+        direction: "take",
+      }),
+    );
     expect(writes()).toEqual([]);
     expect(await screen.findByText(/Nothing has been written to the ledger/)).toBeTruthy();
   });

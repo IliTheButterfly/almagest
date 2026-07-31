@@ -354,16 +354,22 @@ function BuildStanding({ report, buildId }: { report: ShortageResponse; buildId:
       </p>
       <ul className="list">
         <li className="list-item">
-          <span className="title">{formatQty(held)}</span>
-          <span className="sub">held in a bin</span>
+          <div className="row">
+            <span className="title">{formatQty(held)}</span>
+            <span className="sub">held in a bin</span>
+          </div>
         </li>
         <li className="list-item">
-          <span className="title">{formatQty(staged)}</span>
-          <span className="sub">set aside for this project</span>
+          <div className="row">
+            <span className="title">{formatQty(staged)}</span>
+            <span className="sub">set aside for this project</span>
+          </div>
         </li>
         <li className="list-item">
-          <span className="title">{formatQty(built)}</span>
-          <span className="sub">built in</span>
+          <div className="row">
+            <span className="title">{formatQty(built)}</span>
+            <span className="sub">built in</span>
+          </div>
         </li>
       </ul>
       {short.length > 0 && (
@@ -374,8 +380,11 @@ function BuildStanding({ report, buildId }: { report: ShortageResponse; buildId:
           <ul className="list">
             {shown.map((line) => (
               <li className="list-item" key={line.bom_line_id}>
-                <span className="title">Line {line.line_no}</span>
-                <span className="sub">{formatQty(line.needed_milli)} still needed</span>
+                <div className="row">
+                  <span className="title">Line {line.line_no}</span>
+                  <span className="spacer" />
+                  <span className="sub">{formatQty(line.needed_milli)} still needed</span>
+                </div>
               </li>
             ))}
           </ul>
@@ -406,13 +415,13 @@ function BomStanding({ bom, projectId }: { bom: BomLineList; projectId: number }
       <ul className="list">
         {shown.map((line) => (
           <li className="list-item" key={line.id}>
-            <span className="title">
+            <div className="title">
               {line.mpn_raw ?? line.description ?? `Line ${line.line_no}`}
-            </span>
-            <span className="sub">
+            </div>
+            <div className="sub">
               {formatQty(line.qty_per_assembly_milli)} per assembly
               {line.designators !== null && ` · ${line.designators}`}
-            </span>
+            </div>
           </li>
         ))}
       </ul>
@@ -490,26 +499,29 @@ function Adding({
       <ul className="list">
         {lines.map((line) => (
           <li className="list-item" key={line.id}>
-            <span className="title">{line.partName}</span>
-            <span className="sub">
+            <div className="row">
+              <span className="title">{line.partName}</span>
+              <span className="spacer" />
+              <button
+                type="button"
+                aria-label={`Remove ${line.partName}`}
+                onClick={() => {
+                  cart.remove(line.id);
+                }}
+              >
+                Remove
+              </button>
+            </div>
+            <div className="sub">
               {line.direction === "return" ? "putting back " : ""}
               {formatQty(line.qtyMilli)}
               {line.locationLabel !== null && ` · ${line.locationLabel}`}
-            </span>
+            </div>
             {line.failure !== null && (
-              <span className="sub">
+              <div className="sub">
                 <span className="badge badge-bad">refused</span> {line.failure.message}
-              </span>
+              </div>
             )}
-            <button
-              type="button"
-              aria-label={`Remove ${line.partName}`}
-              onClick={() => {
-                cart.remove(line.id);
-              }}
-            >
-              Remove
-            </button>
           </li>
         ))}
       </ul>
