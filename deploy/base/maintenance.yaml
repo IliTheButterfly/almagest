@@ -1,0 +1,82 @@
+# Nightly cache maintenance.
+#
+# Two jobs in one pass, and they are not the same kind of work:
+#
+#   * `location_occupancy` is rebuilt. It is *designed* to go stale — triggers on
+#     ledger insert and lot relocation mark rows dirty and leave the recompute to
+#     a batch, because a tree walk on every ledger write is the thing that design
+#     avoids. Until this CronJob existed nothing ever ran the batch, so
+#     `locations.is_overfull` was permanently false and the storage map's fill
+#     ratios came from a table with no rows in it.
+#   * Lot balances and reserved quantities are only *checked*. Those are
+#     maintained incrementally on every write, so drift there is a bug in a write
+#     path rather than expected staleness. Rebuilding it nightly would erase the
+#     symptom and keep the cause.
+#
+# Note what this pod does NOT mount: the data volume. The datastore is SQLite on
+# an RWO volume with exactly one writer and a rebuild writes, so the work happens
+# inside the API process and this job only asks it to over HTTP. That is why
+# `almagest-backup` next door goes to the trouble of opening the database
+# `mode=ro`, and it is the same division ADR 0005 draws for the extraction worker.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: almagest-maintenance
+  labels:
+    app.kubernetes.io/component: maintenance
+spec:
+  # After `almagest-backup` at 03:17, not before. If a night's run turns up
+  # drift, the backup taken minutes earlier holds the *un-repaired* state, which
+  # is the only copy that can still show how a write path broke.
+  schedule: "42 3 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  # Drift is the alert channel here — there is no metrics stack — so keep more
+  # failures than successes: a failed Job weeks old is the record of when the
+  # numbers first went wrong.
+  failedJobsHistoryLimit: 7
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      # Zero, not the default 6. A drift finding is a state of the data, not a
+      # flake: retrying only records the same finding six more times and buries
+      # the one that mattered. A genuinely transient failure (the API mid-restart)
+      # is picked up by tomorrow's run.
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: almagest
+            app.kubernetes.io/component: maintenance
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: maintenance
+              # The API image, because this program lives in that repo and shares
+              # its OpenAPI contract. It needs nothing from the image but a Python
+              # and the standard library — the client is `urllib`.
+              image: ghcr.io/ilithebutterfly/almagest-api
+              command:
+                - python
+                - -m
+                - app.scripts.maintenance
+                - --base-url
+                - http://almagest-api:8000
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi

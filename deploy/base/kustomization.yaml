@@ -21,6 +21,7 @@ resources:
   - api.yaml
   - web.yaml
   - backup.yaml
+  - maintenance.yaml
 
 labels:
   - pairs:

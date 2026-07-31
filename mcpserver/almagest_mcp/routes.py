@@ -93,5 +93,6 @@ ROUTES: Final[Mapping[str, Route]] = MappingProxyType(
         "undo_movement": _post("/api/stock/undo"),
         # -- diagnostics -----------------------------------------------------
         "health": _get("/api/system/health"),
+        "read_caches": _get("/api/system/caches"),
     }
 )

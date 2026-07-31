@@ -606,6 +606,20 @@ def register_read_tools(server: MCPServer[Any], client: ApiClient) -> None:
         payload = await client.call("health")
         return dict(payload)
 
+    @server.tool(annotations=_READ_ONLY)
+    async def check_caches() -> dict[str, Any]:
+        """Report whether the cached stock numbers still agree with the ledger.
+
+        Answers "are these quantities trustworthy?". Every quantity this server
+        reports comes from `stock_lots.qty_milli_cached` rather than a sum over the
+        ledger, and a nightly job checks the two against each other. A non-zero
+        `drift_count` means some write path updated one and not the other, so the
+        numbers in this conversation may be wrong — say so rather than working
+        around it. Repairing it is deliberately not available here: the drift is
+        the evidence.
+        """
+        return {"caches": list(await client.call("read_caches"))}
+
 
 def register_write_tools(server: MCPServer[Any], client: ApiClient, settings: McpSettings) -> None:
     """The movement surface. Registered only when `ALMAGEST_MCP_ALLOW_WRITES` is on.

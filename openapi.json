@@ -1703,6 +1703,68 @@
         "title": "BuildUpdate",
         "type": "object"
       },
+      "CacheStateRead": {
+        "description": "One row of `cache_state` \u2014 what the last check and rebuild found.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "drift_count": {
+            "title": "Drift Count",
+            "type": "integer"
+          },
+          "is_dirty": {
+            "title": "Is Dirty",
+            "type": "boolean"
+          },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checked At"
+          },
+          "last_rebuilt_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Rebuilt At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "is_dirty",
+          "last_rebuilt_at",
+          "last_checked_at",
+          "drift_count",
+          "detail"
+        ],
+        "title": "CacheStateRead",
+        "type": "object"
+      },
       "CandidateRead": {
         "properties": {
           "free_capacity": {
@@ -4113,6 +4175,32 @@
           "deduplicated"
         ],
         "title": "DocumentUploadResult",
+        "type": "object"
+      },
+      "DriftRead": {
+        "properties": {
+          "cache_name": {
+            "title": "Cache Name",
+            "type": "string"
+          },
+          "drift_count": {
+            "title": "Drift Count",
+            "type": "integer"
+          },
+          "sample_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sample Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cache_name",
+          "drift_count",
+          "sample_ids"
+        ],
+        "title": "DriftRead",
         "type": "object"
       },
       "EmptyBinRequest": {
@@ -6762,6 +6850,33 @@
           "status"
         ],
         "title": "LotRead",
+        "type": "object"
+      },
+      "MaintenanceRun": {
+        "description": "What the nightly pass repaired, and what it only reported.",
+        "properties": {
+          "drift": {
+            "items": {
+              "$ref": "#/components/schemas/DriftRead"
+            },
+            "title": "Drift",
+            "type": "array"
+          },
+          "has_drift": {
+            "title": "Has Drift",
+            "type": "boolean"
+          },
+          "occupancy_rebuilt": {
+            "title": "Occupancy Rebuilt",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "occupancy_rebuilt",
+          "drift",
+          "has_drift"
+        ],
+        "title": "MaintenanceRun",
         "type": "object"
       },
       "MismatchRead": {
@@ -11325,6 +11440,59 @@
           "layout"
         ],
         "title": "ReapplyLayoutResponse",
+        "type": "object"
+      },
+      "RebuildRequest": {
+        "properties": {
+          "caches": {
+            "default": [],
+            "items": {
+              "enum": [
+                "lot_balances",
+                "reservations",
+                "location_occupancy"
+              ],
+              "type": "string"
+            },
+            "title": "Caches",
+            "type": "array"
+          }
+        },
+        "title": "RebuildRequest",
+        "type": "object"
+      },
+      "RebuildResponse": {
+        "properties": {
+          "rebuilt": {
+            "items": {
+              "$ref": "#/components/schemas/RebuildResult"
+            },
+            "title": "Rebuilt",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rebuilt"
+        ],
+        "title": "RebuildResponse",
+        "type": "object"
+      },
+      "RebuildResult": {
+        "properties": {
+          "cache_name": {
+            "title": "Cache Name",
+            "type": "string"
+          },
+          "rows_touched": {
+            "title": "Rows Touched",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_name",
+          "rows_touched"
+        ],
+        "title": "RebuildResult",
         "type": "object"
       },
       "ReceiveRequest": {
@@ -22322,6 +22490,81 @@
         ]
       }
     },
+    "/api/system/caches": {
+      "get": {
+        "description": "Report every derived cache's freshness and last drift result.\n\nRead-only, and the reason `cache_state` exists: the design's claim is that\ndrift is \"a visible number rather than a mystery\", and until something served\nthe table the number was recorded where nobody could see it.",
+        "operationId": "read_caches",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CacheStateRead"
+                  },
+                  "title": "Response Read Caches",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Caches",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/caches/rebuild": {
+      "post": {
+        "description": "Reconstruct a derived cache from its source of truth.\n\nThe escape hatch the whole three-tier stock model rests on. Reading balances\nfrom `stock_lots.qty_milli_cached` instead of summing the ledger is only safe\nbecause one statement can rebuild the cache from the append-only record,\nwhich cannot itself have been edited \u2014 so a cache bug is a stale number, never\nlost data.\n\nExplicit rather than nightly on purpose. See `run_maintenance`: repairing\ndrift on a schedule hides the write-path bug that caused it.",
+        "operationId": "rebuild_caches",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RebuildRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RebuildResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rebuild Caches",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/system/health": {
       "get": {
         "operationId": "health",
@@ -22338,6 +22581,28 @@
           }
         },
         "summary": "Health",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/maintenance": {
+      "post": {
+        "description": "The nightly pass: repair routine staleness, report suspected bugs.\n\nThe two halves are deliberately not the same operation, and conflating them\nwould destroy the only evidence that matters:\n\n* **Occupancy is rebuilt.** `location_occupancy` is *designed* to go stale \u2014\n  `AFTER INSERT ON stock_ledger` and `AFTER UPDATE OF location_id ON\n  stock_lots` mark rows dirty and leave the recompute to a batch pass,\n  because doing it inline would put a tree walk on every ledger write. A\n  dirty row is the mechanism working, so rebuilding it is routine. It also\n  matters more than it sounds: `locations.is_overfull` is written *only*\n  here, so until something ran this, the \"capacity is advisory, flag the\n  location, suggest a defrag\" behaviour could never fire, and the storage\n  map's fill ratios were served from a table with no rows in it.\n\n* **Balances and reservations are only checked.** Both are maintained\n  incrementally on every write by `services/ledger.py` and\n  `services/reservations.py`. Drift there is not expected staleness, it is a\n  bug in a write path \u2014 and quietly rebuilding it every night would erase\n  the symptom while leaving the cause, so the wrong numbers would come back\n  the next day with nothing recorded. `POST /caches/rebuild` is the repair,\n  run deliberately once the cause is known.",
+        "operationId": "run_maintenance",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Run Maintenance",
         "tags": [
           "system"
         ]

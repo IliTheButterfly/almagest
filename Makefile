@@ -13,7 +13,7 @@ MCP   := mcpserver
         idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check \
         mcp-sync mcp-lint mcp-typecheck mcp-test mcp-test-live mcp-check mcp-run \
         k8s-tls k8s-secrets k8s-deploy k8s-status k8s-logs k8s-shell k8s-diff \
-        k8s-backup-now k8s-backup-pull
+        k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -232,3 +232,11 @@ k8s-backup-pull: ## Copy the newest backup off the cluster into ./data/backups/
 	 latest=$$(kubectl exec -n ili $$pod -- sh -c 'ls -1 /data/backups/*.db | tail -1'); \
 	 echo "pulling $$latest"; \
 	 kubectl cp -n ili "$$pod:$$latest" "data/backups/$$(basename $$latest)"
+
+k8s-maintenance-now: ## Run the nightly cache maintenance immediately
+	kubectl create job -n ili --from=cronjob/almagest-maintenance \
+	  almagest-maintenance-manual-$$(date +%s)
+
+k8s-caches: ## What each derived cache's last check found
+	kubectl exec -n ili deployment/almagest-api -- \
+	  python -c "import urllib.request,json;print(json.dumps(json.load(urllib.request.urlopen('http://localhost:8000/api/system/caches')),indent=2))"
