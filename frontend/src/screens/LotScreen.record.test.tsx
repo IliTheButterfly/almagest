@@ -146,7 +146,6 @@ describe("with a tab focused", () => {
 
     const lines = carts.for(BUILD).lines();
     expect(lines).toHaveLength(1);
-    console.log(JSON.stringify(lines[0]));
     expect(lines[0]).toMatchObject({
       partId: 3,
       partName: "22uF 25V ceramic, through-hole",

@@ -300,6 +300,44 @@ export class ShoppingCart {
   }
 
   /**
+   * Correct the captured display text of every row for one part.
+   *
+   * The take screen loads a lot and its part in that order, so there is a real
+   * window — one request wide, and wider on a phone at the far end of the
+   * workshop — in which the screen knows the lot and not yet its name. A take
+   * pressed in that window captures the `Lot 7` fallback, and because a row never
+   * re-fetches, it would keep it for good. A record whose whole job is telling you
+   * where you are in a job cannot be a list of lot numbers, so the name is
+   * corrected as soon as it is known.
+   *
+   * **No fresh `clientOpId`, deliberately** — and that is the difference between
+   * this and `setQuantity`/`setLot`. Those change something the server digests, so
+   * the row becomes a different operation and has to be re-keyed. A name is
+   * carried for the user's eyes only; re-keying here would throw away the replay
+   * protection the row already has in exchange for nothing.
+   *
+   * Writes only when something actually changes, because the caller is an effect
+   * that runs whenever the part resolves and must not loop.
+   */
+  relabel(partId: number, naming: { readonly partName: string; readonly mpn: string | null }): void {
+    let changed = false;
+    const next = this.#lines.map((line) => {
+      if (line.partId !== partId) {
+        return line;
+      }
+      const mpn = naming.mpn ?? line.mpn;
+      if (line.partName === naming.partName && line.mpn === mpn) {
+        return line;
+      }
+      changed = true;
+      return { ...line, partName: naming.partName, mpn };
+    });
+    if (changed) {
+      this.#write(next);
+    }
+  }
+
+  /**
    * Set a row's quantity outright.
    *
    * A fresh `clientOpId` comes with it. The old key may already have been

@@ -154,6 +154,8 @@ function TakeReturn({
   const [staged, setStaged] = useState<Staged | null>(null);
   const [undone, setUndone] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  /** Bumped whenever a movement is recorded; see `QuantityPad`'s `entryKey`. */
+  const [entryKey, setEntryKey] = useState(0);
 
   /**
    * The tab this take will be attributed to, or `null` for "nothing is open".
@@ -177,6 +179,26 @@ function TakeReturn({
    * a pasted link, where the tap *is* the scan.
    */
   const opIdRef = useRef<string>(scanSession.current()?.clientOpId ?? uuid4());
+
+  /**
+   * Put the real name on anything taken before the part had loaded.
+   *
+   * The lot resolves before the part does, and the take control is live in
+   * between — deliberately, because a bench screen that makes you wait to say you
+   * picked something up is the wrong trade. So the row captures `Lot 7`, and this
+   * corrects it the moment the name exists. Display only: `relabel` does not
+   * re-key the row.
+   *
+   * The focused cart only. A take can only have landed in the cart that was
+   * focused when the button was pressed, and the sub-second window in which that
+   * take was captured nameless is not one a tab switch fits inside.
+   */
+  useEffect(() => {
+    if (cart === null || part === null) {
+      return;
+    }
+    cart.relabel(part.id, { partName: part.name, mpn: part.mpn ?? null });
+  }, [cart, part]);
 
   // Drives the countdown, and only while there is one to draw.
   const counting = committed !== null && committed.undoable && !undone;
@@ -216,6 +238,7 @@ function TakeReturn({
         undoable: offersUndo(response),
       });
       setNow(Date.now());
+      setEntryKey((key) => key + 1);
       // Spent. The next movement gets its own key.
       scanSession.spend();
       opIdRef.current = uuid4();
@@ -260,6 +283,7 @@ function TakeReturn({
       lineId: line?.id ?? null,
       at: Date.now(),
     });
+    setEntryKey((key) => key + 1);
   }, [cart, direction, focused, lot, part, qtyMilli]);
 
   /**
@@ -410,6 +434,7 @@ function TakeReturn({
               : `${direction === "take" ? "taking" : "putting back"} — for ${describeTarget(focused)}`
           }
           disabled={busy}
+          entryKey={entryKey}
         />
       </div>
 

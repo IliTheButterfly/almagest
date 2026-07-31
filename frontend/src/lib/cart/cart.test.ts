@@ -231,6 +231,52 @@ describe("a target's record", () => {
     expect(updated?.clientOpId).not.toBe(line?.clientOpId);
   });
 
+  it("puts the real name on a row captured before the part had loaded", () => {
+    // The take screen knows the lot one request before it knows the part, and it
+    // stays pressable in between, so `Lot 7` is a name a row can genuinely be born
+    // with. It must not keep it.
+    const cart = new ShoppingCart(PROJECT, storage);
+    const line = cart.add(draft({ partName: "Lot 7", mpn: null }));
+    cart.relabel(42, { partName: "10uF 10V X5R 0603", mpn: "GRM188R61A106KA73D" });
+    const updated = cart.lines()[0];
+    expect(updated?.partName).toBe("10uF 10V X5R 0603");
+    expect(updated?.mpn).toBe("GRM188R61A106KA73D");
+    // Display only: re-keying would forfeit the replay protection the row has,
+    // and nothing the server digests has changed.
+    expect(updated?.clientOpId).toBe(line?.clientOpId);
+    expect(updated?.qtyMilli).toBe(line?.qtyMilli);
+  });
+
+  it("leaves rows for other parts alone when relabelling", () => {
+    const cart = new ShoppingCart(PROJECT, storage);
+    cart.add(draft());
+    cart.add(draft({ partId: 43, partName: "Lot 9", lotId: 9, mpn: null }));
+    cart.relabel(43, { partName: "1k 1% 0603", mpn: "RC0603FR-071KL" });
+    expect(cart.lines()[0]?.partName).toBe("GRM188R61A106KA73D");
+    expect(cart.lines()[1]?.partName).toBe("1k 1% 0603");
+  });
+
+  it("does not write when a relabel changes nothing", () => {
+    // The caller is an effect that runs whenever the part resolves. A write here
+    // would notify every subscriber, re-render them, and run it again.
+    const cart = new ShoppingCart(PROJECT, storage);
+    cart.add(draft());
+    let notifications = 0;
+    cart.subscribe(() => {
+      notifications += 1;
+    });
+    cart.relabel(42, { partName: "GRM188R61A106KA73D", mpn: "GRM188R61A106KA73D" });
+    cart.relabel(999, { partName: "not a part in here", mpn: null });
+    expect(notifications).toBe(0);
+  });
+
+  it("keeps the captured mpn when a relabel has none to offer", () => {
+    const cart = new ShoppingCart(PROJECT, storage);
+    cart.add(draft());
+    cart.relabel(42, { partName: "10uF 10V X5R 0603", mpn: null });
+    expect(cart.lines()[0]?.mpn).toBe("GRM188R61A106KA73D");
+  });
+
   // -------------------------------------------------------- persistence ----
 
   it("survives a reload, which is why closing a tab has to ask", () => {

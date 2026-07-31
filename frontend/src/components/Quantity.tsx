@@ -24,9 +24,26 @@ export interface QuantityPadProps {
   /** Text under the big number, e.g. "of 1 200 on hand". */
   readonly caption?: string;
   readonly disabled?: boolean;
+  /**
+   * Change this to say "whatever was being typed is finished".
+   *
+   * The buffer below survives anything the pad itself cannot see, and recording a
+   * movement is exactly that: after a take of 4 the digits `4` are still in the
+   * buffer, so the next tap of `1` reads as `41`. That is the same surprise the
+   * buffer exists to prevent, one step later — and on a take it is wrong in the
+   * expensive direction. The owning screen bumps this when it records something,
+   * because it is the only party that knows a statement was completed.
+   */
+  readonly entryKey?: number;
 }
 
-export function QuantityPad({ valueMilli, onChange, caption, disabled }: QuantityPadProps) {
+export function QuantityPad({
+  valueMilli,
+  onChange,
+  caption,
+  disabled,
+  entryKey,
+}: QuantityPadProps) {
   /**
    * The keypad is an entry buffer, not an increment.
    *
@@ -40,6 +57,14 @@ export function QuantityPad({ valueMilli, onChange, caption, disabled }: Quantit
    * representable in thousandths.
    */
   const [entry, setEntry] = useState<string | null>(null);
+  // Adjusting state on a changed prop during render rather than in an effect: an
+  // effect would let one render draw the stale buffer, and the tap that lands in
+  // that render is the one this is here to get right.
+  const [seenEntryKey, setSeenEntryKey] = useState(entryKey);
+  if (entryKey !== seenEntryKey) {
+    setSeenEntryKey(entryKey);
+    setEntry(null);
+  }
   const whole = Math.max(0, Math.round(valueMilli / 1000));
 
   function set(nextMilli: number): void {

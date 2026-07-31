@@ -230,6 +230,22 @@ describe("take / return", () => {
     expect(second?.body["client_op_id"]).not.toBe(first?.body["client_op_id"]);
   });
 
+  it("does not let the next digit land on the quantity it just committed", async () => {
+    // Take 4, then reach for the keypad again: without the pad being told the
+    // statement finished, its buffer still holds "4" and a tap of "1" reads as 41.
+    // Same surprise the buffer exists to prevent, one step later, and on a take it
+    // is wrong in the expensive direction.
+    stubApi();
+    renderScreen();
+
+    fireEvent.click(await screen.findByLabelText("4"));
+    fireEvent.click(screen.getByRole("button", { name: /^Take 4$/ }));
+    await waitFor(() => expect(callTo("/api/stock/lots/7/consume")).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText("1"));
+    expect(screen.getByRole("button", { name: /^Take 1$/ })).toBeTruthy();
+  });
+
   it("warns but still commits when the take drives the balance negative", async () => {
     stubApi();
     renderScreen();
