@@ -34,6 +34,7 @@ import {
 } from "../lib/api/client";
 import { formatQty, formatTimestamp } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
+import { IntakeCapture } from "../components/IntakeCapture";
 import { intakeQueue, type PendingScan } from "../lib/intake/queue";
 import { syncIntakeQueue, type SyncOutcome } from "../lib/intake/sync";
 
@@ -219,12 +220,18 @@ function ServerRow({ entry, onChanged }: { entry: PendingIntakeRead; onChanged: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
-  async function act(what: "resolve" | "dismiss"): Promise<void> {
+  /**
+   * `partId` names what the entry *became*, which the schema keeps separate from
+   * the `part_id` the resolver guessed at scan time — "the scan looked like
+   * this" and "this is what it is" are different claims, and conflating them
+   * turns a guess into a record.
+   */
+  async function act(what: "resolve" | "dismiss", partId?: number): Promise<void> {
     setBusy(true);
     setError(null);
     try {
       await (what === "resolve"
-        ? resolvePendingIntake(entry.id)
+        ? resolvePendingIntake(entry.id, partId === undefined ? {} : { resolved_part_id: partId })
         : dismissPendingIntake(entry.id));
       onChanged();
     } catch (cause) {
@@ -251,6 +258,21 @@ function ServerRow({ entry, onChanged }: { entry: PendingIntakeRead; onChanged: 
         {entry.lot_code === null ? "" : ` · lot ${entry.lot_code}`}
       </div>
       <ErrorBanner error={error} fallback="That entry was not changed." />
+
+      {/* The reason parking is worth anything: the desk pass gets the
+          photograph, not just the payload. Collapsed, because loading and
+          re-resolving every capture in a long queue would cost most where the
+          queue is longest. */}
+      {entry.capture_id !== null && entry.capture_id !== undefined && (
+        <details>
+          <summary>The picture, and what it says</summary>
+          <IntakeCapture
+            captureId={entry.capture_id}
+            onCreated={(part) => void act("resolve", part.id)}
+          />
+        </details>
+      )}
+
       <div className="row">
         <button type="button" disabled={busy} onClick={() => void act("resolve")}>
           Mark done

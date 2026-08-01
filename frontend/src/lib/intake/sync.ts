@@ -65,8 +65,14 @@ function knownKind(value: string | null): DecodedKind | null {
     : null;
 }
 
-/** `PendingScan` as the endpoint wants it. Field-for-field, no interpretation. */
-function toRequest(entry: PendingScan): PendingIntakeIn {
+/**
+ * `PendingScan` as the endpoint wants it. Field-for-field, no interpretation.
+ *
+ * Exported for its own test: this is the one place the parked photograph can go
+ * missing, and losing it is silent — the entry still uploads and still looks
+ * right in the queue, it just has no picture when someone finally curates it.
+ */
+export function buildIntakePayload(entry: PendingScan): PendingIntakeIn {
   return {
     client_op_id: entry.id,
     raw_payload: entry.code,
@@ -76,6 +82,7 @@ function toRequest(entry: PendingScan): PendingIntakeIn {
     // better. Dropped when unrecognised: losing a hint costs nothing, and the raw
     // payload it was derived from is going up regardless.
     decoded_kind: knownKind(entry.decodedKind),
+    ...(entry.captureId === null ? {} : { capture_id: entry.captureId }),
     mpn: entry.mpn,
     manufacturer: entry.manufacturer,
     supplier_part_number: entry.supplierPartNumber,
@@ -103,7 +110,7 @@ export async function syncIntakeQueue(queue: IntakeQueue = intakeQueue): Promise
 
   for (const entry of [...queue.list()]) {
     try {
-      const result = await parkScan(toRequest(entry));
+      const result = await parkScan(buildIntakePayload(entry));
       if (result.already_queued) {
         alreadyThere += 1;
       } else {

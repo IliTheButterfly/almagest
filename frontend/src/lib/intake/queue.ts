@@ -39,6 +39,14 @@ export interface PendingScan {
   readonly lotCode: string | null;
   /** A resolved part, when the scan matched something and was parked anyway. */
   readonly partId: number | null;
+  /**
+   * The still taken alongside this scan, once the server has stored it.
+   *
+   * Null is normal and not a failure: a capture is saved over the network and
+   * the queue deliberately is not, so parking at a shelf with no signal parks a
+   * payload with no picture. The desk pass then has exactly what the aisle had.
+   */
+  readonly captureId: number | null;
   readonly note: string | null;
 }
 

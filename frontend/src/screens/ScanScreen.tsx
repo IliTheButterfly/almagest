@@ -47,7 +47,7 @@ import { formatQty } from "../lib/format";
 import { intakeQueue, type PendingScan } from "../lib/intake/queue";
 import { DecodeFeedback, FEEDBACK_FLASH_MS } from "../lib/scan/feedback";
 import { NfcUnavailableError, readOneTag } from "../lib/scan/nfc";
-import { scanSession } from "../lib/scan/session";
+import { scanSession, uuid4 } from "../lib/scan/session";
 import { useScanner } from "../lib/scan/useScanner";
 import { formatShortId } from "../lib/shortid";
 
@@ -229,6 +229,9 @@ export function ScanScreen() {
         resolution.response.target?.entity_type === "part"
           ? (resolution.response.target.entity_pk ?? null)
           : null,
+      // The photograph, when one is on screen. This is the whole point of
+      // parking: the desk pass gets the picture, not just the payload.
+      captureId: lens.state.captureId,
       note: null,
     };
     intakeQueue.add(entry);
@@ -327,7 +330,16 @@ export function ScanScreen() {
       )}
 
       {lens.state.imageUrl !== null && (
-        <CapturePanel state={lens.state} onDismiss={lens.clear} />
+        <CapturePanel
+          state={lens.state}
+          onDismiss={lens.clear}
+          onQueued={(label) => {
+            // Straight back to the live preview. Zero further screens is the
+            // requirement the whole fast path is built around.
+            lens.clear();
+            setQueued(label);
+          }}
+        />
       )}
 
       {queued !== null && (
@@ -365,9 +377,11 @@ export function ScanScreen() {
 function CapturePanel({
   state,
   onDismiss,
+  onQueued,
 }: {
   state: CaptureState;
   onDismiss: () => void;
+  onQueued: (label: string) => void;
 }) {
   const [armed, setArmed] = useState<FillField | null>(null);
   const [draft, setDraft] = useState<PartDraft>({});
@@ -387,6 +401,47 @@ function CapturePanel({
     // Disarm after one pick. Leaving it armed makes the *next* tap — often
     // meant as a copy — silently overwrite the field the user just filled.
     setArmed(null);
+  }
+
+  /**
+   * Park this capture for the desk, and go straight back to scanning.
+   *
+   * `raw_payload` is `NOT NULL` on the server because a *scan* always has bytes.
+   * A capture need not: a label whose codes are unreadable but whose print is
+   * legible is exactly the case this feature exists for. So the payload is the
+   * best identifier the capture actually produced, and `symbology` says which
+   * kind it is — `ocr` for a read value, `capture` when the picture is all there
+   * is. That keeps the claim honest rather than dressing a guess up as a decode.
+   */
+  function queue(): void {
+    const barcode = state.regions.find((region) => region.kind === "barcode");
+    const readPart = suggestions.mpn?.[0]?.value ?? null;
+    const payload = barcode?.text ?? readPart ?? `capture ${state.captureId ?? "unsaved"}`;
+    const symbology =
+      barcode !== undefined ? barcode.symbology : readPart !== null ? "ocr" : "capture";
+
+    const best = (field: FillField): string | null => suggestions[field]?.[0]?.value ?? null;
+    const quantity = suggestions.quantity?.[0]?.value ?? null;
+    const digits = quantity === null ? null : Number(quantity.replace(/[^\d]/g, ""));
+
+    intakeQueue.add({
+      id: uuid4(),
+      code: payload,
+      symbology,
+      queuedAt: Date.now(),
+      decodedKind: null,
+      mpn: draft.mpn ?? best("mpn"),
+      manufacturer: draft.manufacturer ?? best("manufacturer"),
+      supplierPartNumber: best("supplier_part_number"),
+      quantityMilli:
+        digits !== null && Number.isFinite(digits) && digits > 0 ? digits * 1000 : null,
+      dateCode: best("date_code"),
+      lotCode: best("lot_code"),
+      partId: null,
+      captureId: state.captureId,
+      note: draft.name ?? best("name"),
+    });
+    onQueued(draft.mpn ?? best("mpn") ?? draft.name ?? best("name") ?? "that capture");
   }
 
   if (state.imageUrl === null) {
@@ -421,6 +476,21 @@ function CapturePanel({
         curated at a desk — see <a href="/captures">Captures</a>. Tap an outline,
         then a value, to copy it anywhere.
       </p>
+
+      {created === null && (
+        <>
+          {/* The fast path, first and biggest, exactly as the resolved-scan panel
+           * does it: one tap parks the picture and everything read off it, and
+           * returns to scanning with no further screens. */}
+          <button type="button" className="primary wide tall" onClick={queue}>
+            Queue for later
+          </button>
+          <p className="muted-note" style={{ margin: 0 }}>
+            Parks this photograph and what was read off it. Curate it at a desk from
+            the <a href="/intake">Intake</a> queue, with the picture still attached.
+          </p>
+        </>
+      )}
 
       {created === null ? (
         <details>
