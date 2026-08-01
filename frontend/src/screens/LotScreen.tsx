@@ -50,6 +50,7 @@ import { ChooseIteration } from "../components/ChooseIteration";
 import { ContainerPicker, type PickedContainer } from "../components/ContainerPicker";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { PathBar } from "../components/PathBar";
+import { WhereIsIt } from "../components/WhereIsIt";
 import { QuantityPad } from "../components/Quantity";
 import {
   consumeLot,
@@ -149,6 +150,7 @@ function TakeReturn({
   onCommitted: () => void;
 }) {
   const [direction, setDirection] = useState<Direction>("take");
+  const [showingWay, setShowingWay] = useState(false);
   const [qtyMilli, setQtyMilli] = useState(1000);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -401,6 +403,34 @@ function TakeReturn({
           )}
           {part !== null && <Link to={`/parts/${part.id}`}>Part detail</Link>}
         </div>
+      </div>
+
+      {/* Collapsed by default, and unlike the part screen it stays that way even
+          for the only lot: this screen is most often reached *from* the drawer,
+          by scanning the tag on it, so the common case already knows where it is
+          and wants the quantity pad. The press is for the other case — a lot
+          reached from a search or a pick list, where the walk is the whole
+          question. */}
+      <div className="card">
+        <div className="row">
+          {/* Not a `<details>`: React renders a closed one's children anyway, so
+              the panel would fetch the whole location tree on every lot screen
+              to draw something nobody had asked for. */}
+          <button
+            type="button"
+            aria-expanded={showingWay}
+            onClick={() => setShowingWay(!showingWay)}
+          >
+            {showingWay ? "Hide the way there" : "Where is it?"}
+          </button>
+          <span className="spacer" />
+        </div>
+        {showingWay && (
+          <WhereIsIt
+            locationId={lot.location_id}
+            labelPath={lot.location_label_path ?? null}
+          />
+        )}
       </div>
 
       <div className="segmented" role="group" aria-label="Direction">

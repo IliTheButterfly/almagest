@@ -63,6 +63,15 @@ export interface FloorPlanProps {
    * coordinate, not a lesser kind of container.
    */
   readonly renderCard: (node: LocationNode) => ReactNode;
+  /**
+   * The box to draw as the one being looked for — `components/WhereIsIt`.
+   *
+   * Kept distinct from `pickedId` even though both end up as a ring: chosen is a
+   * thing the user just did, found is a thing the system is telling them, and a
+   * plan can legitimately show both at once when a destination is being picked
+   * in the room where the stock already is.
+   */
+  readonly highlightId?: number | null | undefined;
 }
 
 export function FloorPlan({
@@ -74,6 +83,7 @@ export function FloorPlan({
   excludeIds = NO_EXCLUSIONS,
   actionLabel = "Choose",
   renderCard,
+  highlightId = null,
 }: FloorPlanProps) {
   const shapes = useMemo(() => {
     let next = 0;
@@ -98,9 +108,12 @@ export function FloorPlan({
       <PlanSurface frame={frame} shapes={shapes} gridMm={DEFAULT_GRID_MM} label="Floor plan">
         {boxes.map(({ placement, node }) => {
           const chosen = pickedId === node.id;
+          const found = highlightId === node.id;
           const excluded = excludeIds.includes(node.id);
           const classes =
-            boxClass(placement, node, "plan-box") + (chosen ? " plan-box-chosen" : "");
+            boxClass(placement, node, "plan-box") +
+            (chosen ? " plan-box-chosen" : "") +
+            (found ? " plan-box-found" : "");
 
           // Choosing: the box is where the room is picked from, so a destination
           // is chosen on the drawing of the room rather than in a list beside it.
@@ -116,11 +129,13 @@ export function FloorPlan({
                 aria-label={
                   excluded
                     ? `${node.name}: where the stock is now`
-                    : `${chosen ? "Chosen" : actionLabel}: ${boxLabel(placement, node)}`
+                    : (found ? "This one: " : "") +
+                      `${chosen ? "Chosen" : actionLabel}: ${boxLabel(placement, node)}`
                 }
                 onClick={() => onSelect(node)}
               >
                 <span className="plan-box-name">{node.name}</span>
+                {found && <span className="plan-box-flag">this one</span>}
               </button>
             );
           }
@@ -131,9 +146,10 @@ export function FloorPlan({
               className={classes}
               style={planBoxStyle(placement, frame)}
               to={hrefOf === undefined ? `/locations/${node.id}` : hrefOf(node)}
-              aria-label={boxLabel(placement, node)}
+              aria-label={(found ? "This one: " : "") + boxLabel(placement, node)}
             >
               <span className="plan-box-name">{node.name}</span>
+              {found && <span className="plan-box-flag">this one</span>}
             </Link>
           );
         })}

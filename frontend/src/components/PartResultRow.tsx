@@ -47,6 +47,50 @@ export function StockLine({ part }: { part: PartSummary }) {
   );
 }
 
+/**
+ * Which containers, not merely how many.
+ *
+ * `StockLine` above could always say "in 2 bins" and never which two, so the
+ * only way to find out where anything was involved opening the part and reading
+ * its lots. That is the wrong shape for the question a search is usually asked —
+ * "do I have one of these, and can I go and get it" — and it is the same gap the
+ * part screen had before `components/WhereIsIt`.
+ *
+ * Text, not a drawing. A result list is dozens of rows and a map apiece would be
+ * unreadable and slow; naming the drawer is enough to *recognise* it, and the
+ * screen that wants the full walk hangs it off these ids. The server caps the
+ * list at three and `location_count` still carries the true total, so the row
+ * says "and 2 more" rather than quietly implying three is all there is.
+ */
+export function PlaceLine({ part }: { part: PartSummary }) {
+  const places = part.locations ?? [];
+  if (places.length === 0) {
+    return null;
+  }
+  const hidden = part.location_count - places.length;
+
+  return (
+    <div className="sub place-line">
+      {places.map((place) => (
+        <span key={place.location_id} className="place-chip">
+          {place.label_path}
+          {/* The share, but only where the split is the point: one container
+              holding all of it is already stated by the stock badge above, and
+              repeating it per row is noise.
+
+              Separated by a middot and not a space: a path already ends in a
+              slot label, so "… / C2 900" reads as a container *called* "C2 900"
+              rather than as nine hundred of them in C2. */}
+          {places.length > 1 && (
+            <span className="dim"> &middot; {formatQty(place.qty_milli)}</span>
+          )}
+        </span>
+      ))}
+      {hidden > 0 && <span className="dim">and {hidden} more</span>}
+    </div>
+  );
+}
+
 export function PartResultRow({ part }: { part: PartSummary }) {
   return (
     <>
@@ -58,6 +102,7 @@ export function PartResultRow({ part }: { part: PartSummary }) {
       </div>
       {part.is_stub && <span className="badge badge-warn">stub</span>}
       <StockLine part={part} />
+      <PlaceLine part={part} />
     </>
   );
 }

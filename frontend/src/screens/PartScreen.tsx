@@ -20,6 +20,7 @@ import { CategorySelect } from "../components/CategorySelect";
 import { PartFields } from "../components/PartFields";
 import { DocumentsPanel } from "../components/DocumentsPanel";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { WhereIsIt } from "../components/WhereIsIt";
 import {
   getPart,
   listPartCategories,
@@ -119,34 +120,7 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
         ) : (
           <ul className="list">
             {part.lots.map((lot) => (
-              <li key={lot.id}>
-                <Link className="list-item" to={`/lots/${lot.id}`}>
-                  <div className="row">
-                    <span className="title">{formatQty(lot.qty_milli)}</span>
-                    <span className="spacer" />
-                    {lot.status !== "active" && <span className="badge">{lot.status}</span>}
-                    {lot.qty_reserved_milli > 0 && (
-                      <span className="badge badge-warn">
-                        {formatQty(lot.qty_reserved_milli)} reserved
-                      </span>
-                    )}
-                  </div>
-                  <div className="sub">{lot.location_label_path ?? `location ${lot.location_id}`}</div>
-                  <div className="sub">
-                    {[
-                      lot.batch_code === null || lot.batch_code === undefined
-                        ? null
-                        : `batch ${lot.batch_code}`,
-                      lot.date_code === null || lot.date_code === undefined
-                        ? null
-                        : `date ${lot.date_code}`,
-                      formatMoneyMicro(lot.unit_cost_micro ?? null, lot.currency ?? null),
-                    ]
-                      .filter((piece): piece is string => piece !== null)
-                      .join(" · ")}
-                  </div>
-                </Link>
-              </li>
+              <LotRow key={lot.id} lot={lot} soleLot={part.lots.length === 1} />
             ))}
           </ul>
         )}
@@ -221,6 +195,79 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
         </dl>
       </div>
     </div>
+  );
+}
+
+/**
+ * One lot, and the way to the drawer it is in.
+ *
+ * The location used to be one grey line of `label_path` — a correct answer to a
+ * question nobody standing in the workshop was asking. `WhereIsIt` draws the
+ * walk instead, and it is *behind a press* rather than always open for two
+ * reasons, both of them about the common case:
+ *
+ * - Each open panel fetches the location tree. A part in eleven bins would
+ *   otherwise mean eleven fetches of the whole hierarchy on a page nobody had
+ *   asked a locational question of yet.
+ * - A page of five drawer maps is a page you have to scroll past to reach the
+ *   thing you came for. The path string stays visible either way, so the press
+ *   only ever *adds*.
+ *
+ * **Except when there is only one lot**, where it opens by itself: one lot means
+ * "where is this part" and "where is this lot" are the same question, the page
+ * has nothing else to be about, and making somebody press for the only answer on
+ * the screen is a click that exists to protect a fetch that was going to happen.
+ */
+function LotRow({ lot, soleLot }: { lot: PartRead["lots"][number]; soleLot: boolean }) {
+  const [showing, setShowing] = useState(soleLot);
+  const path = lot.location_label_path ?? `location ${lot.location_id}`;
+
+  return (
+    <li>
+      <Link className="list-item" to={`/lots/${lot.id}`}>
+        <div className="row">
+          <span className="title">{formatQty(lot.qty_milli)}</span>
+          <span className="spacer" />
+          {lot.status !== "active" && <span className="badge">{lot.status}</span>}
+          {lot.qty_reserved_milli > 0 && (
+            <span className="badge badge-warn">
+              {formatQty(lot.qty_reserved_milli)} reserved
+            </span>
+          )}
+        </div>
+        <div className="sub">{path}</div>
+        <div className="sub">
+          {[
+            lot.batch_code === null || lot.batch_code === undefined
+              ? null
+              : `batch ${lot.batch_code}`,
+            lot.date_code === null || lot.date_code === undefined
+              ? null
+              : `date ${lot.date_code}`,
+            formatMoneyMicro(lot.unit_cost_micro ?? null, lot.currency ?? null),
+          ]
+            .filter((piece): piece is string => piece !== null)
+            .join(" · ")}
+        </div>
+      </Link>
+
+      {/* Outside the link, because a control inside a link is a control nobody
+          can reach with a keyboard and a link that sometimes does not navigate.
+          Indented under the row it belongs to: a part in five bins is five of
+          these, and a flat stack of buttons does not say which lot each answers
+          for. */}
+      <div className="lot-where">
+        <button
+          type="button"
+          className="quiet-toggle"
+          aria-expanded={showing}
+          onClick={() => setShowing(!showing)}
+        >
+          {showing ? "Hide the way there" : "Where is it?"}
+        </button>
+        {showing && <WhereIsIt locationId={lot.location_id} labelPath={path} />}
+      </div>
+    </li>
   );
 }
 

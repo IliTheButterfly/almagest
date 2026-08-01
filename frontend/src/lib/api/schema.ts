@@ -5835,6 +5835,23 @@ export interface components {
             /** Sort Order */
             sort_order?: number | null;
         };
+        /**
+         * PartLocation
+         * @description One container a search result is actually in.
+         *
+         *     `label_path` is the derived human path and is **never** written to a tag or a
+         *     label — same rule as everywhere else: containers move, so an encoded path
+         *     becomes a lie the moment a drawer changes cabinet. Here it is display text
+         *     computed per request, which is exactly what it is for.
+         */
+        PartLocation: {
+            /** Label Path */
+            label_path: string;
+            /** Location Id */
+            location_id: number;
+            /** Qty Milli */
+            qty_milli: number;
+        };
         /** PartParameterCleared */
         PartParameterCleared: {
             /** Name */
@@ -5993,6 +6010,11 @@ export interface components {
             is_stub: boolean;
             /** Location Count */
             location_count: number;
+            /**
+             * Locations
+             * @default []
+             */
+            locations?: components["schemas"]["PartLocation"][];
             /** Lot Count */
             lot_count: number;
             /** Mpn */
