@@ -253,7 +253,10 @@ describe("a part that already has stock", () => {
     stubApi(STOCKED_PART);
     renderPart(10);
 
-    expect(await screen.findByText("Cabinet A / Drawer A1")).toBeTruthy();
+    // `findAll`, because a part with exactly one lot now opens `WhereIsIt`
+    // beside the row without being asked — so the path is on the screen twice,
+    // once as the lot's line and once as the walk's fallback heading.
+    expect((await screen.findAllByText("Cabinet A / Drawer A1")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/a part is a definition, not a quantity/)).toBeNull();
   });
 
@@ -261,7 +264,7 @@ describe("a part that already has stock", () => {
     stubApi(STOCKED_PART);
     renderPart(10);
 
-    await screen.findByText("Cabinet A / Drawer A1");
+    await screen.findAllByText("Cabinet A / Drawer A1");
     expect(callTo("/api/locations/suggest")).toBeUndefined();
     expect(screen.getByRole("button", { name: "Suggest a location" })).toBeTruthy();
   });

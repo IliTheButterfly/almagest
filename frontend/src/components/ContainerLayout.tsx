@@ -158,6 +158,29 @@ interface ContainerLayoutBase {
   readonly plan?: RoomPlanRead | null | undefined;
   /** How many levels of nested preview are still allowed. */
   readonly previewDepth?: number | undefined;
+  /**
+   * One child drawn as the one you are looking for — `components/WhereIsIt`.
+   *
+   * A third cell state beside "over capacity" and "chosen", and a separate one on
+   * purpose: those two are facts about the container, this is a fact about *your
+   * errand*, and the same drawer is the answer to one question and an ordinary
+   * drawer in the next. Nothing else changes — the level is drawn exactly as the
+   * map draws it, including the empty positions, because a found drawer is only
+   * findable against the forty that are not it.
+   */
+  readonly highlightId?: number | null | undefined;
+  /**
+   * Drop the note under the drawing that explains *how this level is drawn*.
+   *
+   * Those notes earn their place on the storage map, where the question really is
+   * "why does this level look like that, and can I trust the positions". Inside
+   * `components/WhereIsIt` the question is "which drawer", and four paragraphs
+   * about inferred grids between the reader and step 4 are the difference between
+   * a set of directions and an essay. Nothing else is suppressed — a *fallback*
+   * notice still shows, because "these positions are not drawn" is a fact about
+   * the answer rather than about the renderer.
+   */
+  readonly quiet?: boolean | undefined;
 }
 
 /**
@@ -229,6 +252,8 @@ function FullLayout({
   pick,
   plan = null,
   previewDepth = DEFAULT_PREVIEW_DEPTH,
+  highlightId = null,
+  quiet = false,
 }: ContainerLayoutProps & {
   readonly layout: Layout<LocationNode>;
   readonly nodes: readonly LocationNode[];
@@ -241,6 +266,7 @@ function FullLayout({
       index={index}
       previewDepth={previewDepth}
       view={view}
+      highlighted={highlightId === node.id}
       {...(drillTo === undefined ? {} : { drillTo })}
       {...(pick === undefined ? {} : { pick })}
       {...(slotLabel === undefined ? {} : { slotLabel })}
@@ -259,6 +285,7 @@ function FullLayout({
         <FloorPlan
           plan={plan}
           nodes={nodes}
+          highlightId={highlightId}
           {...(drillTo === undefined
             ? {}
             : { hrefOf: (node: LocationNode) => cellHref(index, node, drillTo) })}
@@ -344,10 +371,12 @@ function FullLayout({
             ))}
           </div>
         </div>
-        <p className="muted-note">
-          {VIEW_NOTES[view]} {layout.rows} × {layout.cols}, read from the slot labels — positions
-          are inferred until the tree screen fetches the authored layout.
-        </p>
+        {!quiet && (
+          <p className="muted-note">
+            {VIEW_NOTES[view]} {layout.rows} × {layout.cols}, read from the slot labels — positions
+            are inferred until the tree screen fetches the authored layout.
+          </p>
+        )}
         {unplaced}
       </div>
     );
@@ -374,7 +403,7 @@ function FullLayout({
             </div>
           </div>
         ))}
-        <p className="muted-note">{VIEW_NOTES[view]}</p>
+        {!quiet && <p className="muted-note">{VIEW_NOTES[view]}</p>}
         {unplaced}
       </div>
     );
@@ -389,7 +418,7 @@ function FullLayout({
         <div className={view === "list" ? "layout-rows" : "layout-plan"}>
           {nodes.map((node) => cell(node))}
         </div>
-        <p className="muted-note">{VIEW_NOTES[view]}</p>
+        {!quiet && <p className="muted-note">{VIEW_NOTES[view]}</p>}
       </div>
     );
   }
@@ -490,6 +519,7 @@ function Cell({
   previewDepth,
   view,
   slotLabel,
+  highlighted = false,
 }: {
   node: LocationNode;
   index: TreeIndex;
@@ -498,6 +528,7 @@ function Cell({
   previewDepth: number;
   view: ChildView;
   slotLabel?: string | undefined;
+  highlighted?: boolean | undefined;
 }) {
   const inside = childrenOf(index, node.id);
   const label = slotLabel ?? node.slot_label ?? "";
@@ -517,8 +548,14 @@ function Cell({
   if (chosen) {
     classes.push("cell-current");
   }
+  if (highlighted) {
+    classes.push("cell-found");
+  }
 
   const describe =
+    // First, and before the name, because this is the one cell in forty the
+    // reader is here for and a screen reader announces cells in order.
+    (highlighted ? "This one: " : "") +
     `${node.name}${label === "" ? "" : `, slot ${label}`}, ` +
     `${node.lot_count} lot(s)` +
     (node.is_overfull ? ", over capacity" : "") +
@@ -541,6 +578,11 @@ function Cell({
             badge both as "inbox", which tells a reader the opposite of the truth
             about a project's parts box: the INBOX is a catch-all to empty, that
             box is where a board's parts are meant to sit until it is built. */}
+        {/* A word, not only the ring. Every other state on this cell carries a
+            shape or a label as well as a hue, and "the one you are looking for"
+            is the state that most needs to survive a monochrome phone in a badly
+            lit workshop. */}
+        {highlighted && <span className="badge badge-found">this one</span>}
         {isInbox(node) && <span className="badge badge-accent">inbox</span>}
         {isProjectStagingBox(node) && <span className="badge badge-accent">project parts</span>}
         {/* A warning, not an error: an over-capacity put-away was accepted on
