@@ -6485,7 +6485,7 @@ export interface components {
          *     only path for those.
          * @enum {string}
          */
-        ProvisioningDevice: "phone_webnfc" | "station_pn532" | "manual";
+        ProvisioningDevice: "phone_webnfc" | "station_pn532" | "manual" | "flipper_rpc";
         /**
          * ProvisioningState
          * @description Everything the provisioning screen needs, in one shape.
