@@ -30,6 +30,20 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 
+def format_uid(raw: bytes | bytearray) -> str:
+    """Reader bytes → the hex string `agent.identity` normalises.
+
+    Here rather than in a driver because there are now two drivers, and a UID
+    rendered by one differently from the other is the exact failure
+    `almagest-idcodec` exists to prevent one layer down: it stays invisible to
+    the `location_tags` binding it should match while looking perfectly correct
+    on screen. `bytes(...)` rather than `.hex()` on the argument so an empty UID
+    produces `""` — which every caller turns into `None` — rather than something
+    `normalize_tag_uid` would accept.
+    """
+    return bytes(raw).hex().upper()
+
+
 class TagSourceError(RuntimeError):
     """The *reader* failed, as distinct from the tag being unreadable.
 

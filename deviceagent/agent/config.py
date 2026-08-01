@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,7 +53,30 @@ class AgentSettings(BaseSettings):
     #: in quick succession.
     absent_polls: int = Field(default=3, alias="DEVICEAGENT_ABSENT_POLLS", ge=1)
 
+    #: Which reader is wired to this station. Two exist and they are not
+    #: equivalent: the PN532 is what PLAN.md specifies and `docs/adr/0013` is why
+    #: the RC522 is here anyway. Defaulting to `pn532` keeps the specified
+    #: hardware the one you get by not deciding.
+    #:
+    #: A setting rather than probing for whichever answers. Probing would open a
+    #: serial port and an SPI bus on every start, and — worse — a station whose
+    #: reader had come unplugged would silently fall through to the other one and
+    #: report an empty platform instead of a broken reader, which is the one
+    #: distinction `TagSourceError` exists to preserve.
+    reader: Literal["pn532", "rc522"] = Field(default="pn532", alias="DEVICEAGENT_READER")
+
     pn532_port: str = Field(default="/dev/ttyAMA0", alias="DEVICEAGENT_PN532_PORT")
+
+    #: `/dev/spidev<bus>.<device>`; CE0 on a Pi's primary SPI bus is `0.0`. Only
+    #: read when `reader` is `rc522`.
+    rc522_spi_bus: int = Field(default=0, alias="DEVICEAGENT_RC522_SPI_BUS", ge=0)
+    rc522_spi_device: int = Field(default=0, alias="DEVICEAGENT_RC522_SPI_DEVICE", ge=0)
+
+    #: The chip's ceiling is 10 MHz. There is no reason to approach it for 18-byte
+    #: frames, and dupont wire to a $3 module is not a transmission line.
+    rc522_spi_hz: int = Field(
+        default=1_000_000, alias="DEVICEAGENT_RC522_SPI_HZ", ge=10_000, le=10_000_000
+    )
 
     #: The API **as reachable from the Pi**. Deliberately not `ALMAGEST_BASE_URL`:
     #: that is the public origin written into every tag and printed label

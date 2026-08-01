@@ -15,6 +15,12 @@ forks, and clone PN532s have documented flaky SPI/firmware. On a Pi the UART als
 needs `enable_uart=1` and the Bluetooth modem off the primary port, which is
 setup this code cannot do for you — see README.md.
 
+That rejection stands for a reader anyone still has to buy, and `agent.nfc_rc522`
+is not a reversal of it: it exists because an MFRC522 was already on the shelf and
+an unrun driver is worth less than a run one. It answers the "unmaintained forks"
+half by having no fork in it — the anticollision and the framing are
+`agent.iso14443a`, which is this repo's and is unit-tested. See ADR 0013.
+
 Known-unverified, in the order they are likely to bite:
 
 * **Read range through the platform.** The tag sits ~8-12 mm above the antenna
@@ -36,7 +42,7 @@ import contextlib
 from typing import Any
 
 from agent import ndef
-from agent.tags import TagRead, TagSourceError
+from agent.tags import TagRead, TagSourceError, format_uid
 
 #: The PN532's own timeout for one anticollision attempt. Short on purpose: the
 #: station polls continuously, so a long block here does not find more tags.
@@ -54,16 +60,6 @@ DEFAULT_TARGET_TIMEOUT_S = 0.25
 #: PN532 UART default. The chip also accepts 9600-1.2M after a handshake; there is
 #: no reason to change it.
 DEFAULT_BAUDRATE = 115200
-
-
-def format_uid(raw: bytes | bytearray) -> str:
-    """Reader bytes → the hex string `agent.identity` normalises.
-
-    Kept as a module-level function because it is the one piece of this file that
-    can be tested without a reader, and because `bytearray.hex()` on an empty
-    UID must produce `""` rather than something `normalize_tag_uid` would accept.
-    """
-    return bytes(raw).hex().upper()
 
 
 class Pn532TagSource:

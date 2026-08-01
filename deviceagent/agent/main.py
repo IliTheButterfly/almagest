@@ -136,15 +136,36 @@ async def _publish(hub: EventHub, event: Event) -> None:
     logger.debug("published %s seq=%s", message["type"], message["seq"])
 
 
-def build_source(settings: AgentSettings, *, fake: bool, script: Path | None) -> TagSource:
+def build_source(
+    settings: AgentSettings,
+    *,
+    fake: bool,
+    script: Path | None,
+    reader: str | None = None,
+) -> TagSource:
     """The one place the choice of reader is made.
 
     A `--script` implies `--fake`: naming a script and then talking to real
     hardware is never what was meant, and silently ignoring the flag is how you
     spend an afternoon wondering why the fixture changed nothing.
+
+    `reader` overrides `DEVICEAGENT_READER` for one run, which is what a bench
+    swap between the two modules wants — the alternative is editing `.env` to try
+    a cable. Both driver modules are imported lazily, so a station with one reader
+    never needs the other's library present.
     """
     if fake or script is not None:
         return FakeTagSource(load_script(script), repeat=True)
+
+    if (reader or settings.reader) == "rc522":
+        from agent.nfc_rc522 import Rc522TagSource
+
+        return Rc522TagSource(
+            bus=settings.rc522_spi_bus,
+            device=settings.rc522_spi_device,
+            speed_hz=settings.rc522_spi_hz,
+        )
+
     from agent.nfc_pn532 import Pn532TagSource
 
     return Pn532TagSource(settings.pn532_port)
@@ -228,6 +249,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="a session script to replay (implies --fake)",
     )
     parser.add_argument(
+        "--reader",
+        choices=("pn532", "rc522"),
+        default=None,
+        help="override DEVICEAGENT_READER for this run; for trying the other module "
+        "at the bench without editing .env",
+    )
+    parser.add_argument(
         "--max-polls",
         type=int,
         default=None,
@@ -243,11 +271,12 @@ def main(argv: list[str] | None = None) -> int:
         level=settings.log_level.upper(), format="%(levelname)s %(name)s %(message)s"
     )
     try:
-        source = build_source(settings, fake=args.fake, script=args.script)
+        source = build_source(settings, fake=args.fake, script=args.script, reader=args.reader)
     except TagSourceError as error:
         # A missing reader is an operator problem with an operator answer, not a
-        # traceback: the two causes are a wrong port and the `pi` extra not being
-        # installed, and both are in the message.
+        # traceback: the causes are a wrong port or SPI address, the `pi` extra
+        # not being installed, and — on an RC522 — SPI disabled or RST floating.
+        # Every one of them is named in the message it carries.
         logger.error("%s", error)
         return 2
     try:
