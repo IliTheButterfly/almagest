@@ -34,6 +34,28 @@ takes the ID off a tag and puts it into a computer. It is a submodule for the sa
 reason Mensa is: a separate toolchain (`ufbt` and the Flipper SDK) with no
 coupling to the API contract.
 
+## The machines
+
+A physical machine gets an instrument name too, on the same terms as a repo: it
+is a thing you address by name, over and over, from outside itself. There is
+exactly one so far.
+
+| Name | Machine | What it is |
+|---|---|---|
+| **Norma** | `norma` | The bench station's Raspberry Pi 4 — runs `deviceagent/`, owns the PN532 on the UART and later the CSI camera |
+
+**Norma** is the set square: the reference standard you lay against a piece of
+work to check that it is true. That is the Pi's whole job — a container lands on
+the platform and the Pi checks the thing in front of it against the record. The
+Latin sense of *norma*, the standard itself, is the same word doing the same
+work. It pairs with Mensa physically as well as thematically: Mensa is the table,
+and the square lies on the table.
+
+Note the split it makes visible. **Mensa is the firmware, Norma is the host** —
+two names for one bench, because they are two artifacts with two toolchains that
+fail independently. "The station" remains the right word for the assembly of
+both.
+
 ## The two libraries stay descriptive
 
 They are the only artifacts aimed at strangers. `pip install ecia-barcode` is
@@ -43,17 +65,18 @@ audience that is not us. Do not rename them.
 
 ## What is *not* named
 
-Only repos get constellation names. Everything inside one keeps its plain
-descriptive name: `backend/`, `frontend/`, `deviceagent/`, `idcodec/`,
+Only repos and machines get constellation names. Everything *inside* one keeps
+its plain descriptive name: `backend/`, `frontend/`, `deviceagent/`, `idcodec/`,
 `services/search/`, `counting/`, and so on. `idcodec/` is a *distribution* —
 `almagest-idcodec` — and still not a repo, so it stays descriptive too: it is the
 identity codec, and that is what it is called. Subsystems — the scale, the vision counter, the colour-
 band checker, the enrichment pipeline — are called what they are.
 
 This boundary is the whole point. A codename is worth learning once per repo,
-because a repo is a thing you clone, pin and publish. A codename for a module is
-a second vocabulary to hold in your head for no navigational gain, and in a
-solo-maintained project that is a cost with no payer.
+because a repo is a thing you clone, pin and publish — and once per machine,
+because a machine is a thing you ssh into and point a config at. A codename for a
+module is a second vocabulary to hold in your head for no navigational gain, and
+in a solo-maintained project that is a cost with no payer.
 
 ## Consequences of the name
 
@@ -78,3 +101,15 @@ solo-maintained project that is a cost with no payer.
 - **Mensa** — also the IQ society. Unrelated domain, no practical conflict.
 - **Antlia** — an asteroid family and a defunct telescope project; nothing in
   software, and nothing in inventory or embedded tooling.
+- **Norma** — a dead Visual Studio ORM plug-in, and a common given name. Both are
+  further away than the Mensa/IQ-society overlap already accepted above.
+- **Pictor** was rejected for the station Pi despite being the better fit for a
+  machine that will hold a camera — it collides twice, and both times in an
+  adjacent domain: Pictorus is a model-based-design platform that deploys
+  generated code to connected embedded devices, and PICTOR is an open-source
+  radio telescope. An astronomy-named project colliding with an astronomy
+  instrument is the worst available case.
+- **Microscopium** — no collision, and the strongest metaphor of any candidate
+  (an instrument for examining objects too small to tell apart by eye is the
+  product thesis). Rejected as a hostname only: twelve characters with no clean
+  abbreviation, typed at every ssh.
