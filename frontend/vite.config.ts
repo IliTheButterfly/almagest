@@ -50,16 +50,33 @@ const https =
  * WAN is up is not a reader.
  *
  * Two of the three come from `node_modules` and are handled here rather than
- * checked in. The wasm cores are ~3 MB *each* and there are several variants
+ * checked in. The cores are several MB *each* and there are several variants
  * (`tesseract.js` picks one at runtime from what the browser's SIMD support
- * allows), so committing them would put ~9 MB of build output into every clone
- * for ever and pin it to one library version by hand. Copying them at build time
- * costs nothing in git and cannot drift from the installed package.
+ * allows), so committing them would put that in every clone for ever and pin it
+ * to one library version by hand. Copying them at build time costs nothing in
+ * git and cannot drift from the installed package.
  *
  * The third — `public/tessdata/eng.traineddata.gz`, ~1.9 MB — *is* checked in,
  * because it is not in any package: it is data, it never changes, and a build
  * step that reaches out to GitHub to fetch it would reintroduce exactly the
  * network dependency this plugin exists to remove.
+ *
+ * **Which files, exactly, is not guessable from their names, and getting it
+ * wrong is silent.** `tesseract.js-core` ships three things per variant and only
+ * one of them is ever fetched:
+ *
+ * - `tesseract-core-<v>.wasm.js` — **this is the one.** Self-contained: the wasm
+ *   is inlined as base64, which is why it is *larger* than the bare `.wasm`
+ *   beside it. `worker.min.js` hardcodes these names and requests nothing else.
+ * - `tesseract-core-<v>.js` and `tesseract-core-<v>.wasm` — never requested by
+ *   the worker.
+ *
+ * The first version of this plugin read those names the other way round, shipped
+ * the two files nobody asks for, and omitted the only one that matters. Nothing
+ * failed at build time; the app simply fetched `index.html` in place of the core
+ * (Vite's SPA fallback answers 200 for an unmatched path) and every capture
+ * reported that the text reader could not be loaded. `ocr.runtime.test.ts` now
+ * derives the expected names from `worker.min.js` itself so the two cannot drift.
  *
  * Only the `-lstm` variants are copied. The legacy Tesseract engine needs a
  * different, much larger model and this app never asks for it (`legacyCore` and
@@ -81,16 +98,7 @@ function ocrRuntimeFiles(): string[] {
   // package's business, and a hardcoded name that disappears in a minor release
   // would fail as "OCR silently never loads" rather than as a build error.
   return readdirSync(OCR_CORE_DIR)
-    .filter(
-      (name) =>
-        name.includes("-lstm") &&
-        // `foo.wasm` is the module; `foo.wasm.js` is the asm.js fallback for a
-        // browser with no WebAssembly at all. That browser cannot reach this
-        // feature anyway — `zxing-wasm` already makes wasm a hard requirement
-        // for the scanner, so a client that could not run it has no camera
-        // decode either. Skipping the fallbacks halves what is shipped.
-        (name.endsWith(".wasm") || (name.endsWith(".js") && !name.endsWith(".wasm.js"))),
-    )
+    .filter((name) => name.endsWith(".wasm.js") && name.includes("-lstm"))
     .map((name) => join(OCR_CORE_DIR, name))
     .concat(existsSync(OCR_WORKER) ? [OCR_WORKER] : []);
 }

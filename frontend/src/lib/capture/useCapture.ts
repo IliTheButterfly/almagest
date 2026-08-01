@@ -219,7 +219,7 @@ export function useCapture(): UseCapture {
 
       let detection;
       try {
-        detection = await detectRegions(bitmap, { onBarcodes });
+        detection = await detectRegions(bitmap, still.blob, { onBarcodes });
       } catch (cause) {
         if (current()) {
           setState((previous) => ({ ...previous, status: "error", error: cause, readingText: false }));

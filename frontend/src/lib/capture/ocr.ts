@@ -86,6 +86,22 @@ export interface OcrOutcome {
 let workerPromise: Promise<OcrWorker> | null = null;
 
 /**
+ * What Tesseract will actually accept as an image.
+ *
+ * **Not `ImageBitmap`**, which is the obvious thing to pass here and does not
+ * work: `tesseract.js`'s `ImageLike` is `string | HTMLImageElement |
+ * HTMLCanvasElement | HTMLVideoElement | CanvasRenderingContext2D | File | Blob
+ * | Buffer | OffscreenCanvas`, and an `ImageBitmap` is none of them. Handing it
+ * one throws inside the worker, which surfaces here as `failed` — a capture
+ * whose barcodes read perfectly and whose text never appears.
+ *
+ * So the still's own JPEG `Blob` is what gets passed. `zxing-wasm` needs pixels
+ * and Tesseract needs a file; the two readers want genuinely different things
+ * from the same capture, and pretending otherwise is what caused the bug.
+ */
+export type OcrImage = Blob | HTMLCanvasElement;
+
+/**
  * The slice of `tesseract.js` this module uses, named locally.
  *
  * Not `import type { Worker } from "tesseract.js"` — that would make the type
@@ -93,10 +109,16 @@ let workerPromise: Promise<OcrWorker> | null = null;
  * bundlers have historically been willing to pull the runtime in behind one.
  * Declaring the shape costs six lines and keeps the dynamic import genuinely
  * dynamic.
+ *
+ * The cost of that choice, paid once already: a locally-declared signature is
+ * only as correct as the person writing it. This one originally said
+ * `ImageBitmap | Blob`, so the compiler cheerfully accepted the one input the
+ * library cannot take. Hence `OcrImage` above, written from `ImageLike` rather
+ * than from memory.
  */
 interface OcrWorker {
   recognize(
-    image: ImageBitmap | Blob,
+    image: OcrImage,
     options?: unknown,
     output?: { blocks?: boolean; text?: boolean },
   ): Promise<{ data: { blocks: OcrBlock[] | null } }>;
@@ -143,7 +165,7 @@ async function getWorker(): Promise<OcrWorker> {
  * and useful by the time this is called, so any failure here degrades the
  * capture rather than breaking it.
  */
-export async function readTextRegions(image: ImageBitmap): Promise<OcrOutcome> {
+export async function readTextRegions(image: OcrImage): Promise<OcrOutcome> {
   let worker: OcrWorker;
   try {
     worker = await getWorker();

@@ -19,7 +19,7 @@
 
 import { readBarcodeRegions } from "./barcodes";
 import { toImageData } from "./grab";
-import { readTextRegions } from "./ocr";
+import { readTextRegions, type OcrImage } from "./ocr";
 import type { BarcodeRegion, Region, TextRegion, TextStatus } from "./types";
 import { overlaps } from "./types";
 
@@ -52,13 +52,16 @@ export function withoutBarcodeShadows(
 
 export async function detectRegions(
   bitmap: ImageBitmap,
+  ocrImage: OcrImage,
   progress: DetectionProgress = {},
 ): Promise<Detection> {
   const pixels = toImageData(bitmap);
   const barcodes = pixels === null ? [] : await readBarcodeRegions(pixels);
   progress.onBarcodes?.(barcodes);
 
-  const outcome = await readTextRegions(bitmap);
+  // The still's own JPEG, not the bitmap: Tesseract's `ImageLike` does not
+  // include `ImageBitmap`. See `ocr.ts`.
+  const outcome = await readTextRegions(ocrImage);
   const text = withoutBarcodeShadows(barcodes, outcome.regions);
 
   return {
