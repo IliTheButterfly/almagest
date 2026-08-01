@@ -73,10 +73,11 @@ describe("a barcode region", () => {
     );
     const byLabel = Object.fromEntries(chips.map((chip) => [chip.label, chip]));
 
-    expect(byLabel["MPN"]?.value).toBe("RC0805FR-0710KL");
-    expect(byLabel["MPN"]?.field).toBe("mpn");
+    // Both part numbers present, so neither is asserted to be the MPN — see the
+    // "two part numbers on one label" cases below.
+    expect(byLabel["Part number · 1P"]?.value).toBe("311-10.0KCRCT-ND");
+    expect(byLabel["Part number · P"]?.value).toBe("RC0805FR-0710KL");
     expect(byLabel["Manufacturer"]?.field).toBe("manufacturer");
-    expect(byLabel["Supplier PN"]?.field).toBe("supplier_part_number");
     expect(byLabel["Date code"]?.value).toBe("2438");
     // Whole units, not the milli integer the wire carries.
     expect(byLabel["Quantity"]?.value).toContain("5");
@@ -144,5 +145,47 @@ describe("a barcode region", () => {
     // The tag is still on the drawer, so landing the user on something that
     // looks live would be the lie worth avoiding.
     expect(chips[0]?.label).toBe("Removed container");
+  });
+});
+
+describe("two part numbers on one label", () => {
+  it("does not assert which of P and 1P is the manufacturer's", () => {
+    // A DigiKey reel: `1P` is the Yageo part, `P` is DigiKey's order code. On
+    // other distributors' labels it is reversed, and nothing on the label says
+    // which convention was used — so calling either one "MPN" is a coin flip
+    // that would quietly file an order code as a part number.
+    const chips = chipsForRegion(
+      barcode("[)>\x1e06\x1dP311-10.0KCRCT-ND\x1d1PRC0805FR-0710KL\x1e\x04"),
+      0,
+      resolved({
+        parsed: {
+          mpn: "311-10.0KCRCT-ND",
+          supplier_part_number: "RC0805FR-0710KL",
+          di_fields: {},
+          warnings: [],
+        },
+      } as Partial<ScanResolveResponse>),
+    );
+    const labels = chips.map((chip) => chip.label);
+    expect(labels).toContain("Part number · 1P");
+    expect(labels).toContain("Part number · P");
+    expect(labels).not.toContain("MPN");
+
+    // Either can fill the MPN field — the user picks, which is the only honest
+    // resolution — and 1P leads because it is the more common carrier.
+    const partNumbers = chips.filter((chip) => chip.label.startsWith("Part number"));
+    expect(partNumbers.every((chip) => chip.field === "mpn")).toBe(true);
+    expect(partNumbers[0]?.value).toBe("RC0805FR-0710KL");
+  });
+
+  it("says MPN plainly when the label carries only one part number", () => {
+    const chips = chipsForRegion(
+      barcode("[)>\x1e06\x1d1PRC0805FR-0710KL\x1e\x04"),
+      0,
+      resolved({
+        parsed: { mpn: "RC0805FR-0710KL", di_fields: {}, warnings: [] },
+      } as Partial<ScanResolveResponse>),
+    );
+    expect(chips.map((chip) => chip.label)).toContain("MPN");
   });
 });

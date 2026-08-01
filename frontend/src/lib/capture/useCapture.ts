@@ -85,7 +85,10 @@ function toRegionIn(region: Region): CaptureRegionIn {
     corners: region.quad.map((point) => ({ x: point.x, y: point.y })),
     ...(region.kind === "barcode"
       ? { symbology: region.symbology }
-      : { confidence: region.confidence }),
+      // `null`, not `undefined`: the wire type is nullable and
+      // `exactOptionalPropertyTypes` will not let the two be confused. A text
+      // region without a score is one whose confidence was never recorded.
+      : { confidence: region.confidence ?? null }),
   };
 }
 

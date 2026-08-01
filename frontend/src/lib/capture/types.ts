@@ -40,8 +40,15 @@ export interface TextRegion {
   readonly kind: "text";
   readonly text: string;
   readonly quad: Quad;
-  /** 0-100, as Tesseract reports it. */
-  readonly confidence: number;
+  /**
+   * 0-100, as Tesseract reports it.
+   *
+   * Optional because a *stored* region may predate confidences or have been
+   * written by something other than the capture path, and rendering that as
+   * `0%` would claim the reading is certainly wrong — a much stronger statement
+   * than "nobody recorded how sure it was". A fresh capture always sets it.
+   */
+  readonly confidence?: number;
 }
 
 export type Region = BarcodeRegion | TextRegion;

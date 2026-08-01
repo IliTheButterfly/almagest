@@ -25,6 +25,7 @@ import { BuildScreen } from "./screens/BuildScreen";
 import { ContainerTypeScreen } from "./screens/ContainerTypeScreen";
 import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
 import { DatasheetSearchScreen } from "./screens/DatasheetSearchScreen";
+import { CapturesScreen } from "./screens/CapturesScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
 import { LocationScreen } from "./screens/LocationScreen";
 import { LotScreen } from "./screens/LotScreen";
@@ -124,6 +125,9 @@ export function App() {
             fills it or nobody goes looking. */}
         <NavLink to="/staging">Staging</NavLink>
         <NavLink to="/review">Review</NavLink>
+        {/* Next to Review because it is the same kind of errand: looking again at
+           something a decision was deferred on. */}
+        <NavLink to="/captures">Captures</NavLink>
       </nav>
 
       {/*
@@ -151,6 +155,9 @@ export function App() {
                 intake once a part has been parked there. */}
             <Route path="/staging" element={<StagingScreen />} />
             <Route path="/review" element={<ReviewScreen />} />
+            {/* The photographs the scanner kept. Not a scan target: reached from
+                the tab, and from the capture panel on Scan. */}
+            <Route path="/captures" element={<CapturesScreen />} />
             {/* The `/s/{short_id}` redirect targets — these paths are physical. */}
             <Route path="/parts/:partId" element={<PartScreen />} />
             <Route path="/locations/:locationId" element={<LocationScreen />} />

@@ -410,7 +410,8 @@ function CapturePanel({
 
       <p className="muted-note" style={{ margin: 0 }}>
         Saved with the frame, so this photograph is still here when the queue is
-        curated at a desk. Tap an outline, then a value, to copy it anywhere.
+        curated at a desk — see <a href="/captures">Captures</a>. Tap an outline,
+        then a value, to copy it anywhere.
       </p>
 
       {created === null ? (

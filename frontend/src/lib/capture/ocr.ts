@@ -46,8 +46,8 @@
  * `public/tessdata/`; the paths below are the other half of that arrangement.
  */
 
+import { segmentWords, type OcrWord } from "./segment";
 import type { TextRegion, TextStatus } from "./types";
-import { boxToQuad } from "./types";
 
 /** Mirrors `OCR_BASE` in `vite.config.ts`. */
 const CORE_PATH = "/ocr";
@@ -66,9 +66,6 @@ const WORKER_PATH = `${CORE_PATH}/worker.min.js`;
  * threshold.
  */
 export const MIN_LINE_CONFIDENCE = 55;
-
-/** Runs of punctuation and stray marks that carry no value worth copying. */
-const MEANINGFUL = /[A-Za-z0-9]/;
 
 export interface OcrOutcome {
   readonly status: TextStatus;
@@ -135,6 +132,8 @@ interface OcrLine {
   text: string;
   confidence: number;
   bbox: OcrBox;
+  /** Word boxes are what `segment.ts` cuts a line into columns with. */
+  words: OcrWord[];
 }
 
 interface OcrBlock {
@@ -203,24 +202,10 @@ function linesOf(blocks: readonly OcrBlock[]): TextRegion[] {
   for (const block of blocks) {
     for (const paragraph of block.paragraphs) {
       for (const line of paragraph.lines) {
-        // Tesseract keeps the trailing newline on every line, and a chip
-        // labelled "MURATA\n" copies a stray newline into whatever field it
-        // fills.
-        const text = line.text.trim();
-        if (text === "" || !MEANINGFUL.test(text) || line.confidence < MIN_LINE_CONFIDENCE) {
-          continue;
-        }
-        regions.push({
-          kind: "text",
-          text,
-          quad: boxToQuad(
-            Math.round(line.bbox.x0),
-            Math.round(line.bbox.y0),
-            Math.round(line.bbox.x1),
-            Math.round(line.bbox.y1),
-          ),
-          confidence: Math.round(line.confidence),
-        });
+        // One line is frequently several values — `Manufacturer    Murata` is a
+        // heading and a value, and offering that as one chip pastes both. See
+        // `segment.ts`.
+        regions.push(...segmentWords(line.words ?? [], MIN_LINE_CONFIDENCE));
       }
     }
   }

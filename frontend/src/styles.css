@@ -2578,3 +2578,45 @@ button.tall {
   padding: 4px 10px;
   font-size: 0.85rem;
 }
+
+/* The capture gallery. A plain responsive grid of thumbnails; the picture is
+ * the index, so the card is mostly image with a thin caption under it. */
+.capture-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.capture-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 6px;
+  text-align: left;
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.capture-card img {
+  width: 100%;
+  /* A fixed tile with `cover`: the grid is for recognising a label at a glance,
+   * and rows of different heights make that harder, not easier. The overlay
+   * view uses `contain`, where the geometry has to be truthful. */
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg-inset);
+}
+
+.capture-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.82rem;
+}

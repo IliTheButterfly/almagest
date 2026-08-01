@@ -134,7 +134,7 @@ export function chipsForRegion(
         label: "Read text",
         value: region.text,
         kind: "read",
-        confidence: region.confidence,
+        ...(region.confidence === undefined ? {} : { confidence: region.confidence }),
       },
     ];
   }
@@ -154,14 +154,36 @@ export function chipsForRegion(
 
   const parsed = resolved?.parsed ?? null;
   if (parsed !== null && parsed !== undefined) {
-    push(chips, `r${index}-mpn`, "MPN", parsed.mpn, "mpn");
-    push(
-      chips,
-      `r${index}-spn`,
-      "Supplier PN",
-      parsed.supplier_part_number,
-      "supplier_part_number",
-    );
+    // **Two part numbers, and no way to tell which is the manufacturer's.**
+    // `app.services.scanning.ecia.mpn_candidates` states the problem exactly:
+    // distributors disagree about whether DI `P` or DI `1P` carries the MPN, and
+    // nothing on the label says which convention was used. On a DigiKey reel
+    // `1P` is the manufacturer's part and `P` is an order code; on other labels
+    // it is the other way round.
+    //
+    // So neither is labelled "MPN" outright. Both are offered, both can fill the
+    // MPN field, and the DI they came from is on the chip — which is the piece
+    // of information that actually lets a person decide, since it is printed on
+    // the label in front of them. `1P` leads because it is the more common
+    // carrier, not because it is known to be right here.
+    const bothPartNumbers =
+      Boolean(parsed.mpn) &&
+      Boolean(parsed.supplier_part_number) &&
+      parsed.mpn !== parsed.supplier_part_number;
+
+    if (bothPartNumbers) {
+      push(chips, `r${index}-spn`, "Part number · 1P", parsed.supplier_part_number, "mpn");
+      push(chips, `r${index}-mpn`, "Part number · P", parsed.mpn, "mpn");
+    } else {
+      push(chips, `r${index}-mpn`, "MPN", parsed.mpn, "mpn");
+      push(
+        chips,
+        `r${index}-spn`,
+        "Supplier PN",
+        parsed.supplier_part_number,
+        "supplier_part_number",
+      );
+    }
     push(chips, `r${index}-mfr`, "Manufacturer", parsed.manufacturer, "manufacturer");
     if (parsed.quantity_milli !== null && parsed.quantity_milli !== undefined) {
       push(
