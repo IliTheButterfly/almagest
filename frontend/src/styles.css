@@ -2578,3 +2578,28 @@ button.tall {
   font-size: 0.9rem;
   background: transparent;
 }
+
+/* Which bins a search result is in. Chips rather than one run-on line: three
+ * container paths separated by commas read as one long path, and the whole
+ * point is telling them apart at a glance. */
+.place-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.5rem;
+  margin-top: 0.15rem;
+}
+
+.place-chip {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-sunken);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  /* A deep path is long and a result list is narrow; it truncates rather than
+   * pushing the row wide, and the full text stays in the DOM for a reader. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

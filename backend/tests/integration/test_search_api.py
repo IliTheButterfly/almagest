@@ -11,8 +11,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.routes.search import LOCATIONS_PER_RESULT
 from app.models.catalog import Part
+from app.models.storage import Location
 from app.scripts.seed_demo import seed_catalogue
+from app.services.tree import TreeRepository
 from tests.factories import make_location, make_lot
 
 
@@ -225,3 +228,108 @@ def test_the_querystring_alias_reports_stock_too(client: TestClient, db: Session
 
     rows = client.get("/api/search/parts", params={"text": "DEMO-RES-4K7"}).json()["results"]
     assert [r["qty_milli"] for r in rows if r["mpn"] == "DEMO-RES-4K7"] == [42_000]
+
+
+# ---------------------------------------------------------------------------
+# *Which* bins, not merely how many — the row that can be acted on
+# ---------------------------------------------------------------------------
+
+
+def test_a_result_row_names_the_container_it_is_in(client: TestClient, db: Session) -> None:
+    """The gap this closes: the row could say "in 2 bins" and never which two, so
+    finding out where anything was meant opening the part."""
+    part = _part(client, db, "DEMO-RES-4K7")
+    make_lot(db, part, make_location(db, name="Bin A"), qty_milli=250_000)
+    db.commit()
+
+    row = _row(client, "DEMO-RES-4K7")
+    assert [place["label_path"] for place in row["locations"]] == ["Bin A"]
+    assert row["locations"][0]["qty_milli"] == 250_000
+
+
+def test_the_fullest_container_comes_first(client: TestClient, db: Session) -> None:
+    """The row leads with the bin worth walking to, and the PWA draws the walk to
+    exactly this one — so an arbitrary order would send somebody to the drawer
+    holding three of them instead of the reel."""
+    part = _part(client, db, "DEMO-RES-4K7")
+    make_lot(db, part, make_location(db, name="Bin A"), qty_milli=30_000)
+    make_lot(db, part, make_location(db, name="Bin B"), qty_milli=500_000)
+    db.commit()
+
+    row = _row(client, "DEMO-RES-4K7")
+    assert [place["label_path"] for place in row["locations"]] == ["Bin B", "Bin A"]
+
+
+def test_lots_in_one_container_are_summed_into_a_single_entry(
+    client: TestClient, db: Session
+) -> None:
+    """A reel and a cut strip in the same bin are two lots and one place to walk
+    to. Listing the bin twice would read as two drawers."""
+    part = _part(client, db, "DEMO-RES-4K7")
+    bin_a = make_location(db, name="Bin A")
+    make_lot(db, part, bin_a, qty_milli=500_000)
+    make_lot(db, part, bin_a, qty_milli=120_000)
+    db.commit()
+
+    row = _row(client, "DEMO-RES-4K7")
+    assert len(row["locations"]) == 1
+    assert row["locations"][0]["qty_milli"] == 620_000
+    assert row["lot_count"] == 2  # still two lots, one container
+
+
+def test_the_named_list_is_capped_but_the_count_is_not(client: TestClient, db: Session) -> None:
+    """The row names a few for recognition; `location_count` stays the truth, so
+    the UI can say "and 2 more" instead of implying three is all there is."""
+    part = _part(client, db, "DEMO-RES-4K7")
+    for index in range(5):
+        make_lot(db, part, make_location(db, name=f"Bin {index}"), qty_milli=(index + 1) * 1_000)
+    db.commit()
+
+    row = _row(client, "DEMO-RES-4K7")
+    assert len(row["locations"]) == LOCATIONS_PER_RESULT
+    assert row["location_count"] == 5
+    # Fullest first, so the cap keeps the bins worth walking to rather than the
+    # five that happened to be created first.
+    assert [place["label_path"] for place in row["locations"]] == ["Bin 4", "Bin 3", "Bin 2"]
+
+
+def test_an_emptied_container_is_not_named(client: TestClient, db: Session) -> None:
+    """Same `qty > 0` test as the counts and the ordering: a row must never name a
+    bin it is not in while reporting itself out of stock."""
+    part = _part(client, db, "DEMO-RES-4K7")
+    make_lot(db, part, make_location(db, name="Bin A"), qty_milli=0)
+    db.commit()
+
+    row = _row(client, "DEMO-RES-4K7")
+    assert row["locations"] == []
+    assert row["location_count"] == 0
+
+
+def test_the_named_container_is_the_full_derived_path(client: TestClient, db: Session) -> None:
+    """Not the bare container name: "01" is the same in every cabinet, and the
+    row exists to be recognised. `label_path` is the derived cache, so this also
+    pins that search reads it rather than re-deriving a path of its own."""
+    part = _part(client, db, "DEMO-RES-4K7")
+    cabinet = make_location(db, name="Workbench cabinet")
+    drawer = make_location(db, name="01", parent_id=cabinet.id)
+    make_lot(db, part, drawer, qty_milli=250_000)
+    db.flush()
+    TreeRepository(db, Location).rebuild_paths()
+    db.commit()
+
+    row = _row(client, "DEMO-RES-4K7")
+    assert [place["label_path"] for place in row["locations"]] == ["Workbench cabinet / 01"]
+
+
+def test_a_container_whose_path_cache_is_empty_still_names_itself(
+    client: TestClient, db: Session
+) -> None:
+    """`label_path` is reconstructible from `parent_id`, so a stale cache is never
+    data loss — and must not look like it either. A blank chip in a result list
+    would read as a container with no name."""
+    part = _part(client, db, "DEMO-RES-4K7")
+    make_lot(db, part, make_location(db, name="Bin A"), qty_milli=1_000)
+    db.commit()  # deliberately no `rebuild_paths`
+
+    row = _row(client, "DEMO-RES-4K7")
+    assert row["locations"][0]["label_path"] == "Bin A"

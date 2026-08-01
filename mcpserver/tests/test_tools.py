@@ -153,6 +153,61 @@ def test_search_hits_are_given_a_readable_quantity() -> None:
     assert payload["results"][0]["qty"] == 4.0
 
 
+def test_the_containers_a_hit_names_are_in_whole_units_too() -> None:
+    """`_with_units` only reaches a row's own keys, and each named container
+    carries its own `qty_milli`. Whole units at the top level and thousandths one
+    key deeper is precisely the inconsistency this layer exists to remove — and
+    it is the kind a model quotes back to a person unconverted."""
+    payload, _ = call(
+        "search_parts",
+        {"text": "100nF"},
+        responses={
+            ("post", "/api/search/parts"): {
+                "total": 1,
+                "results": [
+                    {
+                        "id": 7,
+                        "name": "C0603",
+                        "qty_milli": 4000,
+                        "lot_count": 2,
+                        "location_count": 2,
+                        "locations": [
+                            {"location_id": 3, "label_path": "Cabinet / 01", "qty_milli": 3000},
+                            {"location_id": 9, "label_path": "Cabinet / 02", "qty_milli": 1000},
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    places = payload["results"][0]["locations"]
+    assert [place["qty"] for place in places] == [3.0, 1.0]
+    # Additive, exactly as it is at the top level: the milli value stays so a hit
+    # can be reconciled against the ledger without arithmetic.
+    assert places[0]["qty_milli"] == 3000
+    assert places[0]["label_path"] == "Cabinet / 01"
+
+
+def test_a_hit_with_no_containers_is_shaped_the_same() -> None:
+    """An unstocked part has an empty list, and a payload from an older API has
+    no key at all. Neither may throw — the tool would fail the whole search."""
+    payload, _ = call(
+        "search_parts",
+        {"text": "100nF"},
+        responses={
+            ("post", "/api/search/parts"): {
+                "total": 2,
+                "results": [
+                    {"id": 7, "name": "empty", "qty_milli": 0, "locations": []},
+                    {"id": 8, "name": "absent", "qty_milli": 0},
+                ],
+            }
+        },
+    )
+    assert payload["results"][0]["locations"] == []
+    assert "locations" not in payload["results"][1]
+
+
 # ---------------------------------------------------------------------------
 # Short ids
 # ---------------------------------------------------------------------------

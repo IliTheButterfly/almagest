@@ -109,6 +109,15 @@ def _with_units(row: dict[str, Any]) -> dict[str, Any]:
     return shaped
 
 
+def _search_hit(row: dict[str, Any]) -> dict[str, Any]:
+    """One search result in whole units, including the containers it names."""
+    shaped = _with_units(row)
+    places = row.get("locations")
+    if isinstance(places, list):
+        shaped["locations"] = [_with_units(place) for place in places]
+    return shaped
+
+
 def _normalize_short_id(raw: str) -> str:
     """Fold a short id the way both other components fold it, or refuse.
 
@@ -283,7 +292,10 @@ def register_read_tools(server: MCPServer[Any], client: ApiClient) -> None:
         room". Say which one you mean when reporting it.
 
         `location_count` and `qty` on each hit tell you whether it is actually in
-        stock; call `get_part` for where.
+        stock, and `locations` names the containers it is in — fullest first, and
+        capped at a few, so a hit whose `location_count` exceeds that list is in
+        more places than are named. Call `get_part` when you need every lot, or a
+        container the cap left out.
         """
         payload = await client.call(
             "search_parts",
@@ -300,7 +312,12 @@ def register_read_tools(server: MCPServer[Any], client: ApiClient) -> None:
         )
         return {
             "total": payload["total"],
-            "results": [_with_units(row) for row in payload["results"]],
+            # `_with_units` only reaches a row's own keys, and each named
+            # container carries its own `qty_milli`. Without this the tool would
+            # hand back whole units at the top level and thousandths one key
+            # deeper — the exact inconsistency this translation layer exists to
+            # remove, and the sort a model quotes back to a person unconverted.
+            "results": [_search_hit(row) for row in payload["results"]],
         }
 
     @server.tool(annotations=_READ_ONLY)
