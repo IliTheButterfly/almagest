@@ -41,6 +41,20 @@ pi = [
     "pyserial>=3.5",
 ]
 
+# Talking to a Flipper Zero (ADR 0013). **Not installed on the Pi**: the station
+# has a PN532 under its platform and no reason to carry a Bluetooth stack. This
+# is for the other deployment the bridge now has — a laptop, where the Flipper is
+# the only reader in the building and Web NFC does not exist.
+#
+# `bleak` is the heavier half and is only needed for the BLE transport; USB works
+# with `pyserial` alone. They are one extra rather than two because a user who
+# has a Flipper has both transports available to them, and splitting it would
+# make "why can it not see my Flipper" have two answers instead of one.
+flipper = [
+    "pyserial>=3.5",
+    "bleak>=0.22",
+]
+
 [project.scripts]
 almagest-deviceagent = "agent.main:main"
 
@@ -135,7 +149,7 @@ strict = true
 # modules rather than global so that a typo in a first-party import is still an
 # error.
 [[tool.mypy.overrides]]
-module = ["adafruit_pn532.*", "board", "busio", "serial.*"]
+module = ["adafruit_pn532.*", "board", "busio", "serial.*", "bleak.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
