@@ -20,7 +20,7 @@
  * tap instead of a form somebody abandons.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { AssignStock } from "../components/AssignStock";
@@ -41,6 +41,7 @@ import {
 } from "../lib/api/client";
 import { cameraNotice, detectCapabilities, nfcNotice } from "../lib/capabilities";
 import type { FillField } from "../lib/capture/chips";
+import { extractSuggestions } from "../lib/capture/extract";
 import { useCapture, type CaptureState } from "../lib/capture/useCapture";
 import { formatQty } from "../lib/format";
 import { intakeQueue, type PendingScan } from "../lib/intake/queue";
@@ -373,6 +374,13 @@ function CapturePanel({
   const [created, setCreated] = useState<{ id: number; name: string } | null>(null);
 
   const armedLabel = CAPTURE_PART_FIELDS.find((entry) => entry.field === armed)?.label ?? "";
+  // Recomputed as regions and resolutions arrive: barcodes land first, the OCR
+  // pass seconds later, and each makes the suggestions better rather than
+  // replacing them.
+  const suggestions = useMemo(
+    () => extractSuggestions({ regions: state.regions, resolved: state.resolved }),
+    [state.regions, state.resolved],
+  );
 
   function fill(field: FillField, value: string): void {
     setDraft((previous) => ({ ...previous, [field]: value }));
@@ -420,6 +428,7 @@ function CapturePanel({
           <CaptureToPart
             draft={draft}
             armed={armed}
+            suggestions={suggestions}
             onArm={setArmed}
             onChange={(field, value) => setDraft((previous) => ({ ...previous, [field]: value }))}
             onCreated={setCreated}

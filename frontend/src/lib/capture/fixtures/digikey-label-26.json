@@ -1,0 +1,510 @@
+{
+ "width_px": 1080,
+ "height_px": 1080,
+ "regions": [
+  {
+   "kind": "barcode",
+   "text": "000503570",
+   "corners": [
+    {
+     "x": 333,
+     "y": 672
+    },
+    {
+     "x": 715,
+     "y": 672
+    },
+    {
+     "x": 715,
+     "y": 708
+    },
+    {
+     "x": 335,
+     "y": 708
+    }
+   ],
+   "confidence": null,
+   "symbology": "Code128"
+  },
+  {
+   "kind": "text",
+   "text": "06-06-2023 11:56",
+   "corners": [
+    {
+     "x": 86,
+     "y": 348
+    },
+    {
+     "x": 240,
+     "y": 348
+    },
+    {
+     "x": 240,
+     "y": 370
+    },
+    {
+     "x": 86,
+     "y": 370
+    }
+   ],
+   "confidence": 88,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "701 Brooks Ave South",
+   "corners": [
+    {
+     "x": 317,
+     "y": 346
+    },
+    {
+     "x": 502,
+     "y": 346
+    },
+    {
+     "x": 502,
+     "y": 363
+    },
+    {
+     "x": 317,
+     "y": 363
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Master Par ID",
+   "corners": [
+    {
+     "x": 85,
+     "y": 391
+    },
+    {
+     "x": 169,
+     "y": 391
+    },
+    {
+     "x": 169,
+     "y": 404
+    },
+    {
+     "x": 85,
+     "y": 404
+    }
+   ],
+   "confidence": 59,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "1830399",
+   "corners": [
+    {
+     "x": 92,
+     "y": 405
+    },
+    {
+     "x": 142,
+     "y": 405
+    },
+    {
+     "x": 142,
+     "y": 417
+    },
+    {
+     "x": 92,
+     "y": 417
+    }
+   ],
+   "confidence": 84,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Part Number",
+   "corners": [
+    {
+     "x": 86,
+     "y": 421
+    },
+    {
+     "x": 161,
+     "y": 421
+    },
+    {
+     "x": 161,
+     "y": 433
+    },
+    {
+     "x": 86,
+     "y": 433
+    }
+   ],
+   "confidence": 93,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "CFI4JT100K",
+   "corners": [
+    {
+     "x": 90,
+     "y": 459
+    },
+    {
+     "x": 178,
+     "y": 459
+    },
+    {
+     "x": 178,
+     "y": 490
+    },
+    {
+     "x": 90,
+     "y": 490
+    }
+   ],
+   "confidence": 66,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Part Description",
+   "corners": [
+    {
+     "x": 89,
+     "y": 486
+    },
+    {
+     "x": 182,
+     "y": 486
+    },
+    {
+     "x": 182,
+     "y": 499
+    },
+    {
+     "x": 89,
+     "y": 499
+    }
+   ],
+   "confidence": 83,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Customer Reference",
+   "corners": [
+    {
+     "x": 90,
+     "y": 520
+    },
+    {
+     "x": 209,
+     "y": 520
+    },
+    {
+     "x": 209,
+     "y": 532
+    },
+    {
+     "x": 90,
+     "y": 532
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Purchase Order",
+   "corners": [
+    {
+     "x": 443,
+     "y": 518
+    },
+    {
+     "x": 536,
+     "y": 518
+    },
+    {
+     "x": 536,
+     "y": 530
+    },
+    {
+     "x": 443,
+     "y": 530
+    }
+   ],
+   "confidence": 91,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Order",
+   "corners": [
+    {
+     "x": 295,
+     "y": 563
+    },
+    {
+     "x": 338,
+     "y": 563
+    },
+    {
+     "x": 338,
+     "y": 579
+    },
+    {
+     "x": 295,
+     "y": 579
+    }
+   ],
+   "confidence": 58,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "81734485",
+   "corners": [
+    {
+     "x": 303,
+     "y": 582
+    },
+    {
+     "x": 390,
+     "y": 582
+    },
+    {
+     "x": 390,
+     "y": 602
+    },
+    {
+     "x": 303,
+     "y": 602
+    }
+   ],
+   "confidence": 92,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "IDX: 5",
+   "corners": [
+    {
+     "x": 499,
+     "y": 579
+    },
+    {
+     "x": 555,
+     "y": 579
+    },
+    {
+     "x": 555,
+     "y": 598
+    },
+    {
+     "x": 499,
+     "y": 598
+    }
+   ],
+   "confidence": 89,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "ROHS3 COMP",
+   "corners": [
+    {
+     "x": 348,
+     "y": 619
+    },
+    {
+     "x": 446,
+     "y": 619
+    },
+    {
+     "x": 446,
+     "y": 634
+    },
+    {
+     "x": 348,
+     "y": 634
+    }
+   ],
+   "confidence": 90,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "000503570",
+   "corners": [
+    {
+     "x": 439,
+     "y": 717
+    },
+    {
+     "x": 506,
+     "y": 717
+    },
+    {
+     "x": 506,
+     "y": 749
+    },
+    {
+     "x": 439,
+     "y": 749
+    }
+   ],
+   "confidence": 59,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Date Code",
+   "corners": [
+    {
+     "x": 92,
+     "y": 778
+    },
+    {
+     "x": 176,
+     "y": 778
+    },
+    {
+     "x": 176,
+     "y": 794
+    },
+    {
+     "x": 92,
+     "y": 794
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Lot Code",
+   "corners": [
+    {
+     "x": 410,
+     "y": 780
+    },
+    {
+     "x": 482,
+     "y": 780
+    },
+    {
+     "x": 482,
+     "y": 796
+    },
+    {
+     "x": 410,
+     "y": 796
+    }
+   ],
+   "confidence": 89,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Manufacturer",
+   "corners": [
+    {
+     "x": 90,
+     "y": 814
+    },
+    {
+     "x": 200,
+     "y": 814
+    },
+    {
+     "x": 200,
+     "y": 830
+    },
+    {
+     "x": 90,
+     "y": 830
+    }
+   ],
+   "confidence": 95,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "STACKPOLE ELECTRONICS INC",
+   "corners": [
+    {
+     "x": 97,
+     "y": 831
+    },
+    {
+     "x": 284,
+     "y": 831
+    },
+    {
+     "x": 284,
+     "y": 843
+    },
+    {
+     "x": 97,
+     "y": 843
+    }
+   ],
+   "confidence": 89,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Quantity",
+   "corners": [
+    {
+     "x": 603,
+     "y": 842
+    },
+    {
+     "x": 670,
+     "y": 842
+    },
+    {
+     "x": 670,
+     "y": 870
+    },
+    {
+     "x": 603,
+     "y": 870
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "100",
+   "corners": [
+    {
+     "x": 610,
+     "y": 866
+    },
+    {
+     "x": 658,
+     "y": 866
+    },
+    {
+     "x": 658,
+     "y": 895
+    },
+    {
+     "x": 610,
+     "y": 895
+    }
+   ],
+   "confidence": 94,
+   "symbology": null
+  }
+ ]
+}

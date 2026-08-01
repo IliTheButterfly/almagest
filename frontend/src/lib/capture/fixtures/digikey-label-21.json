@@ -1,0 +1,606 @@
+{
+ "width_px": 1080,
+ "height_px": 1080,
+ "regions": [
+  {
+   "kind": "barcode",
+   "text": "50955349",
+   "corners": [
+    {
+     "x": 1014,
+     "y": 336
+    },
+    {
+     "x": 1014,
+     "y": 626
+    },
+    {
+     "x": 1011,
+     "y": 626
+    },
+    {
+     "x": 1011,
+     "y": 336
+    }
+   ],
+   "confidence": null,
+   "symbology": "Code128"
+  },
+  {
+   "kind": "barcode",
+   "text": "[)>\u241e06\u241dPBC5130-ND\u241d1PK101K15C0GF53L2\u241d30PBC5130-ND\u241dK\u241d1K81927431\u241d10K98220323\u241d9D2114\u241d1T17W2112401\u241d11K1\u241d4LCN\u241dQ10\u241d11ZPICK\u241d12Z2820223\u241d13Z999999\u241d20Z000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+   "corners": [
+    {
+     "x": 125,
+     "y": 493
+    },
+    {
+     "x": 361,
+     "y": 495
+    },
+    {
+     "x": 360,
+     "y": 728
+    },
+    {
+     "x": 122,
+     "y": 726
+    }
+   ],
+   "confidence": null,
+   "symbology": "DataMatrix"
+  },
+  {
+   "kind": "barcode",
+   "text": "000571884",
+   "corners": [
+    {
+     "x": 435,
+     "y": 621
+    },
+    {
+     "x": 933,
+     "y": 621
+    },
+    {
+     "x": 932,
+     "y": 680
+    },
+    {
+     "x": 433,
+     "y": 680
+    }
+   ],
+   "confidence": null,
+   "symbology": "Code128"
+  },
+  {
+   "kind": "barcode",
+   "text": "[)>\u241e06\u241dPBC5130-ND\u241d1PK101K15C0GF53L2\u241d30PBC5130-ND\u241dK\u241d1K81927431\u241d10K98220323\u241d9D2114\u241d1T17W2112401\u241d11K1\u241d4LCN\u241dQ10\u241d11ZPICK\u241d12Z2820223\u241d13Z999999\u241d20Z000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+   "corners": [
+    {
+     "x": 126,
+     "y": 493
+    },
+    {
+     "x": 362,
+     "y": 495
+    },
+    {
+     "x": 360,
+     "y": 728
+    },
+    {
+     "x": 122,
+     "y": 726
+    }
+   ],
+   "confidence": null,
+   "symbology": "DataMatrix"
+  },
+  {
+   "kind": "text",
+   "text": "19-06-2023 08:54",
+   "corners": [
+    {
+     "x": 119,
+     "y": 190
+    },
+    {
+     "x": 325,
+     "y": 190
+    },
+    {
+     "x": 325,
+     "y": 216
+    },
+    {
+     "x": 119,
+     "y": 216
+    }
+   ],
+   "confidence": 94,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "701 Brooks Ave South",
+   "corners": [
+    {
+     "x": 428,
+     "y": 191
+    },
+    {
+     "x": 665,
+     "y": 191
+    },
+    {
+     "x": 665,
+     "y": 212
+    },
+    {
+     "x": 428,
+     "y": 212
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Pan Number",
+   "corners": [
+    {
+     "x": 117,
+     "y": 270
+    },
+    {
+     "x": 214,
+     "y": 270
+    },
+    {
+     "x": 214,
+     "y": 296
+    },
+    {
+     "x": 117,
+     "y": 296
+    }
+   ],
+   "confidence": 84,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "BCS130-ND",
+   "corners": [
+    {
+     "x": 123,
+     "y": 298
+    },
+    {
+     "x": 226,
+     "y": 298
+    },
+    {
+     "x": 226,
+     "y": 316
+    },
+    {
+     "x": 123,
+     "y": 316
+    }
+   ],
+   "confidence": 82,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "K101K1SCOGF53L2",
+   "corners": [
+    {
+     "x": 122,
+     "y": 337
+    },
+    {
+     "x": 294,
+     "y": 337
+    },
+    {
+     "x": 294,
+     "y": 369
+    },
+    {
+     "x": 122,
+     "y": 369
+    }
+   ],
+   "confidence": 62,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Pant Description",
+   "corners": [
+    {
+     "x": 114,
+     "y": 366
+    },
+    {
+     "x": 237,
+     "y": 366
+    },
+    {
+     "x": 237,
+     "y": 385
+    },
+    {
+     "x": 114,
+     "y": 385
+    }
+   ],
+   "confidence": 67,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "CAP CER 100PF SOV COG/NPO RADIAL",
+   "corners": [
+    {
+     "x": 121,
+     "y": 387
+    },
+    {
+     "x": 479,
+     "y": 387
+    },
+    {
+     "x": 479,
+     "y": 409
+    },
+    {
+     "x": 121,
+     "y": 409
+    }
+   ],
+   "confidence": 73,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Customer Reference",
+   "corners": [
+    {
+     "x": 114,
+     "y": 412
+    },
+    {
+     "x": 272,
+     "y": 412
+    },
+    {
+     "x": 272,
+     "y": 428
+    },
+    {
+     "x": 114,
+     "y": 428
+    }
+   ],
+   "confidence": 95,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Purchase Order",
+   "corners": [
+    {
+     "x": 582,
+     "y": 417
+    },
+    {
+     "x": 703,
+     "y": 417
+    },
+    {
+     "x": 703,
+     "y": 433
+    },
+    {
+     "x": 582,
+     "y": 433
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "=a",
+   "corners": [
+    {
+     "x": 976,
+     "y": 419
+    },
+    {
+     "x": 1021,
+     "y": 419
+    },
+    {
+     "x": 1021,
+     "y": 447
+    },
+    {
+     "x": 976,
+     "y": 447
+    }
+   ],
+   "confidence": 66,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "=s",
+   "corners": [
+    {
+     "x": 977,
+     "y": 483
+    },
+    {
+     "x": 1045,
+     "y": 483
+    },
+    {
+     "x": 1045,
+     "y": 507
+    },
+    {
+     "x": 977,
+     "y": 507
+    }
+   ],
+   "confidence": 85,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "IDX: 10",
+   "corners": [
+    {
+     "x": 652,
+     "y": 499
+    },
+    {
+     "x": 741,
+     "y": 499
+    },
+    {
+     "x": 741,
+     "y": 523
+    },
+    {
+     "x": 652,
+     "y": 523
+    }
+   ],
+   "confidence": 94,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "ROHS3 COMP",
+   "corners": [
+    {
+     "x": 457,
+     "y": 545
+    },
+    {
+     "x": 583,
+     "y": 545
+    },
+    {
+     "x": 583,
+     "y": 565
+    },
+    {
+     "x": 457,
+     "y": 565
+    }
+   ],
+   "confidence": 88,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "MSL N/A",
+   "corners": [
+    {
+     "x": 457,
+     "y": 582
+    },
+    {
+     "x": 537,
+     "y": 582
+    },
+    {
+     "x": 537,
+     "y": 600
+    },
+    {
+     "x": 457,
+     "y": 600
+    }
+   ],
+   "confidence": 83,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "CHINA",
+   "corners": [
+    {
+     "x": 536,
+     "y": 734
+    },
+    {
+     "x": 611,
+     "y": 734
+    },
+    {
+     "x": 611,
+     "y": 758
+    },
+    {
+     "x": 536,
+     "y": 758
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Date Code",
+   "corners": [
+    {
+     "x": 110,
+     "y": 754
+    },
+    {
+     "x": 218,
+     "y": 754
+    },
+    {
+     "x": 218,
+     "y": 774
+    },
+    {
+     "x": 110,
+     "y": 774
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Lot Code",
+   "corners": [
+    {
+     "x": 530,
+     "y": 758
+    },
+    {
+     "x": 622,
+     "y": 758
+    },
+    {
+     "x": 622,
+     "y": 779
+    },
+    {
+     "x": 530,
+     "y": 779
+    }
+   ],
+   "confidence": 96,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "2114",
+   "corners": [
+    {
+     "x": 115,
+     "y": 778
+    },
+    {
+     "x": 172,
+     "y": 778
+    },
+    {
+     "x": 172,
+     "y": 799
+    },
+    {
+     "x": 115,
+     "y": 799
+    }
+   ],
+   "confidence": 91,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "17W2112401",
+   "corners": [
+    {
+     "x": 537,
+     "y": 779
+    },
+    {
+     "x": 687,
+     "y": 779
+    },
+    {
+     "x": 687,
+     "y": 807
+    },
+    {
+     "x": 537,
+     "y": 807
+    }
+   ],
+   "confidence": 65,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "Manufacturer",
+   "corners": [
+    {
+     "x": 107,
+     "y": 802
+    },
+    {
+     "x": 251,
+     "y": 802
+    },
+    {
+     "x": 251,
+     "y": 822
+    },
+    {
+     "x": 107,
+     "y": 822
+    }
+   ],
+   "confidence": 92,
+   "symbology": null
+  },
+  {
+   "kind": "text",
+   "text": "VISHAY EC COMPONENTS",
+   "corners": [
+    {
+     "x": 115,
+     "y": 824
+    },
+    {
+     "x": 325,
+     "y": 824
+    },
+    {
+     "x": 325,
+     "y": 839
+    },
+    {
+     "x": 115,
+     "y": 839
+    }
+   ],
+   "confidence": 73,
+   "symbology": null
+  }
+ ]
+}

@@ -2620,3 +2620,50 @@ button.tall {
   gap: 2px;
   font-size: 0.82rem;
 }
+
+/* Suggested values under a form field. The badge is doing real work: a value
+ * decoded from a checksummed symbol and one guessed at by OCR are both offered
+ * here, and they must never look like the same kind of claim. */
+.suggest-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+
+.suggest-badge.is-read {
+  background: var(--accent-2-soft);
+}
+
+.suggest-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.suggest-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 5px 8px;
+  text-align: left;
+  font-size: 0.88rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.suggest-option.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
