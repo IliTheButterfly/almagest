@@ -37,6 +37,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from websockets.asyncio.server import ServerConnection, serve
+from websockets.http11 import Request, Response
 
 from agent.hub import EventHub
 
@@ -63,6 +64,53 @@ class ConnectionSink:
         await self.connection.send(message)
 
 
+def _add_headers(
+    headers: dict[str, str],
+) -> Callable[[ServerConnection, Request, Response], Response]:
+    """Stamp `headers` onto the handshake response, leaving it otherwise alone.
+
+    `process_response` rather than `process_request` on purpose: returning a
+    response from `process_request` would *reject* the upgrade. This runs after
+    the handshake has been accepted and only adds headers.
+    """
+
+    def process(
+        connection: ServerConnection, request: Request, response: Response
+    ) -> Response:
+        del connection, request
+        for name, value in headers.items():
+            response.headers[name] = value
+        return response
+
+    return process
+
+
+def private_network_headers(origin: str) -> dict[str, str]:
+    """Headers that let an `https://` page open this `ws://` loopback socket.
+
+    The PWA is served from `https://almagest.lan` (ADR 0001) and this socket is
+    `ws://127.0.0.1:8765`. Loopback is "potentially trustworthy" per the
+    secure-context spec, so the connection is *specified* to be allowed — but
+    Chrome's Private Network Access work adds a preflight for requests from a
+    public origin to a local one, and browsers have differed about mixed-content
+    WebSockets before. Answering the preflight explicitly costs three headers.
+    Getting it wrong costs a bridge that is running, answers `curl`, and is
+    invisible to the page — which is close to the worst diagnostic in this
+    codebase, because everything looks correct from the terminal.
+
+    **This is not authentication and does not pretend to be.** The socket's
+    security is that it is bound to the loopback and refuses to be bound
+    anywhere else (`agent.config._refuse_a_non_loopback_bind`). An `Origin`
+    header is set by the browser and trivially absent from anything that is not
+    one, so it is a compatibility shim, not a gate.
+    """
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Private-Network": "true",
+        "Vary": "Origin",
+    }
+
+
 @asynccontextmanager
 async def serve_events(
     hub: EventHub,
@@ -70,6 +118,7 @@ async def serve_events(
     host: str,
     port: int,
     on_frame: FrameHandler | None = None,
+    allowed_origin: str | None = None,
 ) -> AsyncIterator[int]:
     """Run the event server for the duration of the context. Yields the port.
 
@@ -105,6 +154,12 @@ async def serve_events(
             # sink left attached would be sent to on every event for ever.
             hub.detach(sink)
 
-    async with serve(handler, host, port) as server:
+    extra_headers = (
+        private_network_headers(allowed_origin) if allowed_origin else {}
+    )
+
+    async with serve(
+        handler, host, port, process_response=_add_headers(extra_headers)
+    ) as server:
         bound = next(iter(server.sockets)).getsockname()[1]
         yield int(bound)

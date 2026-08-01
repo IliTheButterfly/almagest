@@ -668,6 +668,19 @@ class ProvisioningDevice(StrEnum):
     STATION_PN532 = "station_pn532"
     MANUAL = "manual"
 
+    #: A Flipper Zero running Antlia in bridge mode, reached over its RPC by the
+    #: device bridge (ADR 0013). Reads both carriers and — once Antlia's write
+    #: path lands — writes, which makes a desktop with a USB cable into a
+    #: provisioning station. That matters because every other writing path needs
+    #: an Android phone: Web NFC is Chromium-on-Android only, and the station's
+    #: PN532 is bolted to a bench.
+    #:
+    #: **Adding this was three lines and no migration**, which is the entire
+    #: point of CLAUDE.md's never-use-a-`CHECK`-enum rule. `StrEnumType` stores a
+    #: plain `VARCHAR`, so a new kind of reader is additive by construction; with
+    #: `sa.Enum` it would have been a SQLite table rebuild.
+    FLIPPER_RPC = "flipper_rpc"
+
 
 class NdefState(StrEnum):
     """Whether the tag's *user memory* is known to hold the payload we intended.
