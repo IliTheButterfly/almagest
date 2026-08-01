@@ -428,17 +428,45 @@ h3 {
  * viewport; on a wider screen it becomes a normal tab strip under the header
  * (see the media query at the end of the file).
  */
+/*
+ * The tab bar scrolls sideways, and that is a fix rather than a preference.
+ *
+ * It was `grid-auto-flow: column; grid-auto-columns: 1fr`, which reads as
+ * "eleven equal tabs" and is not what it does. A `1fr` track has
+ * `min-width: auto`, so it cannot shrink below its own min-content — one long
+ * word sets a floor. Eleven destinations on a 390px phone therefore produced a
+ * grid *wider than the screen*, and because this element is `position: fixed`
+ * with no overflow handling the surplus was simply clipped: the last tabs were
+ * invisible and unreachable, and the labels that did fit wrapped onto two lines
+ * and left the bar ragged.
+ *
+ * So: one row, tabs sized to their own text, and the row scrolls. Everything
+ * stays reachable at any tab count, which a fixed division into equal columns
+ * cannot promise. `App.tsx` scrolls the current tab into view, because a
+ * destination you are already on must never be the one off-screen.
+ */
 .app-nav {
   position: fixed;
   inset-inline: 0;
   bottom: 0;
   z-index: 20;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  display: flex;
+  overflow-x: auto;
+  /* The bar is swiped, not dragged by a scrollbar, and a permanent horizontal
+   * scrollbar across the bottom of a phone costs more than it tells anyone. A
+   * partly-visible tab at the edge is the affordance instead. */
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  /* Swiping the bar to its end must not then scroll the page or trigger a
+   * browser back-gesture. */
+  overscroll-behavior-x: contain;
   background: var(--bg-sunken);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+.app-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .app-nav a {
@@ -447,12 +475,25 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  padding: 0.5rem 0.25rem;
+  /* Sized to the label and never squeezed: shrinking is what produced the
+   * two-line "Part types" and the ragged bar. */
+  flex: 0 0 auto;
+  white-space: nowrap;
+  scroll-snap-align: center;
+  padding: 0.5rem 0.7rem;
   color: var(--text-dim);
   text-decoration: none;
   font-size: 0.8rem;
   border-top: 2px solid transparent;
   transition: color var(--dur) ease-out;
+}
+
+/* Wide enough for every tab at once: share the width out, so a desktop does not
+ * get a short row of tabs huddled against the left edge. */
+@media (min-width: 60rem) {
+  .app-nav a {
+    flex: 1 1 auto;
+  }
 }
 
 /* The current tab is marked three ways — weight, background and the gradient

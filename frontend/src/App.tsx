@@ -9,8 +9,8 @@
  * drawer.
  */
 
-import { useSyncExternalStore } from "react";
-import { NavLink, Navigate, Route, Routes, useParams } from "react-router-dom";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 
 import { Logo } from "./components/Logo";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -88,6 +88,21 @@ function WorkingOn() {
 
 export function App() {
   const pending = usePendingCount();
+  const navRef = useRef<HTMLElement | null>(null);
+  const location = useLocation();
+
+  /**
+   * Keep the tab you are on visible.
+   *
+   * The bar scrolls sideways (see `.app-nav`), so on a phone the tab for the
+   * screen you just opened can sit past the right edge — which reads as "that
+   * destination is missing" rather than "scroll for it". Runs on every location
+   * change, and is a no-op on a wide screen where nothing overflows.
+   */
+  useEffect(() => {
+    const current = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [location.pathname]);
 
   return (
     <div className="app">
@@ -103,7 +118,7 @@ export function App() {
         <ThemeToggle />
       </header>
 
-      <nav className="app-nav" aria-label="Main">
+      <nav className="app-nav" aria-label="Main" ref={navRef}>
         <NavLink to="/search">Search</NavLink>
         <NavLink to="/datasheets">Datasheets</NavLink>
         <NavLink to="/tree">Storage</NavLink>
