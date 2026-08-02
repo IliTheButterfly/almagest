@@ -3,8 +3,8 @@
 Mirrors `backend/tests/conftest.py`: `pyproject.toml` registers `live` as
 "skipped unless `-m live` is passed", and `make agent-test` runs a bare pytest, so
 without this hook that sentence would be a comment rather than a behaviour — and
-the first PN532 contract test added would run in CI, where there is no PN532, and
-fail there.
+the first reader contract test added would run in CI, where there is no reader of
+either kind, and fail there.
 
 **Skipped, not deselected.** A deselected test is invisible: it does not appear in
 the summary, and the whole point of the live test is to be a visible reminder that
@@ -34,7 +34,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if "live" in str(config.getoption("markexpr", default="") or ""):
         return
     skip_live = pytest.mark.skip(
-        reason="needs a real PN532: run with `-m live` (make agent-test-live)"
+        reason="needs a real reader wired up: run with `-m live` (make agent-test-live)"
     )
     for item in items:
         if "live" in item.keywords:

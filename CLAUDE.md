@@ -23,8 +23,12 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   session, NDEF decoding, NDEF-first/UID-fallback resolution, tag presence, the
   **station session** (PLAN.md workflow 5: identify → ready → propose → confirm →
   commit, looping while the tag stays put), the API client, and the loopback
-  WebSocket. `Pn532TagSource` is written but **has never run**: no reader exists,
-  so its contract test is `live`-marked
+  WebSocket. **Two drivers, both unrun**: `Pn532TagSource` (UART, what PLAN.md
+  specifies, the default) and `Rc522TagSource` (SPI, added because an MFRC522 was
+  already on hand — see ADR 0013, and note PLAN.md rejects it on library grounds
+  that no longer apply since `agent/iso14443a.py` is ours and unit-tested). Both
+  contract tests are `live`-marked. `DEVICEAGENT_READER` chooses; nothing above
+  the driver knows which answered
 
 **Not built yet:** `frontend/`, the scan resolver chain and alias learning, layout
 authoring, tag provisioning, label sheets, FTS5. The station's **scale half is
