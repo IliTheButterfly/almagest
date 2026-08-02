@@ -123,6 +123,28 @@ export class IntakeQueue {
     }
   }
 
+  /**
+   * True once a write to `localStorage` has failed — quota, Safari private mode,
+   * a locked-down kiosk profile.
+   *
+   * **The queue keeps working in memory, and the user has to be told.** Staying
+   * up is right: stopping the scanner because storage is full would cost the
+   * whole box of reels rather than the tab. Staying up *quietly* is not, and
+   * `sync.ts` states the rule this used to break — "the failure mode of this
+   * feature is losing intake data, which the user must be told about rather than
+   * have hidden by a spinner." Closing the tab is then an ordinary thing to do
+   * and thirty parked scans go with it.
+   *
+   * Sticky by design: it stays true for the rest of the session even if a later
+   * write succeeds, because the entries lost from the earlier failure are not
+   * coming back and a warning that flickers off is worse than none.
+   */
+  get degraded(): boolean {
+    return this.#degraded;
+  }
+
+  #degraded = false;
+
   #write(entries: PendingScan[]): void {
     this.#cache = entries;
     try {
@@ -132,7 +154,10 @@ export class IntakeQueue {
         this.#storage?.setItem(STORAGE_KEY, JSON.stringify(entries));
       }
     } catch {
-      // In-memory only for the rest of the session.
+      // In-memory only for the rest of the session — and said out loud, through
+      // the same notification every other change goes through, so no screen has
+      // to poll for it.
+      this.#degraded = true;
     }
     for (const listener of this.#listeners) {
       listener();

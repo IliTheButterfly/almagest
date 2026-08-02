@@ -637,9 +637,20 @@ class UndoOutcome:
     tag_uid: str | None
     #: The binding put back, when the undone action was a move or a rebind.
     restored_tag: LocationTag | None = None
-    #: Set when a prior binding could not be put back because the slot it came
-    #: from has been re-tagged since. Reported rather than forced: overwriting
-    #: a binding somebody made after the fact would be a second silent rebind.
+    #: Why the undo did less than the word implies. Reported rather than forced
+    #: in every case: overwriting a binding somebody made after the fact would be
+    #: a second silent rebind, and one of these three would put the same physical
+    #: tag on two containers.
+    #:
+    #: * `prior_slot_rebound` — the slot the prior binding came from has been
+    #:   given a different tag since, so there is nowhere to put it back.
+    #: * `prior_tag_bound_elsewhere` — the prior tag is now bound to some other
+    #:   container. Restoring it would duplicate one UID across two rows.
+    #: * `slot_rebound_since` — the slot this action bound has been rebound by
+    #:   somebody else, so this undo removed nothing.
+    #:
+    #: Every value here reaches the bench, so each needs a sentence in
+    #: `TagWalkPanel`'s `UNDO_CAVEATS` naming the slot and the next action.
     not_restored_reason: str | None = None
 
 
@@ -672,11 +683,31 @@ def undo(session: Session, walk: ProvisioningSession) -> UndoOutcome:
         if current is not None and current.tag_uid == action.tag_uid:
             session.delete(current)
             session.flush()
-        walk.bound_count = max(walk.bound_count - 1, 0)
+            walk.bound_count = max(walk.bound_count - 1, 0)
+        elif current is not None:
+            # Somebody rebound this slot after we bound it — the premise this
+            # module opens with, not an exotic case. Nothing was taken back, so
+            # say so instead of reporting a clean undo: at the bench the person
+            # reads "undone" and peels a sticker off a drawer whose binding still
+            # stands. `bound_count` is left alone for the same reason; this walk's
+            # binding is gone from the slot but not by our hand.
+            not_restored = "slot_rebound_since"
+        else:
+            walk.bound_count = max(walk.bound_count - 1, 0)
 
         if action.prior_location_id is not None and action.prior_tag_uid is not None:
+            displaced = tag_with_uid(session, action.prior_tag_uid)
             if tag_at(session, action.prior_location_id) is not None:
                 not_restored = "prior_slot_rebound"
+            elif displaced is not None and displaced.location_id != action.prior_location_id:
+                # **The tag is somewhere else now.** Restoring it here would leave
+                # one physical UID bound to two containers at once, which `bind`
+                # refuses outright and which nothing below would catch:
+                # `location_tags.tag_uid` is indexed but not unique. A duplicate
+                # resolves to whichever row has the lower id, so the station would
+                # identify the wrong container and commit stock into it — and the
+                # other drawer's page would show a tag it does not own.
+                not_restored = "prior_tag_bound_elsewhere"
             else:
                 restored = LocationTag(
                     location_id=action.prior_location_id,

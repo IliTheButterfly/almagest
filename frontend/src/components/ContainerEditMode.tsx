@@ -210,6 +210,11 @@ export function ContainerEditMode({
           kind="provision"
           onClose={close}
           onChanged={onChanged}
+          // PLAN.md pairs the two walks: a provisioning pass is "always followed
+          // by a verification pass". The buttons above stay separate — a mode
+          // toggle makes verification easy to skip — but finishing the binds now
+          // offers the next walk instead of leaving a success message on screen.
+          onVerifyNext={() => openPanel("verify")}
         />
       )}
       {panel === "verify" && (

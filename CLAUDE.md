@@ -61,14 +61,23 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   hardware". **BLE is still unrun and now has a known blocker**: `bleak` needs
   BlueZ >= 5.51 and the bench machine has 5.48
 
-**Not built yet:** the scan resolver chain and alias learning, layout
-authoring, label sheets, FTS5. Tag provisioning has its API, its walks, a reader
-that can write, **and now tags written by real hardware** — what it does not have
-is a tag written through a mounted container rather than one lying on a desk.
-Also absent: any *agent-assisted* field filling — capture extraction is
-algorithmic, and offers candidates a person chooses between. Treat this whole
-list with suspicion: it is older than the code and has been wrong before,
-`frontend/` having sat in it while the PWA grew to ~190 files. The station's **scale half is
+**Also built, and this list said otherwise until round 11 of the review caught
+it**: the scan resolver chain (`services/scanning/resolver.py` behind
+`POST /api/scan/resolve`), alias learning (`scanning/aliases.py`,
+`POST /api/scan/alias`), layout authoring (`services/layout_authoring.py`),
+label sheets (`POST|GET /api/labels/sheets` + `label_rendering.py`) and FTS5
+(`services/search/fts.py` and its migration). 235 tests cover the five.
+
+**Not built yet:** any *agent-assisted* field filling — capture extraction is
+algorithmic and offers candidates a person chooses between. Tag provisioning has
+its API, its walks, a reader that can write, **and now tags written by real
+hardware** — what it does not have is a tag written through a mounted container
+rather than one lying on a desk. Treat this list with suspicion anyway: it is
+older than the code and has now been wrong twice, `frontend/` having sat in it
+while the PWA grew to ~190 files, and the five items above having sat in it while
+they were built and tested. **Check before believing it** — this file is the
+first thing every agent reads, and a stale absence sends people looking for code
+that is already there. The station's **scale half is
 deferred, not pending** — see `docs/adr/0003`, which supersedes PLAN.md's
 weight-triggered state machine: continuous PN532 polling is the trigger, and
 nothing weight-related exists (no `weighings`, no `WeightSource`, no `weight.*`
