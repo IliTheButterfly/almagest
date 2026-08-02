@@ -904,7 +904,12 @@ def _capacity_read(db: Session, location: Location) -> CapacityRead:
         used=snapshot.used,
         fill_ratio=snapshot.fill_ratio,
         is_full=snapshot.is_full,
-        is_overfull=location.is_overfull,
+        # From the snapshot, not the column. The column is the *scorer's* input
+        # and is written only by the bulk pass, so serving it beside a live
+        # `used`/`fill_ratio` produced one payload contradicting itself —
+        # `fill_ratio 2.0, is_full true, is_overfull false` — while the field is
+        # documented as "capacity is literally exceeded".
+        is_overfull=snapshot.is_overfull,
         unit=snapshot.unit,
     )
 

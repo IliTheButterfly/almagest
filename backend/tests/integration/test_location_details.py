@@ -304,7 +304,13 @@ def test_the_map_and_the_container_page_agree_about_the_same_cabinet(
         make_location(db, name=f"Drawer {index}", parent_id=cabinet.id)
     db.commit()
 
-    assert client.post("/api/system/caches/rebuild").status_code == 200
+    # The *nightly* pass, not `/caches/rebuild`. That route is the escape hatch
+    # — `system.py` documents it as what you reach for when the cache is
+    # *suspect* — and driving this through it made the test pass while the path
+    # that actually runs left the map and the page disagreeing. Nothing marked a
+    # parent dirty when its children changed, so `only_dirty=True` skipped every
+    # cabinet for ever.
+    assert client.post("/api/system/maintenance").status_code == 200
 
     live = client.get(f"/api/locations/{cabinet.id}").json()["capacity"]
     node = next(
@@ -329,13 +335,21 @@ def test_a_divided_drawer_counts_its_sub_bin_and_its_loose_parts(
 
     capacity = client.get(f"/api/locations/{drawer.id}").json()["capacity"]
 
+    # Two loose parts plus one sub-bin, and the sub-bin occupies a whole
+    # compartment however many parts it could hold.
     assert capacity["used"] == 3
 
 
 def test_a_cabinet_is_not_scaled_by_parts_per_slot(client: TestClient, db: Session) -> None:
-    """`max_parts_per_slot` means "distinct parts sharing one compartment" and
-    says nothing about drawers standing in a cabinet. Multiplying by it made a
-    full cabinet read 33% — the same defect wearing a different number."""
+    """A full cabinet reads full, whatever `max_parts_per_slot` says.
+
+    Capacity and use are both measured in the same unit — compartments scaled by
+    `max_parts_per_slot` — so a child container occupies a whole compartment
+    however many parts that compartment could otherwise hold. What is asserted
+    is the *ratio*, because that is what the meter draws and what
+    `is_full`/`is_overfull` derive from; the absolute number carries the scaled
+    unit and is not what anybody reads.
+    """
     kind = make_container_type(
         db, "cab3", capacity_model="slots", capacity_slots=3, max_parts_per_slot=3
     )
@@ -346,5 +360,78 @@ def test_a_cabinet_is_not_scaled_by_parts_per_slot(client: TestClient, db: Sessi
 
     capacity = client.get(f"/api/locations/{cabinet.id}").json()["capacity"]
 
-    assert capacity["capacity"] == 3
     assert capacity["fill_ratio"] == 1.0
+    assert capacity["used"] == capacity["capacity"]
+
+
+def test_the_unconditional_rebuild_also_agrees(client: TestClient, db: Session) -> None:
+    """The escape hatch, kept as its own test rather than as the only one.
+
+    Both routes must produce the same answer; only one of them runs nightly.
+    """
+    kind = make_container_type(db, "cab-rebuild", capacity_model="slots", capacity_slots=2)
+    cabinet = make_location(db, name="Cabinet D", container_type_id=kind.id)
+    make_location(db, name="Only drawer", parent_id=cabinet.id)
+    db.commit()
+
+    assert client.post("/api/system/caches/rebuild").status_code == 200
+
+    live = client.get(f"/api/locations/{cabinet.id}").json()["capacity"]
+    node = next(
+        n for n in client.get("/api/locations/tree").json()["nodes"] if n["id"] == cabinet.id
+    )
+    assert node["fill_ratio"] == live["fill_ratio"] == 0.5
+
+
+def test_a_divider_does_not_flip_a_half_full_drawer_to_overfull(
+    client: TestClient, db: Session
+) -> None:
+    """The regression the first version of this branch shipped.
+
+    Deciding whether `max_parts_per_slot` scales the capacity from "does it
+    happen to have a child right now" collapsed a 10-slot drawer's capacity from
+    20 parts to 10 the moment a divider went in — so a drawer at 60% read 130%,
+    was flagged overfull, raised a defrag suggestion and was hard-filtered out of
+    auto-assignment, all because somebody put a sub-bin in it.
+    """
+    kind = make_container_type(
+        db, "divider", capacity_model="slots", capacity_slots=10, max_parts_per_slot=2
+    )
+    drawer = make_location(db, name="Roomy drawer", container_type_id=kind.id)
+    for index in range(12):
+        make_lot(db, make_part(db, name=f"P{index}"), drawer, qty_milli=1_000)
+    db.commit()
+    before = client.get(f"/api/locations/{drawer.id}").json()["capacity"]
+
+    make_location(db, name="A sub-bin", parent_id=drawer.id)
+    db.commit()
+    after = client.get(f"/api/locations/{drawer.id}").json()["capacity"]
+
+    assert before["capacity"] == after["capacity"] == 20
+    assert before["fill_ratio"] == 0.6
+    # Fuller, because the sub-bin takes a compartment — not overfull.
+    assert after["fill_ratio"] == 0.7
+    assert after["is_overfull"] is False
+
+
+def test_a_retired_bin_does_not_keep_filling_its_plate(client: TestClient, db: Session) -> None:
+    """Grid units counted retired children while every other count excluded them.
+
+    A plate holding one live bin and one retired one read 150% and wore a
+    permanent "over" badge with nothing the user could move to clear it.
+    """
+    plate = make_container_type(db, "plate", capacity_model="grid_units", grid_rows=1, grid_cols=2)
+    bin_type = make_container_type(db, "bin1x1", footprint_rows=1, footprint_cols=1)
+    base = make_location(db, name="Baseplate", container_type_id=plate.id)
+    make_location(db, name="Live bin", parent_id=base.id, container_type_id=bin_type.id)
+    gone = make_location(db, name="Gone bin", parent_id=base.id, container_type_id=bin_type.id)
+    db.commit()
+
+    from app.services import removal
+
+    removal.retire(gone)
+    db.commit()
+
+    capacity = client.get(f"/api/locations/{base.id}").json()["capacity"]
+    assert capacity["used"] == 1
+    assert capacity["is_overfull"] is False

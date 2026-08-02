@@ -143,6 +143,7 @@ class TreeRepository[TreeNode: (Location, PartCategory)]:
 
     def move(self, node: TreeNode, new_parent_id: int | None) -> None:
         """Reparent, then refresh the cache for everything affected."""
+        old_parent_id = node.parent_id
         if self.would_create_cycle(node.id, new_parent_id):
             raise CycleError(
                 f"moving {self.table} {node.id} under {new_parent_id} would create a cycle"
@@ -161,6 +162,13 @@ class TreeRepository[TreeNode: (Location, PartCategory)]:
         node.parent_id = new_parent_id
         self.session.flush()
         self.rebuild_paths()
+        # Both ends: the cabinet it left has one fewer child, the one it joined
+        # has one more, and each has its own ancestors.
+        self._mark_occupancy_dirty(node)
+        if old_parent_id is not None and isinstance(node, Location):
+            from app.db.maintenance import mark_location_occupancy_dirty
+
+            mark_location_occupancy_dirty(self.session, [old_parent_id])
 
     def rebuild_paths(self) -> int:
         """Recompute `depth`, `id_path` and `label_path` for the whole table.
@@ -234,7 +242,35 @@ class TreeRepository[TreeNode: (Location, PartCategory)]:
         self.session.add(node)
         self.session.flush()
         self.rebuild_paths()
+        self._mark_occupancy_dirty(node)
         return node
+
+    def _mark_occupancy_dirty(self, node: TreeNode) -> None:
+        """A container's fill now depends on how many children it has.
+
+        The `location_occupancy` triggers cover the ledger and lot relocation —
+        "the one case a trigger cannot reach" in
+        `maintenance.mark_location_occupancy_dirty`'s words — and adding,
+        moving or retiring a *container* is exactly that case. It became
+        load-bearing when the slots model started counting child containers: a
+        cabinet's stored fill was written once, at creation, and then never
+        again, so the storage map read 0% for a full cabinet for ever while its
+        own page read 100%. Only the bulk pass writes `is_overfull`, so an
+        over-filled cabinet could not be flagged either.
+
+        `PartCategory` shares this repository and has no occupancy, hence the
+        isinstance — the same guard `move` already uses for floor-plan
+        coordinates.
+        """
+        if not isinstance(node, Location):
+            return
+        from app.db.maintenance import mark_location_occupancy_dirty
+
+        # The node itself and its parent: the child's own fill is unchanged by
+        # being inserted, but its parent's is, and the helper walks ancestors.
+        mark_location_occupancy_dirty(
+            self.session, [i for i in (node.id, node.parent_id) if i is not None]
+        )
 
 
 def location_tree(session: Session) -> TreeRepository[Location]:
