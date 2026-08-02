@@ -101,6 +101,36 @@ sticking a tag on the wrong drawer, only detect it.
 It writes real bindings, so run it against a station whose database is demo seed
 data, not one holding a real cabinet.
 
+## Commissioning with the Flipper, on hardware
+
+```bash
+# once per Flipper: put the bridge-mode app on it. `ufbt install` cannot be used
+# here — the fbt toolchain is x86_64 and the bench is aarch64.
+uv run python deploy/station/flipper_install.py \
+    /dev/serial/by-id/usb-Flipper_* dist/antlia.fap /ext/apps/NFC/antlia.fap
+
+# the whole workflow against a real tag on the antenna
+uv run python deploy/station/commission_hardware.py
+```
+
+`commission_hardware.py` is `commission_smoke.py`'s hardware sibling and drives
+the path the docs describe end to end: a provisioning walk binds **the tag the
+reader actually saw**, the *bridge* writes the URI the server minted, reads it
+back through the same reader, and the client posts that read-back so the
+**server** decides `verified` — never the client, per ADR 0012. Then a
+verification walk reads the tag again and confirms the drawer.
+
+Two things it will teach you if you skip them:
+
+- **`\r`, never `\r\n`, in `flipper_install.py`.** The CLI ends a line on `\r`
+  and leaves the `\n` in the stream, where it becomes the first byte the payload
+  reader sees — so the file lands with exactly the right *size* and the wrong
+  md5, and the loader answers `ERROR_APP_CANT_START` while `storage stat` looks
+  healthy. Always check the md5 against the local file.
+- **Close whatever is running on the Flipper first.** `app_start_request` cannot
+  launch Antlia while an app — including Antlia in wedge mode — is in the
+  foreground; the CLI says `Loader is locked`. `loader close` fixes it.
+
 ## What this machine cannot do, and what to do instead
 
 **It cannot build the PWA.** Node 22 requires glibc 2.28; Ubuntu 18.04 ships

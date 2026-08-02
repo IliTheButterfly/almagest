@@ -23,3 +23,44 @@
 import { configure } from "@testing-library/react";
 
 configure({ asyncUtilTimeout: 5_000 });
+
+/**
+ * A `WebSocket` that never connects, unless a test supplies its own.
+ *
+ * The provisioning walk opens the device bridge on `ws://127.0.0.1:8765`
+ * (`lib/tags/useBridge.ts`), and that is right in production: it is how a Flipper
+ * on a cable becomes a reader the walk can use. In a test run it is a real
+ * connection attempt from every file that renders a walk, and `openBridge` is
+ * *designed* to keep retrying with a backoff — so a suite that never asked for a
+ * bridge accumulates timers and connection attempts for the life of every such
+ * file.
+ *
+ * That is not hypothetical: it turned `RoomPlanPanel`, a file with no reader in
+ * it at all, red under the parallel run while passing alone. Cross-file
+ * interference through a shared machine is the worst kind of flake, because the
+ * failure names something unrelated to the cause.
+ *
+ * So the default is inert. A test that wants a bridge stubs `WebSocket` itself
+ * (`TagWalkPanel.bridge.test.tsx` does), which also makes the dependency visible
+ * in the file that has it rather than ambient everywhere.
+ */
+class InertWebSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  readyState = InertWebSocket.CONNECTING;
+  onopen: unknown = null;
+  onclose: unknown = null;
+  onerror: unknown = null;
+  onmessage: unknown = null;
+  constructor(readonly url: string) {}
+  send(): void {}
+  close(): void {
+    this.readyState = InertWebSocket.CLOSED;
+  }
+  addEventListener(): void {}
+  removeEventListener(): void {}
+}
+
+globalThis.WebSocket = InertWebSocket as unknown as typeof WebSocket;

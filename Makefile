@@ -77,7 +77,7 @@ typecheck: ## mypy
 # `idcodec-check` goes **first**: it is the fastest of the three by an order of
 # magnitude and both others depend on it, so a broken codec should be named as
 # such rather than as fifty failing backend tests.
-check: idcodec-check lint typecheck test agent-check mcp-check ## Everything CI runs
+check: idcodec-check lint typecheck test agent-check mcp-check station-check ## Everything CI runs
 
 migrate: ## Apply migrations up to head
 	cd $(BE) && $(UV) run alembic upgrade head
@@ -164,6 +164,15 @@ agent-test-live: ## Only the tests that need a real reader (PN532 or RC522) wire
 	cd $(AG) && $(UV) run pytest -q -m live
 
 agent-check: agent-lint agent-typecheck agent-test ## Everything CI runs for the deviceagent
+
+station-check: ## The bench station's one-origin server (deploy/station/)
+	# `--no-project` and `--with pytest`: `station_web.py` is standard-library-only
+	# and belongs to none of the four uv projects, deliberately — it sits in front
+	# of them. Everything it pins fails silently when it breaks (a `/s/` tap that
+	# quietly 200s, a HEAD that corrupts the next response), so it is worth the
+	# five seconds here rather than being a file nobody runs.
+	cd deploy/station && $(UV) run --no-project --python 3.12 --with pytest -- \
+		python -m pytest test_station_web.py -q
 
 agent-run: ## Run the device agent against the fake reader (no hardware needed)
 	cd $(AG) && $(UV) run almagest-deviceagent --fake

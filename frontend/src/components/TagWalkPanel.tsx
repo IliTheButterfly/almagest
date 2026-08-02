@@ -54,6 +54,9 @@ import {
 import { DecodeFeedback, FEEDBACK_FLASH_MS } from "../lib/scan/feedback";
 import { uuid4 } from "../lib/scan/session";
 import { TagNotBlankError } from "../lib/scan/nfc";
+import type { BridgeConnection, BridgeDevice } from "../lib/tags/bridge";
+import { bridgeSource } from "../lib/tags/bridge";
+import { useBridgeDevices } from "../lib/tags/useBridge";
 import { simulatedTagSource, type SimulatedTag } from "../lib/tags/simulated";
 import {
   debounceTaps,
@@ -95,7 +98,17 @@ const DEGRADED_DETAIL =
 
 // --------------------------------------------------------------- readers ----
 
-type ReaderChoice = "webnfc" | "manual" | "simulated";
+/**
+ * `bridge:<deviceId>` for a reader reached through the device bridge — one choice
+ * per attached device, because a bench may have a PN532 under the platform *and*
+ * a Flipper on a cable, and "write this tag" is meaningless until the user has
+ * been told which field to hold the tag in (ADR 0014).
+ */
+type ReaderChoice = "webnfc" | "manual" | "simulated" | `bridge:${string}`;
+
+function bridgeChoice(deviceId: string): ReaderChoice {
+  return `bridge:${deviceId}`;
+}
 
 /** A cabinet of tags that does not exist, for demonstrating a walk with no reader. */
 const SIMULATED_TAGS: readonly SimulatedTag[] = [
@@ -107,8 +120,23 @@ const SIMULATED_TAGS: readonly SimulatedTag[] = [
   { uid: "04A1B2C3D4E583", url: null, writeFails: true },
 ];
 
-function useTagSource(choice: ReaderChoice): TagSource {
+function useTagSource(
+  choice: ReaderChoice,
+  bridge: readonly BridgeDevice[],
+  connection: BridgeConnection | null,
+): TagSource {
   return useMemo(() => {
+    if (choice.startsWith("bridge:") && connection !== null) {
+      const deviceId = choice.slice("bridge:".length);
+      const device = bridge.find((candidate) => candidate.deviceId === deviceId);
+      if (device !== undefined) {
+        return bridgeSource(connection, device);
+      }
+      // Unplugged mid-walk. Falling back to typing keeps the walk usable rather
+      // than leaving a dead source subscribed to nothing; the picker has already
+      // dropped the radio, so the UI agrees.
+      return manualTagSource();
+    }
     if (choice === "simulated") {
       return simulatedTagSource(SIMULATED_TAGS);
     }
@@ -116,7 +144,7 @@ function useTagSource(choice: ReaderChoice): TagSource {
       return webNfcTagSource();
     }
     return manualTagSource();
-  }, [choice]);
+  }, [choice, bridge, connection]);
 }
 
 // ------------------------------------------------------------- the panel ----
@@ -176,7 +204,26 @@ export function TagWalk({
   const [choice, setChoice] = useState<ReaderChoice>(() =>
     capabilities.nfc ? "webnfc" : "manual",
   );
-  const detected = useTagSource(choice);
+  // Whether the operator has said which reader they want. Until they have, an
+  // arriving bridged reader may take over from "Type the UID"; after they have,
+  // nothing moves under them mid-walk.
+  const [readerPicked, setReaderPicked] = useState(false);
+  const { devices: bridgeDevices, connection: bridge } = useBridgeDevices();
+
+  // A bridged reader appearing is the only thing that can change the choice on
+  // its own, and only away from the fallback. ADR 0003's rule applied to a
+  // chooser: the radio exists because a `device.attached` arrived. On the bench
+  // kiosk this is what turns "type the hex off the sticker" into "tap the tag".
+  useEffect(() => {
+    if (readerPicked || bridgeDevices.length === 0) {
+      return;
+    }
+    if (choice === "manual") {
+      setChoice(bridgeChoice(bridgeDevices[0]!.deviceId));
+    }
+  }, [bridgeDevices, choice, readerPicked]);
+
+  const detected = useTagSource(choice, bridgeDevices, bridge);
   const source = injected ?? detected;
 
   const [cursor, setCursor] = useState<SlotCursorRead | null>(null);
@@ -473,10 +520,16 @@ export function TagWalk({
     <div className="stack">
       <ReaderPicker
         choice={choice}
-        onChoose={setChoice}
+        onChoose={(next) => {
+          // An explicit pick pins it: nothing moves under the operator's hand
+          // for the rest of the walk.
+          setReaderPicked(true);
+          setChoice(next);
+        }}
         canUseNfc={capabilities.nfc}
         simulationAllowed={simulationAllowed}
         disabled={injected !== undefined}
+        bridgeDevices={bridgeDevices}
       />
       {notice !== null && (
         <Notice kind="warn" title="No Web NFC here">
@@ -651,12 +704,14 @@ function ReaderPicker({
   canUseNfc,
   simulationAllowed,
   disabled,
+  bridgeDevices,
 }: {
   choice: ReaderChoice;
   onChoose: (next: ReaderChoice) => void;
   canUseNfc: boolean;
   simulationAllowed: boolean;
   disabled: boolean;
+  bridgeDevices: readonly BridgeDevice[];
 }) {
   if (disabled) {
     return null;
@@ -674,6 +729,22 @@ function ReaderPicker({
         />{" "}
         Phone (Web NFC)
       </label>
+      {/* One per attached device, and nothing at all when none are — a bridge
+        * that is not running must not leave an empty affordance behind. Labelled
+        * with the device's own name, because "Flipper Vyvern" is answerable at a
+        * bench and a udev path is not. */}
+      {bridgeDevices.map((device) => (
+        <label key={device.deviceId}>
+          <input
+            type="radio"
+            name="reader"
+            checked={choice === bridgeChoice(device.deviceId)}
+            onChange={() => onChoose(bridgeChoice(device.deviceId))}
+          />{" "}
+          {device.label}
+          {device.capabilities.writesNdef ? "" : " (reads only)"}
+        </label>
+      ))}
       <label>
         <input
           type="radio"
