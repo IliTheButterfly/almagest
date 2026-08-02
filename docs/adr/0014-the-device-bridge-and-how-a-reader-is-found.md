@@ -235,9 +235,20 @@ USB leg. What actually ran, and what it cost:
 - **The Flipper has been driven by this code.** Discovery matched the real udev
   name, the registry attached it, `start_rpc_session` and the CLI-banner drain
   worked, `ping` answered, `app_start_request` launched Antlia into bridge mode,
-  and `HELLO 1 rw` came back. `tests/test_flipper_live.py` is the checklist and
-  it passes: 11 of its 14, the rest being a manual cable-pull and the two write
-  cases that need `--flipper-write`.
+  and `HELLO 1 rw` came back. `tests/test_flipper_live.py` is the checklist,
+  and on the bench it reports:
+
+  ```
+  9 passed, 5 skipped                     # reads only
+  11 passed, 3 skipped --flipper-write    # reads and writes
+  ```
+
+  Of the three still skipping with the flag, one is the manual cable-pull; the
+  other two are conditional on what is on the tag at the time — the blank-tag
+  write skips once the tag carries a URI, and the check-symbol case skips unless
+  the tag carries the test URI. The checklist is therefore never uniformly
+  green, and these numbers are quoted rather than described because the first
+  description of them was wrong.
 - **A write survives the platform** — the bullet that said it was the biggest
   unknown. A real NTAG took a server-minted URI, read it back identically
   through the same reader, and a verification walk then resolved the drawer by

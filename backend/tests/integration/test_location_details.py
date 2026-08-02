@@ -29,7 +29,7 @@ from app.models.enums import EntityType
 from app.models.storage import Location, LocationTag
 from app.services import shortid
 from app.services.tree import location_tree
-from tests.factories import make_container_type, make_location
+from tests.factories import make_container_type, make_location, make_lot, make_part
 
 
 def _chain(db: Session, *names: str) -> list[Location]:
@@ -177,3 +177,68 @@ def test_a_blank_name_is_refused(client: TestClient, db: Session) -> None:
 
 def test_an_unknown_container_is_a_404(client: TestClient) -> None:
     assert client.put("/api/locations/9999/details", json=_details()).status_code == 404
+
+
+def test_a_drawer_names_the_parts_it_holds(client: TestClient, db: Session) -> None:
+    """The landing screen for every tag tap has to say what is in the drawer.
+
+    It rendered "part 4" — a primary key — because the payload carried no name,
+    so a bin holding two different parts could not be told apart without opening
+    each one and coming back. The names come from the lot rows themselves; one
+    request per row is not an option on a screen reached by tapping a sticker.
+    """
+    drawer = make_location(db, name="Drawer 01")
+    resistor = make_part(db, name="4k7 0.25W resistor, axial", mpn="CFR-25JB-52-4K7")
+    capacitor = make_part(db, name="100nF X7R capacitor", mpn="C0603C104K5RAC")
+    make_lot(db, resistor, drawer, qty_milli=250_000)
+    make_lot(db, capacitor, drawer, qty_milli=500_000)
+    db.commit()
+
+    body = client.get(f"/api/locations/{drawer.id}").json()
+
+    named = {lot["part_name"] for lot in body["lots"]}
+    assert named == {"4k7 0.25W resistor, axial", "100nF X7R capacitor"}
+    # The MPN too: two parts can share a description and never share this.
+    assert {lot["part_mpn"] for lot in body["lots"]} == {
+        "CFR-25JB-52-4K7",
+        "C0603C104K5RAC",
+    }
+
+
+def test_naming_the_parts_does_not_cost_a_query_per_lot(client: TestClient, db: Session) -> None:
+    """The control for handing `lot_read` its parts instead of trusting the map.
+
+    Asserted as *"does not grow"* rather than *"is exactly one"*: the route
+    touches `parts` for its own reasons too, and pinning an absolute number would
+    fail the next time something unrelated is added — the kind of test people
+    delete. What must never change is the slope. Revert to `Session.get` per lot
+    and a six-part drawer costs six queries, on the screen every tag tap lands
+    on, invisibly until the database is big.
+    """
+    from sqlalchemy import event
+
+    def part_queries(location: Location) -> int:
+        seen: list[str] = []
+
+        def record(conn: object, cursor: object, statement: str, *args: object) -> None:
+            if statement.lstrip().upper().startswith("SELECT") and "parts" in statement.lower():
+                seen.append(statement)
+
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            body = client.get(f"/api/locations/{location.id}").json()
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert all(lot["part_name"] is not None for lot in body["lots"])
+        return len(seen)
+
+    small = make_location(db, name="Drawer S")
+    for index in range(2):
+        make_lot(db, make_part(db, name=f"Small {index}"), small, qty_milli=1_000)
+    big = make_location(db, name="Drawer L")
+    for index in range(8):
+        make_lot(db, make_part(db, name=f"Big {index}"), big, qty_milli=1_000)
+    db.commit()
+
+    assert part_queries(big) == part_queries(small)

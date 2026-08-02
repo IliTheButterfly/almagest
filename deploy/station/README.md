@@ -106,11 +106,19 @@ data, not one holding a real cabinet.
 ```bash
 # once per Flipper: put the bridge-mode app on it. `ufbt install` cannot be used
 # here — the fbt toolchain is x86_64 and the bench is aarch64.
-uv run python deploy/station/flipper_install.py \
-    /dev/serial/by-id/usb-Flipper_* dist/antlia.fap /ext/apps/NFC/antlia.fap
+#
+# `--no-project --with`, like the smoke command above: there is no root
+# `pyproject.toml`, so a bare `uv run` at the repo root resolves no dependencies
+# at all and these fail on `No module named 'serial'`.
+uv run --no-project --python 3.12 --with pyserial -- \
+    python deploy/station/flipper_install.py \
+    /dev/serial/by-id/usb-Flipper_* antlia/dist/antlia.fap /ext/apps/NFC/antlia.fap
 
-# the whole workflow against a real tag on the antenna
-uv run python deploy/station/commission_hardware.py
+# the whole workflow against a real tag on the antenna. `--yes` is required: this
+# picks a cabinet and a slot itself and then PHYSICALLY WRITES the tag, which no
+# software undoes. Add `--overwrite` for a tag that already carries a URI.
+uv run --no-project --python 3.12 --with websockets -- \
+    python deploy/station/commission_hardware.py --yes
 ```
 
 `commission_hardware.py` is `commission_smoke.py`'s hardware sibling and drives

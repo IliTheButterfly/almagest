@@ -985,6 +985,20 @@ def _read(db: Session, location: Location) -> LocationRead:
         .scalars()
         .all()
     )
+    # Every part these lots name, in one query, handed to `lot_read` directly.
+    #
+    # Not left to the identity map: `Session.get` re-selects an *expired* object,
+    # and a commit expires everything — so a drawer holding a 4k7 and a 10k would
+    # cost a query per lot, which is exactly the case this screen exists to
+    # disambiguate. `StockLot` has no `part` relationship to eager-load through,
+    # and adding one for a rendering concern is a model change; an `IN` and a
+    # dict is local and obvious.
+    parts_by_id = {
+        part.id: part
+        for part in db.execute(select(Part).where(Part.id.in_({lot.part_id for lot in lots})))
+        .scalars()
+        .all()
+    }
     # Retired children are excluded: `child_count` drives "N slot(s) laid out
     # here" and whether the client fetches a subtree at all, and a container that
     # has left the tree must not keep its parent claiming to hold something.
@@ -1031,7 +1045,7 @@ def _read(db: Session, location: Location) -> LocationRead:
         display=entity.display,
         child_count=child_count,
         capacity=_capacity_read(db, location),
-        lots=[lot_read(db, lot) for lot in lots],
+        lots=[lot_read(db, lot, parts_by_id.get(lot.part_id)) for lot in lots],
         last_printed_at=location.last_printed_at,
         retired_at=location.retired_at,
     )
