@@ -21,7 +21,7 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 - **captures** — the still the scanner keeps, with every barcode *and* every
   OCR'd line outlined on it and tappable. Text is read in the browser
   (`tesseract.js`), which amends ADR 0005 for this one case and only this one;
-  see ADR 0013 for why the datasheet split does not fit here. A capture parks
+  see ADR 0014 for why the datasheet split does not fit here. A capture parks
   into the intake queue with its photograph attached, and `extract.ts` pairs each
   printed heading with the value under it to suggest fields — **ranked
   suggestions, never applied values**, per the never-auto-accept rule
