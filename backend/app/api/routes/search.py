@@ -27,6 +27,7 @@ from app.api.routes.documents import document_url
 from app.api.schemas import FilterIn, PartQueryRequest
 from app.db.session import get_db
 from app.models.stock import StockLot
+from app.models.storage import Location
 from app.services.search import datasheets, query_builder
 from app.services.search.datasheets import DatasheetHit, SnippetSegment
 from app.services.search.query_builder import FilterError, Mode, UnknownTemplate
@@ -42,6 +43,31 @@ class SearchRequest(PartQueryRequest):
     #: `ResultOffset`, not a bare `int` with `ge=0`: an unbounded offset reaches
     #: SQLite's parameter binding and 500s. See `app.api.limits`.
     offset: ResultOffset = 0
+
+
+#: How many containers a result row names before it stops and says "and N more".
+#:
+#: Three, because the row is one line on a phone and the point is *recognition* —
+#: "oh, the parts drawer" — not an inventory of every bin. `location_count`
+#: already carries the true total, so a capped list can never be read as the
+#: whole story.
+LOCATIONS_PER_RESULT = 3
+
+
+class PartLocation(BaseModel):
+    """One container a search result is actually in.
+
+    `label_path` is the derived human path and is **never** written to a tag or a
+    label — same rule as everywhere else: containers move, so an encoded path
+    becomes a lie the moment a drawer changes cabinet. Here it is display text
+    computed per request, which is exactly what it is for.
+    """
+
+    location_id: int
+    label_path: str
+    #: This container's share, so the row can lead with the fullest bin rather
+    #: than an arbitrary one. Summed from `stock_lots.qty_milli_cached`.
+    qty_milli: int
 
 
 class PartSummary(BaseModel):
@@ -68,6 +94,17 @@ class PartSummary(BaseModel):
     lot_count: int
     #: Distinct containers, for "in 2 bins" — the reason to expand a row.
     location_count: int
+    #: **Which** containers, fullest first, capped at `LOCATIONS_PER_RESULT`.
+    #:
+    #: The row could always say "in 2 bins" and never which two, so the only way
+    #: to find out where anything was involved opening the part. Naming the
+    #: container here is what makes a result actionable from the list — and the
+    #: PWA hangs the drawn walk (`components/WhereIsIt`) off the same ids.
+    #:
+    #: Empty for an unstocked part, and *not* the same as `location_count == 0`
+    #: being impossible: a part in more containers than the cap still lists only
+    #: the first few, which is why the count stays a separate field.
+    locations: list[PartLocation] = []
 
 
 class SearchResponse(BaseModel):
@@ -105,6 +142,62 @@ def _stock_by_part(db: Session, part_ids: list[int]) -> dict[int, tuple[int, int
     return {row[0]: (int(row[1]), int(row[2]), int(row[3])) for row in rows}
 
 
+def _locations_by_part(db: Session, part_ids: list[int]) -> dict[int, list[PartLocation]]:
+    """Which containers hold each part on this page, fullest first.
+
+    A second bounded aggregate rather than a widening of `_stock_by_part`: that
+    one returns exactly one row per part and is what the counts are computed
+    from, and folding a per-location breakdown into it would turn its `COUNT`s
+    into per-container counts — the sort of change that is invisible until a part
+    in two bins starts reporting one lot. Two queries, each grouped at the grain
+    it actually answers for.
+
+    Reads `stock_lots.qty_milli_cached` on the same `qty > 0` test the counts and
+    the ordering use, so a row can never name a bin it is not in while claiming
+    to be out of stock. The cap is applied *after* ordering, in Python, because
+    a per-group limit in SQLite means a window function for three rows.
+    """
+    if not part_ids:
+        return {}
+
+    rows = db.execute(
+        select(
+            StockLot.part_id,
+            StockLot.location_id,
+            Location.label_path,
+            Location.name,
+            func.coalesce(func.sum(StockLot.qty_milli_cached), 0).label("qty"),
+        )
+        .join(Location, Location.id == StockLot.location_id)
+        .where(StockLot.part_id.in_(part_ids), StockLot.qty_milli_cached > 0)
+        .group_by(StockLot.part_id, StockLot.location_id, Location.label_path, Location.name)
+        # Fullest bin first, then by id so a tie is stable across requests —
+        # a list that reshuffles between pages reads as data changing.
+        .order_by(
+            StockLot.part_id, func.sum(StockLot.qty_milli_cached).desc(), StockLot.location_id
+        )
+    ).all()
+
+    found: dict[int, list[PartLocation]] = {}
+    for part_id, location_id, label_path, name, qty in rows:
+        places = found.setdefault(int(part_id), [])
+        if len(places) < LOCATIONS_PER_RESULT:
+            places.append(
+                PartLocation(
+                    location_id=int(location_id),
+                    # `label_path` is a *cache*, rebuilt from `parent_id` by one
+                    # recursive CTE, and a row that has not been through
+                    # `TreeRepository.rebuild_paths` yet carries an empty one.
+                    # The container's own name is the worst case rather than a
+                    # blank chip: the cache being stale is never data loss, and
+                    # it should not look like it is on screen either.
+                    label_path=label_path or name,
+                    qty_milli=int(qty),
+                )
+            )
+    return found
+
+
 def _run(db: Session, request: SearchRequest) -> SearchResponse:
     query = request.to_query(limit=request.limit, offset=request.offset)
     try:
@@ -122,7 +215,9 @@ def _run(db: Session, request: SearchRequest) -> SearchResponse:
             detail={"template": error.template, "reason": error.reason, "message": str(error)},
         ) from error
 
-    stock = _stock_by_part(db, [part.id for part in results])
+    part_ids = [part.id for part in results]
+    stock = _stock_by_part(db, part_ids)
+    places = _locations_by_part(db, part_ids)
     summaries = []
     for part in results:
         qty_milli, lot_count, location_count = stock.get(part.id, (0, 0, 0))
@@ -137,6 +232,7 @@ def _run(db: Session, request: SearchRequest) -> SearchResponse:
                 qty_milli=qty_milli,
                 lot_count=lot_count,
                 location_count=location_count,
+                locations=places.get(part.id, []),
             )
         )
 

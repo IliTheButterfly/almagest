@@ -149,6 +149,14 @@ _INTAKE: Final = (
     "The intake desk pass: a scan is parked by a phone at the bench and resolved "
     "later by a human deciding what the barcode actually was."
 )
+_MAINTENANCE: Final = (
+    "The nightly CronJob's door. `check_caches` is the read and is exposed; "
+    "running the pass or rebuilding a cache is not, for two separate reasons. The "
+    "pass is `concurrencyPolicy: Forbid` because a second concurrent caller "
+    "contends with the one SQLite writer, and a rebuild *destroys evidence* — it "
+    "overwrites the drift that proves a write path is broken, which is the one "
+    "thing that must survive until a person has looked at it."
+)
 _LABELS: Final = (
     "Label sheets exist to be printed and stuck onto containers. Generating one "
     "no person is standing by to print wastes short ids on paper that never gets "
@@ -458,6 +466,9 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "reopen_entry": Excluded(Reason.HUMAN_JUDGEMENT, _INTAKE),
         # -- diagnostics -------------------------------------------------------
         "health": Exposed("check_health"),
+        "read_caches": Exposed("check_caches"),
+        "run_maintenance": Excluded(Reason.MACHINE_DOOR, _MAINTENANCE),
+        "rebuild_caches": Excluded(Reason.MACHINE_DOOR, _MAINTENANCE),
     }
 )
 

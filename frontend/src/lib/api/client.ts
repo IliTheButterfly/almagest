@@ -43,6 +43,8 @@ type Schemas = components["schemas"];
 export type SearchRequest = Schemas["SearchRequest"];
 export type SearchResponse = Schemas["SearchResponse"];
 export type PartSummary = Schemas["PartSummary"];
+/** One container a search result is in — named, so a row can say *which* bin. */
+export type PartLocation = Schemas["PartLocation"];
 export type ResolveResponse = Schemas["ResolveResponse"];
 
 /** One parametric predicate: a template name plus a raw value string. */

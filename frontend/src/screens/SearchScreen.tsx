@@ -27,19 +27,21 @@
  * row that caused it.
  */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { CategoryRail } from "../components/CategoryRail";
 import { FacetPanel } from "../components/FacetPanel";
 import { ErrorBanner, Loading } from "../components/Feedback";
 import { PartResultRow } from "../components/PartResultRow";
+import { WhereIsIt } from "../components/WhereIsIt";
 import {
   getParameterFacets,
   listPartCategories,
   searchParts,
   type CategoryNode,
   type FacetsResponse,
+  type PartSummary,
   type SearchResponse,
 } from "../lib/api/client";
 import { describeError } from "../lib/api/errors";
@@ -290,11 +292,7 @@ function Results({
 
       <ul className="list">
         {results.results.map((part) => (
-          <li key={part.id}>
-            <Link className="list-item" to={`/parts/${part.id}`}>
-              <PartResultRow part={part} />
-            </Link>
-          </li>
+          <ResultRow key={part.id} part={part} />
         ))}
       </ul>
 
@@ -313,5 +311,56 @@ function Results({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * One result, and the way to the drawer it is in.
+ *
+ * `PartResultRow` names the containers in text — that alone closes most of the
+ * gap, because a search is usually asked "do I have one, and can I go and get
+ * it" and the old row answered only the first half. The drawn walk stays behind
+ * a press for the reasons the part screen gives (each open panel fetches the
+ * location tree), and here there is a second one: a results list is dozens of
+ * rows, and a map apiece would be a page nobody could read.
+ *
+ * **It walks to the fullest container, not to all of them.** A part in three
+ * bins would otherwise expand into three stacked maps in the middle of a list.
+ * The fullest is the one worth walking to, the others are named right above with
+ * their quantities, and the part screen draws a walk per lot for anyone who
+ * wants the rest — so nothing is hidden, it is just not all drawn at once.
+ */
+function ResultRow({ part }: { part: PartSummary }) {
+  const [showing, setShowing] = useState(false);
+  const places = part.locations ?? [];
+  const fullest = places[0] ?? null;
+
+  return (
+    <li>
+      <Link className="list-item" to={`/parts/${part.id}`}>
+        <PartResultRow part={part} />
+      </Link>
+      {fullest !== null && (
+        // Outside the link: a control inside one is unreachable by keyboard and
+        // makes the link sometimes not navigate.
+        <div className="lot-where">
+          <button
+            type="button"
+            className="quiet-toggle"
+            aria-expanded={showing}
+            onClick={() => setShowing(!showing)}
+          >
+            {showing
+              ? "Hide the way there"
+              : places.length > 1
+                ? "Where is it? (the fullest)"
+                : "Where is it?"}
+          </button>
+          {showing && (
+            <WhereIsIt locationId={fullest.location_id} labelPath={fullest.label_path} />
+          )}
+        </div>
+      )}
+    </li>
   );
 }

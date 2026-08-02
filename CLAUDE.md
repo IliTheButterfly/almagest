@@ -33,8 +33,12 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   session, NDEF decoding, NDEF-first/UID-fallback resolution, tag presence, the
   **station session** (PLAN.md workflow 5: identify → ready → propose → confirm →
   commit, looping while the tag stays put), the API client, and the loopback
-  WebSocket. `Pn532TagSource` is written but **has never run**: no reader exists,
-  so its contract test is `live`-marked
+  WebSocket. **Two drivers, both unrun**: `Pn532TagSource` (UART, what PLAN.md
+  specifies, the default) and `Rc522TagSource` (SPI, added because an MFRC522 was
+  already on hand — see ADR 0013, and note PLAN.md rejects it on library grounds
+  that no longer apply since `agent/iso14443a.py` is ours and unit-tested). Both
+  contract tests are `live`-marked. `DEVICEAGENT_READER` chooses; nothing above
+  the driver knows which answered
 
 **Not built yet:** the scan resolver chain and alias learning, layout
 authoring, tag provisioning, label sheets, FTS5 — with the caveat that this list
@@ -168,7 +172,7 @@ These are non-obvious, load-bearing, and expensive to retrofit. Violating any of
 
 **Three-tier stock model.** `parts` (definition) → `stock_lots` (a physical package at a location) → `locations`. **Quantity lives on the lot, never on the part.** PartKeepr hung it on the part and could never support multi-location or per-batch cost. Lots are packaging-aware: a 5000-piece reel and a cut-tape strip of the same MPN in the same bin are two lots.
 
-**The ledger is append-only, enforced by DB triggers.** `stock_ledger` rejects UPDATE and DELETE via `RAISE(ABORT)`. Undo is a compensating row with `reversal_of_seq`, never a delete. Balances **must** be read from `stock_lots.qty_milli_cached` — summing the ledger in an API path is how this design dies at 200k rows. A nightly job compares cache to `SUM(delta_milli)` and records drift.
+**The ledger is append-only, enforced by DB triggers.** `stock_ledger` rejects UPDATE and DELETE via `RAISE(ABORT)`. Undo is a compensating row with `reversal_of_seq`, never a delete. Balances **must** be read from `stock_lots.qty_milli_cached` — summing the ledger in an API path is how this design dies at 200k rows. A nightly job compares cache to `SUM(delta_milli)` and records drift into `cache_state` — it **reports and does not repair**, because a scheduled rebuild erases the write-path bug it is evidence of. See [docs/adr/0013](docs/adr/0013-the-nightly-pass-repairs-staleness-and-only-reports-drift.md); the repair is an explicit `POST /api/system/caches/rebuild`.
 
 **Never use `CHECK`-constraint enums, and never `sa.Enum`** (which silently emits `VARCHAR + CHECK`). SQLite cannot alter a `CHECK`, so a `CHECK` enum turns "add a new kind" into a full table rebuild. Use `sa.String` plus a Python `StrEnum` validated at the model layer. This single rule is what keeps every deferred feature purely additive.
 

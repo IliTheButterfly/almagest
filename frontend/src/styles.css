@@ -2708,3 +2708,147 @@ button.tall {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
+
+/* ----------------------------------------------------- where is it ----------
+ *
+ * The walk to a container, drawn by `components/WhereIsIt` on top of the same
+ * `ContainerLayout` the storage map uses. Almost everything here is layout; the
+ * only new *state* is "this is the one you are looking for", and it gets --good
+ * because none of the other three cell states can: --bad is over capacity,
+ * --accent is "you just chose this", --accent-2 is staging. Found is a fourth
+ * fact and a fourth hue, with a word and a ring so it survives monochrome.
+ */
+
+.badge-found {
+  color: var(--good);
+  border-color: var(--good);
+  border-width: 2px;
+}
+
+.badge-found::before {
+  content: "◎";
+}
+
+/* Ring *outside* the cell's own border rather than a background swap: the cell
+ * still has to read as over-capacity or staging while it is also the answer, and
+ * a background would overwrite whichever of those it was carrying. */
+.cell-found {
+  outline: 3px solid var(--good);
+  outline-offset: 2px;
+}
+
+.plan-box-found {
+  outline: 3px solid var(--good);
+  outline-offset: 2px;
+}
+
+.plan-box-flag {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--good);
+}
+
+/* The one-line answer, above every picture: bigger than body text because a
+ * reader who already knows the workshop stops here. */
+.where-sentence {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.4;
+}
+
+.where-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.where-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.where-step-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+/* The step number as a counter, not a bullet: the walk is ordered and the order
+ * is the instruction. */
+.where-step-n {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.6rem;
+  min-height: 1.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-sunken);
+  font-size: 0.8rem;
+}
+
+/* A level can be a forty-cell cabinet face. It scrolls inside its own step
+ * rather than stretching the page, so the *next* step stays reachable — the
+ * walk is the point, and a walk you have to scroll past a map to continue is
+ * the failure this panel exists to fix. */
+.where-step-map {
+  max-height: 22rem;
+  overflow: auto;
+}
+
+/* The walk hanging off the lot row it answers for. The rule on the left is the
+ * whole point: a part in five bins is five of these, and without it the buttons
+ * read as five controls belonging to the card rather than one each. */
+.lot-where {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0.75rem 0.5rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--line);
+}
+
+/* Quieter than a real button: this is an aside on a row whose primary action is
+ * the row itself, and a full-weight control here competes with it. */
+.quiet-toggle {
+  align-self: flex-start;
+  min-height: 2rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.9rem;
+  background: transparent;
+}
+
+/* Which bins a search result is in. Chips rather than one run-on line: three
+ * container paths separated by commas read as one long path, and the whole
+ * point is telling them apart at a glance. */
+.place-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.5rem;
+  margin-top: 0.15rem;
+}
+
+.place-chip {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-sunken);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  /* A deep path is long and a result list is narrow; it truncates rather than
+   * pushing the row wide, and the full text stays in the DOM for a reader. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
