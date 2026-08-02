@@ -16,12 +16,26 @@ Only the two Raaco types are filled in here, and the numbers are not researched
 `LIP_MARGIN_WIDTH_MM`/`HEIGHT_MM` (6 and 4, pinned to PLAN.md's worked example),
 so a 93 x 22 mm front yields exactly the 87 x 18 mm card the description names.
 
-**Akro-Mils is deliberately left null.** Its description says "molded label
-slots" and gives no card size, and the drawer-front dimensions are not in
-PLAN.md either. Inventing a plausible number would produce cards that are subtly
-the wrong size and look deliberate — the one failure this column's not-null check
-exists to prevent. Somebody with the cabinet in front of them can now measure it
-and enter it: `ContainerTypeForm` gained the two fields in the same change.
+**Nine of the eleven seed types are left null, not one.** An earlier version of
+this docstring named only Akro-Mils, which was wrong and is corrected here: it is
+`akro-mils-10144` *and all eight `gridfinity-*` types*. None of them states a
+card size anywhere in the repo or in PLAN.md.
+
+Inventing a plausible number would produce cards that are subtly the wrong size
+and look deliberate — the failure this column's absence exists to prevent, since
+`card_size_mm` raises rather than guessing. The Gridfinity faces are arithmetically
+*derivable* (42 mm pitch, 7 mm height unit), and are still not filled in here: a
+Gridfinity bin has no label lip, so subtracting `LIP_MARGIN_WIDTH_MM`/`HEIGHT_MM`
+from a flat face would be a second guess stacked on the first. Somebody with the
+bin in front of them can measure what a label can actually occupy.
+
+`ContainerTypeForm` gained both fields in the same change, so that measurement can
+be entered — **but note it cannot be entered on a seed**: `PATCH
+/api/container-types/{id}` clones a seed rather than mutating it, and no route
+repoints a standing location at the clone. A container already created from one of
+these nine types therefore stays unprintable until such a route exists. Recorded
+in `CLAUDE.md` rather than fixed here; nothing in the PWA calls the label routes
+yet, so today this reaches only a direct HTTP caller.
 
 `UPDATE ... WHERE front_width_mm IS NULL` so an install that already measured its
 own is left alone.

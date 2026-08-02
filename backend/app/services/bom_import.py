@@ -143,7 +143,7 @@ import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, Overflow
 from enum import StrEnum
 
 from elec_value_parser import ParsedValue, ValueParseError
@@ -1335,7 +1335,17 @@ def _declared_qty_milli(cell: str | None, warnings: list[str]) -> int | None:
     if quantity <= 0:
         warnings.append(f"quantity {cell!r} is not positive; ignored")
         return None
-    milli = int(quantity * 1000)
+    try:
+        milli = int(quantity * 1000)
+    except (InvalidOperation, Overflow):
+        # A *finite* `Decimal("1e999999999")` passes `is_finite()` and then
+        # overflows the decimal context on the multiply — `Overflow`, an
+        # `ArithmeticError`, not the `InvalidOperation` the parse above catches.
+        # Same bug class as the NaN/Infinity one fixed a round earlier and one
+        # line further up; caught by class this time rather than by instance, so
+        # the next exotic literal somebody pastes in is a warning and not a 500.
+        warnings.append(f"quantity {cell!r} is too large to be a quantity; ignored")
+        return None
     if milli == 0:
         warnings.append(f"quantity {cell!r} is below one milli-unit; ignored")
         return None

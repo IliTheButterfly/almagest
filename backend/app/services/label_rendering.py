@@ -284,8 +284,7 @@ def render_card_image(spec: LabelSpec) -> Image.Image:
     text_y = pad_px
     available_px = max(text_right_px - text_x, 0)
     for block in layout.text:
-        font, size = _font_for_role(block.role, short_side_px)
-        drawn = _fitted(draw, block, font, available_px)
+        font, size, drawn = _fitted(draw, block, short_side_px, available_px)
         if drawn:
             draw.text((text_x, text_y), drawn, fill="black", font=font)
         # The row is advanced either way, so a dropped block leaves its gap
@@ -310,17 +309,43 @@ def render_card_image(spec: LabelSpec) -> Image.Image:
 #: false of everything here.
 _INDIVISIBLE_ROLES = frozenset({"secondary", "caption"})
 
+#: The smallest a shrunk-to-fit block may get. A `short_id` is read off a drawer
+#: front at arm's length and typed in; below this it is not doing that job, and
+#: printing it anyway would look like diligence rather than be it.
+_MIN_LEGIBLE_PX = 8
+
 
 def _fitted(
     draw: ImageDraw.ImageDraw,
     block: TextBlock,
-    font: ImageFont.ImageFont | ImageFont.FreeTypeFont,
+    short_side_px: int,
     max_width_px: float,
-) -> str:
-    """What to actually draw for one block: the text, an ellipsis of it, or ""."""
-    if block.role in _INDIVISIBLE_ROLES:
-        return block.text if draw.textlength(block.text, font=font) <= max_width_px else ""
-    return _ellipsised(draw, block.text, font, max_width_px)
+) -> tuple[ImageFont.ImageFont | ImageFont.FreeTypeFont, int, str]:
+    """The font, its size, and the text to draw for one block.
+
+    An indivisible block is **shrunk to fit rather than dropped**. Refusing to
+    truncate a `short_id` was right and refusing to print it at all was not: the
+    font size scales with the card's *shorter* side while the room beside the QR
+    scales with its *width*, so on any card that is not distinctly landscape the
+    code simply vanished — a 68 x 40 mm drawer front came out as a label, a path,
+    a QR and a blank line, with the bottom half of the card empty. PLAN.md
+    specifies the code as part of the drawer card, and `_TEXT_WIDTH_SHARE`'s own
+    comment promises the label *and* the code can both be read.
+
+    Shrinking stops at `_MIN_LEGIBLE_PX`, below which a code somebody has to read
+    at arm's length is not worth the ink; if it still will not fit, it is dropped
+    rather than printed at a size that only looks like diligence.
+    """
+    font, size = _font_for_role(block.role, short_side_px)
+    if block.role not in _INDIVISIBLE_ROLES:
+        return font, size, _ellipsised(draw, block.text, font, max_width_px)
+
+    while size > _MIN_LEGIBLE_PX and draw.textlength(block.text, font=font) > max_width_px:
+        size -= 1
+        font = ImageFont.load_default(size=size)
+    if draw.textlength(block.text, font=font) > max_width_px:
+        return font, size, ""
+    return font, size, block.text
 
 
 def _ellipsised(

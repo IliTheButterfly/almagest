@@ -304,16 +304,33 @@ def test_a_short_id_is_printed_whole_or_not_at_all() -> None:
     """
     image = Image.new("RGB", (400, 60), "white")
     draw = ImageDraw.Draw(image)
-    font, _ = _font_for_role("secondary", 200)
     block = TextBlock("4K7T-92M8", "secondary")
+    font, _ = _font_for_role("secondary", 200)
     whole = draw.textlength(block.text, font=font)
 
-    assert _fitted(draw, block, font, whole + 1) == "4K7T-92M8"
-    assert _fitted(draw, block, font, whole - 1) == ""
+    # Room to spare: printed at its natural size.
+    _, _, roomy = _fitted(draw, block, 200, whole + 1)
+    assert roomy == "4K7T-92M8"
+
+    # **Tight: shrunk, not dropped and not cut.** Dropping was the first fix for
+    # this and it made the code vanish from every card that is not distinctly
+    # landscape, because the font scales with the card's shorter side while the
+    # room beside the QR scales with its width.
+    smaller_font, smaller_size, tight = _fitted(draw, block, 200, whole * 0.7)
+    assert tight == "4K7T-92M8"
+    assert smaller_size < 200 * 0.13
+    assert draw.textlength(tight, font=smaller_font) <= whole * 0.7
+
+    # Below what anybody could read off a drawer front, it goes rather than
+    # pretending: a 3 px code is ink, not information.
+    _, _, hopeless = _fitted(draw, block, 200, 4)
+    assert hopeless == ""
+
     # A path still ellipsises — losing its tail costs the leaf name, which is
     # printed on its own line above.
     path = TextBlock("Workshop / Wall B / Cabinet A", "tertiary")
-    assert _fitted(draw, path, font, whole).endswith("…")
+    _, _, shortened = _fitted(draw, path, 200, whole)
+    assert shortened.endswith("…")
 
 
 @pytest.mark.parametrize(
@@ -351,6 +368,16 @@ def test_every_card_with_a_qr_still_carries_readable_text(
         1 for y in range(height_px) for x in range(qr_left) if pixels[x, y] != (255, 255, 255)
     ]
     assert text_ink, "the card carries a QR and nothing anybody can read"
+
+    # **And specifically the code**, not merely some ink. Asserting "a dark pixel
+    # exists" was satisfied by the slot label alone, which is how the short id
+    # went missing from these very geometries without this test noticing.
+    short_side_px = min(width_px, height_px)
+    available_px = qr_left - 2 * pad_px
+    _, _, printed = _fitted(
+        ImageDraw.Draw(image), TextBlock("4K7T-92M8", "secondary"), short_side_px, available_px
+    )
+    assert printed == "4K7T-92M8", "the printed fallback identity is missing from the card"
 
 
 def test_the_qr_gives_way_to_text_but_never_below_what_will_scan() -> None:

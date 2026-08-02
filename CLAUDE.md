@@ -75,6 +75,23 @@ because the correction above otherwise trades one misleading absence for a
 misleading presence: the next person looking for the print button would conclude
 it had broken.
 
+And **`curl` only works for two of the eleven seed container types.** A card is
+sized from `front_width_mm`/`front_height_mm`, `card_size_mm` raises rather than
+guessing, and only `raaco-c8-30` and `raaco-c10-40` have them — filled in from
+their own seed description's "~18x87 mm cards". `akro-mils-10144` and all eight
+`gridfinity-*` types state no card size anywhere, so anything created from them
+answers `missing_front_dimensions`. Two things follow, and neither is a bug in
+the label code:
+
+- **Somebody has to measure a drawer front.** `ContainerTypeForm` accepts both
+  fields now, so a hand-made type is fine.
+- **A container already standing on a seed type cannot be repaired at all.**
+  `PATCH /api/container-types/{id}` *clones* a seed instead of mutating it, and
+  **no route repoints a location at another container type**. So the refusal's
+  advice — set the dimensions on the type — does not work for the case that
+  needs it. A repoint route is the fix and is not written; it is only reachable
+  by `curl` today, which is why it is recorded here rather than rushed.
+
 **Not built yet:** any *agent-assisted* field filling — capture extraction is
 algorithmic and offers candidates a person chooses between. Tag provisioning has
 its API, its walks, a reader that can write, **and now tags written by real
