@@ -26,6 +26,7 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { ContainerDetailPanel } from "../components/ContainerDetailPanel";
 import { ContainerLayout } from "../components/ContainerLayout";
+import { ContainerPhoto } from "../components/ContainerPhoto";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { FillMeter } from "../components/FillMeter";
 import { PathBar } from "../components/PathBar";
@@ -448,6 +449,13 @@ function TreeGrid({ nodes, rootId }: { nodes: readonly LocationNode[]; rootId: n
                   <span className="tree-twisty-blank" />
                 )}
                 <Link className="tree-label" to={`/locations/${node.id}`}>
+                  {/* The same pictogram the map cells and the container page
+                      draw. `LocationNode` has carried `effective_glyph` all
+                      along and this list simply never used it, so the one thing
+                      that makes a container recognisable without reading was
+                      present in the map and absent in the list — the two views
+                      of the same tree, side by side on a wide screen. */}
+                  <ContainerPhoto glyph={node.effective_glyph} alt="" />
                   <span className="name">{matching === null ? node.name : node.label_path}</span>
                   {node.slot_label !== null && <span className="badge mono">{node.slot_label}</span>}
                   {isInbox(node) && <span className="badge badge-accent">inbox</span>}

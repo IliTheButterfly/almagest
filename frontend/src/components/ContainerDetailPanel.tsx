@@ -81,7 +81,8 @@ export function ContainerDetailPanel({
   return <Detail location={location.data} childCount={childCount} />;
 }
 
-function Detail({
+/** Exported for the test that pins the badge and the meter to one source. */
+export function Detail({
   location,
   childCount,
 }: {
@@ -104,7 +105,16 @@ function Detail({
       <div className="row">
         {isInbox(location) && <span className="badge badge-accent">inbox</span>}
         {isProjectStagingBox(location) && <span className="badge badge-accent">project parts</span>}
-        {location.is_overfull && <span className="badge badge-warn">over</span>}
+        {/* From the live snapshot, not `location.is_overfull`.
+         *
+         * That column is written only by the nightly pass, so this badge and the
+         * meter twelve lines below — which has always read the snapshot —
+         * disagreed for up to a day: empty an over-full bin and the meter drops
+         * to 20% and the "Over capacity" notice goes, while the amber badge next
+         * to the name stays. Two statements about the same bin, on one screen,
+         * a scroll apart. Same defect the payload itself had before #80; this is
+         * the last copy of it in the UI. */}
+        {capacity.is_overfull && <span className="badge badge-warn">over</span>}
         {location.effective_esd_safe === true && <span className="badge badge-good">ESD safe</span>}
         {location.is_placeable === false && <span className="badge">not a home</span>}
         {location.short_id !== null && (

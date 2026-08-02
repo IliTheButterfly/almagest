@@ -44,6 +44,7 @@ import { useAsync } from "../lib/hooks/useAsync";
 import { matchLocations } from "../lib/locations/match";
 import { isInbox, isProjectStagingBox } from "../lib/locations/staging";
 import { containerTrailFromIndex } from "../lib/locations/trail";
+import { ContainerPhoto } from "./ContainerPhoto";
 import { childrenOf, indexTree } from "../lib/locations/tree";
 import { formatShortId, looksLikeShortId, normalizeShortId } from "../lib/shortid";
 import { CodeEntry } from "./CodeEntry";
@@ -357,6 +358,10 @@ function PickList({
             <div className="row">
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="row-tight">
+                  {/* Glyph here too. Choosing *where to put something* is the
+                      one place recognising a container at a glance matters
+                      most, and it was the surface with the least to go on. */}
+                  <ContainerPhoto glyph={node.effective_glyph} alt="" />
                   <span className="title">{showPaths ? node.label_path : node.name}</span>
                   {node.slot_label !== null && <span className="badge mono">{node.slot_label}</span>}
                   {isInbox(node) && <span className="badge badge-accent">inbox</span>}
