@@ -27,6 +27,8 @@
  * character.
  */
 
+import type { CameraRotation } from "../scan/orientation";
+import { defaultRotationStore, readCameraRotation } from "../scan/orientation";
 import type { Still } from "./types";
 
 /** What the still is encoded as. Matches one of `blobstore.MEDIA_TYPES`. */
@@ -49,7 +51,10 @@ export class CaptureUnavailableError extends Error {}
  * silent — a capture is something the user explicitly asked for, so every way it
  * can fail has to produce a sentence they can act on.
  */
-export async function grabStill(source: CaptureSource & CanvasImageSource): Promise<Still> {
+export async function grabStill(
+  source: CaptureSource & CanvasImageSource,
+  rotation: CameraRotation = readCameraRotation(defaultRotationStore()),
+): Promise<Still> {
   const width = source.videoWidth;
   const height = source.videoHeight;
   if (width === 0 || height === 0) {
@@ -65,6 +70,17 @@ export async function grabStill(source: CaptureSource & CanvasImageSource): Prom
   const context = canvas.getContext("2d");
   if (context === null) {
     throw new CaptureUnavailableError("This browser would not give us a canvas to capture into.");
+  }
+  if (rotation === 180) {
+    // The one place the camera's mounting has to reach the pixels rather than
+    // just the preview. `lib/scan/orientation.ts` argues at length that turning
+    // only the picture is enough for *decoding* — a centred crop is invariant
+    // under a half turn and ZXing already tries rotations — and both halves of
+    // that argument stop applying here. A still is looked at by a person, and
+    // the OCR pass in `ocr.ts` does not degrade on upside-down text, it returns
+    // nothing at all. So the capture is drawn the way the operator saw it.
+    context.translate(width, height);
+    context.rotate(Math.PI);
   }
   context.drawImage(source, 0, 0, width, height);
 

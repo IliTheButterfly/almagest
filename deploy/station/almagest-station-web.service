@@ -4,7 +4,9 @@ After=almagest-station-api.service
 Wants=almagest-station-api.service
 
 [Service]
-Type=exec
+# Not `Type=exec`: it arrived in systemd 240 and the bench Jetson runs 237,
+# which rejects it outright and falls back to `simple`. See the api unit.
+Type=simple
 WorkingDirectory=%h/prog/almagest
 # `--no-project` because this server is standard-library-only and deliberately
 # belongs to none of the three uv projects it sits in front of — it must not

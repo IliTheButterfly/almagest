@@ -39,7 +39,10 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   library grounds that no longer apply since `agent/iso14443a.py` is ours and
   unit-tested), plus a Flipper Zero over RPC (ADR 0014). All three contract tests
   are `live`-marked. `DEVICEAGENT_READER` chooses between the two station
-  modules; nothing above the driver knows which answered
+  modules — or `none`, which says this machine has no platform reader at all
+  and only the bridge's USB readers matter (ADR 0014's laptop-with-a-Flipper,
+  and what `deploy/station/` configures). Nothing above the driver knows which
+  answered
 - `deviceagent/` again, as the **device bridge** (ADR 0014) — reader discovery, a
   capability set per attached device, `tag.write`, and a write path on every
   station driver, plus a Flipper Zero over its own RPC on USB or BLE launched
@@ -230,7 +233,7 @@ Secrets go in `.env` (gitignored); `.env.example` documents every key. Machine- 
 
 Deployment target is Kubernetes. One architectural consequence matters here regardless of cluster: the datastore is SQLite on a ReadWriteOnce volume, so the API runs **exactly one replica with `strategy: Recreate`**. A `RollingUpdate` would try to attach a second pod to the same RWO volume and deadlock, and two SQLite writers is corruption. See `CLAUDE.local.md` for concrete cluster details.
 
-The manifests live in **`deploy/`** and the operational half is **[deploy/README.md](deploy/README.md)**; the shape and the cluster probing behind it are in **[docs/adr/0009](docs/adr/0009-cluster-deployment-and-the-443-problem.md)**. Three things about it are easy to get wrong:
+The manifests live in **`deploy/`** and the operational half is **[deploy/README.md](deploy/README.md)**; the *other* deployment target — the machine at the bench, all on loopback with no root — is **[deploy/station/README.md](deploy/station/README.md)**; the shape and the cluster probing behind it are in **[docs/adr/0009](docs/adr/0009-cluster-deployment-and-the-443-problem.md)**. Three things about it are easy to get wrong:
 
 - **Images are built only by `.github/workflows/release.yml`.** There is no container runtime on the dev box, so there is no local build target and never should be a Makefile target pretending otherwise.
 - **`make k8s-deploy` scales the API to zero before migrating**, then applies. That downtime is deliberate — RWO does not prevent two writers, because both pods land on the same node.

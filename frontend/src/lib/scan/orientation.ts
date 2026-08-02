@@ -8,8 +8,9 @@
  * the frame is what the sensor saw, and only the fixture knows it is mounted
  * head-down.
  *
- * **This rotates the preview and nothing else, and that is deliberate.** Two
- * facts make the decode path already correct under a 180° mount:
+ * **The decode path is left alone, and that is deliberate.** (The still-capture
+ * path is not — see below.) Two facts make decoding already correct under a
+ * 180° mount:
  *
  * - The decoder's crop is a *centred* rectangle ({@link centreRoi}), and a
  *   centred rectangle maps onto itself under a half turn. So the pixels read at
@@ -24,16 +25,22 @@
  * genuinely broken by an inverted mount is a person trying to aim, so that is
  * what is fixed.
  *
- * **The still-capture path will need more than this, and does not have it yet.**
+ * **Never seen against a physically inverted camera.** Every test here and in
+ * `Viewfinder.test.tsx` runs in jsdom, which asserts a class name and a stored
+ * value — not a picture. The bench webcam was disconnected before this could be
+ * looked at on the station's own display. The reasoning above is the argument;
+ * it is not a photograph, and the first person to put a camera back on that
+ * bracket should confirm it before trusting it.
+ *
+ * **The still-capture path.**
  * PR #60 (`lib/capture/grab.ts`) draws the raw video frame to a canvas and
  * encodes it, then runs OCR over the result. Both of those arguments above stop
  * applying there: a captured still is *looked at* by a person, and OCR of
  * upside-down text does not degrade the way a rotation-invariant QR does — it
- * returns nothing. So when that branch lands, `grabStill` has to draw through
- * this same rotation, and the caption text under a capture has to match what
- * the preview showed. This module is deliberately transport-agnostic
- * (`CameraRotation` is a plain number of degrees) so that change is a rotation
- * on the capture canvas and not a second setting.
+ * returns nothing. `grabStill` therefore draws through this same rotation —
+ * see `lib/capture/grab.ts` and `grab.rotation.test.ts`. It is the one place
+ * the mounting reaches the pixels rather than only the preview, and it shares
+ * this setting rather than introducing a second one.
  *
  * **Only a half turn is offered.** A quarter turn swaps the frame's axes, which
  * `roiOverlayInset` reasons about explicitly — it compares the frame's aspect

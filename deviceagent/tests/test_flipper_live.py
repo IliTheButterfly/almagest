@@ -94,7 +94,15 @@ def reader(port: str) -> Iterator[TagSource]:
 
     try:
         source = open_serial(port)
+    except TagSourceError as error:
+        # A `TagSourceError` here is a *finding*, not a missing prerequisite:
+        # `session.launch_antlia` raises it for a protocol mismatch, which is
+        # the stale-`.fap` case this module's version test exists to catch. A
+        # blanket `except Exception: skip` turned that into a green run.
+        raise AssertionError(f"Antlia is on the device but unusable: {error}") from error
     except Exception as error:
+        # Anything else is the device not being ready for us — no app installed,
+        # the port grabbed by something else — which is a prerequisite.
         pytest.skip(f"could not bring up Antlia over RPC on {port}: {error!r}")
     yield source
     source.close()
@@ -157,17 +165,26 @@ def test_antlia_announces_a_protocol_this_bridge_understands(reader: TagSource) 
     carrying last month's app is a clear refusal rather than a command that is
     silently misunderstood.
     """
+    from agent.flipper import antlia
+
     version = getattr(reader, "protocol_version", None)
-    assert version == 1, f"Antlia announced protocol {version!r}; this bridge speaks 1"
+    assert version == antlia.PROTOCOL_VERSION, (
+        f"Antlia announced protocol {version!r}; this bridge speaks {antlia.PROTOCOL_VERSION}"
+    )
 
 
-def test_the_capabilities_come_from_hello_not_from_a_constant(reader: TagSource) -> None:
+def test_the_build_on_the_device_says_it_can_write(reader: TagSource) -> None:
+    """What `HELLO` reported, which is the only claim about this `.fap`.
+
+    Not "capabilities are not a constant": `antlia_rpc.c:346` sends `rw`
+    unconditionally today, so this reads a constant that travelled over a wire.
+    It is still worth asserting, because the constant lives in the *firmware*
+    and an older `.fap` is the thing being ruled out — but claiming more than
+    that would be a test whose name is a lie.
+    """
     caps = reader.capabilities
     assert caps.reads_uid and caps.reads_ndef
-    # `writes_ndef` is the interesting one and it is a fact about the build on
-    # the device. If this fails, the `.fap` predates Antlia's write path.
     assert caps.writes_ndef, "this Antlia build answered HELLO without `w`"
-    assert isinstance(reader, WritableTagSource) is caps.writes_ndef
 
 
 # -- reading ---------------------------------------------------------------
@@ -288,18 +305,24 @@ def test_a_pulled_cable_is_a_reader_fault_not_an_unreadable_tag() -> None:
     pytest.skip("manual: pull the cable during a run and watch for TagSourceError")
 
 
-def test_the_error_names_the_port_so_a_bench_can_act_on_it(port: str) -> None:
-    """A message that does not name the device is a message that sends someone to
-    the wrong cable when two readers are attached."""
-    from agent.flipper.session import open_serial
+def test_a_second_opener_is_refused_rather_than_corrupting_the_session(
+    reader: TagSource, port: str
+) -> None:
+    """Two openers of one CDC node is silent corruption, so it must fail loudly.
 
-    try:
-        first = open_serial(port)
-    except Exception:
-        pytest.skip("the port is already in use, which is itself the condition tested")
-    try:
-        with pytest.raises((TagSourceError, OSError)) as failure:
-            open_serial(port).close()
-        assert port in str(failure.value) or "busy" in str(failure.value).lower()
-    finally:
-        first.close()
+    `SerialFlipperLink` passes `exclusive=True` for this: without it Linux hands
+    out a second handle happily, and `open_serial` then writes `\r` and the
+    start-RPC incantation into the port this module's session is already
+    framing — which `session.open_serial`'s own docstring calls unrecoverable
+    for the life of the session.
+
+    Takes `reader` so the session is definitely open while this runs; that is
+    the condition under test, not a side effect to be avoided.
+    """
+    from agent.flipper.link import FlipperLinkError, SerialFlipperLink
+
+    with pytest.raises((FlipperLinkError, OSError)) as failure:
+        SerialFlipperLink(port).close()
+    # A message that does not name the device sends someone to the wrong cable
+    # when two readers are attached.
+    assert port in str(failure.value)
