@@ -31,13 +31,13 @@ echo "==> syncing the two venvs the station runs"
 # Extras are chosen per project rather than with `--all-extras`, and both
 # choices matter:
 #
-#   backend  `--extra labels`, exactly as backend/Dockerfile does. It is
-#            documented as "kept out of the default install so the API image
-#            stays small", but `app/api/routes/handoff.py` imports `segno` at
-#            module scope — so a bare `uv sync` produces a venv whose API
-#            cannot import, and uvicorn exits before it binds. Not
-#            `--all-extras`, which would also pull the `datasheets` parser the
-#            API is specified never to install.
+#   backend  `--extra labels`, exactly as backend/Dockerfile does. The
+#            handoff QR route needs `segno` at call time — the import is inside
+#            the route body, so without the extra the API still starts and only
+#            that one route refuses, with a message naming the extra. Installing
+#            it here means the station has the whole API rather than all of it
+#            but one page. Not `--all-extras`, which would also pull the
+#            `datasheets` parser the API is specified never to install.
 #
 #   agent    `--extra flipper` only. `--all-extras` pulls `spidev` for the
 #            RC522, which builds from source and fails on a Jetson Nano — and a
@@ -61,7 +61,13 @@ mkdir -p "${units}"
 for unit in "${repo}"/deploy/station/almagest-station-*.service; do
     name="$(basename "${unit}")"
     install -m 0644 "${unit}" "${units}/"
-    if [[ "${drop_in_needed}" == 1 ]]; then
+    # The kiosk unit has no path in it at all — it runs chromium against a URL —
+    # so it never needs a drop-in, and writing an empty `[Service]` one would be
+    # a file that says nothing and outlives the reason it was written.
+    if [[ "${name}" == *-kiosk.service ]]; then
+        rm -f "${units}/${name}.d/checkout.conf"
+        rmdir "${units}/${name}.d" 2>/dev/null || true
+    elif [[ "${drop_in_needed}" == 1 ]]; then
         # `WorkingDirectory` and the paths inside `ExecStart` both move, and
         # `ExecStart=` must be cleared before being set again or systemd appends
         # a second command rather than replacing the first.
@@ -86,6 +92,16 @@ for unit in "${repo}"/deploy/station/almagest-station-*.service; do
                     ;;
             esac
         } > "${units}/${name}.d/checkout.conf"
+    else
+        # The checkout moved *back* to the default. Without this the installer is
+        # only idempotent in one direction: a stale drop-in keeps pointing the API
+        # at the old tree's `data/almagest.db`, and nothing in `systemctl status`
+        # says so — you would have to think to run `systemctl cat`.
+        if [[ -f "${units}/${name}.d/checkout.conf" ]]; then
+            echo "note: removing a drop-in from an earlier checkout at another path"
+            rm -f "${units}/${name}.d/checkout.conf"
+            rmdir "${units}/${name}.d" 2>/dev/null || true
+        fi
     fi
 done
 

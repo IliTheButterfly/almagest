@@ -21,7 +21,7 @@ from agent import tags
 from agent.fake_tags import FakeWritableTagSource
 from agent.flipper import antlia, proto, session
 from agent.flipper.fake import DEFAULT_BANNER, FakeFlipperLink
-from agent.flipper.session import FlipperRpc, FlipperTagSource
+from agent.flipper.session import AntliaProtocolMismatch, FlipperRpc, FlipperTagSource
 from agent.tags import TagRead, TagSource, TagSourceError, TagWriteRefused, WritableTagSource
 
 URL = "https://almagest.lan/s/4K7T92M8"
@@ -71,6 +71,27 @@ class TestLaunch:
         link = FakeFlipperLink(protocol_version=antlia.PROTOCOL_VERSION + 1)
         with pytest.raises(TagSourceError, match="protocol"):
             connect(link)
+
+    def test_a_version_mismatch_is_distinguishable_from_an_absent_app(self) -> None:
+        """The two have opposite meanings to whoever is holding the device.
+
+        "Antlia is not installed" is a prerequisite; "Antlia is installed and
+        disagrees with this bridge" is a defect — the app and the bridge built
+        from different commits. `test_flipper_live.py`'s fixture skips on the
+        first and fails on the second, which one exception type cannot express.
+        """
+        stale = FakeFlipperLink(protocol_version=antlia.PROTOCOL_VERSION + 1)
+        with pytest.raises(AntliaProtocolMismatch):
+            connect(stale)
+
+        # ...and the prerequisite failures stay plain `TagSourceError`, or the
+        # live fixture would turn a stock Flipper into thirteen red tests.
+        absent = FakeFlipperLink(answers_hello=False)
+        rpc = FlipperRpc(absent, timeout_s=0.01)
+        rpc.ping()
+        with pytest.raises(TagSourceError) as failure:
+            rpc.launch_antlia(launch_timeout_s=0.01)
+        assert not isinstance(failure.value, AntliaProtocolMismatch)
 
     def test_it_satisfies_the_tag_source_protocols(self) -> None:
         source = connect(FakeFlipperLink())

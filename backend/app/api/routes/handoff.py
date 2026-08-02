@@ -73,8 +73,24 @@ def handoff_qr(
     # default `uv sync` produced a venv whose `app.main` could not be imported
     # at all, so uvicorn exited before binding and the failure named `segno`
     # rather than the missing extra. Deferring it means the rest of the API
-    # runs and only this one route 500s, which is what "optional" has to mean.
-    import segno
+    # runs and only this one route refuses.
+    #
+    # And it *refuses*, rather than raising. An uncaught ImportError here is a
+    # 500 and a generic error banner: the operator taps "carry on with this on
+    # my phone", is told nothing, and the reason sits in a log they are not
+    # reading. 503 names the missing extra, which is the one thing that fixes it.
+    try:
+        import segno
+    except ImportError as error:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "reason": "labels_extra_missing",
+                "message": (
+                    "the QR handoff needs the optional `labels` extra: uv sync --extra labels"
+                ),
+            },
+        ) from error
 
     target = f"{get_settings().base_url.rstrip('/')}{path}"
     buffer = io.BytesIO()
