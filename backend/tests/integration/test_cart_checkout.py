@@ -436,6 +436,145 @@ def test_a_cart_checkout_is_one_group_so_one_undo_reverses_it(
     assert _ledger_count() == 4
 
 
+def test_undoing_one_committed_line_reverses_only_that_line(
+    client: TestClient, db: Session
+) -> None:
+    """The whole point of `group_kind`.
+
+    Every line of one commit shares a `group_uuid`, and `_rows_to_undo` used to
+    expand a `client_op_id` to its whole group — so naming the 1000-milli line
+    reversed the 3000-milli one beside it too. Measured before the fix:
+    `reversed_seqs [13, 14]`, the resistor's balance going 7000 -> 10000 when
+    nobody asked it to.
+
+    Not reachable from the PWA — `checkout.ts` keeps the batch's `group_uuid` for
+    whole-commit undo and `LotScreen` only undoes single-lot movements — but live
+    on the raw route and on the MCP write tools.
+    """
+    bin_a = make_location(db, "Bin A")
+    resistor = make_part(db, "10k")
+    capacitor = make_part(db, "100n")
+    lot_r = make_lot(db, resistor, bin_a, qty_milli=10_000)
+    lot_c = make_lot(db, capacitor, bin_a, qty_milli=5_000)
+    db.commit()
+
+    resistor_key = "aaaaaaaa-0000-4000-8000-000000000001"
+    capacitor_key = "aaaaaaaa-0000-4000-8000-000000000002"
+    checkout = client.post(
+        "/api/stock/movements",
+        json={
+            "location_id": bin_a.id,
+            "lines": [
+                {
+                    "lot_id": lot_r.id,
+                    "direction": "take",
+                    "qty_milli": 3_000,
+                    "client_op_id": resistor_key,
+                },
+                {
+                    "lot_id": lot_c.id,
+                    "direction": "take",
+                    "qty_milli": 1_000,
+                    "client_op_id": capacitor_key,
+                },
+            ],
+        },
+    ).json()
+    assert checkout["applied_count"] == 2, checkout
+    assert _balance(lot_r.id) == 7_000
+    assert _balance(lot_c.id) == 4_000
+
+    undone = client.post("/api/stock/undo", json={"client_op_id_to_undo": capacitor_key})
+    assert undone.status_code == 200, undone.text
+
+    assert len(undone.json()["reversed_seqs"]) == 1
+    # The capacitor line is back; the resistor line is untouched.
+    assert _balance(lot_c.id) == 5_000
+    assert _balance(lot_r.id) == 7_000
+
+
+def test_the_whole_commit_is_still_undoable_by_its_group(client: TestClient, db: Session) -> None:
+    """Narrowing the `client_op_id` handle must not take the wide one away.
+
+    `group_uuid_to_undo` asks for the group and gets the group, aggregate or not
+    — that is the handle `checkout.ts` records and the one the eight-second
+    "undo that commit" button uses.
+    """
+    bin_a = make_location(db, "Bin A")
+    resistor = make_part(db, "10k")
+    capacitor = make_part(db, "100n")
+    lot_r = make_lot(db, resistor, bin_a, qty_milli=10_000)
+    lot_c = make_lot(db, capacitor, bin_a, qty_milli=5_000)
+    db.commit()
+
+    checkout = client.post(
+        "/api/stock/movements",
+        json={
+            "location_id": bin_a.id,
+            "lines": [
+                {
+                    "lot_id": lot_r.id,
+                    "direction": "take",
+                    "qty_milli": 3_000,
+                    "client_op_id": "bbbbbbbb-0000-4000-8000-000000000001",
+                },
+                {
+                    "lot_id": lot_c.id,
+                    "direction": "take",
+                    "qty_milli": 1_000,
+                    "client_op_id": "bbbbbbbb-0000-4000-8000-000000000002",
+                },
+            ],
+        },
+    ).json()
+
+    undone = client.post("/api/stock/undo", json={"group_uuid_to_undo": checkout["group_uuid"]})
+    assert undone.status_code == 200, undone.text
+    assert len(undone.json()["reversed_seqs"]) == 2
+    assert _balance(lot_r.id) == 10_000
+    assert _balance(lot_c.id) == 5_000
+
+
+def test_a_committed_line_is_marked_aggregate_and_a_move_is_not(
+    client: TestClient, db: Session
+) -> None:
+    """The discriminator itself, asserted on the rows.
+
+    `_rows_to_undo` cannot tell a two-line commit from a partial move by looking
+    at the rows — same group, one keyed row each — which is why the kind is
+    recorded at mint time instead of inferred. If a future mint site forgets to
+    say, it defaults to atomic and the whole-group expansion comes back for it;
+    this is what would notice.
+    """
+    bin_a = make_location(db, "Bin A")
+    bin_b = make_location(db, "Bin B")
+    resistor = make_part(db, "10k")
+    lot_r = make_lot(db, resistor, bin_a, qty_milli=10_000)
+    db.commit()
+
+    client.post(
+        "/api/stock/movements",
+        json={
+            "location_id": bin_a.id,
+            "lines": [{"lot_id": lot_r.id, "direction": "take", "qty_milli": 1_000}],
+        },
+    )
+    client.post(
+        f"/api/stock/lots/{lot_r.id}/move",
+        json={"to_location_id": bin_b.id, "qty_milli": 1_200},
+    )
+
+    kinds = {
+        (row.kind, row.group_kind)
+        for row in db.execute(select(StockLedger)).scalars()
+        if row.group_uuid is not None
+    }
+    assert ("consume", "aggregate") in kinds
+    # The move's two halves stay atomic, so undoing either still takes both.
+    assert ("split_out", None) in kinds
+    assert ("split_in", None) in kinds
+
+
 def test_a_return_may_create_the_lot_but_a_take_may_not(client: TestClient, db: Session) -> None:
     bin_a = make_location(db, "Bin A")
     resistor = make_part(db, "10k")

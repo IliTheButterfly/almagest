@@ -39,7 +39,7 @@ from dataclasses import dataclass, replace
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.enums import LedgerKind, LedgerSource, LotStatus
+from app.models.enums import LedgerGroupKind, LedgerKind, LedgerSource, LotStatus
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import Location
 
@@ -82,6 +82,11 @@ class Attribution:
     #: together by `group_uuid` instead.
     client_op_id: str | None = None
     group_uuid: str | None = None
+    #: Why the rows sharing `group_uuid` are grouped, which decides what undoing
+    #: one of them means. Left `None` — read as `ATOMIC` — by every operation
+    #: whose rows are halves of one indivisible statement, which is all of them
+    #: but a work-panel tab commit. See `LedgerGroupKind`.
+    group_kind: LedgerGroupKind | None = None
 
 
 def new_group_uuid() -> str:
@@ -143,6 +148,7 @@ def post(
         ref_type=attribution.ref_type,
         ref_id=attribution.ref_id,
         group_uuid=attribution.group_uuid,
+        group_kind=attribution.group_kind,
         actor_id=attribution.actor_id,
         source=attribution.source,
         reversal_of_seq=reversal_of_seq,

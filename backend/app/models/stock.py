@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.base import TimestampMixin
-from app.models.enums import LedgerKind, LedgerSource, LotStatus
+from app.models.enums import LedgerGroupKind, LedgerKind, LedgerSource, LotStatus
 from app.models.types import StrEnumType, UtcDateTime, utcnow
 
 
@@ -155,6 +155,11 @@ class StockLedger(Base):
     #: Ties the two halves of a partial move (`split_out` -N, `split_in` +N)
     #: and every row of a bulk operation into one undoable unit.
     group_uuid: Mapped[str | None] = mapped_column(String(36), index=True)
+
+    #: Why those rows are grouped, and therefore what undoing one of them means.
+    #: See `LedgerGroupKind`. NULL — every row written before this column — reads
+    #: as `ATOMIC`, which is the behaviour those rows were written under.
+    group_kind: Mapped[str | None] = mapped_column(StrEnumType(LedgerGroupKind))
 
     #: Plain nullable INTEGER with **no FK clause**, exactly as the design
     #: specifies: multi-user is deferred, and the FK gets added via

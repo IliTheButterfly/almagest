@@ -469,6 +469,33 @@ def test_undoing_a_partial_move_reverses_both_halves(client: TestClient) -> None
     assert _cached(move["counterpart_lot"]["id"]) == 0
 
 
+def test_undoing_a_partial_move_by_its_key_still_reverses_both_halves(
+    client: TestClient,
+) -> None:
+    """The atomic half of `group_kind`, and the regression this must never cause.
+
+    Narrowing `client_op_id_to_undo` so one line of a committed work-panel tab
+    reverses alone must not narrow it here: a partial move's `split_out -N` and
+    `split_in +N` are one statement, and reversing the key-carrying half alone
+    would leave 1200 milli existing in both bins at once. The move's group is
+    minted without a kind, which reads as atomic, so the expansion still happens.
+    """
+    part_id, (bin_a, bin_b) = _make_part_and_locations()
+    lot_id = _receive(client, part_id, bin_a, 5000)["lot"]["id"]
+    key = _key()
+    move = client.post(
+        f"/api/stock/lots/{lot_id}/move",
+        json={"to_location_id": bin_b, "qty_milli": 1200, "client_op_id": key},
+    ).json()
+
+    undo = client.post("/api/stock/undo", json={"client_op_id_to_undo": key})
+    assert undo.status_code == 200, undo.text
+
+    assert len(undo.json()["reversed_seqs"]) == 2
+    assert _cached(lot_id) == 5000
+    assert _cached(move["counterpart_lot"]["id"]) == 0
+
+
 def test_undoing_a_whole_lot_move_sends_it_back(client: TestClient) -> None:
     part_id, (bin_a, bin_b) = _make_part_and_locations()
     lot_id = _receive(client, part_id, bin_a, 1000)["lot"]["id"]
