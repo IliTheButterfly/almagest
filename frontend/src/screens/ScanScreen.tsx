@@ -49,6 +49,7 @@ import { DecodeFeedback, FEEDBACK_FLASH_MS } from "../lib/scan/feedback";
 import { NfcUnavailableError, readOneTag } from "../lib/scan/nfc";
 import { scanSession, uuid4 } from "../lib/scan/session";
 import { useScanner } from "../lib/scan/useScanner";
+import { routeForTarget } from "../lib/scanctx/route";
 import { formatShortId } from "../lib/shortid";
 import { bridgeSource } from "../lib/tags/bridge";
 import { useBridgeDevices } from "../lib/tags/useBridge";
@@ -92,19 +93,6 @@ function useDecodeFeedback(): { readonly flashing: boolean; readonly trigger: (c
 }
 
 /** Where a resolved target lives in the app. Mirrors the backend's `/s/` map. */
-function routeFor(target: ScanTarget): string | null {
-  switch (target.entity_type) {
-    case "location":
-      return `/locations/${target.entity_pk}`;
-    case "part":
-      return `/parts/${target.entity_pk}`;
-    case "stock_lot":
-      return `/lots/${target.entity_pk}`;
-    default:
-      return null;
-  }
-}
-
 interface Resolution {
   readonly response: ScanResolveResponse;
   readonly clientOpId: string;
@@ -166,7 +154,7 @@ export function ScanScreen() {
           target !== undefined &&
           (target.entity_type === "location" || target.entity_type === "stock_lot")
         ) {
-          const route = routeFor(target);
+          const route = routeForTarget(target);
           if (route !== null) {
             navigate(route);
           }
@@ -721,7 +709,7 @@ function Resolved({
 }
 
 function TargetLink({ target }: { target: ScanTarget }) {
-  const route = routeFor(target);
+  const route = routeForTarget(target);
   const label = target.label_path ?? target.label;
   if (route === null) {
     return (
@@ -749,7 +737,7 @@ function Candidates({ candidates }: { candidates: readonly ScanCandidate[] }) {
       <h3>Candidates</h3>
       <ul className="list">
         {candidates.map((candidate, index) => {
-          const route = routeFor(candidate.target);
+          const route = routeForTarget(candidate.target);
           const label = candidate.target.label_path ?? candidate.target.label;
           return (
             <li key={`${candidate.target.entity_type}-${candidate.target.entity_pk}-${index}`}>

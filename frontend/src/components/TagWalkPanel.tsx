@@ -196,6 +196,7 @@ export function TagWalkDialog({
   /** Switches this dialog to the verification walk once every slot is bound.
    *  Optional because the verify dialog itself has nothing to hand on to. */
   onVerifyNext,
+  bindTarget = "slots",
   /** Injected by the tests, which drive a whole cabinet through a fake reader. */
   source: injected,
 }: {
@@ -204,14 +205,24 @@ export function TagWalkDialog({
   onClose: () => void;
   onChanged: () => void;
   onVerifyNext?: () => void;
+  bindTarget?: "slots" | "self";
   source?: TagSource;
 }) {
   return (
     <Dialog
-      title={kind === "provision" ? "Bind tags to these slots" : "Verify the tags on these slots"}
+      title={
+        bindTarget === "self"
+          ? "Write a tag for this container"
+          : kind === "provision"
+            ? "Bind tags to these slots"
+            : "Verify the tags on these slots"
+      }
       onClose={onClose}
       note={
-        kind === "provision"
+        bindTarget === "self"
+          ? "One tag, for the container itself rather than for anything inside it. " +
+            "Hold a blank tag to the reader."
+          : kind === "provision"
           ? "Stick every tag on first, then walk the cabinet tapping them in order. " +
             "The cursor advances by itself."
           : "Re-read every tag in order. Nothing is repaired here — a mismatch is " +
@@ -221,6 +232,7 @@ export function TagWalkDialog({
       <TagWalk
         location={location}
         kind={kind}
+        bindTarget={bindTarget}
         onChanged={onChanged}
         {...(onVerifyNext === undefined ? {} : { onVerifyNext })}
         {...(injected === undefined ? {} : { source: injected })}
@@ -234,12 +246,15 @@ export function TagWalk({
   kind,
   onChanged,
   onVerifyNext,
+  bindTarget = "slots",
   source: injected,
 }: {
   location: LocationRead;
   kind: WalkKind;
   onChanged: () => void;
   onVerifyNext?: () => void;
+  /** `"self"` binds the container's own tag instead of walking its slots. */
+  bindTarget?: "slots" | "self";
   source?: TagSource;
 }) {
   const capabilities = useMemo(() => detectCapabilities(), []);
@@ -315,8 +330,39 @@ export function TagWalk({
    */
   const sessionId = (kind === "provision" ? provision?.session?.id : verify?.session?.id) ?? null;
 
-  const live = useRef({ sessionId, cursor, overwrite, busy, source });
-  live.current = { sessionId, cursor, overwrite, busy, source };
+  /**
+   * Binding the container's *own* tag rather than one of its slots.
+   *
+   * The backend has always allowed it — `resolve_target` says the cabinet "is in
+   * scope because its own tag is legitimately part of the same physical walk" —
+   * but the cursor is derived over the *children*, so it never lands there and
+   * no tap could reach it. A container with no slots at all (a standalone bin,
+   * a shelf) therefore had no way to be given a tag by any screen in the app,
+   * even though it is exactly the kind of thing you want to scan.
+   *
+   * A synthetic cursor rather than a second code path: everything downstream —
+   * the conflict prompt, the write, the read-back, the outcome line — is about
+   * "the slot the cursor is on", and giving it a cursor pointing at the
+   * container means none of that has to learn a new case.
+   */
+  const selfCursor: SlotCursorRead | null =
+    bindTarget === "self"
+      ? {
+          location_id: location.id,
+          slot_label: null,
+          name: location.name,
+          label_path: location.label_path ?? location.name,
+          row_idx: null,
+          col_idx: null,
+          sort_order: 0,
+          short_id: location.short_id ?? null,
+          has_tag: false,
+        }
+      : null;
+  const effectiveCursor = selfCursor ?? cursor;
+
+  const live = useRef({ sessionId, cursor: effectiveCursor, overwrite, busy, source });
+  live.current = { sessionId, cursor: effectiveCursor, overwrite, busy, source };
 
   const applyProvision = useCallback((next: ProvisioningState) => {
     setProvision(next);
@@ -614,7 +660,7 @@ export function TagWalk({
 
       <div className={flash ? "card flash" : "card"} aria-live="polite">
         <h3>{kind === "provision" ? "Bind" : "Check"}</h3>
-        {cursor === null ? (
+        {effectiveCursor === null ? (
           <Notice kind="ok" title={kind === "provision" ? "Every slot has a tag" : "Every tag checked"}>
             <p style={{ margin: 0 }}>
               {kind === "provision"
@@ -637,11 +683,11 @@ export function TagWalk({
         ) : (
           <>
             <p className="big-number" style={{ margin: 0 }}>
-              {cursor.slot_label ?? cursor.name}
+              {effectiveCursor.slot_label ?? effectiveCursor.name}
             </p>
             <p className="muted-note" style={{ margin: 0 }}>
-              {cursor.label_path}
-              {cursor.short_id === null ? "" : ` · ${cursor.short_id}`}
+              {effectiveCursor.label_path}
+              {effectiveCursor.short_id === null ? "" : ` · ${effectiveCursor.short_id}`}
             </p>
             <p style={{ margin: 0 }}>
               {kind === "provision"
@@ -706,10 +752,10 @@ export function TagWalk({
           busy={busy}
           canUndo={(provision?.undo_depth ?? 0) > 0}
           undoLabel={provision?.undo_label ?? null}
-          canSkip={cursor !== null}
+          canSkip={effectiveCursor !== null && bindTarget === "slots"}
           onSkip={() => {
             const walk = sessionId;
-            const slot = cursor;
+            const slot = effectiveCursor;
             if (walk === null || slot === null) {
               return;
             }
@@ -749,7 +795,7 @@ export function TagWalk({
 
       <ManualEntry
         onSubmit={(uid) => manual.present(uid)}
-        disabled={busy || cursor === null}
+        disabled={busy || effectiveCursor === null}
         label={kind === "provision" ? "Bind this UID" : "Check this UID"}
       />
 

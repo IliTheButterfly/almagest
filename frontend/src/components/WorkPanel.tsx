@@ -45,6 +45,9 @@ import { useCartLines } from "../lib/cart/useCart";
 import { formatQty } from "../lib/format";
 import { useAsync } from "../lib/hooks/useAsync";
 import { useFocusedTarget, useOpenTargets } from "../lib/projectcontext/hooks";
+import { routeForTarget } from "../lib/scanctx/route";
+import { scanContext, type ScanRecord } from "../lib/scanctx/store";
+import { useHasReader, useScans } from "../lib/scanctx/useScanContext";
 import { openTargets } from "../lib/projectcontext/store";
 import { targetKey, type WorkTarget } from "../lib/projectcontext/target";
 import { ErrorBanner, Loading, Notice } from "./Feedback";
@@ -61,29 +64,138 @@ const PREVIEW_ROWS = 8;
 export function WorkPanel() {
   const open = useOpenTargets();
   const focused = useFocusedTarget();
+  const scans = useScans();
+  const hasReader = useHasReader();
+  const [showScans, setShowScans] = useState(false);
 
-  if (open.length === 0 || focused === null) {
+  // **The panel exists when there is somewhere for a scan to come from**, not
+  // only when there is work in it. On the bench a reader is always attached, so
+  // the Scanned tab is always there and a tap has somewhere to land before you
+  // have thought about where you wanted it. On a phone with no bridge and no
+  // open work there is nothing to draw, and drawing an empty panel anyway would
+  // be an affordance that cannot do anything — ADR 0003's rule.
+  const scanTabExists = hasReader || scans.length > 0;
+  if ((open.length === 0 || focused === null) && !scanTabExists) {
     return null;
   }
 
+  // A scan arriving takes the panel: it is the most recent thing you did, and
+  // the reason you looked. Switching back to a cart tab is one tap and sticks.
+  const onScanTab = showScans || focused === null;
+
   return (
     <aside className="work-panel" aria-label="What you are working on">
-      <TabStrip open={open} focused={focused} />
-      {/* Keyed on the target so switching tabs remounts the sections: the two
-          halves below are about one target, and carrying one tab's expanded
-          state or loaded report onto another would be showing you the wrong
-          record under the right name. */}
-      <TabBody key={targetKey(focused)} target={focused} />
+      <div className="work-tabs" role="tablist" aria-label="Scans and open work">
+        {scanTabExists && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={onScanTab}
+            className={`work-tab${onScanTab ? " is-focused" : ""}`}
+            onClick={() => setShowScans(true)}
+          >
+            Scanned
+            {scans.length > 0 && <span className="badge">{scans.length}</span>}
+          </button>
+        )}
+      </div>
+
+      {focused !== null && (
+        <TabStrip
+          open={open}
+          focused={focused}
+          onPick={() => setShowScans(false)}
+        />
+      )}
+
+      {onScanTab ? (
+        <ScannedTab scans={scans} hasReader={hasReader} />
+      ) : (
+        /* Keyed on the target so switching tabs remounts the sections: the two
+           halves below are about one target, and carrying one tab's expanded
+           state or loaded report onto another would be showing you the wrong
+           record under the right name. */
+        focused !== null && <TabBody key={targetKey(focused)} target={focused} />
+      )}
     </aside>
+  );
+}
+
+/**
+ * What the reader has seen, newest first.
+ *
+ * Read-only on purpose. A row offers to *open* the thing and to dismiss itself;
+ * placing a scan into a field is the field's affordance, not this panel's,
+ * because only the field knows whether the scan is the right kind of thing and
+ * what it would be replacing. A panel that pushed values into whatever screen
+ * was open would be the auto-fill this design deliberately refused.
+ */
+function ScannedTab({
+  scans,
+  hasReader,
+}: {
+  scans: readonly ScanRecord[];
+  hasReader: boolean;
+}) {
+  if (scans.length === 0) {
+    return (
+      <div className="stack">
+        <p className="muted-note" style={{ margin: 0 }}>
+          {hasReader
+            ? "Hold a tag to the reader. What it reads lands here, and any field that can take a scan will offer it."
+            : "Nothing scanned yet."}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="list">
+      {scans.map((scan) => {
+        const route = scan.target === null ? null : routeForTarget(scan.target);
+        const label = scan.target?.label_path ?? scan.target?.label ?? scan.code;
+        return (
+          <li key={scan.id} className="list-item">
+            <div className="row">
+              <span className="title" style={{ flex: 1, overflowWrap: "anywhere" }}>
+                {label}
+              </span>
+              {scan.target === null ? (
+                <span className="badge badge-warn">nothing matched</span>
+              ) : (
+                <span className="badge">{scan.target.entity_type}</span>
+              )}
+            </div>
+            <div className="sub mono" style={{ overflowWrap: "anywhere" }}>
+              {scan.code}
+            </div>
+            <div className="row">
+              {route !== null && <Link to={route}>Open</Link>}
+              <span className="spacer" />
+              <button
+                type="button"
+                onClick={() => {
+                  scanContext.remove(scan.id);
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
 function TabStrip({
   open,
   focused,
+  onPick,
 }: {
   open: readonly WorkTarget[];
   focused: WorkTarget;
+  onPick: () => void;
 }) {
   const [asking, setAsking] = useState<{ target: WorkTarget; lines: number } | null>(null);
 
@@ -100,6 +212,7 @@ function TabStrip({
             key={targetKey(target)}
             target={target}
             focused={targetKey(target) === targetKey(focused)}
+            onPick={onPick}
             onClose={() => {
               close(target, false);
             }}
@@ -150,10 +263,13 @@ function TargetTab({
   target,
   focused,
   onClose,
+  onPick,
 }: {
   target: WorkTarget;
   focused: boolean;
   onClose: () => void;
+  /** Leaves the Scanned tab when a cart tab is chosen. */
+  onPick: () => void;
 }) {
   const lines = useCartLines(carts.for(target));
   const waiting = lines.length;
@@ -167,6 +283,7 @@ function TargetTab({
         aria-selected={focused}
         onClick={() => {
           openTargets.focus(targetKey(target));
+          onPick();
         }}
       >
         <span className="work-tab-name">{name}</span>

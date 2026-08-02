@@ -403,6 +403,7 @@ it("offers the identical editor at every depth", async () => {
     "Room plan…",
     "Add containers inside…",
     "Bind NFC tags…",
+    "Write a tag for this container…",
     "Verify NFC tags…",
     "Remove this container",
   ]);
