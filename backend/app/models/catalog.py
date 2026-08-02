@@ -182,6 +182,12 @@ class Part(Base, TimestampMixin):
 
     #: Set when the row was created from a scan that could not be resolved.
     #: Drives the "N items need curation" dashboard counter.
+    #: Created fast and not yet curated: name and kind only, everything else
+    #: deferred. **Called "unfinished" everywhere a person can see it** — this
+    #: column keeps the older name because renaming it is a migration across the
+    #: API schema and the MCP tool surface, and the two must not drift in
+    #: meaning: if this flag ever stops meaning "still needs filling in", the
+    #: word in the UI has to change with it.
     is_stub: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="0", index=True
     )

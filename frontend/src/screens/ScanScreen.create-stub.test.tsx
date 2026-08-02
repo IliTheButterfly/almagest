@@ -1,5 +1,5 @@
 /**
- * Creating a stub part from the scan screen, and the ASSIGN step right after
+ * Saving an unfinished part from the scan screen, and the ASSIGN step right after
  * it — the fix for the bug report: "I set the part as done and then couldn't
  * find it. I'm not sure I understand how to select a container for the
  * part." The old flow ended at "Open part N", which is a dead end because a
@@ -150,7 +150,7 @@ async function scanUnknownCode(): Promise<void> {
     target: { value: "GARBAGE-CODE" },
   });
   fireEvent.click(screen.getByRole("button", { name: /look up/i }));
-  await screen.findByText("Nothing matched — teach it");
+  await screen.findByText("Make a part from this label");
 }
 
 beforeEach(() => {
@@ -162,13 +162,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("creating a stub part", () => {
+describe("saving an unfinished part", () => {
   it("does not stop at 'created' — the next thing on screen is somewhere to put it", async () => {
     stubApi();
     renderScan();
     await scanUnknownCode();
 
-    fireEvent.click(screen.getByRole("button", { name: /Create a stub part and bind this code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Save as unfinished and bind this code/ }));
 
     await waitFor(() => expect(callTo("/api/parts")).toBeDefined());
     expect(await screen.findByText(/Created — it has no stock yet/)).toBeTruthy();
@@ -188,7 +188,7 @@ describe("creating a stub part", () => {
     stubApi();
     renderScan();
     await scanUnknownCode();
-    fireEvent.click(screen.getByRole("button", { name: /Create a stub part and bind this code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Save as unfinished and bind this code/ }));
 
     await screen.findAllByText("Cabinet B / Drawer B3");
     fireEvent.click(await screen.findByRole("button", { name: /^Put 1 in Cabinet B/ }));
@@ -204,7 +204,7 @@ describe("creating a stub part", () => {
     stubApi();
     renderScan();
     await scanUnknownCode();
-    fireEvent.click(screen.getByRole("button", { name: /Create a stub part and bind this code/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Save as unfinished and bind this code/ }));
 
     await screen.findByText(/Created — it has no stock yet/);
     fireEvent.click(screen.getByRole("button", { name: "Back to scanning" }));

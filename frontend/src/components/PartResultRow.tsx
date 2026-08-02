@@ -100,7 +100,7 @@ export function PartResultRow({ part }: { part: PartSummary }) {
         {part.mpn !== null && part.description !== null && " · "}
         {part.description}
       </div>
-      {part.is_stub && <span className="badge badge-warn">stub</span>}
+      {part.is_stub && <span className="badge badge-warn">unfinished</span>}
       <StockLine part={part} />
       <PlaceLine part={part} />
     </>

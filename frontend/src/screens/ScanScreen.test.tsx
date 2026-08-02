@@ -82,7 +82,10 @@ describe("with a camera but no NFC", () => {
 
     expect(document.querySelector("video")).not.toBeNull();
     expect(screen.queryByRole("button", { name: /read an nfc tag/i })).toBeNull();
-    expect(screen.getByText(/NFC is not available on this device/)).toBeTruthy();
+    expect(screen.getByText(/No NFC reader here/)).toBeTruthy();
+    // And it names the other way of getting one, rather than implying the device
+    // is the only possible source.
+    expect(screen.getByText(/A USB reader works too/)).toBeTruthy();
   });
 
   it("keeps the manual path alongside the camera", () => {

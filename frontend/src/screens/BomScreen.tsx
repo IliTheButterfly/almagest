@@ -782,7 +782,7 @@ function CandidateList({
                   {candidate.is_substitute && (
                     <span className="badge badge-info">substitute</span>
                   )}
-                  {candidate.is_stub && <span className="badge badge-warn">stub</span>}
+                  {candidate.is_stub && <span className="badge badge-warn">unfinished</span>}
                   <div className="sub">
                     {candidate.mpn !== null && <span className="mono">{candidate.mpn}</span>}
                     {candidate.mpn !== null && " · "}
