@@ -62,6 +62,12 @@ export interface TypeDraft {
   // --- how full counts as full --------------------------------------------
   readonly capacityModel: CapacityModel;
   readonly capacitySlots: string;
+  /** The drawer front a label goes on, in mm. Without both of these
+   *  `POST /api/labels/sheets` refuses with `missing_front_dimensions` and no
+   *  card can be printed for anything of this type — the seeds shipped without
+   *  them and there was no way to supply them from here. */
+  readonly frontWidthMm: string;
+  readonly frontHeightMm: string;
   readonly innerLengthMm: string;
   readonly innerWidthMm: string;
   readonly innerHeightMm: string;
@@ -90,6 +96,8 @@ export const BLANK_DRAFT: TypeDraft = {
   occupiesHeightU: "",
   capacityModel: "slots",
   capacitySlots: "",
+  frontWidthMm: "",
+  frontHeightMm: "",
   innerLengthMm: "",
   innerWidthMm: "",
   innerHeightMm: "",
@@ -126,6 +134,8 @@ export function draftFromType(type: ContainerTypeRead): TypeDraft {
     occupiesHeightU: text(type.footprint_height_u),
     capacityModel: type.capacity_model as CapacityModel,
     capacitySlots: text(type.capacity_slots),
+    frontWidthMm: text(type.front_width_mm),
+    frontHeightMm: text(type.front_height_mm),
     innerLengthMm: text(type.inner_length_mm),
     innerWidthMm: text(type.inner_width_mm),
     innerHeightMm: text(type.inner_height_mm),
@@ -243,6 +253,8 @@ function commonFields(draft: TypeDraft): Omit<ContainerTypeUpdate, "client_op_id
     slot_label_params: zeroPad === null ? null : { zero_pad: zeroPad },
     capacity_model: draft.capacityModel,
     capacity_slots: numberOf(draft.capacitySlots),
+    front_width_mm: numberOf(draft.frontWidthMm),
+    front_height_mm: numberOf(draft.frontHeightMm),
     inner_length_mm: numberOf(draft.innerLengthMm),
     inner_width_mm: numberOf(draft.innerWidthMm),
     inner_height_mm: numberOf(draft.innerHeightMm),

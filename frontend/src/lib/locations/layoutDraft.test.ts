@@ -29,7 +29,16 @@ function slot(
 }
 
 function original(base: DraftSlot, extra: Partial<OriginalSlot> = {}): OriginalSlot {
-  return { ...base, locationId: 1, shortId: null, hasTag: false, lotCount: 0, qtyMilli: 0, ...extra };
+  return {
+    ...base,
+    locationId: 1,
+    shortId: null,
+    lastPrintedAt: null,
+    hasTag: false,
+    lotCount: 0,
+    qtyMilli: 0,
+    ...extra,
+  };
 }
 
 // -------------------------------------------------------------- selection ---

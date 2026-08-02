@@ -15,6 +15,7 @@ a row count.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -699,3 +700,89 @@ def test_the_fake_api_is_a_station_api() -> None:
 
     fake: StationApi = FakeStationApi()
     assert fake is not None
+
+
+# ---------------------------------------------------------------------------
+# The three things that make an abort an abort
+# ---------------------------------------------------------------------------
+
+
+def test_lifting_the_container_mid_commit_does_not_race_the_commit(
+    station: Station, api: FakeStationApi
+) -> None:
+    """The `asyncio.Lock`, which nothing else in this suite can see.
+
+    Every other test drives one `run_until_complete` at a time, so two coroutines
+    never overlap and the lock is indistinguishable from no lock: replacing both
+    `async with self._lock:` blocks with `if True:` leaves the whole suite green.
+
+    Here a commit is held open at the API while a **`tag.removed`** arrives — the
+    container lifted off the reader with a movement in flight, which is the
+    sequence the lock exists for. Serialised, the commit finishes and the teardown
+    runs after it. Unserialised, the teardown reaches session state the commit is
+    still using, and the movement's own bookkeeping lands on a session that has
+    already been cleared.
+    """
+    station.place(TAG)
+    api.gate = asyncio.Event()
+    take(station)
+
+    async def confirm_slowly() -> list[Event]:
+        return await station.session.handle_frame(
+            json.dumps({"type": events.STATION_CONFIRM, "session_id": station.session.session_id})
+        )
+
+    async def lift_it_mid_flight() -> list[Event]:
+        # Let the confirm get as far as the blocked API call, then tear the
+        # session down underneath it and release the commit.
+        await asyncio.sleep(0)
+        removed = asyncio.ensure_future(
+            station.session.on_presence(Event(type=events.TAG_REMOVED, data={"missed_polls": 0}))
+        )
+        await asyncio.sleep(0)
+        api.gate.set()
+        return await removed
+
+    confirmed, lifted = station.gather(confirm_slowly(), lift_it_mid_flight())
+
+    assert len(api.commits) == 1, api.commits
+    # **The confirm finishes its own sequence.** Serialised it emits the movement
+    # and then the screen to stand on; with the lock removed the teardown lands
+    # between the two, `station.ready` is dropped, and the session logs
+    # "station.ready with no resolved placement" — so the bench is left looking
+    # at a committed movement with no ready state behind it, on a session that
+    # has already been cleared.
+    assert types(confirmed) == [events.STATION_COMMITTED, events.STATION_READY]
+    assert types(lifted) == [events.STATION_ABORTED]
+
+
+def test_cancelling_after_a_lost_response_does_not_replay_the_first_movement(
+    station: Station, api: FakeStationApi
+) -> None:
+    """The worst case in the file, and it had no test.
+
+    The commit **lands** and the reply is lost. The user cancels, takes five
+    more, and confirms an identical action. Without `_cancel` rotating the
+    idempotency key, the second confirm carries the key the server already has —
+    so the server replays the first movement, the agent reports success, and the
+    second five units are never recorded. Deleting the rotation branch leaves the
+    whole suite green.
+
+    `lose_response` is what makes this expressible: `fail_commit` raises *before*
+    the row is recorded, which is the harmless half of the same shape.
+    """
+    station.place(TAG)
+    api.lose_response = True
+    take(station)
+    station.send(events.STATION_CONFIRM)
+    assert len(api.commits) == 1
+    first_key = api.commits[0]["client_op_id"]
+
+    station.send(events.STATION_CANCEL)
+    api.lose_response = False
+    station.advance(500)
+    take(station)
+    station.send(events.STATION_CONFIRM)
+
+    assert len(api.commits) == 2, "the retry replayed the first movement instead of recording one"
+    assert api.commits[1]["client_op_id"] != first_key

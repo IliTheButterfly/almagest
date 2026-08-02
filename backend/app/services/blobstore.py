@@ -43,8 +43,12 @@ Verification after the write is offered (`verify`) but not performed on the writ
 path. Re-reading proves only that the page cache agrees with itself; what it
 would catch — later bit-rot — it cannot catch at write time. So it belongs in a
 scrub job, which is what `verify` exists for and which is
-`app.services.documents.scrub` — a caller it went without until review pointed
-out that a check nothing runs detects nothing.
+`app.services.documents.scrub`, reached by `POST /api/system/blobs/scrub` and run
+by `python -m app.scripts.maintenance --scrub`. It went without a caller of any
+kind for a while, and then without a *deployed* one — the function existed and
+only a test ever called it, which detects exactly as much bit rot as no scrub at
+all. It is deliberately not folded into the nightly cache pass: it reads every
+blob in full, so it would set that pass's duration.
 
 ## The only value that reaches a path is a validated digest
 

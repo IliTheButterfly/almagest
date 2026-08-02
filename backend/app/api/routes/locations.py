@@ -662,6 +662,15 @@ class SlotStateRead(BaseModel):
     sort_order: int
     short_id: str | None
     has_tag: bool
+    #: Whether a card has actually been printed for this slot, as opposed to a
+    #: code merely having been minted for it. The two are very different: with
+    #: `tag_granularity="slot"` every slot gets a `short_id` at instantiation,
+    #: so `short_id is not None` says nothing about whether anything physical
+    #: exists — and the editor used it to warn "the card printed for this slot
+    #: will stop working" on deletions where no card had ever been printed. A
+    #: location cannot claim to be printed on its own say-so; this is the same
+    #: `last_printed_at` the "never printed" badge reads.
+    last_printed_at: datetime | None
     lot_count: int
     qty_milli: int
 
@@ -1122,6 +1131,7 @@ def _slot_state_read(
         sort_order=child.sort_order,
         short_id=short_id,
         has_tag=has_tag,
+        last_printed_at=child.last_printed_at,
         lot_count=lot_count,
         qty_milli=qty_milli,
     )

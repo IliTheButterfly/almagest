@@ -39,6 +39,19 @@ MM_PER_INCH = 25.4
 #: Gridfinity slot does not.
 MIN_QR_DIMENSION_MM = 16.0
 
+#: The QR's own floor, without the card-margin headroom `MIN_QR_DIMENSION_MM`
+#: adds: PLAN.md's "roughly 13 mm square including its 4-module quiet zone" for a
+#: version 2-3 symbol at ECC-M. Two numbers doing different jobs — the first
+#: decides whether a card gets a QR at all, this one how far the QR may be
+#: squeezed to leave room for text beside it.
+QR_MIN_SCANNABLE_MM = 13.0
+
+#: How much of a card's width is kept for text when the QR would otherwise take
+#: all of it. Not a layout preference: below this the primary label and the short
+#: id cannot both be read, and a card whose only content is a QR fails the one
+#: job the printed text has.
+_TEXT_WIDTH_SHARE = 0.45
+
 
 def mm_to_px(length_mm: float, dpi: int) -> int:
     """Round rather than floor/ceil: `FileBackend`'s dimension check compares
@@ -178,6 +191,32 @@ def _font_for_role(
     return ImageFont.load_default(size=size), size
 
 
+def qr_side_for(width_px: int, short_side_px: int, pad_px: int, dpi: int) -> int:
+    """How big the QR may be, given that text has to fit beside it.
+
+    Its natural size is the card's height less padding, which is right for a
+    landscape card and catastrophic for a nearly square one: a 41.5 x 42 mm
+    Gridfinity face leaves **zero** px of width for text, so every block renders
+    empty and the card carries a code and nothing a person can read. That is the
+    one job PLAN.md gives the printed text — the zero-dependency fallback when a
+    manual search is the only tool at hand.
+
+    So the QR gives way, down to the ~13 mm it needs to stay scannable at this
+    payload length (`MIN_QR_DIMENSION_MM` is that plus card-margin headroom,
+    which is why the floor is the smaller number). Below that there is no honest
+    trade left and it keeps its size: a scannable code with no caption beats a
+    caption beside a code that will not read.
+
+    Separated out because the alternative is asserting on pixels, and a QR's
+    quiet zone means its ink does not start at its edge — a test measuring the
+    rendered image measures the wrong thing and passes for the wrong reason.
+    """
+    natural_px = short_side_px - 2 * pad_px
+    room_for_text_px = round((width_px - 2 * pad_px) * _TEXT_WIDTH_SHARE)
+    floor_px = mm_to_px(QR_MIN_SCANNABLE_MM, dpi)
+    return min(max(width_px - 2 * pad_px - room_for_text_px, floor_px), natural_px)
+
+
 def _render_qr_image(payload: str, side_px: int) -> Image.Image:
     qr = segno.make(payload, error="m")
     modules = qr.symbol_size(border=1)[0]
@@ -210,7 +249,20 @@ def render_card_image(spec: LabelSpec) -> Image.Image:
 
     qr_side_px = 0
     if layout.qr_payload is not None:
-        qr_side_px = short_side_px - 2 * pad_px
+        # A square QR of the card's full height eats the whole width of a card
+        # that is nearly square — a 41.5 x 42 mm Gridfinity face leaves *zero*
+        # px for text, so every block rendered empty and the card carried a code
+        # and no human-readable identity at all. That is the one job PLAN.md
+        # gives the printed text: the zero-dependency fallback when a manual
+        # search is the only tool at hand.
+        #
+        # So the QR gives way, but only down to the ~13 mm it needs to stay
+        # scannable at this payload length. `MIN_QR_DIMENSION_MM` is that plus
+        # card-margin headroom, which is why the floor here is the smaller
+        # number. Below it there is no honest trade left and the QR keeps its
+        # size — a scannable code with no caption beats a caption beside a code
+        # that will not read.
+        qr_side_px = qr_side_for(width_px, short_side_px, pad_px, spec.dpi)
         qr_image = _render_qr_image(layout.qr_payload, qr_side_px)
         image.paste(qr_image, (width_px - pad_px - qr_side_px, pad_px))
 
@@ -230,17 +282,45 @@ def render_card_image(spec: LabelSpec) -> Image.Image:
     text_right_px = (width_px - pad_px - qr_side_px - pad_px) if qr_side_px else (width_px - pad_px)
     text_x = pad_px
     text_y = pad_px
+    available_px = max(text_right_px - text_x, 0)
     for block in layout.text:
         font, size = _font_for_role(block.role, short_side_px)
-        draw.text(
-            (text_x, text_y),
-            _ellipsised(draw, block.text, font, max(text_right_px - text_x, 0)),
-            fill="black",
-            font=font,
-        )
+        drawn = _fitted(draw, block, font, available_px)
+        if drawn:
+            draw.text((text_x, text_y), drawn, fill="black", font=font)
+        # The row is advanced either way, so a dropped block leaves its gap
+        # rather than sliding the ones below it into a different arrangement
+        # than the layout described.
         text_y += size + max(round(size * 0.3), 1)
 
     return image
+
+
+#: Roles that must be printed whole or not at all.
+#:
+#: A `short_id` is 7 data symbols **plus a mod-37 check symbol**, and the check
+#: symbol is the last character — so right-truncating it does not merely shorten
+#: the code, it removes the one character that makes a mistyped code detectable
+#: and leaves something that still looks like an id. `CLAUDE.md` treats the code
+#: as one indivisible unit; a partial one is worse than none, because a person
+#: will type it in.
+#:
+#: The justification for truncating at all — "losing the tail costs the leaf
+#: name, which is printed on its own line above" — is true of a `label_path` and
+#: false of everything here.
+_INDIVISIBLE_ROLES = frozenset({"secondary", "caption"})
+
+
+def _fitted(
+    draw: ImageDraw.ImageDraw,
+    block: TextBlock,
+    font: ImageFont.ImageFont | ImageFont.FreeTypeFont,
+    max_width_px: float,
+) -> str:
+    """What to actually draw for one block: the text, an ellipsis of it, or ""."""
+    if block.role in _INDIVISIBLE_ROLES:
+        return block.text if draw.textlength(block.text, font=font) <= max_width_px else ""
+    return _ellipsised(draw, block.text, font, max_width_px)
 
 
 def _ellipsised(

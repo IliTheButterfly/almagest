@@ -151,6 +151,7 @@ from elec_value_parser import parse as parse_electronics_value
 from sqlalchemy import String, func, select
 from sqlalchemy.orm import Session
 
+from app.api.limits import QTY_MILLI_MAX
 from app.models.catalog import Part
 from app.models.projects import BomLine, Project
 from app.services.scanning.codes import normalize_mpn
@@ -344,6 +345,8 @@ _DESIGNATOR_SHAPE = re.compile(r"^[A-Za-z_]+\d")
 #: would turn one bad cell into a hundred thousand designators and a demand of
 #: 99999 parts; keeping the token verbatim with a warning loses nothing, because
 #: the raw text is still on the row.
+_MAX_RANGE_DIGITS = 9
+
 _MAX_RANGE_SPAN = 512
 
 #: The leading letters of a designator, which is the only thing in a BOM that
@@ -1282,6 +1285,13 @@ def _expand_range(token: str, warnings: list[str]) -> tuple[str, ...]:
         # count is off by the span, which the quantity check then flags.
         warnings.append(f"{token!r} is not a designator range; kept verbatim")
         return (token,)
+    if len(start_text) > _MAX_RANGE_DIGITS or len(end_text) > _MAX_RANGE_DIGITS:
+        # `int()` on a 4300-digit string raises `ValueError` outright (CPython's
+        # integer-parsing guard), which escaped as a 500 from a cell somebody
+        # pasted. A designator with more digits than this is not a range whatever
+        # it is, so it keeps the same "kept verbatim" fate as the other refusals.
+        warnings.append(f"{token!r} has an implausibly long number; kept verbatim")
+        return (token,)
     start, end = int(start_text), int(end_text)
     if end < start:
         warnings.append(f"{token!r} runs backwards; kept verbatim")
@@ -1313,6 +1323,15 @@ def _declared_qty_milli(cell: str | None, warnings: list[str]) -> int | None:
     except InvalidOperation:
         warnings.append(f"quantity {cell!r} is not a number; ignored")
         return None
+    # `Decimal` parses "NaN" and "Infinity" happily, and then every arithmetic
+    # comparison below raises: `NaN <= 0` is `InvalidOperation`, `int(Infinity)`
+    # is `OverflowError`. Both escaped this function uncaught and 500'd the
+    # route, against a module whose first docstring line is that an import never
+    # fails. They are the same *kind* of cell as "four" — a person typed
+    # something that is not a quantity — so they get the same warning.
+    if not quantity.is_finite():
+        warnings.append(f"quantity {cell!r} is not a finite number; ignored")
+        return None
     if quantity <= 0:
         warnings.append(f"quantity {cell!r} is not positive; ignored")
         return None
@@ -1320,6 +1339,18 @@ def _declared_qty_milli(cell: str | None, warnings: list[str]) -> int | None:
     if milli == 0:
         warnings.append(f"quantity {cell!r} is below one milli-unit; ignored")
         return None
+    if milli > QTY_MILLI_MAX:
+        # The only milli writer that does not go through `limits.QtyMilli`,
+        # because it writes rows rather than accepting a request body. Anything
+        # past 2**63 died at the INSERT with a bare `OverflowError`; anything
+        # between the cap and that landed *silently* as a demand figure a
+        # thousand builds could not consume. Clamping keeps the line — the point
+        # of this module — and says what it did.
+        warnings.append(
+            f"quantity {cell!r} is larger than this system records; "
+            f"clamped to {QTY_MILLI_MAX // 1000}"
+        )
+        return QTY_MILLI_MAX
     return milli
 
 

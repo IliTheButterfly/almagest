@@ -18,13 +18,17 @@ from PIL import Image, ImageDraw
 from app.models.enums import LabelTemplate
 from app.services.label_backends import FileBackend, PdfSheetBackend
 from app.services.label_rendering import (
+    QR_MIN_SCANNABLE_MM,
     LabelFields,
     LabelSpec,
+    TextBlock,
     _ellipsised,
+    _fitted,
     _font_for_role,
     compute_card_layout,
     include_qr,
     mm_to_px,
+    qr_side_for,
     render_card_image,
 )
 
@@ -287,3 +291,84 @@ def test_text_too_wide_is_ellipsised_rather_than_cut_mid_word() -> None:
     # And a width that cannot hold even the ellipsis yields nothing at all,
     # rather than a stray glyph on the card.
     assert _ellipsised(draw, _DEEP_PATH, font, 1) == ""
+
+
+def test_a_short_id_is_printed_whole_or_not_at_all() -> None:
+    """Never a partial code.
+
+    A `short_id` is 7 data symbols **plus a mod-37 check symbol**, and the check
+    symbol is the last character — so right-truncating it removes precisely the
+    character that makes a mistyped code detectable, and leaves something that
+    still looks like an id. Somebody will type it in. A card with no code at all
+    is honest; `4K7T-92…` is not.
+    """
+    image = Image.new("RGB", (400, 60), "white")
+    draw = ImageDraw.Draw(image)
+    font, _ = _font_for_role("secondary", 200)
+    block = TextBlock("4K7T-92M8", "secondary")
+    whole = draw.textlength(block.text, font=font)
+
+    assert _fitted(draw, block, font, whole + 1) == "4K7T-92M8"
+    assert _fitted(draw, block, font, whole - 1) == ""
+    # A path still ellipsises — losing its tail costs the leaf name, which is
+    # printed on its own line above.
+    path = TextBlock("Workshop / Wall B / Cabinet A", "tertiary")
+    assert _fitted(draw, path, font, whole).endswith("…")
+
+
+@pytest.mark.parametrize(
+    ("width_mm", "height_mm"),
+    [
+        (40.0, 18.0),  # PLAN.md's worked example
+        (41.5, 42.0),  # a Gridfinity face: nearly square, the case that broke
+        (68.0, 40.0),  # a wide drawer front
+    ],
+)
+def test_every_card_with_a_qr_still_carries_readable_text(
+    width_mm: float, height_mm: float
+) -> None:
+    """A square QR of the card's full height took the whole width of a nearly
+    square card, so every text block rendered empty and the card carried a code
+    and nothing a person could read. The QR gives way instead, down to the
+    ~13 mm it needs to stay scannable.
+    """
+    spec = _spec(
+        width_mm,
+        height_mm,
+        fields=LabelFields(primary="A1", secondary="4K7T-92M8", tertiary="Workshop / Cabinet A"),
+    )
+    image = render_card_image(spec)
+
+    pixels = image.load()
+    assert pixels is not None
+    width_px, height_px = image.size
+    # Strictly left of where the QR actually starts — computed the same way the
+    # renderer computes it, because a fixed fraction of the width would count QR
+    # ink as text and pass for the wrong reason.
+    pad_px = max(round(min(width_px, height_px) * 0.06), 2)
+    qr_left = width_px - pad_px - qr_side_for(width_px, min(width_px, height_px), pad_px, spec.dpi)
+    text_ink = [
+        1 for y in range(height_px) for x in range(qr_left) if pixels[x, y] != (255, 255, 255)
+    ]
+    assert text_ink, "the card carries a QR and nothing anybody can read"
+
+
+def test_the_qr_gives_way_to_text_but_never_below_what_will_scan() -> None:
+    """Asserted on the computed side, not on pixels: a QR's quiet zone means its
+    ink does not begin at its edge, so measuring the rendered image measures the
+    wrong thing."""
+    # A landscape card: the QR is already narrower than the room it may take, so
+    # nothing changes for the geometry PLAN.md works through.
+    wide = qr_side_for(width_px=472, short_side_px=213, pad_px=13, dpi=300)
+    assert wide == 213 - 2 * 13
+
+    # A nearly square card: the natural size would take the whole width, so it
+    # is cut back to leave text room.
+    square = qr_side_for(width_px=490, short_side_px=490, pad_px=29, dpi=300)
+    assert square < 490 - 2 * 29
+    assert square >= mm_to_px(QR_MIN_SCANNABLE_MM, 300)
+
+    # A small square card, where honouring the text share would take the QR
+    # below what scans. The floor wins.
+    tiny = qr_side_for(width_px=236, short_side_px=236, pad_px=14, dpi=300)
+    assert tiny == mm_to_px(QR_MIN_SCANNABLE_MM, 300)

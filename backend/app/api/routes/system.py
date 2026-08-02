@@ -31,6 +31,7 @@ from app import __version__
 from app.db import maintenance
 from app.db.session import get_db
 from app.models.system import CacheState
+from app.services import documents
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -206,8 +207,48 @@ class RebuildResult(BaseModel):
     rows_touched: int
 
 
+class BlobScrubResponse(BaseModel):
+    """What re-hashing the blob store found. Complete counts, not a sample."""
+
+    checked: int
+    #: Addresses whose file is gone. Recoverable: the row still records what the
+    #: file was, so re-uploading the same bytes repairs it.
+    missing: list[str]
+    #: Present but not hashing to its own name. **The dangerous one** — it is
+    #: served as authoritative, cached `immutable`, and every future upload of
+    #: the correct bytes dedups onto it.
+    corrupt: list[str]
+
+
 class RebuildResponse(BaseModel):
     rebuilt: list[RebuildResult]
+
+
+@router.post("/blobs/scrub", response_model=BlobScrubResponse)
+def scrub_blobs(db: Session = Depends(get_db)) -> BlobScrubResponse:
+    """Re-hash every stored blob against its own name. Reads only; repairs nothing.
+
+    **Its own route, deliberately not part of `POST /maintenance`.** Every blob is
+    read in full, so this is I/O-bound in the size of the store — putting a
+    gigabyte of datasheet hashing inside the nightly pass would make the pass that
+    rebuilds occupancy and checks two caches take as long as the slowest disk in
+    the deployment. Separate call, separate schedule.
+
+    It has to be a route at all for the same reason the nightly pass is: the
+    CronJob has no volume mount and there is exactly one process holding the
+    ReadWriteOnce disk. `app.scripts.maintenance --scrub` is what calls it.
+
+    Nothing is deleted or rewritten. A blob is re-fetchable — it is a PDF on a
+    manufacturer's website — while the row's metadata, its links and its extracted
+    text are not, so turning one bad sector into a deleted document would trade a
+    recoverable failure for an unrecoverable one.
+    """
+    report = documents.scrub(db)
+    return BlobScrubResponse(
+        checked=report.checked,
+        missing=list(report.missing),
+        corrupt=list(report.corrupt),
+    )
 
 
 @router.post("/caches/rebuild", response_model=RebuildResponse)

@@ -99,6 +99,9 @@ class Station:
         self.now = 0.0
         self.minted: list[str] = []
         self._loop = asyncio.new_event_loop()
+        # Made current so a test can construct loop-bound primitives (an
+        # `asyncio.Event` to hold a commit open) outside `run_until_complete`.
+        asyncio.set_event_loop(self._loop)
         self.presence = TagPresence(identify_polls=5, absent_polls=3)
         self.session = StationSession(
             api,
@@ -179,6 +182,16 @@ class Station:
                 client_op_id=client_op_id,
             )
         )
+
+    def gather(self, *coros: Any) -> list[Any]:
+        """Run several session calls concurrently on the one owned loop.
+
+        The only way to tell the session's `asyncio.Lock` apart from no lock at
+        all: everything else here drives one `run_until_complete` at a time, so
+        two coroutines never overlap and removing the lock changes nothing any
+        test can see.
+        """
+        return self._loop.run_until_complete(asyncio.gather(*coros))
 
     def advance(self, ms: float) -> None:
         """Step the hold-off clock. Monotonic seconds, as `time.monotonic` returns."""

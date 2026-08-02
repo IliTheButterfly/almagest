@@ -32,10 +32,14 @@ who is already looking at a known drift and wants the exit code to mean
 ## What it does and does not repair
 
 Just the nightly pass: dirty occupancy is rebuilt, balances and reservations are
-only checked. `--rebuild` reaches the repair route, and is a deliberate,
-operator-run action — never the schedule. Repairing drift every night erases the
-symptom and leaves the write-path bug that caused it, so the wrong numbers come
-back tomorrow with nothing recorded.
+only checked. `--scrub` is the other job this program can run — re-hashing every
+stored blob against its own name — kept out of the nightly pass because it reads
+the whole blob store and would otherwise set the pass's duration.
+
+`--rebuild` reaches the repair route, and is a deliberate, operator-run action —
+never the schedule. Repairing drift every night erases the symptom and leaves the
+write-path bug that caused it, so the wrong numbers come back tomorrow with
+nothing recorded.
 """
 
 from __future__ import annotations
@@ -92,6 +96,32 @@ def run_check(base_url: str, *, timeout: float = DEFAULT_TIMEOUT) -> bool:
     return clean
 
 
+def run_scrub(base_url: str, *, timeout: float = DEFAULT_TIMEOUT) -> bool:
+    """Re-hash the blob store. True when every blob still hashes to its own name.
+
+    Separate from the nightly pass and separately scheduled, because it reads
+    every stored blob in full: folding it into `run_check` would make the pass
+    that rebuilds occupancy take as long as the slowest disk in the deployment.
+
+    A finding is a failed Job for the same reason drift is — there is no metrics
+    stack here, and a corrupt blob is served as authoritative and cached
+    `immutable`, so it is exactly the sort of thing that must not sit in a log
+    nobody reads.
+    """
+    body = post_json(base_url, "api/system/blobs/scrub", {}, timeout=timeout)
+    checked = int(body.get("checked", 0))
+    missing = list(body.get("missing", []))
+    corrupt = list(body.get("corrupt", []))
+    log.info("scrubbed %s blob(s)", checked)
+    if missing:
+        log.error("%s blob(s) missing from the store: %s", len(missing), ", ".join(missing[:20]))
+    if corrupt:
+        log.error(
+            "%s blob(s) do not hash to their own name: %s", len(corrupt), ", ".join(corrupt[:20])
+        )
+    return not missing and not corrupt
+
+
 def run_rebuild(base_url: str, caches: list[str], *, timeout: float = DEFAULT_TIMEOUT) -> None:
     body = post_json(base_url, "api/system/caches/rebuild", {"caches": caches}, timeout=timeout)
     for result in body.get("rebuilt", []):
@@ -128,6 +158,14 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--scrub",
+        action="store_true",
+        help=(
+            "Re-hash every stored blob against its own name instead of running the "
+            "cache pass. Reads the whole blob store, so it gets its own schedule."
+        ),
+    )
+    parser.add_argument(
         "--allow-drift",
         action="store_true",
         help="Exit 0 even when drift is found. For a known, already-triaged drift.",
@@ -144,7 +182,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.rebuild is not None:
             run_rebuild(args.base_url, list(args.rebuild), timeout=args.timeout)
             return 0
-        clean = run_check(args.base_url, timeout=args.timeout)
+        if args.scrub:
+            clean = run_scrub(args.base_url, timeout=args.timeout)
+        else:
+            clean = run_check(args.base_url, timeout=args.timeout)
     except urllib.error.HTTPError as error:
         # Distinguished from drift on purpose: 2 is "the check could not run",
         # 1 is "the check ran and found something". An operator reading a failed
@@ -157,7 +198,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if not clean and not args.allow_drift:
-        log.error("cache drift found; failing so this run is visible as a failed Job")
+        log.error(
+            "%s found; failing so this run is visible as a failed Job",
+            "blob damage" if args.scrub else "cache drift",
+        )
         return 1
     return 0
 

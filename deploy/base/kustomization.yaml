@@ -22,6 +22,7 @@ resources:
   - web.yaml
   - backup.yaml
   - maintenance.yaml
+  - blob-scrub.yaml
 
 labels:
   - pairs:

@@ -780,6 +780,36 @@
         "title": "BindResponse",
         "type": "object"
       },
+      "BlobScrubResponse": {
+        "description": "What re-hashing the blob store found. Complete counts, not a sample.",
+        "properties": {
+          "checked": {
+            "title": "Checked",
+            "type": "integer"
+          },
+          "corrupt": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Corrupt",
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          }
+        },
+        "required": [
+          "checked",
+          "missing",
+          "corrupt"
+        ],
+        "title": "BlobScrubResponse",
+        "type": "object"
+      },
       "BomImportRequest": {
         "properties": {
           "client_op_id": {
@@ -14709,6 +14739,18 @@
             ],
             "title": "Inner Volume Mm3"
           },
+          "last_printed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Printed At"
+          },
           "location_id": {
             "maximum": 9.223372036854776e+18,
             "minimum": 1.0,
@@ -14774,6 +14816,7 @@
           "sort_order",
           "short_id",
           "has_tag",
+          "last_printed_at",
           "lot_count",
           "qty_milli"
         ],
@@ -23197,6 +23240,28 @@
         "summary": "Undo Movement",
         "tags": [
           "stock"
+        ]
+      }
+    },
+    "/api/system/blobs/scrub": {
+      "post": {
+        "description": "Re-hash every stored blob against its own name. Reads only; repairs nothing.\n\n**Its own route, deliberately not part of `POST /maintenance`.** Every blob is\nread in full, so this is I/O-bound in the size of the store \u2014 putting a\ngigabyte of datasheet hashing inside the nightly pass would make the pass that\nrebuilds occupancy and checks two caches take as long as the slowest disk in\nthe deployment. Separate call, separate schedule.\n\nIt has to be a route at all for the same reason the nightly pass is: the\nCronJob has no volume mount and there is exactly one process holding the\nReadWriteOnce disk. `app.scripts.maintenance --scrub` is what calls it.\n\nNothing is deleted or rewritten. A blob is re-fetchable \u2014 it is a PDF on a\nmanufacturer's website \u2014 while the row's metadata, its links and its extracted\ntext are not, so turning one bad sector into a deleted document would trade a\nrecoverable failure for an unrecoverable one.",
+        "operationId": "scrub_blobs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobScrubResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Scrub Blobs",
+        "tags": [
+          "system"
         ]
       }
     },

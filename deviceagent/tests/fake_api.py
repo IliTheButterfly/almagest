@@ -13,11 +13,13 @@ real socket, which is the only proof that matters.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from agent.api import (
     Action,
     ActionKind,
+    ApiUnavailable,
     ContainerView,
     LotView,
     Movement,
@@ -80,6 +82,10 @@ class FakeStationApi:
         self.fail_resolve: Exception | None = None
         self.fail_read: Exception | None = None
         self.fail_commit: Exception | None = None
+        #: Record the movement, then raise as though the reply was lost.
+        self.lose_response = False
+        #: Held open by a test to keep a commit in flight.
+        self.gate: asyncio.Event | None = None
 
         self.resolve_calls: list[tuple[str | None, str | None]] = []
         self.read_calls: list[int] = []
@@ -110,6 +116,11 @@ class FakeStationApi:
         self.commit_attempts += 1
         if self.fail_commit is not None:
             raise self.fail_commit
+        if self.gate is not None:
+            # Lets a test hold a commit open and run something else against the
+            # session while it is in flight — the only way to exercise the lock,
+            # which otherwise cannot be told apart from no lock at all.
+            await self.gate.wait()
         stored = self._stored.get(client_op_id)
         if stored is not None:
             return Movement(seqs=stored.seqs, replayed=True, lot=stored.lot)
@@ -129,4 +140,12 @@ class FakeStationApi:
         self._next_seq += 1
         movement = Movement(seqs=(self._next_seq,), replayed=False, lot=updated)
         self._stored[client_op_id] = movement
+        if self.lose_response:
+            # **Landed, and the caller never heard.** The state the whole
+            # key-rotation mechanism exists for, and one this fake could not
+            # express: `fail_commit` raises *before* the row is recorded, which is
+            # the harmless case. Here the movement is real and the agent sees a
+            # dead socket, so reusing that key would replay the first movement and
+            # silently swallow the second.
+            raise ApiUnavailable("the response never arrived")
         return movement
