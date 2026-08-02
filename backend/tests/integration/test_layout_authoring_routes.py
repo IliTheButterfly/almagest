@@ -365,6 +365,65 @@ def test_reapply_layout_requires_an_explicit_label_for_every_slot(client: TestCl
 # ---------------------------------------------------------------------------
 
 
+def test_a_relaid_out_slot_gives_up_its_printed_code(client: TestClient) -> None:
+    """A card printed for a slot that a re-layout deleted must stop working — and
+    above all must not start meaning a *different* drawer.
+
+    `locations.id` is an `INTEGER PRIMARY KEY` with no `AUTOINCREMENT`, so SQLite
+    reuses a freed rowid. The re-layout path deleted the location row and left its
+    `object_ids` row behind, so the next slot created in that cabinet adopted the
+    freed id — and the card in somebody's hand silently began resolving to the
+    wrong compartment. `removal._delete` has released these four tables since it
+    was written; this path never did.
+
+    Two assertions, and the second is the one that matters: a dangling code that
+    resolves to nothing is a nuisance, a code that resolves to somebody else's
+    drawer is the failure `removal.py`'s docstring calls worse than no scan at all.
+    """
+    cabinet = _instantiate_one(client, rows=1, cols=2, slug="relayout-identity")
+    slots = client.get(f"/api/locations/{cabinet['id']}/layout").json()["slots"]
+
+    codes: dict[str, str] = {}
+    for slot in slots:
+        minted = client.post(f"/api/locations/{slot['location_id']}/short-id", json={})
+        assert minted.status_code in {200, 201}, minted.text
+        codes[slot["slot_label"]] = minted.json()["short_id"]
+    doomed = codes["A2"]
+
+    # Replace the pair with a single wide cell, then split it again — the two-tap
+    # merge/split a person does in the slot editor.
+    merged = client.post(
+        f"/api/locations/{cabinet['id']}/reapply-layout",
+        json={
+            "slots": [
+                {"row_idx": 0, "col_idx": 0, "row_span": 1, "col_span": 2, "slot_label": "Wide"}
+            ]
+        },
+    )
+    assert merged.status_code == 200, merged.text
+    resplit = client.post(
+        f"/api/locations/{cabinet['id']}/reapply-layout",
+        json={
+            "slots": [
+                {"row_idx": 0, "col_idx": 0, "row_span": 1, "col_span": 1, "slot_label": "Z1"},
+                {"row_idx": 0, "col_idx": 1, "row_span": 1, "col_span": 1, "slot_label": "Z2"},
+            ]
+        },
+    )
+    assert resplit.status_code == 200, resplit.text
+
+    resolved = client.get(f"/api/resolve/{doomed}")
+
+    # The card is dead, and says so rather than pointing somewhere.
+    assert resolved.status_code in {200, 404}, resolved.text
+    if resolved.status_code == 200:
+        assert resolved.json()["status"] != "resolved", resolved.json()
+
+    # And no surviving slot has inherited the code.
+    live = client.get(f"/api/locations/{cabinet['id']}/layout").json()["slots"]
+    assert doomed not in {slot["short_id"] for slot in live}
+
+
 def test_layout_reports_short_id_tag_and_stock_state(client: TestClient) -> None:
     cabinet_type = _create_type(client, "layout-state-cabinet", grid_rows=1, grid_cols=1)
     room = _create_location(client, "Layout-state room")

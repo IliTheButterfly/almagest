@@ -214,11 +214,56 @@ def render_card_image(spec: LabelSpec) -> Image.Image:
         qr_image = _render_qr_image(layout.qr_payload, qr_side_px)
         image.paste(qr_image, (width_px - pad_px - qr_side_px, pad_px))
 
+    # **The text has to be bounded on the right.** Nothing upstream knows
+    # the pixel geometry: `compute_card_layout` decides *what* to print, and a
+    # `label_path` is as long as the tree is deep. Drawn unbounded at PLAN.md's own
+    # 40x18 mm card, a five-level path ran straight through the QR's data and
+    # timing patterns — so the code would not scan, on a card that has already
+    # been printed and put in a drawer front — and then PIL clipped the rest at
+    # the image edge, mid-word and with nothing to say it had been cut.
+    #
+    # Only the horizontal bound is enforced. A vertical one would be unreachable
+    # dead code: `compute_card_layout` emits at most four blocks, whose sizes and
+    # gaps come to about 0.69 of the card's *shorter* side, so they cannot reach
+    # the bottom of any card this renders. Adding a fifth role is the moment to
+    # revisit that, and there is no guard here pretending to have handled it.
+    text_right_px = (width_px - pad_px - qr_side_px - pad_px) if qr_side_px else (width_px - pad_px)
     text_x = pad_px
     text_y = pad_px
     for block in layout.text:
         font, size = _font_for_role(block.role, short_side_px)
-        draw.text((text_x, text_y), block.text, fill="black", font=font)
+        draw.text(
+            (text_x, text_y),
+            _ellipsised(draw, block.text, font, max(text_right_px - text_x, 0)),
+            fill="black",
+            font=font,
+        )
         text_y += size + max(round(size * 0.3), 1)
 
     return image
+
+
+def _ellipsised(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.ImageFont | ImageFont.FreeTypeFont,
+    max_width_px: float,
+) -> str:
+    """`text`, shortened with a trailing ellipsis until it fits `max_width_px`.
+
+    Truncating from the right keeps the start, which for a `label_path` is the
+    room and the cabinet — the part that tells somebody holding the card which
+    wall to walk to. Losing the tail costs the leaf name, which is also printed
+    on its own line above.
+    """
+    if max_width_px <= 0:
+        return ""
+    if draw.textlength(text, font=font) <= max_width_px:
+        return text
+    ellipsis = "…"
+    if draw.textlength(ellipsis, font=font) > max_width_px:
+        return ""
+    kept = text
+    while kept and draw.textlength(kept + ellipsis, font=font) > max_width_px:
+        kept = kept[:-1]
+    return kept + ellipsis

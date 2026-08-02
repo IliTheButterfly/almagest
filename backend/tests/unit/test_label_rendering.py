@@ -13,13 +13,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from app.models.enums import LabelTemplate
 from app.services.label_backends import FileBackend, PdfSheetBackend
 from app.services.label_rendering import (
     LabelFields,
     LabelSpec,
+    _ellipsised,
+    _font_for_role,
     compute_card_layout,
     include_qr,
     mm_to_px,
@@ -215,3 +217,73 @@ def test_pdf_sheet_backend_writes_a_nonempty_pdf(tmp_path: Path) -> None:
     assert saved == output
     assert saved.exists()
     assert saved.stat().st_size > 0
+
+
+# ---------------------------------------------------------------------------
+# Ink stays on the card, and off the QR
+# ---------------------------------------------------------------------------
+
+#: A five-level path is ordinary, not pathological: room / wall / rack / shelf /
+#: cabinet is exactly what `label_path` holds for a drawer in a real workshop.
+_DEEP_PATH = "Workshop / North wall / Rack 2 / Shelf 3 / Cabinet A"
+
+
+def _ink_columns(image: Image.Image) -> list[int]:
+    """x of every non-white pixel. Cheap enough at these card sizes."""
+    pixels = image.load()
+    assert pixels is not None
+    width, height = image.size
+    return [x for y in range(height) for x in range(width) if pixels[x, y] != (255, 255, 255)]
+
+
+def test_a_long_path_does_not_draw_over_the_qr() -> None:
+    """The failure that matters: ink in the QR's data and timing region means
+    the code does not scan, and the whole point of the card is that it does.
+
+    The QR occupies the right-hand square, so nothing but the QR itself may put
+    ink there. Compared against the same card with no text at all, so the
+    assertion is about the *text* and not about the QR's own pixels.
+    """
+    geometry = {"width_mm": 40.0, "height_mm": 18.0}
+    qr_only = render_card_image(
+        _spec(**geometry, fields=LabelFields(primary="", secondary=None, tertiary=None))
+    )
+    with_text = render_card_image(
+        _spec(
+            **geometry,
+            fields=LabelFields(primary="A1", secondary="4K7T-92M8", tertiary=_DEEP_PATH),
+        )
+    )
+
+    qr_left = min(_ink_columns(qr_only))
+    text_ink = [x for x in _ink_columns(with_text) if x >= qr_left]
+    qr_ink = [x for x in _ink_columns(qr_only) if x >= qr_left]
+
+    # Every pixel at or right of the QR's left edge belongs to the QR, so the
+    # two counts match. Text spilling in raises the first above the second.
+    assert len(text_ink) == len(qr_ink)
+
+
+def test_text_too_wide_is_ellipsised_rather_than_cut_mid_word() -> None:
+    """PIL clips at the image edge, so an over-wide block never *bleeds* — it is
+    silently truncated, which on a card reads as a printing fault rather than as
+    "there was more". The tail is dropped with an ellipsis instead.
+
+    Truncating from the right is deliberate: for a `label_path` the start names
+    the room and the cabinet, which is the half that tells somebody holding the
+    card which wall to walk to.
+    """
+    image = Image.new("RGB", (200, 40), "white")
+    draw = ImageDraw.Draw(image)
+    font, _ = _font_for_role("tertiary", 200)
+
+    fits = _ellipsised(draw, "Workshop", font, 400)
+    shortened = _ellipsised(draw, _DEEP_PATH, font, 100)
+
+    assert fits == "Workshop"
+    assert shortened.endswith("…")
+    assert _DEEP_PATH.startswith(shortened[:-1])
+    assert draw.textlength(shortened, font=font) <= 100
+    # And a width that cannot hold even the ellipsis yields nothing at all,
+    # rather than a stray glyph on the card.
+    assert _ellipsised(draw, _DEEP_PATH, font, 1) == ""

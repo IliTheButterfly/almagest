@@ -709,6 +709,31 @@ class ProvisioningKind(StrEnum):
     VERIFY = "verify"
 
 
+class UndoNotRestoredReason(StrEnum):
+    """Why an undo did less than the word implies.
+
+    An enum rather than three bare string literals so that the set is
+    **enumerable from the schema**. Every one of these reaches somebody standing
+    at a cabinet, and each needs a sentence naming the slot and the next action —
+    a raw token there ("Undone, with a caveat / prior_slot_rebound") names nothing
+    and suggests nothing. Typed here, the generated TypeScript is a string-literal
+    union and `TagWalkPanel`'s `UNDO_CAVEATS` is a `Record` over it, so adding a
+    fourth member fails the frontend build until it has been given words. That is
+    the same trick `mcpserver/coverage.py` plays for routes: nobody has to
+    remember.
+    """
+
+    #: The slot the prior binding came from has a different tag now, so there is
+    #: nowhere to put it back.
+    PRIOR_SLOT_REBOUND = "prior_slot_rebound"
+    #: The prior tag is bound to another container now. Restoring it would put one
+    #: physical UID on two containers, which `bind` refuses outright.
+    PRIOR_TAG_BOUND_ELSEWHERE = "prior_tag_bound_elsewhere"
+    #: The slot this action bound has been rebound by something else, so the undo
+    #: removed nothing at all.
+    SLOT_REBOUND_SINCE = "slot_rebound_since"
+
+
 class ProvisioningActionKind(StrEnum):
     """What one step of a walk did — the log both the cursor and the undo stack
     are derived from.

@@ -2108,6 +2108,10 @@ export type BindResponse = Schemas["BindResponse"];
 export type SkipResponse = Schemas["SkipResponse"];
 /** Named for the walk, because `UndoResponse` is already the *ledger*'s undo. */
 export type ProvisioningUndoResponse = Schemas["ProvisioningUndoResponse"];
+/** Why an undo did less than the word implies. A closed set, generated from the
+ *  backend enum, so `TagWalkPanel`'s caveat sentences can be exhaustive by type
+ *  rather than by somebody remembering. */
+export type UndoNotRestoredReason = Schemas["UndoNotRestoredReason"];
 export type CheckResponse = Schemas["CheckResponse"];
 export type MismatchRead = Schemas["MismatchRead"];
 export type ConflictRead = Schemas["ConflictRead"];

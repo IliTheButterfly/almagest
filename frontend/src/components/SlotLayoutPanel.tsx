@@ -417,6 +417,17 @@ function Editor({
                       ...(slot.lotCount > 0 ? ["has_stock"] : []),
                       ...(slot.hasTag ? ["has_tag"] : []),
                     ])}; this will not save until it is moved or cleared`}
+                  {/* A printed card does not block — cardstock is cheap and a
+                      re-layout is a legitimate thing to do. But the card in the
+                      drawer front stops working the moment this saves, and the
+                      person doing it is the person who will find that out, so
+                      they are told before rather than after. */}
+                  {!blocked && slot.shortId !== null && (
+                    <span className="muted-note">
+                      {" "}
+                      — the card printed for this slot ({slot.shortId}) will stop working
+                    </span>
+                  )}
                 </li>
               );
             })}

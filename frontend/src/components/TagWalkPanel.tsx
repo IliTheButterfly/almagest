@@ -49,6 +49,7 @@ import {
   type MismatchRead,
   type ProvisioningState,
   type SlotCursorRead,
+  type UndoNotRestoredReason,
   type VerificationState,
 } from "../lib/api/client";
 import { DecodeFeedback, FEEDBACK_FLASH_MS } from "../lib/scan/feedback";
@@ -159,7 +160,7 @@ function useTagSource(
  * / prior_slot_rebound" names nothing and suggests nothing. A refusal with no
  * path forward is the failure mode this whole feature is built to avoid.
  */
-const UNDO_CAVEATS: Record<string, string> = {
+const UNDO_CAVEATS: Record<UndoNotRestoredReason, string> = {
   prior_slot_rebound:
     "The tag that used to be here could not be put back: its old slot has been " +
     "given a different tag since. Unbind that one first if you want the original back.",
@@ -171,10 +172,18 @@ const UNDO_CAVEATS: Record<string, string> = {
     "tag. The sticker on the drawer is still doing its job — leave it where it is.",
 };
 
-/** Falls back to the token rather than to silence: an unmapped reason is a bug,
- *  and hiding it would make the undo look clean when it was not. */
+/**
+ * The sentence for one reason.
+ *
+ * `UNDO_CAVEATS` is a `Record` over the generated union, so a reason added to
+ * the backend enum fails `tsc` here until it has been given words — the check
+ * that matters, because the alternative is a docstring asking a future author to
+ * remember. The runtime fallback survives for the case types cannot cover: a
+ * server ahead of this bundle. It shows the token, which is ugly and true,
+ * rather than hiding a caveat behind a clean "Undone".
+ */
 function undoCaveat(reason: string): string {
-  return UNDO_CAVEATS[reason] ?? reason;
+  return UNDO_CAVEATS[reason as UndoNotRestoredReason] ?? reason;
 }
 
 // ------------------------------------------------------------- the panel ----

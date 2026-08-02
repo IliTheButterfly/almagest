@@ -400,6 +400,54 @@ def apply_removal(session: Session, plan: RemovalPlan) -> RemovalPlan:
     return plan
 
 
+def release_location_identity(session: Session, location_id: int) -> None:
+    """Give up every name that pointed at this container, before its row goes.
+
+    **`locations.id` is an `INTEGER PRIMARY KEY` with no `AUTOINCREMENT`, so
+    SQLite reuses a freed rowid.** Every one of these tables addresses a location
+    by that integer, so a row left behind does not merely dangle — it is adopted
+    by whatever container is created next, and the printed card in somebody's hand
+    silently starts meaning a different drawer. A scan that lands on the wrong
+    container is worse than a scan that lands on nothing.
+
+    * `object_ids` — the short id. Left behind, `/api/resolve` reports the code as
+      `resolved` and hands back a pk that either does not exist or belongs to
+      somebody else.
+    * `label_prints` — what was printed and when, which is how "is this card
+      current?" is answerable at all.
+    * `document_links` — a photograph, which after rowid reuse becomes the *next*
+      container's picture.
+    * `barcode_aliases` — a code somebody taught to mean this drawer.
+
+    Public because two paths destroy a container and both must do this:
+    `removal._delete`, and `layout_authoring.apply_layout_to_location`, which
+    deletes the slots a re-layout removed. The second one did not, for as long as
+    it has existed.
+    """
+    session.execute(
+        delete(ObjectId).where(
+            ObjectId.entity_type == EntityType.LOCATION, ObjectId.entity_pk == location_id
+        )
+    )
+    session.execute(
+        delete(LabelPrint).where(
+            LabelPrint.entity_type == EntityType.LOCATION, LabelPrint.entity_pk == location_id
+        )
+    )
+    session.execute(
+        delete(DocumentLink).where(
+            DocumentLink.entity_type == EntityType.LOCATION,
+            DocumentLink.entity_pk == location_id,
+        )
+    )
+    session.execute(
+        delete(BarcodeAlias).where(
+            BarcodeAlias.entity_type == EntityType.LOCATION,
+            BarcodeAlias.entity_pk == location_id,
+        )
+    )
+
+
 def _mark_parent_occupancy_dirty(location: Location) -> None:
     """Retiring, restoring or deleting a container changes its parent's fill.
 
@@ -476,28 +524,7 @@ def _delete(session: Session, location: Location) -> None:
     removable. Deleting one row at a time is the only way deepest-first ordering
     reaches SQL at all.
     """
-    session.execute(
-        delete(ObjectId).where(
-            ObjectId.entity_type == EntityType.LOCATION, ObjectId.entity_pk == location.id
-        )
-    )
-    session.execute(
-        delete(LabelPrint).where(
-            LabelPrint.entity_type == EntityType.LOCATION, LabelPrint.entity_pk == location.id
-        )
-    )
-    session.execute(
-        delete(DocumentLink).where(
-            DocumentLink.entity_type == EntityType.LOCATION,
-            DocumentLink.entity_pk == location.id,
-        )
-    )
-    session.execute(
-        delete(BarcodeAlias).where(
-            BarcodeAlias.entity_type == EntityType.LOCATION,
-            BarcodeAlias.entity_pk == location.id,
-        )
-    )
+    release_location_identity(session, location.id)
     # Before the row goes: `_mark_parent_occupancy_dirty` reads `parent_id` off
     # it, and a deleted instance cannot answer. A hard delete empties a slot
     # exactly as a retire does, so the parent is stale in the same way and the
