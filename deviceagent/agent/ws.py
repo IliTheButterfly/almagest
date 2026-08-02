@@ -74,9 +74,7 @@ def _add_headers(
     the handshake has been accepted and only adds headers.
     """
 
-    def process(
-        connection: ServerConnection, request: Request, response: Response
-    ) -> Response:
+    def process(connection: ServerConnection, request: Request, response: Response) -> Response:
         del connection, request
         for name, value in headers.items():
             response.headers[name] = value
@@ -154,12 +152,8 @@ async def serve_events(
             # sink left attached would be sent to on every event for ever.
             hub.detach(sink)
 
-    extra_headers = (
-        private_network_headers(allowed_origin) if allowed_origin else {}
-    )
+    extra_headers = private_network_headers(allowed_origin) if allowed_origin else {}
 
-    async with serve(
-        handler, host, port, process_response=_add_headers(extra_headers)
-    ) as server:
+    async with serve(handler, host, port, process_response=_add_headers(extra_headers)) as server:
         bound = next(iter(server.sockets)).getsockname()[1]
         yield int(bound)

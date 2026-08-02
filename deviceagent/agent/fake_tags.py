@@ -191,9 +191,7 @@ class FakeWritableTagSource:
         # Raises ValueError when it will not fit, before anything is touched.
         pages = ndef.pages_for_uri(url, user_pages=self.user_pages)
         if self.url is not None and not overwrite:
-            raise TagWriteRefused(
-                f"the tag already carries {self.url!r}", reason=tags.NOT_BLANK
-            )
+            raise TagWriteRefused(f"the tag already carries {self.url!r}", reason=tags.NOT_BLANK)
 
         self.writes.append(url)
         if self.writes_land:

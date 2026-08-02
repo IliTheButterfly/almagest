@@ -103,8 +103,7 @@ class SerialFlipperLink:
             import serial
         except ImportError as error:  # pragma: no cover — needs the extra absent
             raise FlipperLinkError(
-                "talking to a Flipper over USB needs the `flipper` extra: "
-                "uv sync --extra flipper"
+                "talking to a Flipper over USB needs the `flipper` extra: uv sync --extra flipper"
             ) from error
         self._port = port
         try:
@@ -193,8 +192,7 @@ class BleFlipperLink:
             import bleak
         except ImportError as error:  # pragma: no cover — needs the extra absent
             raise FlipperLinkError(
-                "talking to a Flipper over BLE needs the `flipper` extra: "
-                "uv sync --extra flipper"
+                "talking to a Flipper over BLE needs the `flipper` extra: uv sync --extra flipper"
             ) from error
         self._bleak = bleak
         self._address = address

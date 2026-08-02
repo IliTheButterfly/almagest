@@ -269,9 +269,7 @@ def pages_for_uri(url: str, *, user_pages: int = NTAG213_USER_PAGES) -> list[byt
     body += b"\x00" * padding
     pages = [body[i : i + PAGE_SIZE] for i in range(0, len(body), PAGE_SIZE)]
     if len(pages) > user_pages:
-        raise ValueError(
-            f"{url!r} needs {len(pages)} pages and the tag has {user_pages}"
-        )
+        raise ValueError(f"{url!r} needs {len(pages)} pages and the tag has {user_pages}")
     return pages
 
 

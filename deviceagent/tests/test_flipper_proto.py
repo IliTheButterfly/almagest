@@ -68,7 +68,8 @@ class TestEncoding:
         assert len(name) == 24
 
         content = (
-            b"\x0a\x18" + name.encode()  # field 1 (name), len 24
+            b"\x0a\x18"
+            + name.encode()  # field 1 (name), len 24
             + b"\x12\x03RPC"  # field 2 (args), len 3
         )
         assert len(content) == 31
@@ -76,8 +77,7 @@ class TestEncoding:
         expected = (
             b"\x24"  # length prefix: 36
             b"\x08\x02"  # command_id = 2
-            b"\x82\x01\x1f"  # field 16 (app_start_request), wire 2, len 31
-            + content
+            b"\x82\x01\x1f" + content  # field 16 (app_start_request), wire 2, len 31
         )
         assert proto.start_app(2, name=name, args=proto.RPC_LAUNCH_ARGS) == expected
 

@@ -253,8 +253,7 @@ class FlipperRpc:
         line = self._next_line(deadline)
         if line is None:
             raise TagSourceError(
-                f"Antlia on {self.description} did not answer {payload!r} in "
-                f"{self._timeout_s:.0f}s"
+                f"Antlia on {self.description} did not answer {payload!r} in {self._timeout_s:.0f}s"
             )
         return line
 

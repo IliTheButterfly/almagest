@@ -360,9 +360,7 @@ def tag_writing(*, request_id: str, device_id: str, url: str) -> Event:
     return Event(TAG_WRITING, {"request_id": request_id, "device_id": device_id, "url": url})
 
 
-def tag_written(
-    *, request_id: str, device_id: str, url: str, read_back_url: str | None
-) -> Event:
+def tag_written(*, request_id: str, device_id: str, url: str, read_back_url: str | None) -> Event:
     """The write completed, and this is what the tag read back.
 
     **`read_back_url` is the payload, and there is deliberately no `verified`

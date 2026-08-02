@@ -106,9 +106,7 @@ class TagCapabilities:
 READS_BOTH: Final = TagCapabilities(reads_uid=True, reads_ndef=True, writes_ndef=False)
 
 #: Both carriers and a write. What a provisioning walk needs end to end.
-READS_BOTH_AND_WRITES: Final = TagCapabilities(
-    reads_uid=True, reads_ndef=True, writes_ndef=True
-)
+READS_BOTH_AND_WRITES: Final = TagCapabilities(reads_uid=True, reads_ndef=True, writes_ndef=True)
 
 
 @dataclass(frozen=True, slots=True)

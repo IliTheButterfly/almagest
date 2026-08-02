@@ -404,7 +404,7 @@ class TestLabels:
         ],
     )
     def test_the_device_s_own_name_reaches_the_label(self, node: str, expected: str) -> None:
-        """"Flipper Vyvern" is answerable at a bench. A 47-character udev path is
+        """ "Flipper Vyvern" is answerable at a bench. A 47-character udev path is
         not, and the label exists only to be answerable."""
         assert _flipper_label(node) == expected
 
@@ -455,9 +455,7 @@ class TestHubRoster:
         processed seq 3 ignores it when it is replayed."""
         hub = EventHub()
         message = await hub.publish(
-            events.device_attached(
-                device_id="a", kind=KIND_FLIPPER, label="a", capabilities={}
-            )
+            events.device_attached(device_id="a", kind=KIND_FLIPPER, label="a", capabilities={})
         )
         await hub.publish(events.tag_removed(missed_polls=3))
         sink = _ListSink()

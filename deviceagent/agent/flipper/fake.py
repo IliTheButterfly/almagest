@@ -148,9 +148,7 @@ class FakeFlipperLink:
         ack as the answer would pass against a simpler mock and fail against a
         Flipper.
         """
-        self._outbox.append(
-            proto.data_exchange(0, line.encode("utf-8") + b"\n")
-        )
+        self._outbox.append(proto.data_exchange(0, line.encode("utf-8") + b"\n"))
 
     def _handle(self, frame: proto.Frame) -> None:
         if frame.content_field == proto.CONTENT_SYSTEM_PING_REQUEST:
@@ -191,9 +189,7 @@ class FakeFlipperLink:
             self._reply(frame.command_id, proto.CONTENT_EMPTY)
             self.app_running = False
             self.exited = True
-            self._outbox.append(
-                proto.main(0, proto.CONTENT_APP_STATE_RESPONSE, b"")
-            )
+            self._outbox.append(proto.main(0, proto.CONTENT_APP_STATE_RESPONSE, b""))
             return
 
         if frame.content_field == proto.CONTENT_STOP_SESSION:

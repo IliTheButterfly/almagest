@@ -115,9 +115,7 @@ class TagWriter:
             ]
             try:
                 written = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self._registry.write, device_id, url, overwrite=overwrite
-                    ),
+                    asyncio.to_thread(self._registry.write, device_id, url, overwrite=overwrite),
                     timeout=self._timeout_s,
                 )
             except TagWriteRefused as refusal:

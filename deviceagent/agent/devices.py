@@ -255,9 +255,7 @@ class DeviceRegistry:
         if attached is None:
             raise TagWriteRefused(f"no reader called {device_id!r}", reason=tags.UNSUPPORTED)
         if not attached.info.capabilities.writes_ndef:
-            raise TagWriteRefused(
-                f"{attached.info.label} cannot write", reason=tags.UNSUPPORTED
-            )
+            raise TagWriteRefused(f"{attached.info.label} cannot write", reason=tags.UNSUPPORTED)
         if not isinstance(attached.source, WritableTagSource):
             # Belt and braces: a source whose advertised capability and whose
             # actual methods disagree is a programming error, and finding it here

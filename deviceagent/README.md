@@ -289,6 +289,104 @@ bound to another. Preferring either carrier in the agent would hide exactly the
 mis-binding the verification walk exists to find, so `via` says which carrier
 produced the local short id and claims nothing more.
 
+## The bridge: readers that are not the station's
+
+Since ADR 0013 this daemon is two things at once, and keeping them apart is the
+whole design.
+
+**The station half** is everything above: one reader, a presence machine, a
+session, workflow 5. Its cadence is a contract — the identify budget and the
+removal debounce are both counted in *its* polls — and nothing else may perturb
+it.
+
+**The bridge half** discovers whatever readers exist, announces what each can
+do, and carries out writes. It exists because ADR 0012 left a gap: the only
+reader that could write a tag was Web NFC, which is Chromium-on-Android. A
+desktop could not provision. An iPhone could not provision. The Pi kiosk bolted
+to the bench next to the only reader in the building could not provision.
+
+The two run concurrently over one hub and share nothing but the identity rules
+and the registry. **A reader can be in both roles but is polled by exactly one
+of them**: the station's PN532 is `adopt`ed into the roster so it can be
+*written to*, and the bridge loop never touches it. Two loops on one UART is a
+wedged reader and two silently wrong budgets.
+
+### Which readers
+
+| Reader | UID | URI | Can write | Discovered by |
+|---|---|---|---|---|
+| Station PN532 | yes | yes | yes (unrun) | adopted at startup |
+| Flipper Zero over USB | yes | yes | yes¹ | `/dev/serial/by-id` sweep |
+| Flipper Zero over BLE | yes | yes | yes¹ | `bleak` scan, **opt-in** |
+
+¹ once Antlia's bridge mode is installed on the device; it announces its own
+capabilities in `HELLO` and a build without a write path answers `r`.
+
+A Flipper is launched into bridge mode automatically — the host sends
+`app_start_request{args: "RPC"}` and nobody touches the device's screen — and
+everything Almagest-specific travels as a text line protocol inside
+`app_data_exchange_request`. That keeps the modelled protobuf surface at six
+messages; see `agent/flipper/proto.py`, whose field numbers come from upstream
+and are asserted byte for byte.
+
+**BLE and USB are one protocol, not two.** The firmware exports
+`ble_profile_serial_set_rpc_active`, so Bluetooth carries the same RPC stream as
+the CDC endpoint. One codec, one session, two byte transports.
+
+### The bridge's events
+
+| Event | Meaning |
+|---|---|
+| `device.attached` | a reader appeared, with its capability set |
+| `device.detached` | it went away (`unplugged` or `failed`) |
+| `device.error` | it could not be opened, said once per run of failures |
+| `tag.seen` | one debounced tap, with `device_id` |
+| `tag.writing` | a write started; nothing decided |
+| `tag.written` | it finished — carries the **read-back URI** |
+| `tag.write_refused` | the tag said no; **nothing was written** |
+| `tag.write_failed` | the reader broke; whether anything was written is unknown |
+
+and one command, `tag.write {request_id, device_id, url, overwrite}`.
+
+Three things about that table are load-bearing:
+
+**`device.attached` carries capabilities, and `station.hello` still enumerates
+nothing.** ADR 0003's rule — no feature flags, an affordance is drawn because an
+event arrived — is about sensors whose absence is silence. A write is not drawn
+from a stream: it is a command issued against a *named* device, and no history
+of `tag.identified` distinguishes a PN532 that writes from a Flipper that does
+not, nor says which of two attached readers to hold the tag against.
+
+**`tag.seen` is not `tag.identified`.** The latter is the output of the presence
+machine. A provisioning walk wants a debounced tap, which is what the browser's
+`TagPresentation` models. Overloading one on the other would force one of them
+to pretend.
+
+**`tag.written` carries a URI and no boolean.** ADR 0012 refuses a
+client-computed `verified: true` and makes `POST /api/location-tags/{id}/write-result`
+take the read-back URI, compared server-side by short id. The bridge is a
+client: it writes, reads back through the same reader, and reports the string.
+It never posts it — the PWA does, because the PWA holds the provisioning session
+and is the only thing that knows the `tag_id`.
+
+A write that *fails* leaves it unknown whether anything landed, which is exactly
+ADR 0012's `degraded`: the UID is in factory-locked pages 0-2, so the tag still
+identifies itself and the honest next step is to read it back.
+
+### The browser has to be allowed to connect
+
+The PWA is served from `https://almagest.lan` (ADR 0001) and opens
+`ws://127.0.0.1:8765`. Loopback is "potentially trustworthy" per the
+secure-context spec, so this is *specified* to work — but Chrome's Private
+Network Access rollout adds a preflight for public→local requests, so the
+handshake answers with explicit CORS and
+`Access-Control-Allow-Private-Network` headers rather than relying on the
+default. Getting this wrong costs a bridge that is running, answers `curl`, and
+is invisible to the page.
+
+That is a compatibility shim and **not** authentication. The socket's security
+is that it is bound to the loopback and refuses to be bound anywhere else.
+
 ## Testing without hardware
 
 **No PN532 has ever been attached to this code.** Structure follows from that:

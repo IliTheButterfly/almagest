@@ -25,9 +25,21 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   commit, looping while the tag stays put), the API client, and the loopback
   WebSocket. `Pn532TagSource` is written but **has never run**: no reader exists,
   so its contract test is `live`-marked
+- `deviceagent/` again, as the **device bridge** (ADR 0013) — reader discovery, a
+  capability set per attached device, `tag.write` and a PN532 write path, and a
+  Flipper Zero over its own RPC on USB or BLE, launched into bridge mode
+  automatically. `agent/flipper/fake.py` is a Flipper made of software, so the
+  whole path is tested with nothing plugged in. **No hardware has run any of it**;
+  BLE is opt-in because not even its discovery call has ever executed
+- `frontend/src/lib/tags/bridge.ts` — the browser's client for the above, which
+  degrades in silence when no bridge is running (almost every page load)
+- `antlia/` bridge mode — the Flipper side. Compiles against Momentum API 87.1
+  with `-Werror` and its NDEF encoder is asserted byte-identical to
+  `agent/ndef.py`'s, but has never run on a device
 
-**Not built yet:** `frontend/`, the scan resolver chain and alias learning, layout
-authoring, tag provisioning, label sheets, FTS5. The station's **scale half is
+**Not built yet:** the scan resolver chain and alias learning, layout
+authoring, label sheets, FTS5. Tag provisioning has its API, its walks and now a
+reader that can write; what it does not have is a tag written by real hardware. The station's **scale half is
 deferred, not pending** — see `docs/adr/0003`, which supersedes PLAN.md's
 weight-triggered state machine: continuous PN532 polling is the trigger, and
 nothing weight-related exists (no `weighings`, no `WeightSource`, no `weight.*`
