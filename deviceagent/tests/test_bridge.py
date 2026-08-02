@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import logging
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -125,6 +126,68 @@ class TestDiscovery:
         good = StaticBackend(sources={"flipper-usb:a": FakeWritableTagSource()})
         registry = DeviceRegistry([Exploding(), good])  # type: ignore[list-item]
         assert [e.data["device_id"] for e in registry.sweep()] == ["flipper-usb:a"]
+
+    def test_a_backend_that_cannot_scan_says_so_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The same edge rule `open` has had all along, applied to `scan`.
+
+        A scan failure is normally permanent, not transient: the bench Jetson
+        runs BlueZ 5.48, which has no `Roles` property, so `bleak` raises
+        `KeyError` on every single attempt. Logged per sweep that is a line every
+        two seconds for as long as the bridge runs, which buries whatever the
+        operator actually opened the journal to read.
+        """
+
+        class Exploding:
+            kind = KIND_FLIPPER
+            attempts = 0
+
+            def scan(self) -> dict[str, str]:
+                Exploding.attempts += 1
+                raise KeyError("Roles")
+
+            def open(self, device_id: str) -> FakeWritableTagSource:
+                raise AssertionError("never reached")
+
+        registry = DeviceRegistry([Exploding()])  # type: ignore[list-item]
+        with caplog.at_level(logging.WARNING, logger="almagest.deviceagent"):
+            for _ in range(5):
+                assert registry.sweep() == []
+
+        # Still scanned every time — staying quiet must not mean giving up, or a
+        # Bluetooth stack that comes back would never be noticed.
+        assert Exploding.attempts == 5
+        assert len([r for r in caplog.records if "scanning" in r.getMessage()]) == 1
+
+    def test_a_backend_whose_scan_recovers_can_complain_again(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Symmetric with `test_a_reader_that_recovers_can_fail_loudly_again`:
+        a stack that came back and broke again is a new fact, not the old one."""
+
+        class Flaky:
+            kind = KIND_FLIPPER
+            broken = True
+
+            def scan(self) -> dict[str, str]:
+                if Flaky.broken:
+                    raise RuntimeError("no adapter")
+                return {}
+
+            def open(self, device_id: str) -> FakeWritableTagSource:
+                raise AssertionError("never reached")
+
+        registry = DeviceRegistry([Flaky()])  # type: ignore[list-item]
+        with caplog.at_level(logging.WARNING, logger="almagest.deviceagent"):
+            registry.sweep()
+            registry.sweep()
+            Flaky.broken = False
+            registry.sweep()
+            Flaky.broken = True
+            registry.sweep()
+
+        assert len([r for r in caplog.records if "scanning" in r.getMessage()]) == 2
 
     def test_a_fault_drops_the_reader_so_the_next_sweep_reopens_it(self) -> None:
         """A `TagSourceError` means the reader itself is broken and will produce

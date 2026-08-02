@@ -69,6 +69,33 @@ into the device roster**: the absence of a platform reader is communicated by th
 absence of a `device.attached`, the same way ADR 0003 communicates the absence of
 the scale.
 
+## Checking a station actually commissions containers
+
+```bash
+uv run --no-project --python 3.12 -- python deploy/station/commission_smoke.py
+```
+
+Drives a whole provisioning walk and then a verification walk over HTTP against
+the running station — no imports from `app`, so it exercises the station exactly
+the way the kiosk does and anything it catches is something a person at the bench
+would hit. It asserts the four conflict shapes, which are four different
+sentences to someone holding a tag:
+
+| | what happened | what the UI should say |
+|---|---|---|
+| `already_bound_here` | the same tag twice | nothing, and no undo step is spent |
+| `already_bound_elsewhere` | this tag means another drawer | names it — Move here? / Cancel |
+| `slot_already_bound` | this drawer already has a tag | names it — Move here? / Cancel |
+| `two_conflicts` | both at once | **409, refused outright** — resolving it is two displacements and there is one undo slot |
+
+and then the thing the verification walk exists for: a tag stuck on the wrong
+drawer is reported with the reverse lookup ("this tag belongs to 02"), left
+`resolved_at: null`, and **never auto-fixed** — no software can stop someone
+sticking a tag on the wrong drawer, only detect it.
+
+It writes real bindings, so run it against a station whose database is demo seed
+data, not one holding a real cabinet.
+
 ## What this machine cannot do, and what to do instead
 
 **It cannot build the PWA.** Node 22 requires glibc 2.28; Ubuntu 18.04 ships
