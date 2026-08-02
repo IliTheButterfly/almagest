@@ -30,6 +30,7 @@ function entry(id: string, code = `code-${id}`): PendingScan {
     dateCode: "2412",
     lotCode: "L1",
     partId: null,
+  captureId: null,
     note: null,
   };
 }

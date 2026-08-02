@@ -9,8 +9,8 @@
  * drawer.
  */
 
-import { useSyncExternalStore } from "react";
-import { NavLink, Navigate, Route, Routes, useParams } from "react-router-dom";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 
 import { Logo } from "./components/Logo";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -25,6 +25,7 @@ import { BuildScreen } from "./screens/BuildScreen";
 import { ContainerTypeScreen } from "./screens/ContainerTypeScreen";
 import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
 import { DatasheetSearchScreen } from "./screens/DatasheetSearchScreen";
+import { CapturesScreen } from "./screens/CapturesScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
 import { LocationScreen } from "./screens/LocationScreen";
 import { LotScreen } from "./screens/LotScreen";
@@ -87,6 +88,21 @@ function WorkingOn() {
 
 export function App() {
   const pending = usePendingCount();
+  const navRef = useRef<HTMLElement | null>(null);
+  const location = useLocation();
+
+  /**
+   * Keep the tab you are on visible.
+   *
+   * The bar scrolls sideways (see `.app-nav`), so on a phone the tab for the
+   * screen you just opened can sit past the right edge — which reads as "that
+   * destination is missing" rather than "scroll for it". Runs on every location
+   * change, and is a no-op on a wide screen where nothing overflows.
+   */
+  useEffect(() => {
+    const current = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [location.pathname]);
 
   return (
     <div className="app">
@@ -102,7 +118,7 @@ export function App() {
         <ThemeToggle />
       </header>
 
-      <nav className="app-nav" aria-label="Main">
+      <nav className="app-nav" aria-label="Main" ref={navRef}>
         <NavLink to="/search">Search</NavLink>
         <NavLink to="/datasheets">Datasheets</NavLink>
         <NavLink to="/tree">Storage</NavLink>
@@ -124,6 +140,9 @@ export function App() {
             fills it or nobody goes looking. */}
         <NavLink to="/staging">Staging</NavLink>
         <NavLink to="/review">Review</NavLink>
+        {/* Next to Review because it is the same kind of errand: looking again at
+           something a decision was deferred on. */}
+        <NavLink to="/captures">Captures</NavLink>
       </nav>
 
       {/*
@@ -151,6 +170,9 @@ export function App() {
                 intake once a part has been parked there. */}
             <Route path="/staging" element={<StagingScreen />} />
             <Route path="/review" element={<ReviewScreen />} />
+            {/* The photographs the scanner kept. Not a scan target: reached from
+                the tab, and from the capture panel on Scan. */}
+            <Route path="/captures" element={<CapturesScreen />} />
             {/* The `/s/{short_id}` redirect targets — these paths are physical. */}
             <Route path="/parts/:partId" element={<PartScreen />} />
             <Route path="/locations/:locationId" element={<LocationScreen />} />

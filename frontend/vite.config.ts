@@ -1,8 +1,16 @@
-import { existsSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+} from "node:fs";
+import { basename, join } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { defineConfig, type Plugin } from "vitest/config";
 
 /**
  * HTTPS for the dev server, when a local certificate happens to exist.
@@ -31,8 +39,127 @@ const https =
     ? { key: readFileSync(KEY), cert: readFileSync(CRT) }
     : undefined;
 
+/**
+ * Serve the OCR runtime from our own origin, in dev and in the build.
+ *
+ * `tesseract.js` defaults every one of its three runtime assets — the worker
+ * script, the core wasm, and the language model — to a jsDelivr CDN. That is the
+ * same trap `src/lib/scan/decoder.ts` already sidestepped for `zxing-wasm`, and
+ * for a reason spelled out there: this app is deployed on a LAN behind a private
+ * CA with no promise of internet access, and a reader that only works when the
+ * WAN is up is not a reader.
+ *
+ * Two of the three come from `node_modules` and are handled here rather than
+ * checked in. The cores are several MB *each* and there are several variants
+ * (`tesseract.js` picks one at runtime from what the browser's SIMD support
+ * allows), so committing them would put that in every clone for ever and pin it
+ * to one library version by hand. Copying them at build time costs nothing in
+ * git and cannot drift from the installed package.
+ *
+ * The third — `public/tessdata/eng.traineddata.gz`, ~1.9 MB — *is* checked in,
+ * because it is not in any package: it is data, it never changes, and a build
+ * step that reaches out to GitHub to fetch it would reintroduce exactly the
+ * network dependency this plugin exists to remove.
+ *
+ * **Which files, exactly, is not guessable from their names, and getting it
+ * wrong is silent.** `tesseract.js-core` ships three things per variant and only
+ * one of them is ever fetched:
+ *
+ * - `tesseract-core-<v>.wasm.js` — **this is the one.** Self-contained: the wasm
+ *   is inlined as base64, which is why it is *larger* than the bare `.wasm`
+ *   beside it. `worker.min.js` hardcodes these names and requests nothing else.
+ * - `tesseract-core-<v>.js` and `tesseract-core-<v>.wasm` — never requested by
+ *   the worker.
+ *
+ * The first version of this plugin read those names the other way round, shipped
+ * the two files nobody asks for, and omitted the only one that matters. Nothing
+ * failed at build time; the app simply fetched `index.html` in place of the core
+ * (Vite's SPA fallback answers 200 for an unmatched path) and every capture
+ * reported that the text reader could not be loaded. `ocr.runtime.test.ts` now
+ * derives the expected names from `worker.min.js` itself so the two cannot drift.
+ *
+ * Only the `-lstm` variants are copied. The legacy Tesseract engine needs a
+ * different, much larger model and this app never asks for it (`legacyCore` and
+ * `legacyLang` are both left off in `src/lib/capture/ocr.ts`), so shipping its
+ * cores would be several megabytes serving nothing.
+ */
+const OCR_CORE_DIR = fileURLToPath(new URL("./node_modules/tesseract.js-core", import.meta.url));
+const OCR_WORKER = fileURLToPath(
+  new URL("./node_modules/tesseract.js/dist/worker.min.js", import.meta.url),
+);
+/** Where the browser asks for them. Mirrored by `ocr.ts`, which builds the same paths. */
+const OCR_BASE = "/ocr";
+
+function ocrRuntimeFiles(): string[] {
+  if (!existsSync(OCR_CORE_DIR)) {
+    return [];
+  }
+  // `readdirSync` rather than a hardcoded list: which variants ship is the
+  // package's business, and a hardcoded name that disappears in a minor release
+  // would fail as "OCR silently never loads" rather than as a build error.
+  return readdirSync(OCR_CORE_DIR)
+    .filter((name) => name.endsWith(".wasm.js") && name.includes("-lstm"))
+    .map((name) => join(OCR_CORE_DIR, name))
+    .concat(existsSync(OCR_WORKER) ? [OCR_WORKER] : []);
+}
+
+function ocrRuntime(): Plugin {
+  return {
+    name: "almagest-ocr-runtime",
+    // Dev: stream them straight out of `node_modules`, so `pnpm dev` needs no
+    // build step and no copy that can go stale mid-session.
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const url = request.url ?? "";
+        if (!url.startsWith(`${OCR_BASE}/`)) {
+          next();
+          return;
+        }
+        const name = basename(url.split("?")[0] ?? "");
+        const source = ocrRuntimeFiles().find((file) => basename(file) === name);
+        if (source === undefined) {
+          next();
+          return;
+        }
+        response.setHeader(
+          "Content-Type",
+          name.endsWith(".wasm") ? "application/wasm" : "text/javascript",
+        );
+        createReadStream(source).pipe(response);
+      });
+    },
+    // Build: copy into `dist/ocr/`. `writeBundle` rather than `emitFile` because
+    // these are opaque runtime assets fetched by URL at runtime, not modules in
+    // the graph — running them through the bundler would rewrite nothing useful
+    // and mangle the worker's own `importScripts`.
+    writeBundle(options) {
+      const outDir = options.dir ?? fileURLToPath(new URL("./dist", import.meta.url));
+      const target = join(outDir, OCR_BASE.slice(1));
+      mkdirSync(target, { recursive: true });
+      const sources = ocrRuntimeFiles();
+      // Loud, because the failure it replaces is silent and only visible in
+      // production: an empty `dist/ocr/` builds and deploys perfectly and then
+      // every capture reports "the text reader could not be loaded". This
+      // already happened once — `tesseract.js-core` is a *transitive* dependency
+      // and pnpm does not link one at `node_modules/`, so the directory probe
+      // found nothing and the plugin cheerfully copied zero files. It is a
+      // direct dependency now, and this is what stops the next such change from
+      // being discovered by a person holding a reel.
+      if (sources.length === 0) {
+        throw new Error(
+          "almagest-ocr-runtime: found no tesseract.js runtime files to copy. " +
+            `Expected them under ${OCR_CORE_DIR}. Is 'tesseract.js-core' installed?`,
+        );
+      }
+      for (const source of sources) {
+        copyFileSync(source, join(target, basename(source)));
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), ocrRuntime()],
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },

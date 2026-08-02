@@ -38,6 +38,7 @@ function scan(id: string, overrides: Partial<PendingScan> = {}): PendingScan {
     dateCode: null,
     lotCode: null,
     partId: null,
+  captureId: null,
     note: null,
     ...overrides,
   };

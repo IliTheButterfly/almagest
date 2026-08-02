@@ -129,6 +129,13 @@ _CONTAINER_TYPES: Final = (
     "sort of thing you want to see rendered before you save it."
 )
 _BLOBS: Final = "PDF or image bytes; see Reason.BINARY_PAYLOAD."
+_CAPTURES: Final = (
+    "A still taken at the scanner, and the barcodes and OCR'd lines read off it "
+    "in the browser that held the pixels. Writing one means asserting geometry "
+    "over an image the caller never saw; reading one hands back exactly the "
+    "OCR'd text that `CLAUDE.md` forbids auto-accepting as a part number. The "
+    "capture exists so a *person* can tap the value they recognise."
+)
 _ENRICHMENT: Final = (
     "The review queue for everything `parameter_value_candidate` refused to "
     "auto-promote. It exists *because* a model's confident answer is not good "
@@ -445,6 +452,12 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "submit_extraction_result": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
         "requeue_extraction": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
         "read_extraction_status": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
+        # -- captures ----------------------------------------------------------
+        "create_capture": Excluded(Reason.MACHINE_DOOR, _CAPTURES),
+        "append_capture_regions": Excluded(Reason.MACHINE_DOOR, _CAPTURES),
+        "read_capture": Excluded(Reason.HUMAN_JUDGEMENT, _CAPTURES),
+        "list_captures": Excluded(Reason.HUMAN_JUDGEMENT, _CAPTURES),
+        "delete_capture": Excluded(Reason.HUMAN_JUDGEMENT, _CAPTURES),
         # -- intake ------------------------------------------------------------
         "list_pending": Excluded(Reason.HUMAN_JUDGEMENT, _INTAKE),
         "park_scan": Excluded(Reason.HUMAN_JUDGEMENT, _INTAKE),

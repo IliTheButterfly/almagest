@@ -110,7 +110,15 @@ export const ESCALATION_LEVELS: readonly EscalationLevel[] = DECODE_PASSES.map((
 
 let prepared = false;
 
-function prepare(): void {
+/**
+ * Point `zxing-wasm` at the bundled wasm, once per page.
+ *
+ * Exported because the still-capture pass (`lib/capture/barcodes.ts`) calls
+ * `readBarcodes` directly with its own settings and must not re-fetch or
+ * re-instantiate the module — and, more to the point, must not be the one path
+ * that quietly goes back to the CDN default.
+ */
+export function prepareDecoder(): void {
   if (prepared) {
     return;
   }
@@ -175,7 +183,7 @@ export function cropFrame(
  * discarded a second barcode in the same frame.
  */
 export async function decodeImageData(image: ImageData, pass: DecodePass): Promise<Decoded[]> {
-  prepare();
+  prepareDecoder();
   const results = await readBarcodes(image, {
     formats: [...pass.formats],
     tryHarder: pass.tryHarder,

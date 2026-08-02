@@ -1866,6 +1866,352 @@
         "title": "CapacityRead",
         "type": "object"
       },
+      "CaptureCreate": {
+        "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "height_px": {
+            "exclusiveMinimum": 0.0,
+            "title": "Height Px",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureRegionIn"
+            },
+            "maxItems": 512,
+            "title": "Regions",
+            "type": "array"
+          },
+          "sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "type": "string"
+          },
+          "source_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Slug"
+          },
+          "text_status": {
+            "$ref": "#/components/schemas/CaptureTextStatus",
+            "default": "not_attempted"
+          },
+          "width_px": {
+            "exclusiveMinimum": 0.0,
+            "title": "Width Px",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sha256",
+          "width_px",
+          "height_px"
+        ],
+        "title": "CaptureCreate",
+        "type": "object"
+      },
+      "CaptureList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "CaptureList",
+        "type": "object"
+      },
+      "CaptureRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "document": {
+            "$ref": "#/components/schemas/DocumentRead"
+          },
+          "height_px": {
+            "title": "Height Px",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureRegionRead"
+            },
+            "title": "Regions",
+            "type": "array"
+          },
+          "text_status": {
+            "title": "Text Status",
+            "type": "string"
+          },
+          "width_px": {
+            "title": "Width Px",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "width_px",
+          "height_px",
+          "text_status",
+          "device_id",
+          "note",
+          "document",
+          "regions"
+        ],
+        "title": "CaptureRead",
+        "type": "object"
+      },
+      "CaptureRegionIn": {
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "corners": {
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Corners",
+            "type": "array"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CaptureRegionKind"
+          },
+          "scan_event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Event Id"
+          },
+          "symbology": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbology"
+          },
+          "text": {
+            "maxLength": 4096,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "corners"
+        ],
+        "title": "CaptureRegionIn",
+        "type": "object"
+      },
+      "CaptureRegionKind": {
+        "description": "What kind of thing one `capture_regions` row is an outline around.\n\nDeliberately about *how it was read*, not about what the value means. A reel\nlabel's DataMatrix and the same MPN printed in ink beside it are a `BARCODE`\nand a `TEXT` region respectively, and the difference matters: one was decoded\nby a checksummed symbology and the other was guessed at by an OCR pass. What\nthe value then turns out to *be* \u2014 an MPN, a quantity, a short ID \u2014 is the\nresolver's answer, recorded against `scan_events`, and it is allowed to\ndisagree between two regions of the same capture.",
+        "enum": [
+          "barcode",
+          "text"
+        ],
+        "title": "CaptureRegionKind",
+        "type": "string"
+      },
+      "CaptureRegionRead": {
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "corners": {
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "title": "Corners",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "order_index": {
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "scan_event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Event Id"
+          },
+          "symbology": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbology"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "text",
+          "corners",
+          "symbology",
+          "confidence",
+          "scan_event_id",
+          "order_index"
+        ],
+        "title": "CaptureRegionRead",
+        "type": "object"
+      },
+      "CaptureRegionsAppend": {
+        "description": "A later instalment \u2014 in practice, the OCR pass finishing.\n\n`text_status` is optional because appending barcodes (a re-decode at higher\neffort, say) must not silently claim anything about whether text was read.",
+        "properties": {
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureRegionIn"
+            },
+            "maxItems": 512,
+            "title": "Regions",
+            "type": "array"
+          },
+          "text_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaptureTextStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "CaptureRegionsAppend",
+        "type": "object"
+      },
+      "CaptureTextStatus": {
+        "description": "Whether anyone has tried to read the writing in a capture, and how it went.\n\nExists for the same reason `ExtractionState.PENDING` does (ADR 0005): the\nimage is stored, served and outlined by its barcodes whether or not an OCR\npass ever ran, so \"no text\" has to be distinguishable from \"text was never\nlooked for\". Collapsing the two would make a capture taken on a browser that\ncould not load the OCR model look identical to one of a blank label, and the\nhonest UI caption differs completely between them.\n\nRecorded per capture rather than per region for the obvious reason: a failed\npass produces no rows to record it on.",
+        "enum": [
+          "not_attempted",
+          "ok",
+          "empty",
+          "unavailable",
+          "failed"
+        ],
+        "title": "CaptureTextStatus",
+        "type": "string"
+      },
       "CategoryNode": {
         "properties": {
           "depth": {
@@ -4004,6 +4350,7 @@
           "photo",
           "count_evidence",
           "marking",
+          "capture",
           "other"
         ],
         "title": "DocumentRole",
@@ -9691,6 +10038,19 @@
       "PendingIntakeIn": {
         "description": "One parked scan, as the device recorded it.",
         "properties": {
+          "capture_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Id"
+          },
           "client_op_id": {
             "maxLength": 36,
             "minLength": 1,
@@ -9896,6 +10256,17 @@
       },
       "PendingIntakeRead": {
         "properties": {
+          "capture_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Id"
+          },
           "client_op_id": {
             "title": "Client Op Id",
             "type": "string"
@@ -10094,6 +10465,7 @@
           "symbology",
           "decoded_kind",
           "scan_event_id",
+          "capture_id",
           "mpn",
           "manufacturer",
           "supplier_part_number",
@@ -10680,6 +11052,25 @@
           "sort_order"
         ],
         "title": "PlanShapeRead",
+        "type": "object"
+      },
+      "Point": {
+        "description": "One corner, in the captured image's own pixel space.\n\nNot normalised to 0-1. The overlay has to scale onto whatever size the image\nis *rendered* at anyway, so it divides by `width_px`/`height_px` at draw\ntime; storing pre-divided floats would lose precision to buy nothing and\nwould make a region unreadable without also fetching the capture.",
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "Point",
         "type": "object"
       },
       "ProjectCreate": {
@@ -16418,6 +16809,238 @@
         "summary": "Unstage Stock",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/captures": {
+      "get": {
+        "description": "Recent captures, newest first \u2014 the desk pass's way back to a photograph.",
+        "operationId": "list_captures",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Captures",
+        "tags": [
+          "captures"
+        ]
+      },
+      "post": {
+        "description": "Record a still and whatever was read off it in the same breath.",
+        "operationId": "create_capture",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Capture",
+        "tags": [
+          "captures"
+        ]
+      }
+    },
+    "/api/captures/{capture_id}": {
+      "delete": {
+        "description": "Throw away a blurry one.\n\nA hard delete, unlike anything in the stock path. This is a notebook, not a\nledger \u2014 no `RAISE(ABORT)` trigger guards it \u2014 and a photograph the user\njudged useless has no history worth compensating for. The blob itself stays:\nit is content-addressed and may be another capture's image, and reclaiming it\nis the scrub job's business (`app.services.documents`), not this route's.",
+        "operationId": "delete_capture",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capture_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Capture Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Capture",
+        "tags": [
+          "captures"
+        ]
+      },
+      "get": {
+        "operationId": "read_capture",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capture_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Capture Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Capture",
+        "tags": [
+          "captures"
+        ]
+      }
+    },
+    "/api/captures/{capture_id}/regions": {
+      "post": {
+        "description": "Add what turned up after the fact \u2014 in practice, the OCR pass finishing.\n\nAppends rather than replaces, and continues `order_index` from wherever the\nexisting rows stopped, so the barcode regions posted at capture time keep\nboth their identity and their place at the top of the chip list.",
+        "operationId": "append_capture_regions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capture_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Capture Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureRegionsAppend"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Append Capture Regions",
+        "tags": [
+          "captures"
         ]
       }
     },

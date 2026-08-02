@@ -20,10 +20,12 @@
  * tap instead of a form somebody abandons.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { AssignStock } from "../components/AssignStock";
+import { CaptureOverlay } from "../components/CaptureOverlay";
+import { CAPTURE_PART_FIELDS, CaptureToPart, type PartDraft } from "../components/CaptureToPart";
 import { CodeEntry } from "../components/CodeEntry";
 import { ErrorBanner, Notice } from "../components/Feedback";
 import { CategorySelect } from "../components/CategorySelect";
@@ -38,11 +40,14 @@ import {
   type ScanTarget,
 } from "../lib/api/client";
 import { cameraNotice, detectCapabilities, nfcNotice } from "../lib/capabilities";
+import type { FillField } from "../lib/capture/chips";
+import { extractSuggestions } from "../lib/capture/extract";
+import { useCapture, type CaptureState } from "../lib/capture/useCapture";
 import { formatQty } from "../lib/format";
 import { intakeQueue, type PendingScan } from "../lib/intake/queue";
 import { DecodeFeedback, FEEDBACK_FLASH_MS } from "../lib/scan/feedback";
 import { NfcUnavailableError, readOneTag } from "../lib/scan/nfc";
-import { scanSession } from "../lib/scan/session";
+import { scanSession, uuid4 } from "../lib/scan/session";
 import { useScanner } from "../lib/scan/useScanner";
 import { formatShortId } from "../lib/shortid";
 
@@ -174,6 +179,20 @@ export function ScanScreen() {
   );
 
   const scanner = useScanner({ active: cameraOn, onDecode: (text, symbology) => void handle(text, symbology) });
+  const lens = useCapture();
+
+  /**
+   * Stop decoding while a capture is on screen.
+   *
+   * Not a nicety: the live loop would keep firing resolves for whatever the
+   * camera is now pointed at — the user's hand, the next reel — while they are
+   * reading a *photograph* of something else, and each of those navigates or
+   * replaces the resolution panel underneath them. The camera itself keeps
+   * running so dismissing the capture is instant.
+   */
+  useEffect(() => {
+    scanner.pause(lens.state.imageUrl !== null);
+  }, [scanner, lens.state.imageUrl]);
 
   // A well-formed code the backend could not resolve arrives as `?unknown=`, and a
   // resolved-but-untyped one as `?code=`. Both are redirects off a physical tag.
@@ -210,6 +229,9 @@ export function ScanScreen() {
         resolution.response.target?.entity_type === "part"
           ? (resolution.response.target.entity_pk ?? null)
           : null,
+      // The photograph, when one is on screen. This is the whole point of
+      // parking: the desk pass gets the picture, not just the payload.
+      captureId: lens.state.captureId,
       note: null,
     };
     intakeQueue.add(entry);
@@ -238,20 +260,38 @@ export function ScanScreen() {
             hint={busy ? "Resolving…" : undefined}
             camera={scanner}
           />
-          <button
-            type="button"
-            className="wide"
-            onClick={() => {
-              // Starting the camera is a real click, so this is where the
-              // audio context has to be created — never from the decode
-              // path, which runs off a `setTimeout` tick and has no gesture
-              // to spend. See lib/scan/feedback.ts.
-              initFeedback();
-              setCameraOn(!cameraOn);
-            }}
-          >
-            {cameraOn ? "Stop camera" : "Start camera"}
-          </button>
+          <div className="row">
+            <button
+              type="button"
+              onClick={() => {
+                // Starting the camera is a real click, so this is where the
+                // audio context has to be created — never from the decode
+                // path, which runs off a `setTimeout` tick and has no gesture
+                // to spend. See lib/scan/feedback.ts.
+                initFeedback();
+                setCameraOn(!cameraOn);
+              }}
+            >
+              {cameraOn ? "Stop camera" : "Start camera"}
+            </button>
+            {/* The primary action once the camera is up. A scan reads *one*
+             * code and navigates; a capture keeps the frame and reads
+             * everything on it, which is what the printed half of a reel label
+             * needs. */}
+            <button
+              type="button"
+              className="primary"
+              disabled={!cameraOn || scanner.status !== "live"}
+              onClick={() => {
+                const video = scanner.videoRef.current;
+                if (video !== null) {
+                  void lens.capture(video);
+                }
+              }}
+            >
+              Capture
+            </button>
+          </div>
         </>
       ) : (
         <>
@@ -289,6 +329,19 @@ export function ScanScreen() {
         </div>
       )}
 
+      {lens.state.imageUrl !== null && (
+        <CapturePanel
+          state={lens.state}
+          onDismiss={lens.clear}
+          onQueued={(label) => {
+            // Straight back to the live preview. Zero further screens is the
+            // requirement the whole fast path is built around.
+            lens.clear();
+            setQueued(label);
+          }}
+        />
+      )}
+
       {queued !== null && (
         <Notice kind="ok" title="Parked for later">
           <p style={{ margin: 0 }}>
@@ -308,6 +361,160 @@ export function ScanScreen() {
           onChanged={() => setResolution(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * The frozen frame, everything read off it, and the form it can fill.
+ *
+ * Its own component rather than more JSX inside `ScanScreen` because it owns two
+ * pieces of state that only make sense together — which field is armed, and what
+ * has been picked into the draft so far — and threading those through the
+ * screen's already busy body would put them a long way from the overlay they
+ * describe.
+ */
+function CapturePanel({
+  state,
+  onDismiss,
+  onQueued,
+}: {
+  state: CaptureState;
+  onDismiss: () => void;
+  onQueued: (label: string) => void;
+}) {
+  const [armed, setArmed] = useState<FillField | null>(null);
+  const [draft, setDraft] = useState<PartDraft>({});
+  const [created, setCreated] = useState<{ id: number; name: string } | null>(null);
+
+  const armedLabel = CAPTURE_PART_FIELDS.find((entry) => entry.field === armed)?.label ?? "";
+  // Recomputed as regions and resolutions arrive: barcodes land first, the OCR
+  // pass seconds later, and each makes the suggestions better rather than
+  // replacing them.
+  const suggestions = useMemo(
+    () => extractSuggestions({ regions: state.regions, resolved: state.resolved }),
+    [state.regions, state.resolved],
+  );
+
+  function fill(field: FillField, value: string): void {
+    setDraft((previous) => ({ ...previous, [field]: value }));
+    // Disarm after one pick. Leaving it armed makes the *next* tap — often
+    // meant as a copy — silently overwrite the field the user just filled.
+    setArmed(null);
+  }
+
+  /**
+   * Park this capture for the desk, and go straight back to scanning.
+   *
+   * `raw_payload` is `NOT NULL` on the server because a *scan* always has bytes.
+   * A capture need not: a label whose codes are unreadable but whose print is
+   * legible is exactly the case this feature exists for. So the payload is the
+   * best identifier the capture actually produced, and `symbology` says which
+   * kind it is — `ocr` for a read value, `capture` when the picture is all there
+   * is. That keeps the claim honest rather than dressing a guess up as a decode.
+   */
+  function queue(): void {
+    const barcode = state.regions.find((region) => region.kind === "barcode");
+    const readPart = suggestions.mpn?.[0]?.value ?? null;
+    const payload = barcode?.text ?? readPart ?? `capture ${state.captureId ?? "unsaved"}`;
+    const symbology =
+      barcode !== undefined ? barcode.symbology : readPart !== null ? "ocr" : "capture";
+
+    const best = (field: FillField): string | null => suggestions[field]?.[0]?.value ?? null;
+    const quantity = suggestions.quantity?.[0]?.value ?? null;
+    const digits = quantity === null ? null : Number(quantity.replace(/[^\d]/g, ""));
+
+    intakeQueue.add({
+      id: uuid4(),
+      code: payload,
+      symbology,
+      queuedAt: Date.now(),
+      decodedKind: null,
+      mpn: draft.mpn ?? best("mpn"),
+      manufacturer: draft.manufacturer ?? best("manufacturer"),
+      supplierPartNumber: best("supplier_part_number"),
+      quantityMilli:
+        digits !== null && Number.isFinite(digits) && digits > 0 ? digits * 1000 : null,
+      dateCode: best("date_code"),
+      lotCode: best("lot_code"),
+      partId: null,
+      captureId: state.captureId,
+      note: draft.name ?? best("name"),
+    });
+    onQueued(draft.mpn ?? best("mpn") ?? draft.name ?? best("name") ?? "that capture");
+  }
+
+  if (state.imageUrl === null) {
+    return null;
+  }
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h3 style={{ margin: 0 }}>What is on this frame</h3>
+        <span className="spacer" />
+        <button type="button" onClick={onDismiss}>
+          Back to scanning
+        </button>
+      </div>
+
+      <CaptureOverlay
+        imageUrl={state.imageUrl}
+        width={state.width}
+        height={state.height}
+        regions={state.regions}
+        resolved={state.resolved}
+        textStatus={state.textStatus}
+        textMessage={state.textMessage}
+        readingText={state.readingText}
+        {...(armed === null ? {} : { fillInto: { field: armed, label: armedLabel } })}
+        onFill={fill}
+      />
+
+      <p className="muted-note" style={{ margin: 0 }}>
+        Saved with the frame, so this photograph is still here when the queue is
+        curated at a desk — see <a href="/captures">Captures</a>. Tap an outline,
+        then a value, to copy it anywhere.
+      </p>
+
+      {created === null && (
+        <>
+          {/* The fast path, first and biggest, exactly as the resolved-scan panel
+           * does it: one tap parks the picture and everything read off it, and
+           * returns to scanning with no further screens. */}
+          <button type="button" className="primary wide tall" onClick={queue}>
+            Queue for later
+          </button>
+          <p className="muted-note" style={{ margin: 0 }}>
+            Parks this photograph and what was read off it. Curate it at a desk from
+            the <a href="/intake">Intake</a> queue, with the picture still attached.
+          </p>
+        </>
+      )}
+
+      {created === null ? (
+        <details>
+          <summary>Make a part from this</summary>
+          <CaptureToPart
+            draft={draft}
+            armed={armed}
+            suggestions={suggestions}
+            onArm={setArmed}
+            onChange={(field, value) => setDraft((previous) => ({ ...previous, [field]: value }))}
+            onCreated={setCreated}
+          />
+        </details>
+      ) : (
+        <Notice kind="ok" title="Created — it has no stock yet">
+          <p style={{ margin: 0 }}>
+            <a href={`/parts/${created.id}`}>Open part {created.id}</a>. A part is a
+            definition, not a count: it does not exist anywhere until some quantity of
+            it is put in a lot at a location.
+          </p>
+        </Notice>
+      )}
+
+      <ErrorBanner error={state.error} fallback="That capture could not be saved." />
     </div>
   );
 }

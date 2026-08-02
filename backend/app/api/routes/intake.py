@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.api.limits import QTY_MILLI_MAX, ResultOffset, RowId
 from app.db.session import get_db
+from app.models.captures import Capture
 from app.models.catalog import Part
 from app.models.enums import PendingIntakeStatus, ScanDecodedKind
 from app.models.scanning import PendingIntake, ScanEvent
@@ -65,6 +66,11 @@ class PendingIntakeIn(BaseModel):
     symbology: str | None = Field(default=None, max_length=32)
     decoded_kind: ScanDecodedKind | None = None
     scan_event_id: RowId | None = None
+    #: The still taken alongside this scan, when one was. What makes deferring
+    #: honest: the desk pass happens hours later at a machine with no reel in
+    #: front of it, and everything the barcode did not encode — the printed
+    #: manufacturer, a hand-written count — is otherwise gone by then.
+    capture_id: RowId | None = None
 
     mpn: str | None = Field(default=None, max_length=128)
     manufacturer: str | None = Field(default=None, max_length=128)
@@ -92,6 +98,7 @@ class PendingIntakeRead(BaseModel):
     symbology: str | None
     decoded_kind: str | None
     scan_event_id: int | None
+    capture_id: int | None
     mpn: str | None
     manufacturer: str | None
     supplier_part_number: str | None
@@ -172,6 +179,14 @@ def park_scan(request: PendingIntakeIn, db: Session = Depends(get_db)) -> Pendin
                 "message": f"no scan event with id {request.scan_event_id}",
             },
         )
+    if request.capture_id is not None and db.get(Capture, request.capture_id) is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "reason": "unknown_capture",
+                "message": f"no capture with id {request.capture_id}",
+            },
+        )
     if request.part_id is not None and db.get(Part, request.part_id) is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -184,6 +199,7 @@ def park_scan(request: PendingIntakeIn, db: Session = Depends(get_db)) -> Pendin
         symbology=request.symbology,
         decoded_kind=request.decoded_kind,
         scan_event_id=request.scan_event_id,
+        capture_id=request.capture_id,
         mpn=request.mpn,
         manufacturer=request.manufacturer,
         supplier_part_number=request.supplier_part_number,

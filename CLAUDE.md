@@ -15,6 +15,16 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 - `services/search/` — the value-parser adapter and the parametric filter executor
 - `/api/search/parts`, `/api/resolve/{short_id}`, `/s/{short_id}`, `/api/system/health`
 - both submodule libraries (`elec-value-parser`, `ecia-barcode`), tagged and pinned
+- `frontend/` — the PWA, and far more of it than this file used to admit: search,
+  storage, containers, projects, builds, intake, review and the scanner. Camera
+  decode is `zxing-wasm` in the browser over an escalating pass ladder
+- **captures** — the still the scanner keeps, with every barcode *and* every
+  OCR'd line outlined on it and tappable. Text is read in the browser
+  (`tesseract.js`), which amends ADR 0005 for this one case and only this one;
+  see ADR 0015 for why the datasheet split does not fit here. A capture parks
+  into the intake queue with its photograph attached, and `extract.ts` pairs each
+  printed heading with the value under it to suggest fields — **ranked
+  suggestions, never applied values**, per the never-auto-accept rule
 - `mcpserver/` — the MCP server: 25 curated tools over the HTTP API, writes gated
   behind `ALMAGEST_MCP_ALLOW_WRITES`, and `coverage.py` + its manifest test forcing
   a disposition for **every** route so the tool surface cannot silently go stale.
@@ -45,7 +55,11 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 
 **Not built yet:** the scan resolver chain and alias learning, layout
 authoring, label sheets, FTS5. Tag provisioning has its API, its walks and now a
-reader that can write; what it does not have is a tag written by real hardware. The station's **scale half is
+reader that can write; what it does not have is a tag written by real hardware.
+Also absent: any *agent-assisted* field filling — capture extraction is
+algorithmic, and offers candidates a person chooses between. Treat this whole
+list with suspicion: it is older than the code and has been wrong before,
+`frontend/` having sat in it while the PWA grew to ~190 files. The station's **scale half is
 deferred, not pending** — see `docs/adr/0003`, which supersedes PLAN.md's
 weight-triggered state machine: continuous PN532 polling is the trigger, and
 nothing weight-related exists (no `weighings`, no `WeightSource`, no `weight.*`

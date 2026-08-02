@@ -8,3 +8,9 @@
 # list. A list is silently parsed as {'0': 'esbuild'} and does nothing.
 allowBuilds:
   esbuild: true
+  # Denied, not allowed: `tesseract.js`'s only install script is
+  # `opencollective-postinstall || true`, a donation banner. The wasm core and
+  # worker it actually needs at runtime are plain files in the package, copied
+  # out by the `almagest-ocr-runtime` plugin in `vite.config.ts` — nothing about
+  # OCR depends on this script running.
+  tesseract.js: false
