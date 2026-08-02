@@ -987,10 +987,10 @@ def _read(db: Session, location: Location) -> LocationRead:
     )
     # Every part these lots name, in one query, handed to `lot_read` directly.
     #
-    # Not left to the identity map: `Session.get` re-selects an *expired* object,
-    # and a commit expires everything — so a drawer holding a 4k7 and a 10k would
-    # cost a query per lot, which is exactly the case this screen exists to
-    # disambiguate. `StockLot` has no `part` relationship to eager-load through,
+    # Not left to the identity map: a request session starts empty, so the first
+    # read of each distinct part is a query — a drawer holding a 4k7 and a 10k
+    # costs two, which is exactly the case this screen exists to disambiguate.
+    # `StockLot` has no `part` relationship to eager-load through,
     # and adding one for a rendering concern is a model change; an `IN` and a
     # dict is local and obvious.
     parts_by_id = {

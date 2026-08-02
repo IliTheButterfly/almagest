@@ -105,6 +105,16 @@ def _warn_if_unreachable(url: str) -> None:
         )
 
 
+BRIDGE_HELP = (
+    "Nothing is answering on the device bridge.\n"
+    "  It is the unit that owns the readers:\n"
+    "    systemctl --user start almagest-station-bridge\n"
+    "    systemctl --user status almagest-station-bridge\n"
+    "  On the bench Jetson its log goes to syslog, not the user journal:\n"
+    "    tail -f /var/log/syslog | grep almagest"
+)
+
+
 async def main() -> int:
     args = _parse_args()
     if not args.yes:
@@ -117,7 +127,17 @@ async def main() -> int:
         )
         return 2
 
-    async with websockets.connect(BRIDGE, additional_headers={"Origin": ORIGIN}) as ws:
+    try:
+        connection = await websockets.connect(
+            BRIDGE, additional_headers={"Origin": ORIGIN}
+        )
+    except OSError as error:
+        # The likeliest first-run outcome, and 30 frames of asyncio name nothing
+        # a person at a bench can act on.
+        print(f"{BRIDGE}: {error}\n\n{BRIDGE_HELP}")
+        return 1
+
+    async with connection as ws:
         # --- the reader the bench actually has -------------------------------
         device_id = None
         tap = None
@@ -138,8 +158,22 @@ async def main() -> int:
             elif event["type"] == "tag.seen" and device_id is not None:
                 tap = event["data"]
 
-        if device_id is None or tap is None:
-            print("no reader attached, or no tag on the antenna")
+        if device_id is None:
+            # Which of the two is missing changes what you do next entirely, and
+            # the script knows which.
+            print(
+                "No reader attached. The bridge is running but has found nothing.\n"
+                "  A Flipper needs to be on USB and openable by this user:\n"
+                "    ls -l /dev/serial/by-id/    # a *Flipper* node should be here\n"
+                "    id -nG | tr ' ' '\\n' | grep dialout   # or `sudo usermod -aG dialout $USER`"
+            )
+            return 1
+        if tap is None:
+            print(
+                "A reader is attached but no tag was read.\n"
+                "  Put a tag on the antenna and run this again; an empty field is a\n"
+                "  legitimate answer from a working reader, not a fault."
+            )
             return 1
 
         uid = tap["tag_uid"]

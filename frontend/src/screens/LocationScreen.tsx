@@ -176,10 +176,15 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
           affordance drawn because a component exists rather than because there
           is content, which is ADR 0003's rule inverted. With `Capacity` below it
           that pushed CONTENTS to y≈736 of a 932px phone, so a person who just
-          tapped a drawer saw one of its two lots. */}
-      {(location.effective_photo !== null || location.effective_glyph !== null) && (
-        <Picture location={location} />
-      )}
+          tapped a drawer saw one of its two lots.
+
+          A *glyph* does not qualify either, even though `ContainerPhoto` will
+          happily draw one: at `size="card"` it renders the same 150px dashed
+          box with a 24px pictogram in the middle, and glyphs are inherited from
+          the container type — so the moment anyone gives their drawer type one,
+          every drawer gets the tall empty card back. The glyph already appears
+          beside the title in the path bar, at the size a pictogram wants. */}
+      {location.effective_photo !== null && <Picture location={location} />}
 
       {location.capacity.model !== "none" && <Capacity location={location} />}
 

@@ -80,11 +80,14 @@ def lot_read(session: Session, lot: StockLot, part: Part | None = None) -> LotRe
     costs one query for the location, not one per lot.
 
     **`part` is passed in by callers rendering many lots at once.** The identity
-    map alone is not enough for this one: `Session.get` re-issues a SELECT for an
-    object that has been *expired* (which every `commit` does), so relying on it
-    turns a drawer of six distinct parts into six queries in exactly the
-    situations that matter. A caller that has already loaded the parts hands them
-    over; one that has not still gets the correct answer, one query at a time.
+    map alone is not enough: a request session starts *empty*, so the first read
+    of each distinct part is a query — a drawer holding a 4k7 and a 10k costs
+    two, which is exactly the case this name exists to disambiguate. (An earlier
+    version of this comment blamed `commit` expiry; that is wrong for this app,
+    which sets `expire_on_commit=False` in `app/db/session.py`. The N+1 is real
+    for the simpler reason.) A caller that has already loaded the parts hands
+    them over; one that has not still gets the right answer, one query at a
+    time.
     """
     location = session.get(Location, lot.location_id)
     if part is None:

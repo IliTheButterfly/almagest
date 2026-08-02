@@ -242,3 +242,41 @@ def test_naming_the_parts_does_not_cost_a_query_per_lot(client: TestClient, db: 
     db.commit()
 
     assert part_queries(big) == part_queries(small)
+
+
+def test_a_cabinet_is_measured_by_its_drawers_not_by_loose_lots(
+    client: TestClient, db: Session
+) -> None:
+    """A container whose slots hold containers counts those.
+
+    The slots strategy counted distinct `part_id`s among lots placed *directly*
+    in the container. A cabinet holds drawers, not lots, so a cabinet with every
+    drawer in place reported "0 of N slots used · 0%" — directly above the list
+    of the N children it had just said were not there, and the only quantitative
+    statement on that screen.
+    """
+    kind = make_container_type(db, "cabinet", capacity_model="slots", capacity_slots=4)
+    cabinet = make_location(db, name="Cabinet A", container_type_id=kind.id)
+    for index in range(3):
+        make_location(db, name=f"Drawer {index}", parent_id=cabinet.id)
+    db.commit()
+
+    capacity = client.get(f"/api/locations/{cabinet.id}").json()["capacity"]
+
+    assert capacity["capacity"] == 4
+    assert capacity["used"] == 3
+    assert capacity["fill_ratio"] == 0.75
+
+
+def test_a_drawer_is_still_measured_by_what_is_in_it(client: TestClient, db: Session) -> None:
+    """The control. A leaf container has no children, so the lot-derived count
+    is still what it uses — otherwise every drawer would read empty."""
+    kind = make_container_type(db, "drawer-type", capacity_model="slots", capacity_slots=4)
+    drawer = make_location(db, name="Drawer only", container_type_id=kind.id)
+    make_lot(db, make_part(db, name="A part"), drawer, qty_milli=1_000)
+    make_lot(db, make_part(db, name="Another part"), drawer, qty_milli=1_000)
+    db.commit()
+
+    capacity = client.get(f"/api/locations/{drawer.id}").json()["capacity"]
+
+    assert capacity["used"] == 2
