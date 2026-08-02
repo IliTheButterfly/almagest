@@ -436,6 +436,42 @@ def test_a_cabinet_from_the_seed_library_can_actually_print(db: Session) -> None
     assert labels.card_size_mm(seeded) == (87.0, 18.0)
 
 
+def test_exactly_which_seed_types_can_print(db: Session) -> None:
+    """The scope, pinned, because a committed migration got it wrong.
+
+    Its docstring said "Akro-Mils is deliberately left null" as though that were
+    the only omission; nine of the eleven seeds have no front dimensions. An
+    inaccurate scope claim in a migration is the sort of thing everything
+    downstream trusts, so the true set is asserted here rather than described.
+
+    Adding a seed type with dimensions, or measuring one of the nine, is meant to
+    change this list — that is the point. Adding one *without* dimensions and not
+    noticing is not.
+    """
+    printable = {
+        row.slug
+        for row in db.execute(select(ContainerType).where(ContainerType.is_seed)).scalars()
+        if row.front_width_mm is not None and row.front_height_mm is not None
+    }
+    all_seeds = {
+        row.slug for row in db.execute(select(ContainerType).where(ContainerType.is_seed)).scalars()
+    }
+
+    assert printable == {"raaco-c8-30", "raaco-c10-40"}
+    # And the rest, named, so the count cannot drift silently either way.
+    assert all_seeds - printable == {
+        "akro-mils-10144",
+        "gridfinity-baseplate-2x2",
+        "gridfinity-baseplate-4x4",
+        "gridfinity-baseplate-4x6",
+        "gridfinity-bin-1x1x3",
+        "gridfinity-bin-1x1x6",
+        "gridfinity-bin-2x1x6",
+        "gridfinity-bin-2x2x6",
+        "gridfinity-bin-3x2x6",
+    }
+
+
 def test_the_seed_whose_front_nobody_has_measured_still_refuses(db: Session) -> None:
     """Akro-Mils is left null on purpose. Its description gives no card size and
     PLAN.md gives no drawer front, so a plausible-looking number would print

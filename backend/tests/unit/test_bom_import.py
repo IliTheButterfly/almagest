@@ -659,14 +659,22 @@ def test_an_ambiguous_decimal_quantity_is_refused_rather_than_guessed() -> None:
     assert line.qty_per_assembly_milli == 1_000
 
 
-@pytest.mark.parametrize("cell", ["four", "0", "-3", "NaN", "Infinity", "-Infinity", "nan"])
+@pytest.mark.parametrize(
+    "cell", ["four", "0", "-3", "NaN", "Infinity", "-Infinity", "nan", "1e999999999"]
+)
 def test_an_unusable_quantity_is_ignored_not_fatal(cell: str) -> None:
     """`NaN` and `Infinity` are here because `Decimal` parses them happily and
     then every comparison below raises: `NaN <= 0` is `InvalidOperation`,
     `int(Infinity)` is `OverflowError`. Both escaped uncaught and 500'd the
     route, against a module whose first docstring line is that an import never
     fails. They are the same kind of cell as "four" — somebody typed something
-    that is not a quantity — so they take the same path."""
+    that is not a quantity — so they take the same path.
+
+    `1e999999999` is the same class caught one line further down: it is *finite*,
+    so `is_finite()` waves it through, and then the multiply overflows the
+    decimal context with `Overflow` — an `ArithmeticError`, not the
+    `InvalidOperation` the parse catches. Caught by class rather than by
+    instance this time."""
     line = parse_bom(f"Reference,Value,Qty\nR1,10k,{cell}\n").lines[0]
     assert line.declared_qty_milli is None
     assert line.qty_per_assembly_milli == 1_000
