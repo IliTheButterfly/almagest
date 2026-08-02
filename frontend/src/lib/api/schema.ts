@@ -2828,6 +2828,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/caches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Caches
+         * @description Report every derived cache's freshness and last drift result.
+         *
+         *     Read-only, and the reason `cache_state` exists: the design's claim is that
+         *     drift is "a visible number rather than a mystery", and until something served
+         *     the table the number was recorded where nobody could see it.
+         */
+        get: operations["read_caches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/caches/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rebuild Caches
+         * @description Reconstruct a derived cache from its source of truth.
+         *
+         *     The escape hatch the whole three-tier stock model rests on. Reading balances
+         *     from `stock_lots.qty_milli_cached` instead of summing the ledger is only safe
+         *     because one statement can rebuild the cache from the append-only record,
+         *     which cannot itself have been edited — so a cache bug is a stale number, never
+         *     lost data.
+         *
+         *     Explicit rather than nightly on purpose. See `run_maintenance`: repairing
+         *     drift on a schedule hides the write-path bug that caused it.
+         */
+        post: operations["rebuild_caches"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/health": {
         parameters: {
             query?: never;
@@ -2839,6 +2892,47 @@ export interface paths {
         get: operations["health"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Maintenance
+         * @description The nightly pass: repair routine staleness, report suspected bugs.
+         *
+         *     The two halves are deliberately not the same operation, and conflating them
+         *     would destroy the only evidence that matters:
+         *
+         *     * **Occupancy is rebuilt.** `location_occupancy` is *designed* to go stale —
+         *       `AFTER INSERT ON stock_ledger` and `AFTER UPDATE OF location_id ON
+         *       stock_lots` mark rows dirty and leave the recompute to a batch pass,
+         *       because doing it inline would put a tree walk on every ledger write. A
+         *       dirty row is the mechanism working, so rebuilding it is routine. It also
+         *       matters more than it sounds: `locations.is_overfull` is written *only*
+         *       here, so until something ran this, the "capacity is advisory, flag the
+         *       location, suggest a defrag" behaviour could never fire, and the storage
+         *       map's fill ratios were served from a table with no rows in it.
+         *
+         *     * **Balances and reservations are only checked.** Both are maintained
+         *       incrementally on every write by `services/ledger.py` and
+         *       `services/reservations.py`. Drift there is not expected staleness, it is a
+         *       bug in a write path — and quietly rebuilding it every night would erase
+         *       the symptom while leaving the cause, so the wrong numbers would come back
+         *       the next day with nothing recorded. `POST /caches/rebuild` is the repair,
+         *       run deliberately once the cause is known.
+         */
+        post: operations["run_maintenance"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3502,6 +3596,24 @@ export interface components {
             /** Notes */
             notes?: string | null;
             status?: components["schemas"]["BuildStatus"] | null;
+        };
+        /**
+         * CacheStateRead
+         * @description One row of `cache_state` — what the last check and rebuild found.
+         */
+        CacheStateRead: {
+            /** Detail */
+            detail: string | null;
+            /** Drift Count */
+            drift_count: number;
+            /** Is Dirty */
+            is_dirty: boolean;
+            /** Last Checked At */
+            last_checked_at: string | null;
+            /** Last Rebuilt At */
+            last_rebuilt_at: string | null;
+            /** Name */
+            name: string;
         };
         /** CandidateRead */
         CandidateRead: {
@@ -4266,6 +4378,15 @@ export interface components {
             deduplicated: boolean;
             document: components["schemas"]["DocumentRead"];
             link?: components["schemas"]["DocumentLinkRead"] | null;
+        };
+        /** DriftRead */
+        DriftRead: {
+            /** Cache Name */
+            cache_name: string;
+            /** Drift Count */
+            drift_count: number;
+            /** Sample Ids */
+            sample_ids: number[];
         };
         /** EmptyBinRequest */
         EmptyBinRequest: {
@@ -5203,6 +5324,18 @@ export interface components {
             status: string;
             /** Unit Cost Micro */
             unit_cost_micro?: number | null;
+        };
+        /**
+         * MaintenanceRun
+         * @description What the nightly pass repaired, and what it only reported.
+         */
+        MaintenanceRun: {
+            /** Drift */
+            drift: components["schemas"]["DriftRead"][];
+            /** Has Drift */
+            has_drift: boolean;
+            /** Occupancy Rebuilt */
+            occupancy_rebuilt: number;
         };
         /**
          * MismatchRead
@@ -6683,6 +6816,26 @@ export interface components {
             replayed?: boolean;
             /** Updated */
             updated: number;
+        };
+        /** RebuildRequest */
+        RebuildRequest: {
+            /**
+             * Caches
+             * @default []
+             */
+            caches?: ("lot_balances" | "reservations" | "location_occupancy")[];
+        };
+        /** RebuildResponse */
+        RebuildResponse: {
+            /** Rebuilt */
+            rebuilt: components["schemas"]["RebuildResult"][];
+        };
+        /** RebuildResult */
+        RebuildResult: {
+            /** Cache Name */
+            cache_name: string;
+            /** Rows Touched */
+            rows_touched: number;
         };
         /** ReceiveRequest */
         ReceiveRequest: {
@@ -12488,6 +12641,59 @@ export interface operations {
             };
         };
     };
+    read_caches: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheStateRead"][];
+                };
+            };
+        };
+    };
+    rebuild_caches: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RebuildRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RebuildResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -12504,6 +12710,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    run_maintenance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceRun"];
                 };
             };
         };

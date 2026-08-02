@@ -20,6 +20,7 @@ any of this.
     '-- /data         -> pvc/almagest-data (5Gi, local-shared, RWO)
 
   almagest-backup      CronJob, 03:17 daily, keeps 14
+  almagest-maintenance CronJob, 03:42 daily, no volume — talks to the API
 ```
 
 Everything is named `almagest-*` and labelled
@@ -129,6 +130,8 @@ to zero.
 | `make k8s-diff` | what a deploy would change, without changing it |
 | `make k8s-backup-now` | run the nightly backup immediately |
 | `make k8s-backup-pull` | copy the newest backup off the cluster |
+| `make k8s-maintenance-now` | run the nightly cache maintenance immediately |
+| `make k8s-caches` | what each derived cache's last check found |
 
 ## Backups
 
@@ -137,6 +140,39 @@ to zero.
 one), and keeps 14. It writes to `/data/backups` on the same PVC, which protects
 against corruption but *not* against losing the disk — `make k8s-backup-pull`
 is the off-cluster half and is currently manual.
+
+## Cache maintenance
+
+`almagest-maintenance` runs at 03:42, after the backup rather than before it: if a
+night's run turns up drift, the backup taken 25 minutes earlier is the only copy
+holding the *un-repaired* state, and that is what can still show how a write path
+broke.
+
+It does two different things to two different kinds of cache:
+
+- **`location_occupancy` is rebuilt.** It is *designed* to go stale — triggers on
+  ledger insert and lot relocation mark rows dirty and leave the recompute to a
+  batch pass, because a tree walk on every ledger write is exactly what that
+  design avoids. A dirty row is the mechanism working.
+- **Lot balances and reserved quantities are only checked.** Both are maintained
+  incrementally on every write, so drift there is a bug in a write path, not
+  expected staleness. Rebuilding it nightly would erase the symptom and leave the
+  cause, so the wrong numbers would return the next day with nothing recorded.
+  `make k8s-caches` shows what the last check found; the repair is
+  `POST /api/system/caches/rebuild`, run deliberately once the cause is known.
+
+**Drift exits non-zero, so the Job fails.** There is no metrics stack here, and a
+failed Job is the only channel that surfaces a nightly correctness problem
+without one — it appears in `kubectl get jobs` and `failedJobsHistoryLimit: 7`
+keeps it for a week. `backoffLimit: 0` pairs with that: drift is a state of the
+data, so retrying would only record the same finding six more times. Exit 1 means
+the check ran and found drift; exit 2 means it could not reach the API.
+
+**The pod mounts no volume.** A rebuild writes, and SQLite on an RWO volume has
+exactly one writer — the API. So the work runs inside the API process and this Job
+only asks it to, over HTTP. That is the same division ADR 0005 draws for the
+extraction worker, and the reason `almagest-backup` next door goes to the trouble
+of opening the database `mode=ro`.
 
 ## Things that are load-bearing
 
