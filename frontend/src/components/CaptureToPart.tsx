@@ -120,6 +120,13 @@ export function CaptureToPart({
       const result = await createPart({
         name: effectiveName,
         part_kind: partKind.trim() === "" ? "component" : partKind.trim(),
+        // `is_stub` is the column; **"unfinished" is the word**. The flag means
+        // "created fast, name and kind only, still needs curating" — which is
+        // what the review queue filters on and what search's "Include
+        // unfinished" toggles. "Stub" is developer vocabulary that had leaked
+        // onto a button somebody presses at a bench. The column keeps its name
+        // (renaming it is a migration across the API and the MCP surface); the
+        // UI does not use the word anywhere.
         is_stub: true,
         ...(categoryId === null ? {} : { category_id: categoryId }),
         ...(mpn === "" ? {} : { mpn }),
@@ -169,22 +176,34 @@ export function CaptureToPart({
                 {armed === field ? "Tap a value…" : "From capture"}
               </button>
             </div>
-            {options.length > 1 && (
-              <ul className="suggest-list">
-                {options.map((option) => (
-                  <li key={`${option.source}-${option.via}-${option.value}`}>
-                    <button
-                      type="button"
-                      className={`suggest-option${option.value === current ? " is-current" : ""}`}
-                      onClick={() => onChange(field, option.value)}
-                    >
-                      <span className="mono">{option.value}</span>
-                      <SourceBadge suggestion={option} />
-                      <span className="muted-note">{option.via}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            {options.length > 0 && (
+              <>
+                <p className="muted-note suggest-caption">
+                  {options.length === 1 ? "read from the label:" : `read from the label — ${options.length} values:`}
+                </p>
+                <ul className="suggest-list">
+                  {options.map((option) => (
+                    <li key={`${option.source}-${option.via}-${option.value}`}>
+                      <button
+                        type="button"
+                        className={`suggest-option${option.value === current ? " is-current" : ""}`}
+                        onClick={() => onChange(field, option.value)}
+                      >
+                        <span className="mono">{option.value}</span>
+                        <SourceBadge suggestion={option} />
+                        <span className="muted-note">{option.via}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {options.length > 0 && chosen === undefined && current !== "" && (
+              // Typed over, or picked off the picture. Saying so is the point:
+              // otherwise the box looks identical whether the value came from
+              // the label or from the person, and "check each one" is
+              // unanswerable.
+              <p className="muted-note">Your value — the readings above are unchanged.</p>
             )}
           </label>
         );
@@ -235,7 +254,7 @@ export function CaptureToPart({
         onClick={() => void create()}
         disabled={busy || effectiveName === ""}
       >
-        {busy ? "Creating…" : "Create a stub part"}
+        {busy ? "Saving…" : "Save as unfinished"}
       </button>
       <ErrorBanner error={error} />
     </div>

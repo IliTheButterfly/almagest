@@ -526,6 +526,63 @@ describe("provisioning a cabinet, tap by tap", () => {
   });
 });
 
+describe("the container's own tag", () => {
+  /**
+   * A container with no slots — a standalone bin, a shelf — could not be given a
+   * tag by any screen in the app. The backend allowed it all along
+   * (`resolve_target` says the cabinet "is in scope because its own tag is
+   * legitimately part of the same physical walk"), but the cursor is derived
+   * over the *children*, so it never landed on the container and no tap could
+   * reach it.
+   */
+  it("binds the container itself, not the first slot", async () => {
+    const reader = simulatedTagSource(tagsFor());
+    render(
+      <TagWalk
+        location={CABINET}
+        kind="provision"
+        bindTarget="self"
+        onChanged={() => undefined}
+        source={reader}
+      />,
+    );
+
+    // The cursor is the container, not A1 — which is the whole point. It is the
+    // "big number" the walk puts the current target in.
+    await waitFor(() =>
+      expect(document.querySelector(".big-number")?.textContent).toBe(CABINET.name),
+    );
+
+    reader.tap(UIDS[0]!);
+
+    await waitFor(() => expect(server.bindings.get(CABINET.id)?.uid).toBe(UIDS[0]));
+    // And no slot was touched.
+    for (const slot of SLOTS) {
+      expect(server.bindings.get(slot.locationId)).toBeUndefined();
+    }
+  });
+
+  it("offers no Skip, because there is nothing to skip past", async () => {
+    const reader = simulatedTagSource(tagsFor());
+    render(
+      <TagWalk
+        location={CABINET}
+        kind="provision"
+        bindTarget="self"
+        onChanged={() => undefined}
+        source={reader}
+      />,
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".big-number")?.textContent).toBe(CABINET.name),
+    );
+
+    expect(screen.getByRole("button", { name: "Skip this slot" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+  });
+});
+
 describe("verifying what was bound", () => {
   /** Bind all four drawers straight into the server, as a finished walk would. */
   function preBind(): void {

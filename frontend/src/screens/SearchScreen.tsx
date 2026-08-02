@@ -230,7 +230,7 @@ function Options({
             onChange({ ...state, includeStubs: event.target.checked, page: 1 }, true)
           }
         />
-        Include stubs
+        Include unfinished
       </label>
       <label className="check">
         <input

@@ -152,7 +152,7 @@ describe("the no-camera dead end", () => {
     const text = document.body.textContent ?? "";
     const noticeAt = text.indexOf("No camera here");
     const typeAt = text.indexOf("Type it");
-    const nfcAt = text.indexOf("NFC is not available");
+    const nfcAt = text.indexOf("No NFC reader here");
 
     expect(noticeAt).toBeGreaterThanOrEqual(0);
     expect(typeAt).toBeGreaterThan(noticeAt);

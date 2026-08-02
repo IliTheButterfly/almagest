@@ -60,7 +60,16 @@ import { useAsync } from "../lib/hooks/useAsync";
 import { ALL_GLYPHS, glyphLabel } from "../lib/locations/glyphs";
 import { uuid4 } from "../lib/scan/session";
 
-const PANELS = ["details", "picture", "layout", "plan", "add", "tags", "verify"] as const;
+const PANELS = [
+  "details",
+  "picture",
+  "layout",
+  "plan",
+  "add",
+  "tags",
+  "self-tag",
+  "verify",
+] as const;
 
 export type EditPanel = (typeof PANELS)[number];
 
@@ -186,6 +195,14 @@ export function ContainerEditMode({
         <button type="button" onClick={() => openPanel("tags")}>
           Bind NFC tags…
         </button>
+        {/* The container's *own* tag, as opposed to its slots'. The backend has
+            always allowed it — `resolve_target` puts the cabinet in scope
+            deliberately — but the walk's cursor is derived over the children, so
+            nothing could reach it, and a container with no slots at all could
+            not be given a tag by any screen. */}
+        <button type="button" onClick={() => openPanel("self-tag")}>
+          Write a tag for this container…
+        </button>
         <button type="button" onClick={() => openPanel("verify")}>
           Verify NFC tags…
         </button>
@@ -215,6 +232,15 @@ export function ContainerEditMode({
           // toggle makes verification easy to skip — but finishing the binds now
           // offers the next walk instead of leaving a success message on screen.
           onVerifyNext={() => openPanel("verify")}
+        />
+      )}
+      {panel === "self-tag" && (
+        <TagWalkDialog
+          location={location}
+          kind="provision"
+          bindTarget="self"
+          onClose={close}
+          onChanged={onChanged}
         />
       )}
       {panel === "verify" && (

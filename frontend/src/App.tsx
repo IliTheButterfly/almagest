@@ -15,6 +15,7 @@ import { NavLink, Navigate, Route, Routes, useLocation, useParams } from "react-
 import { Logo } from "./components/Logo";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { WorkPanel } from "./components/WorkPanel";
+import { useGlobalTagReader } from "./lib/scanctx/useScanContext";
 import { carts } from "./lib/cart/registry";
 import { describeTarget } from "./lib/cart/describe";
 import { useCartSize } from "./lib/cart/useCart";
@@ -88,6 +89,10 @@ function WorkingOn() {
 
 export function App() {
   const pending = usePendingCount();
+  // Mounted here and nowhere else. A reader subscribed by a screen only works
+  // while that screen is open, which is what made scanning a place you went to
+  // rather than a way of answering the question in front of you.
+  useGlobalTagReader();
   const navRef = useRef<HTMLElement | null>(null);
   const location = useLocation();
 

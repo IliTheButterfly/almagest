@@ -380,6 +380,29 @@ function PendingRow({ entry }: { entry: PendingScan }) {
         </button>
       </div>
 
+      {/* The photograph, for an entry that has not synced yet.
+       *
+       * This used to render only under `ServerRow`, so the picture appeared the
+       * moment you pressed Sync and not a second before — which is backwards:
+       * the entry you *just* parked is the one you are least likely to remember
+       * and most likely to be curating. The capture itself already lives on the
+       * server (`captureId` is a server row minted at scan time), so the only
+       * thing that was local was the queue entry pointing at it.
+       *
+       * It carries the same ranked readings as the aisle had, so a part can be
+       * built from the label here rather than from the payload alone — and when
+       * that happens the entry is dropped from the queue, exactly as `create`
+       * below does. */}
+      {open && entry.captureId !== null && (
+        <IntakeCapture
+          captureId={entry.captureId}
+          onCreated={(part) => {
+            setCreatedId(part.id);
+            intakeQueue.remove(entry.id);
+          }}
+        />
+      )}
+
       {open && (
         <form
           className="stack"
@@ -388,6 +411,11 @@ function PendingRow({ entry }: { entry: PendingScan }) {
             void create();
           }}
         >
+          {entry.captureId !== null && (
+            <p className="muted-note" style={{ margin: 0 }}>
+              Or record it from the payload alone, without the label above.
+            </p>
+          )}
           <label className="field">
             <span>Name (the only required field)</span>
             <input value={name} onChange={(event) => setName(event.target.value)} />

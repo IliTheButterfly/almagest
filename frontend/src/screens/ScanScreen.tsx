@@ -49,7 +49,10 @@ import { DecodeFeedback, FEEDBACK_FLASH_MS } from "../lib/scan/feedback";
 import { NfcUnavailableError, readOneTag } from "../lib/scan/nfc";
 import { scanSession, uuid4 } from "../lib/scan/session";
 import { useScanner } from "../lib/scan/useScanner";
+import { routeForTarget } from "../lib/scanctx/route";
 import { formatShortId } from "../lib/shortid";
+import { bridgeSource } from "../lib/tags/bridge";
+import { useBridgeDevices } from "../lib/tags/useBridge";
 
 /**
  * The flash/vibrate/tone hook. One `DecodeFeedback` instance lives for the
@@ -90,19 +93,6 @@ function useDecodeFeedback(): { readonly flashing: boolean; readonly trigger: (c
 }
 
 /** Where a resolved target lives in the app. Mirrors the backend's `/s/` map. */
-function routeFor(target: ScanTarget): string | null {
-  switch (target.entity_type) {
-    case "location":
-      return `/locations/${target.entity_pk}`;
-    case "part":
-      return `/parts/${target.entity_pk}`;
-    case "stock_lot":
-      return `/lots/${target.entity_pk}`;
-    default:
-      return null;
-  }
-}
-
 interface Resolution {
   readonly response: ScanResolveResponse;
   readonly clientOpId: string;
@@ -164,7 +154,7 @@ export function ScanScreen() {
           target !== undefined &&
           (target.entity_type === "location" || target.entity_type === "stock_lot")
         ) {
-          const route = routeFor(target);
+          const route = routeForTarget(target);
           if (route !== null) {
             navigate(route);
           }
@@ -519,6 +509,24 @@ function CapturePanel({
   );
 }
 
+/**
+ * Reading a tag on the scan screen — from the phone's own radio, or from a
+ * reader on the end of a USB cable.
+ *
+ * **The bridge half is why this exists.** Web NFC is Chromium-on-Android only,
+ * so on the bench kiosk `detectCapabilities()` says no and this panel used to
+ * collapse to a grey "NFC is not available on this device" — on a machine with a
+ * Flipper Zero plugged into it and the bridge already talking to it. The reader
+ * was reachable from exactly one place in the app, the bind/verify walks inside
+ * a container's edit mode, so the commonest action there is — tap a tag, go to
+ * the drawer — was the one thing it could not do.
+ *
+ * ADR 0014 opened the bridge for precisely this gap; it had simply never been
+ * wired to the screen the gap is on. A device that arrives over the bridge is
+ * announced by a `device.attached` and nothing else: when none has, this panel
+ * says what is missing and why, rather than drawing a button that cannot work
+ * (ADR 0003's rule — absence is communicated by absence).
+ */
 function NfcPanel({
   onRead,
   onInit,
@@ -529,14 +537,63 @@ function NfcPanel({
 }) {
   const capabilities = detectCapabilities();
   const notice = nfcNotice(capabilities);
+  const { devices, connection } = useBridgeDevices();
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+
+  // A reader that can read is enough; writing is the walks' concern, not this
+  // screen's.
+  const reader =
+    devices.find(
+      (device) => device.capabilities.readsNdef || device.capabilities.readsUid,
+    ) ?? null;
+
+  // Taps arrive on their own, with no button to press — the reader is already
+  // polling, so asking the user to arm it first would be ceremony. The payload
+  // rule is the same one `readOneTag` uses and the same one the resolver
+  // expects: NDEF first, UID as the fallback, because a tag whose record was
+  // never written is still identifiable.
+  useEffect(() => {
+    if (connection === null || reader === null) {
+      return;
+    }
+    const source = bridgeSource(connection, reader);
+    return source.subscribe((tap) => {
+      const payload = tap.url ?? tap.shortId ?? tap.uid;
+      if (payload !== null) {
+        onRead(payload);
+      }
+    });
+    // `onRead` is stable for the life of the screen; adding it would resubscribe
+    // the reader on every render and drop taps in the gap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection, reader]);
+
+  if (reader !== null) {
+    return (
+      <div className="card">
+        <div className="row">
+          <h3 style={{ margin: 0, flex: 1 }}>Hold a tag to the reader</h3>
+          <span className="badge badge-good">{reader.label}</span>
+        </div>
+        <p className="muted-note" style={{ margin: 0 }}>
+          It is listening now — there is nothing to press. Reading only; this never
+          writes to a tag.
+        </p>
+      </div>
+    );
+  }
 
   if (notice !== null) {
     return (
       <details className="card">
-        <summary>NFC is not available on this device</summary>
+        <summary>No NFC reader here</summary>
         <p className="muted-note">{notice}</p>
+        <p className="muted-note">
+          A USB reader works too — a Flipper Zero running Antlia, with the device
+          bridge started. None has reported in, so either the bridge is not running
+          or nothing is plugged in.
+        </p>
       </details>
     );
   }
@@ -632,6 +689,8 @@ function Resolved({
 
         {parsed !== null && <ParsedFields parsed={parsed} />}
 
+        {response.suggest_bind && <BindOrCreate resolution={resolution} onDone={onChanged} />}
+
         <div className="row">
           <button type="button" onClick={onDismiss}>
             Dismiss
@@ -639,17 +698,18 @@ function Resolved({
         </div>
       </div>
 
+      {/* Still its own card: "more than one match" is a different situation from
+       * "nothing matched", and the actions it wants are the candidates
+       * themselves, not a form. */}
       {response.candidates !== undefined && response.candidates.length > 0 && (
         <Candidates candidates={response.candidates} />
       )}
-
-      {response.suggest_bind && <BindOrCreate resolution={resolution} onDone={onChanged} />}
     </div>
   );
 }
 
 function TargetLink({ target }: { target: ScanTarget }) {
-  const route = routeFor(target);
+  const route = routeForTarget(target);
   const label = target.label_path ?? target.label;
   if (route === null) {
     return (
@@ -677,7 +737,7 @@ function Candidates({ candidates }: { candidates: readonly ScanCandidate[] }) {
       <h3>Candidates</h3>
       <ul className="list">
         {candidates.map((candidate, index) => {
-          const route = routeFor(candidate.target);
+          const route = routeForTarget(candidate.target);
           const label = candidate.target.label_path ?? candidate.target.label;
           return (
             <li key={`${candidate.target.entity_type}-${candidate.target.entity_pk}-${index}`}>
@@ -883,8 +943,14 @@ function BindOrCreate({
   }
 
   return (
-    <div className="card">
-      <h3>Nothing matched — teach it</h3>
+    <div className="stack">
+      {/* A section of the unmatched card, not a card of its own. It used to be a
+       * second card headed "Nothing matched — teach it" directly under a card
+       * already headed "Nothing matched", so one situation arrived as two or
+       * three stacked panels with nothing saying which you wanted. The order is
+       * the answer now: park it, see what was read, make a part, bind an
+       * existing one. */}
+      <h3 style={{ margin: 0 }}>Make a part from this label</h3>
 
       <label className="field">
         <span>Name (the only required field)</span>
@@ -897,7 +963,7 @@ function BindOrCreate({
         hint="Optional, and changeable later — but it is what decides which fields this part can be filtered by."
       />
       <button type="button" className="primary wide" onClick={() => void create()} disabled={busy}>
-        {busy ? "Creating…" : "Create a stub part and bind this code"}
+        {busy ? "Saving…" : "Save as unfinished and bind this code"}
       </button>
 
       <details>

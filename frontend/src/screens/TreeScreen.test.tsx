@@ -9,7 +9,7 @@
  * luminance match, so no state may rest on colour.
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +25,7 @@ interface NodeSpec {
   is_overfull?: boolean;
   is_staging?: boolean;
   fill_ratio?: number | null;
+  glyph?: string | null;
   lot_count?: number;
 }
 
@@ -42,6 +43,7 @@ function node(spec: NodeSpec) {
     // The API always resolves this: instance override, else the container type's,
     // else derived from the type's geometry. A cabinet is a face of drawer fronts.
     effective_child_view: spec.view ?? "cabinet_face",
+    effective_glyph: spec.glyph ?? null,
     is_overfull: spec.is_overfull ?? false,
     is_staging: spec.is_staging ?? false,
     fill_ratio: spec.fill_ratio === undefined ? 0.25 : spec.fill_ratio,
@@ -60,7 +62,14 @@ function node(spec: NodeSpec) {
  * position to be empty.
  */
 const NODES = [
-  node({ id: 1, name: "Cabinet A", parent_id: null, slot_label: null, view: "cabinet_face" }),
+  node({
+    id: 1,
+    name: "Cabinet A",
+    parent_id: null,
+    slot_label: null,
+    view: "cabinet_face",
+    glyph: "cabinet",
+  }),
   node({ id: 2, name: "Drawer A1", parent_id: 1, slot_label: "A1", view: "grid_cells" }),
   node({ id: 3, name: "Drawer B2", parent_id: 1, slot_label: "B2", is_overfull: true }),
   node({ id: 4, name: "Bin 1", parent_id: 2, slot_label: "1", fill_ratio: null }),
@@ -283,10 +292,16 @@ describe("fill state", () => {
     // Bin 1 has fill_ratio null: no capacity model, so there is nothing to be a
     // fraction of. Drawing that as 0% would invent a measurement.
     renderTree("/tree?at=2");
-    await findCell(/Bin 1/);
+    const bin = await findCell(/Bin 1/);
 
-    expect(screen.getByLabelText(/no capacity model/)).toBeTruthy();
-    expect(screen.getByText("n/m")).toBeTruthy();
+    // Scoped to the cell under test rather than to the document.
+    // `getByLabelText` across the whole screen made this test depend on how many
+    // *other* cells on the plate happened to have no capacity model — it passed
+    // in a full-suite run and failed on its own, which is the wrong way round
+    // and cost a CI cycle to notice. Pre-existing; unrelated to why it was
+    // being run.
+    expect(within(bin).getByLabelText(/no capacity model/)).toBeTruthy();
+    expect(within(bin).getByText("n/m")).toBeTruthy();
   });
 });
 
@@ -333,5 +348,32 @@ describe("the list view", () => {
     await waitFor(() => expect(url()).toContain("view=list"));
     expect(screen.getByLabelText(/Filter by path/i)).toBeTruthy();
     expect(screen.getByRole("table", { name: "Storage tree" })).toBeTruthy();
+  });
+});
+
+describe("one container, drawn the same way wherever you meet it", () => {
+  /**
+   * The glyph is the only thing that makes a container recognisable without
+   * reading, and it was drawn by the map cells and the container page but not
+   * by the list — the two views of the same tree, side by side on a wide
+   * screen, giving different cues for the same row.
+   */
+  it("draws the container's glyph in the list, as the map does", async () => {
+    renderTree("/tree?view=list");
+    await screen.findByText("Cabinet A");
+
+    // Every row carries one. `ContainerPhoto` draws it decoratively beside the
+    // name — a cue, not a second label.
+    const row = [...document.querySelectorAll(".tree-row")].find((candidate) =>
+      candidate.textContent?.includes("Cabinet A"),
+    );
+    expect(row?.querySelector(".cell-glyph")).toBeTruthy();
+
+    // And a container with no glyph set draws nothing rather than a placeholder:
+    // absence communicated by absence, the same as everywhere else.
+    const plain = [...document.querySelectorAll(".tree-row")].find((candidate) =>
+      candidate.textContent?.includes("Bin 1"),
+    );
+    expect(plain?.querySelector(".cell-glyph")).toBeNull();
   });
 });
