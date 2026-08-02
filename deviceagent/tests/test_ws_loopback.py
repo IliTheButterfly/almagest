@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from contextlib import AsyncExitStack
 from typing import Any
 
+import pytest
 from websockets.asyncio.client import connect
 
 from agent import events
@@ -140,6 +142,35 @@ def test_a_disconnected_client_is_detached() -> None:
             return hub.subscriber_count
 
     assert asyncio.run(asyncio.wait_for(scenario(), TIMEOUT_S)) == 0
+
+
+def test_a_client_that_vanishes_is_not_an_error(caplog: pytest.LogCaptureFixture) -> None:
+    """A kiosk reload sends no close frame, and that is the normal case here.
+
+    `websockets` raises `ConnectionClosedError` out of the frame iterator, so
+    every reload used to put a full traceback in the bench log — on a machine
+    whose log nobody reads daily, which is exactly how a real fault goes
+    unnoticed. The handler's `finally` already treated the case as expected; the
+    logging did not.
+    """
+
+    async def scenario() -> None:
+        hub = EventHub()
+        async with serve_events(hub, host="127.0.0.1", port=0) as port:
+            client = await connect(f"ws://127.0.0.1:{port}")
+            await client.recv()
+            # No close handshake: the transport just goes, as a killed tab does.
+            client.transport.abort()
+            for _ in range(100):
+                if hub.subscriber_count == 0:
+                    break
+                await asyncio.sleep(0.01)
+            assert hub.subscriber_count == 0
+
+    with caplog.at_level(logging.ERROR):
+        asyncio.run(asyncio.wait_for(scenario(), TIMEOUT_S))
+
+    assert caplog.records == [], "a client leaving without a close frame logged an error"
 
 
 def test_a_command_frame_reaches_the_session_and_answers_every_subscriber() -> None:
