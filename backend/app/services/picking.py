@@ -251,13 +251,12 @@ def pick_list_for_build(session: Session, build: ProjectBuild) -> PickList:
 def _preference(line: BomLine, substitute_part_ids: tuple[int, ...]) -> tuple[int, ...]:
     """The parts that satisfy a line, best first: its own, then its alternates.
 
-    Exactly the order `reservations._net_one_line` accumulates availability in. If
+    Exactly the order `reservations._net_one_line` accumulates availability in —
+    now by calling the same function rather than by rebuilding the same tuple. If
     these two ever diverge, the shortage report and the walk are answering "what
     satisfies this line" differently, and the user acts on the wrong one.
     """
-    if line.part_id is None:
-        return substitute_part_ids
-    return (line.part_id, *substitute_part_ids)
+    return reservations.satisfying_parts(line.part_id, substitute_part_ids)
 
 
 def _bom_lines(session: Session, project_id: int) -> list[BomLine]:

@@ -304,12 +304,18 @@ def test_the_map_and_the_container_page_agree_about_the_same_cabinet(
         make_location(db, name=f"Drawer {index}", parent_id=cabinet.id)
     db.commit()
 
-    # The *nightly* pass, not `/caches/rebuild`. That route is the escape hatch
-    # — `system.py` documents it as what you reach for when the cache is
-    # *suspect* — and driving this through it made the test pass while the path
-    # that actually runs left the map and the page disagreeing. Nothing marked a
-    # parent dirty when its children changed, so `only_dirty=True` skipped every
-    # cabinet for ever.
+    # The *nightly* pass, not `/caches/rebuild`. That route is the escape hatch —
+    # `system.py` documents it as what you reach for when the cache is *suspect*
+    # — and the two must not be able to disagree.
+    #
+    # **This test does not pin the dirty-marking mechanism, and the commit that
+    # added the line above said it did.** It cannot: the cabinet and its drawers
+    # are created and the pass is run once, so `trg_locations_seed_occupancy`'s
+    # insert flag is still set and `only_dirty=True` visits the cabinet whatever
+    # the production code does. It passes on the broken code. What it does pin is
+    # narrower and still worth having — that the two reads agree at all — and the
+    # mechanism is pinned in `test_occupancy_dirty.py`, which runs the pass
+    # *before* changing the tree and is mutation-checked against every caller.
     assert client.post("/api/system/maintenance").status_code == 200
 
     live = client.get(f"/api/locations/{cabinet.id}").json()["capacity"]
@@ -435,3 +441,33 @@ def test_a_retired_bin_does_not_keep_filling_its_plate(client: TestClient, db: S
     capacity = client.get(f"/api/locations/{base.id}").json()["capacity"]
     assert capacity["used"] == 1
     assert capacity["is_overfull"] is False
+
+
+def test_an_over_filled_cabinet_reports_overfull_without_the_bulk_pass(
+    client: TestClient, db: Session
+) -> None:
+    """The control for "`is_overfull` comes from the snapshot, not the column".
+
+    `location_occupancy.is_overfull` is the *scorer's* input and is written only
+    by the bulk pass. Serving it beside a live `used`/`fill_ratio` gave one
+    payload that contradicted itself — `fill_ratio 3.0, is_full true,
+    is_overfull false` — while the field is documented as "capacity is literally
+    exceeded".
+
+    The bulk pass is deliberately not run here: that is what makes the persisted
+    column `false` and so what makes the assertion discriminate. Reverting
+    `locations.py`'s `is_overfull=snapshot.is_overfull` to
+    `location.is_overfull` turns this red and left the rest of the suite green,
+    which is why it exists.
+    """
+    kind = make_container_type(db, "cab-tight", capacity_model="slots", capacity_slots=1)
+    cabinet = make_location(db, name="Overfull cabinet", container_type_id=kind.id)
+    for index in range(3):
+        make_location(db, name=f"Crammed {index}", parent_id=cabinet.id)
+    db.commit()
+
+    capacity = client.get(f"/api/locations/{cabinet.id}").json()["capacity"]
+
+    assert capacity["fill_ratio"] == 3.0
+    assert capacity["is_full"] is True
+    assert capacity["is_overfull"] is True

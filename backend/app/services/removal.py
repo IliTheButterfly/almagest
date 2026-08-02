@@ -401,7 +401,7 @@ def apply_removal(session: Session, plan: RemovalPlan) -> RemovalPlan:
 
 
 def _mark_parent_occupancy_dirty(location: Location) -> None:
-    """Retiring or restoring a container changes its parent's fill.
+    """Retiring, restoring or deleting a container changes its parent's fill.
 
     A cabinet's slots are counted by its live children, so a drawer leaving the
     tree makes the parent's stored fill wrong until something says so. The
@@ -498,6 +498,11 @@ def _delete(session: Session, location: Location) -> None:
             BarcodeAlias.entity_pk == location.id,
         )
     )
+    # Before the row goes: `_mark_parent_occupancy_dirty` reads `parent_id` off
+    # it, and a deleted instance cannot answer. A hard delete empties a slot
+    # exactly as a retire does, so the parent is stale in the same way and the
+    # nightly pass — which only visits dirty rows — would skip it for ever.
+    _mark_parent_occupancy_dirty(location)
     session.delete(location)
     session.flush()
 

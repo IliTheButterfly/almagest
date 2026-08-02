@@ -1299,9 +1299,11 @@ def _net_one_line(
             shortfall_milli=None,
         )
 
+    order = satisfying_parts(line.part_id, substitute_part_ids)
+
     contributors: list[int] = []
     free = 0
-    for part_id in (line.part_id, *substitute_part_ids):
+    for part_id in order:
         share = pool.get(part_id, 0)
         if share <= 0:
             continue
@@ -1313,7 +1315,7 @@ def _net_one_line(
     # consumes its own part before eating an alternate that a later line may be
     # the only claimant for.
     outstanding = min(needed, free)
-    for part_id in (line.part_id, *substitute_part_ids):
+    for part_id in order:
         if outstanding <= 0:
             break
         take = min(outstanding, max(0, pool.get(part_id, 0)))
@@ -1339,6 +1341,26 @@ def _net_one_line(
         shortfall_milli=shortfall,
         substitute_part_ids=tuple(contributors),
     )
+
+
+def satisfying_parts(part_id: int | None, substitute_part_ids: Sequence[int]) -> tuple[int, ...]:
+    """The parts that satisfy one line, best first and each named once.
+
+    **The dedupe is the point.** `UniqueConstraint("bom_line_id", "part_id")` on
+    `bom_line_substitutes` stops the same alternate being listed twice, but it
+    cannot stop an alternate that *is* the line's own part — nothing joins the
+    two columns. Counted twice, a line needing 150 with 100 on the shelf reports
+    200 available and `satisfied`, and the pool is debited once while the total
+    was accumulated twice, so every later line sharing that part over-reports as
+    well. A BOM that looks buildable and is not is exactly the failure the
+    netting loop exists to prevent.
+
+    A line with no matched part contributes no own-part head: an alternate
+    nobody has said is equivalent *to what* satisfies nothing.
+    """
+    if part_id is None:
+        return tuple(dict.fromkeys(substitute_part_ids))
+    return tuple(dict.fromkeys((part_id, *substitute_part_ids)))
 
 
 def substitutes_by_line(session: Session, line_ids: Iterable[int]) -> dict[int, tuple[int, ...]]:
