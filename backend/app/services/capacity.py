@@ -279,23 +279,23 @@ class SlotsCapacityStrategy(CapacityStrategy):
         self, inputs: ContainerCapacityInputs, occupants: list[OccupantLot]
     ) -> CapacitySnapshot:
         per_slot = max(inputs.max_parts_per_slot or 1, 1)
-        if inputs.occupied_child_slots is not None:
-            # `max_parts_per_slot` means "how many distinct parts may share one
-            # compartment". It says nothing about drawers standing in a cabinet,
-            # and multiplying by it made a full cabinet read 33% — the same bug
-            # this branch exists to fix, wearing a different number.
-            capacity = float(inputs.capacity_slots) if inputs.capacity_slots is not None else None
-        else:
-            capacity = (
-                float(inputs.capacity_slots * per_slot)
-                if inputs.capacity_slots is not None
-                else None
-            )
-        # Children *and* loose lots, not one or the other. Nothing makes them
-        # mutually exclusive — a divided drawer can hold five parts and a small
-        # sub-bin — and taking only the child count made that drawer's meter
-        # *drop* from 5 to 1 the moment the sub-bin went in.
-        used = float((inputs.occupied_child_slots or 0) + len({o.part_id for o in occupants}))
+        children = inputs.occupied_child_slots or 0
+        distinct_parts = len({o.part_id for o in occupants})
+
+        # `capacity_slots` counts *compartments*; `max_parts_per_slot` says how
+        # many distinct parts may share one. So the capacity in parts is the
+        # product, and a child container occupies a whole compartment however
+        # many parts it could hold.
+        #
+        # Deciding this from "does it happen to have a child right now" was the
+        # bug: a 10-slot drawer allowing 2 parts each, holding 12 parts, read
+        # 60% — and putting one divider in it made the capacity collapse from 20
+        # to 10 and the drawer read 130% overfull, which hard-filters it out of
+        # auto-assignment and raises a defrag suggestion for a drawer nobody
+        # touched. The two occupant kinds are now measured in the same unit
+        # instead of switching the scale between them.
+        capacity = float(inputs.capacity_slots * per_slot) if inputs.capacity_slots else None
+        used = float(children * per_slot + distinct_parts)
         fill_ratio = used / capacity if capacity else None
         is_full = capacity is not None and used >= capacity
         return CapacitySnapshot(
@@ -610,7 +610,11 @@ def consumed_grid_units(session: Session, location_id: int) -> int:
         select(ContainerType.footprint_rows, ContainerType.footprint_cols)
         .select_from(Location)
         .outerjoin(ContainerType, ContainerType.id == Location.container_type_id)
-        .where(Location.parent_id == location_id)
+        # Retired children do not occupy anything, exactly as the slots queries
+        # and `child_count` already have it. Without this a plate holding one
+        # live bin and one retired one wore a permanent red "over" badge with
+        # nothing the user could move to clear it.
+        .where(Location.parent_id == location_id, Location.retired_at.is_(None))
     ).all()
     return sum(max(row[0] or 1, 1) * max(row[1] or 1, 1) for row in rows)
 

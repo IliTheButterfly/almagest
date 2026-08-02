@@ -57,7 +57,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.models.catalog import Part
 from app.models.documents import DocumentLink
@@ -400,6 +400,21 @@ def apply_removal(session: Session, plan: RemovalPlan) -> RemovalPlan:
     return plan
 
 
+def _mark_parent_occupancy_dirty(location: Location) -> None:
+    """Retiring or restoring a container changes its parent's fill.
+
+    A cabinet's slots are counted by its live children, so a drawer leaving the
+    tree makes the parent's stored fill wrong until something says so. The
+    `location_occupancy` triggers cover the ledger and lot relocation only.
+    """
+    session = object_session(location)
+    if session is None or location.parent_id is None:
+        return
+    from app.db.maintenance import mark_location_occupancy_dirty
+
+    mark_location_occupancy_dirty(session, [location.parent_id])
+
+
 def retire(location: Location, *, at: datetime | None = None) -> None:
     """Take a container out of the tree while keeping its row and its history.
 
@@ -419,6 +434,7 @@ def retire(location: Location, *, at: datetime | None = None) -> None:
     not still be drawn standing in the room.
     """
     location.retired_at = at if at is not None else datetime.now(UTC)
+    _mark_parent_occupancy_dirty(location)
     location.slot_label = None
     location.row_idx = None
     location.col_idx = None
@@ -521,6 +537,7 @@ def restore(session: Session, location: Location) -> list[Location]:
     restored = [loc for loc in tree.subtree(location) if loc.retired_at is not None]
     for loc in restored:
         loc.retired_at = None
+        _mark_parent_occupancy_dirty(loc)
     session.flush()
     return restored
 
