@@ -29,9 +29,9 @@ from agent.devices import (
     _flipper_label,
 )
 from agent.events import Event
-from agent.fake_tags import FakeTagSource, FakeWritableTagSource
+from agent.fake_tags import FakeTagSource, FakeWritableTagSource, ScriptedPoll
 from agent.hub import EventHub
-from agent.tags import READS_BOTH_AND_WRITES, TagSourceError
+from agent.tags import READS_BOTH_AND_WRITES, TagRead, TagSourceError
 
 #: `tests/test_ws_loopback.py` runs its async scenarios with
 #: `asyncio.run(asyncio.wait_for(...))` rather than pulling in `pytest-asyncio`.
@@ -598,3 +598,113 @@ class _ListSink:
         import json
 
         self.messages.append(json.loads(message))
+
+
+class TestPresenceEdges:
+    """A tag arriving and a tag leaving, and silence in between.
+
+    The loop used to re-publish `tag.seen` every hold-off window for as long as a
+    tag lay in the field, and had no way at all to say the field was empty again.
+    Both halves of that were wrong in the same direction: presence could only be
+    *inferred*, by every client separately, from a drumbeat continuing or
+    stopping. A client that wanted to record what changed recorded the same
+    drawer over and over, and a panel that wanted to clear itself when the tag
+    came off could not know.
+    """
+
+    @staticmethod
+    def _reader(*polls: ScriptedPoll) -> DeviceRegistry:
+        return DeviceRegistry([StaticBackend(sources={"flipper-usb:a": FakeTagSource(polls)})])
+
+    @staticmethod
+    def _tag_events(published: list[Event]) -> list[str]:
+        return [e.type for e in published if e.type in {events.TAG_SEEN, events.TAG_GONE}]
+
+    @sync
+    async def test_a_tag_lying_still_is_announced_once(self) -> None:
+        tag = TagRead(uid="04AABBCCDDEE80", ndef_url=None)
+        registry = self._reader(*[ScriptedPoll(read=tag) for _ in range(5)])
+
+        published = await _run_loop(registry, sweeps=5)
+
+        # Five polls, one arrival. Silence is the message: nothing changed.
+        assert self._tag_events(published) == [events.TAG_SEEN]
+
+    @sync
+    async def test_lifting_the_tag_is_announced(self) -> None:
+        tag = TagRead(uid="04AABBCCDDEE80", ndef_url=None)
+        registry = self._reader(
+            ScriptedPoll(read=tag),
+            ScriptedPoll(read=tag),
+            ScriptedPoll(),
+            ScriptedPoll(),
+            ScriptedPoll(),
+        )
+
+        published = await _run_loop(registry, sweeps=5)
+
+        assert self._tag_events(published) == [events.TAG_SEEN, events.TAG_GONE]
+        gone = next(e for e in published if e.type == events.TAG_GONE)
+        # No tag on it: what left is whatever `tag.seen` last named, and
+        # repeating it invites a client to match them up across a reconnect.
+        assert gone.data == {"device_id": "flipper-usb:a"}
+
+    @sync
+    async def test_one_missed_poll_is_not_a_departure(self) -> None:
+        """A tag at the edge of the antenna drops out of a poll and comes back.
+
+        Announcing that would turn a sticker lying still into a stream of
+        arrivals and departures — and, downstream, into a scan panel filling up
+        with the same drawer.
+        """
+        tag = TagRead(uid="04AABBCCDDEE80", ndef_url=None)
+        registry = self._reader(
+            ScriptedPoll(read=tag),
+            ScriptedPoll(),
+            ScriptedPoll(read=tag),
+            ScriptedPoll(read=tag),
+        )
+
+        published = await _run_loop(registry, sweeps=4)
+
+        assert self._tag_events(published) == [events.TAG_SEEN]
+
+    @sync
+    async def test_putting_the_same_tag_back_is_a_fresh_arrival(self) -> None:
+        """Lift and replace is the gesture for "do that again" — a re-read, a
+        retry after a failed write. It has to produce an event."""
+        tag = TagRead(uid="04AABBCCDDEE80", ndef_url=None)
+        registry = self._reader(
+            ScriptedPoll(read=tag),
+            ScriptedPoll(),
+            ScriptedPoll(),
+            ScriptedPoll(),
+            ScriptedPoll(read=tag),
+            ScriptedPoll(read=tag),
+        )
+
+        published = await _run_loop(registry, sweeps=6)
+
+        assert self._tag_events(published) == [
+            events.TAG_SEEN,
+            events.TAG_GONE,
+            events.TAG_SEEN,
+        ]
+
+    @sync
+    async def test_a_different_tag_is_announced_without_waiting_for_a_gap(self) -> None:
+        """Swapping one tag for another under the reader, fast enough that no
+        empty poll lands between them. The second is a change and must be said."""
+        first = TagRead(uid="04AABBCCDDEE80", ndef_url=None)
+        second = TagRead(uid="04112233445566", ndef_url=None)
+        registry = self._reader(
+            ScriptedPoll(read=first),
+            ScriptedPoll(read=second),
+            ScriptedPoll(read=second),
+        )
+
+        published = await _run_loop(registry, sweeps=3)
+
+        assert self._tag_events(published) == [events.TAG_SEEN, events.TAG_SEEN]
+        uids = [e.data["tag_uid"] for e in published if e.type == events.TAG_SEEN]
+        assert uids == ["04AABBCCDDEE80", "04112233445566"]

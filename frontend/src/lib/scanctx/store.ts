@@ -46,6 +46,17 @@ export interface ScanRecord {
   readonly target: ScanTarget | null;
   /** `resolved` | `ambiguous` | `unmatched`, from the resolver. */
   readonly status: string;
+  /**
+   * Which reader has this tag against it *now*, or null once it was lifted off.
+   *
+   * Presence, not history. A tag held against the reader is one row that stays
+   * current, not a row per poll — the agent states presence by its edges
+   * (`tag.seen` on arrival, `tag.gone` on departure) and this mirrors that. A
+   * field offering "use the drawer you are holding" wants the one that is still
+   * there; the rest are what you scanned earlier, and a panel that could not
+   * tell them apart would offer a drawer you put down five minutes ago.
+   */
+  readonly presentOn: string | null;
 }
 
 type Listener = () => void;
@@ -63,6 +74,11 @@ class ScanContext {
     return this.#scans[0] ?? null;
   }
 
+  /** What is against a reader right now, newest first. Usually none or one. */
+  present(): readonly ScanRecord[] {
+    return this.#scans.filter((scan) => scan.presentOn !== null);
+  }
+
   /** The newest scan that resolved to a location, or null.
    *
    * A location field wants the drawer you scanned, not the reel you scanned
@@ -74,8 +90,37 @@ class ScanContext {
   }
 
   add(scan: ScanRecord): void {
-    this.#scans = [scan, ...this.#scans].slice(0, MAX_SCANS);
+    // One reader holds one tag. A new arrival on a device therefore means
+    // whatever it was holding is no longer there, even if no `tag.gone` reached
+    // us — a tag swapped fast enough that no empty poll landed between them.
+    this.#scans = [
+      scan,
+      ...this.#scans.map((row) =>
+        row.presentOn === scan.presentOn ? { ...row, presentOn: null } : row,
+      ),
+    ].slice(0, MAX_SCANS);
     this.#notify();
+  }
+
+  /**
+   * The tag on `deviceId` has been lifted off.
+   *
+   * The row stays — it is still the last thing you scanned, and dropping it
+   * would make "I just scanned that" untrue the moment you took the drawer
+   * away. What changes is that nothing may now claim you are holding it.
+   */
+  lifted(deviceId: string): void {
+    let changed = false;
+    this.#scans = this.#scans.map((row) => {
+      if (row.presentOn !== deviceId) {
+        return row;
+      }
+      changed = true;
+      return { ...row, presentOn: null };
+    });
+    if (changed) {
+      this.#notify();
+    }
   }
 
   /** Drop one, when a person has dealt with it and wants it out of the way. */

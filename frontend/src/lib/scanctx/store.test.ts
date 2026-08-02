@@ -9,9 +9,14 @@ import { describe, expect, it } from "vitest";
 
 import { MAX_SCANS, newScanContext, type ScanRecord } from "./store";
 
-function scan(id: string, entityType: string | null = "location"): ScanRecord {
+function scan(
+  id: string,
+  entityType: string | null = "location",
+  presentOn: string | null = "flipper-usb:a",
+): ScanRecord {
   return {
     id,
+    presentOn,
     at: 1_700_000_000_000,
     code: `https://almagest.lan/s/${id}`,
     symbology: "nfc",
@@ -86,5 +91,55 @@ describe("the scan context", () => {
 
     expect(notifications).toBe(2);
     expect(context.list().map((row) => row.id)).toEqual(["two"]);
+  });
+});
+
+describe("presence, as opposed to a log of sightings", () => {
+  it("marks the previous tag on that reader as no longer there", () => {
+    const context = newScanContext();
+    context.add(scan("drawer"));
+    context.add(scan("reel", "part"));
+
+    // One reader holds one tag: the arrival of the second means the first is
+    // off it, even if the tag was swapped fast enough that no empty poll — and
+    // so no `tag.gone` — landed between them.
+    expect(context.present().map((row) => row.id)).toEqual(["reel"]);
+    expect(context.list().map((row) => row.id)).toEqual(["reel", "drawer"]);
+  });
+
+  it("keeps a lifted tag in the list but stops calling it present", () => {
+    const context = newScanContext();
+    context.add(scan("drawer"));
+
+    context.lifted("flipper-usb:a");
+
+    // Still the last thing you scanned; no longer the thing in your hand.
+    expect(context.list().map((row) => row.id)).toEqual(["drawer"]);
+    expect(context.present()).toEqual([]);
+  });
+
+  it("leaves another reader's tag alone", () => {
+    const context = newScanContext();
+    context.add(scan("on-a", "location", "flipper-usb:a"));
+    context.add(scan("on-b", "location", "flipper-usb:b"));
+
+    context.lifted("flipper-usb:a");
+
+    expect(context.present().map((row) => row.id)).toEqual(["on-b"]);
+  });
+
+  it("says nothing when a reader with no tag reports one lifted", () => {
+    const context = newScanContext();
+    context.add(scan("drawer"));
+    let notifications = 0;
+    context.subscribe(() => {
+      notifications += 1;
+    });
+
+    context.lifted("flipper-usb:b");
+
+    // A subscriber re-rendering on an event that changed nothing is how a
+    // panel flickers for no reason.
+    expect(notifications).toBe(0);
   });
 });

@@ -80,6 +80,16 @@ export interface BridgeConnection {
   onDevices(listener: (devices: readonly BridgeDevice[]) => void): () => void;
   /** Taps from one device. Returns an unsubscribe. */
   onTap(deviceId: string, listener: (tap: TagPresentation) => void): () => void;
+  /**
+   * The tag on one device has been lifted off it. Returns an unsubscribe.
+   *
+   * Separate from `onTap` rather than a `TagPresentation | null` through it,
+   * because most consumers only care about arrivals: a walk binds what it is
+   * given and has nothing to do when a tag leaves. Making every one of them
+   * handle a null would be a null check per call site to express something two
+   * of them want.
+   */
+  onGone(deviceId: string, listener: () => void): () => void;
   /** Write through one named device, and resolve with what it read back. */
   write(deviceId: string, url: string, options?: { overwrite?: boolean }): Promise<NfcReadBack>;
   /** True once a socket has been open at least once. For diagnostics only. */
@@ -196,6 +206,7 @@ export function openBridge(options: BridgeOptions = {}): BridgeConnection {
   const devices = new Map<string, BridgeDevice>();
   const deviceListeners = new Set<(devices: readonly BridgeDevice[]) => void>();
   const tapListeners = new Map<string, Set<(tap: TagPresentation) => void>>();
+  const goneListeners = new Map<string, Set<() => void>>();
   const pending = new Map<string, PendingWrite>();
 
   let socket: WebSocket | null = null;
@@ -289,6 +300,20 @@ export function openBridge(options: BridgeOptions = {}): BridgeConnection {
         };
         for (const listener of [...listeners]) {
           listener(tap);
+        }
+        break;
+      }
+      case "tag.gone": {
+        // The field is empty again. Presence is stated by its edges now: one
+        // `tag.seen` when a tag arrives, one of these when it leaves, silence in
+        // between meaning "nothing changed" rather than "nobody is looking".
+        // Before this the agent re-published `tag.seen` for as long as a tag lay
+        // in the field, so every client had to infer presence from a drumbeat
+        // and none could tell the difference between a tag lifted and a bridge
+        // that had stopped talking.
+        const deviceId = String(data["device_id"] ?? "");
+        for (const listener of [...(goneListeners.get(deviceId) ?? [])]) {
+          listener();
         }
         break;
       }
@@ -403,6 +428,14 @@ export function openBridge(options: BridgeOptions = {}): BridgeConnection {
       const listeners = tapListeners.get(deviceId) ?? new Set();
       listeners.add(listener);
       tapListeners.set(deviceId, listeners);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    onGone(deviceId, listener) {
+      const listeners = goneListeners.get(deviceId) ?? new Set();
+      listeners.add(listener);
+      goneListeners.set(deviceId, listeners);
       return () => {
         listeners.delete(listener);
       };

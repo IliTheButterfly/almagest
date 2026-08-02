@@ -142,7 +142,7 @@ function ScannedTab({
       <div className="stack">
         <p className="muted-note" style={{ margin: 0 }}>
           {hasReader
-            ? "Hold a tag to the reader. What it reads lands here, and any field that can take a scan will offer it."
+            ? "Hold a tag to the reader. What it reads lands here and stays until you lift it off, and any field that can take a scan will offer it."
             : "Nothing scanned yet."}
         </p>
       </div>
@@ -160,6 +160,11 @@ function ScannedTab({
               <span className="title" style={{ flex: 1, overflowWrap: "anywhere" }}>
                 {label}
               </span>
+              {/* On the reader *now*, as opposed to something you scanned
+                  earlier. The distinction is the difference between "use the
+                  drawer in your hand" and "use a drawer you put down five
+                  minutes ago", and only one of those is safe to offer. */}
+              {scan.presentOn !== null && <span className="badge badge-good">on the reader</span>}
               {scan.target === null ? (
                 <span className="badge badge-warn">nothing matched</span>
               ) : (

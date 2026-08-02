@@ -48,6 +48,16 @@ DEFAULT_TAP_INTERVAL_S: Final = 0.5
 #: Flipper each of those is an RPC round trip.
 DEFAULT_WRITE_TIMEOUT_S: Final = 20.0
 
+#: Empty polls before a reader is said to have lost its tag.
+#:
+#: Two, not one. A tag resting at the edge of the antenna drops out of a single
+#: poll and returns on the next, and at the 500 ms tap interval one missed read
+#: is 500 ms of nothing — announcing a departure for that would turn a sticker
+#: lying still into a stream of arrivals and departures. Two is 1 s, which is
+#: shorter than the gesture of lifting a drawer and slower than the flicker.
+#: `TagPresence` makes the same trade for the station with `absent_polls=3`.
+GONE_AFTER_MISSED_POLLS: Final = 2
+
 Publish = Callable[[Event], Awaitable[None]]
 
 
@@ -230,6 +240,12 @@ async def bridge_forever(
     it; production passes `None`.
     """
     holdoff = HoldOff(debounce_ms, clock=clock)
+    #: What each reader currently has in its field, by identity key. The edges of
+    #: this map are the whole `tag.seen` / `tag.gone` vocabulary.
+    present: dict[str, str | None] = {}
+    #: Consecutive empty polls per reader, so a tag flickering at the edge of the
+    #: antenna is not reported as leaving and arriving.
+    misses: dict[str, int] = {}
     # Shared with the `TagWriter` by `main.run`; a private one here would lock
     # against nothing, which is exactly the bug this is fixing.
     busy = busy if busy is not None else DeviceLocks()
@@ -263,15 +279,44 @@ async def bridge_forever(
                 continue
 
             if read is None:
-                # An empty field clears the hold-off, so lifting a tag and
-                # putting it back is two taps rather than one and a silence.
-                holdoff.forget(_key(device_id, None))
+                # Empty field. Not "gone" yet: a tag at the edge of the antenna
+                # drops out of a poll and comes back on the next one, and
+                # announcing a departure per missed read would make one sticker
+                # sitting still look like somebody tapping it repeatedly.
+                if present.get(device_id) is None:
+                    continue
+                misses[device_id] = misses.get(device_id, 0) + 1
+                if misses[device_id] < GONE_AFTER_MISSED_POLLS:
+                    continue
+                departed = present.pop(device_id, None)
+                misses.pop(device_id, None)
+                # The hold-off for **that tag** goes with it, so putting the same
+                # one back is a fresh arrival rather than a silence.
+                #
+                # This used to forget `_key(device_id, None)` — the literal key
+                # `"<device>|unknown"` — which is the key an *unreadable* tag
+                # debounces under and never the key of the tag that just left.
+                # So the comment claiming lift-and-replace was two taps was
+                # false: inside the window it was one tap and then nothing, and
+                # nothing said why.
+                holdoff.forget(_key(device_id, departed))
+                await publish(events.tag_gone(device_id=device_id))
                 continue
 
             found = identity.identify(read)
+            misses.pop(device_id, None)
+            if present.get(device_id) == found.key:
+                # **The same tag, still there.** Silence is the message: this
+                # loop used to re-publish `tag.seen` every hold-off window for as
+                # long as a tag lay in the field, so a client wanting to know
+                # what *changed* had to dedupe a drumbeat, and one that recorded
+                # every sighting recorded the same drawer thirty times. Presence
+                # is now stated by its edges — one arrival, one departure.
+                continue
             key = _key(device_id, found.key)
             if not holdoff.admit(key):
                 continue
+            present[device_id] = found.key
             await publish(events.tag_seen(device_id=device_id, identity=found))
 
         elapsed = clock() - started
