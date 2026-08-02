@@ -15,6 +15,16 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 - `services/search/` — the value-parser adapter and the parametric filter executor
 - `/api/search/parts`, `/api/resolve/{short_id}`, `/s/{short_id}`, `/api/system/health`
 - both submodule libraries (`elec-value-parser`, `ecia-barcode`), tagged and pinned
+- `frontend/` — the PWA, and far more of it than this file used to admit: search,
+  storage, containers, projects, builds, intake, review and the scanner. Camera
+  decode is `zxing-wasm` in the browser over an escalating pass ladder
+- **captures** — the still the scanner keeps, with every barcode *and* every
+  OCR'd line outlined on it and tappable. Text is read in the browser
+  (`tesseract.js`), which amends ADR 0005 for this one case and only this one;
+  see ADR 0013 for why the datasheet split does not fit here. A capture parks
+  into the intake queue with its photograph attached, and `extract.ts` pairs each
+  printed heading with the value under it to suggest fields — **ranked
+  suggestions, never applied values**, per the never-auto-accept rule
 - `mcpserver/` — the MCP server: 25 curated tools over the HTTP API, writes gated
   behind `ALMAGEST_MCP_ALLOW_WRITES`, and `coverage.py` + its manifest test forcing
   a disposition for **every** route so the tool surface cannot silently go stale.
@@ -26,8 +36,12 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   WebSocket. `Pn532TagSource` is written but **has never run**: no reader exists,
   so its contract test is `live`-marked
 
-**Not built yet:** `frontend/`, the scan resolver chain and alias learning, layout
-authoring, tag provisioning, label sheets, FTS5. The station's **scale half is
+**Not built yet:** the scan resolver chain and alias learning, layout
+authoring, tag provisioning, label sheets, FTS5 — with the caveat that this list
+is older than the code and has been wrong before, `frontend/` having sat in it
+while the PWA grew to ~190 files. Check before trusting a line of it. Also absent:
+any *agent-assisted* field filling. Capture extraction is algorithmic, and offers
+candidates a person chooses between. The station's **scale half is
 deferred, not pending** — see `docs/adr/0003`, which supersedes PLAN.md's
 weight-triggered state machine: continuous PN532 polling is the trigger, and
 nothing weight-related exists (no `weighings`, no `WeightSource`, no `weight.*`
