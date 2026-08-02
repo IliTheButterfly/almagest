@@ -150,6 +150,33 @@ function useTagSource(
   }, [choice, bridge, connection]);
 }
 
+/**
+ * What each `not_restored_reason` means at the cabinet, in a sentence that names
+ * the next action.
+ *
+ * The undo response is the one place this walk admits it did less than the word
+ * "undone" implies, and it used to render the raw token — "Undone, with a caveat
+ * / prior_slot_rebound" names nothing and suggests nothing. A refusal with no
+ * path forward is the failure mode this whole feature is built to avoid.
+ */
+const UNDO_CAVEATS: Record<string, string> = {
+  prior_slot_rebound:
+    "The tag that used to be here could not be put back: its old slot has been " +
+    "given a different tag since. Unbind that one first if you want the original back.",
+  prior_tag_bound_elsewhere:
+    "The tag that used to be here is now stuck on another container, so putting it " +
+    "back would mean one tag answering for two places. Go and unbind it there first.",
+  slot_rebound_since:
+    "Nothing was removed: something else has already bound this slot to a different " +
+    "tag. The sticker on the drawer is still doing its job — leave it where it is.",
+};
+
+/** Falls back to the token rather than to silence: an unmapped reason is a bug,
+ *  and hiding it would make the undo look clean when it was not. */
+function undoCaveat(reason: string): string {
+  return UNDO_CAVEATS[reason] ?? reason;
+}
+
 // ------------------------------------------------------------- the panel ----
 
 export function TagWalkDialog({
@@ -157,6 +184,9 @@ export function TagWalkDialog({
   kind,
   onClose,
   onChanged,
+  /** Switches this dialog to the verification walk once every slot is bound.
+   *  Optional because the verify dialog itself has nothing to hand on to. */
+  onVerifyNext,
   /** Injected by the tests, which drive a whole cabinet through a fake reader. */
   source: injected,
 }: {
@@ -164,6 +194,7 @@ export function TagWalkDialog({
   kind: WalkKind;
   onClose: () => void;
   onChanged: () => void;
+  onVerifyNext?: () => void;
   source?: TagSource;
 }) {
   return (
@@ -182,6 +213,7 @@ export function TagWalkDialog({
         location={location}
         kind={kind}
         onChanged={onChanged}
+        {...(onVerifyNext === undefined ? {} : { onVerifyNext })}
         {...(injected === undefined ? {} : { source: injected })}
       />
     </Dialog>
@@ -192,11 +224,13 @@ export function TagWalk({
   location,
   kind,
   onChanged,
+  onVerifyNext,
   source: injected,
 }: {
   location: LocationRead;
   kind: WalkKind;
   onChanged: () => void;
+  onVerifyNext?: () => void;
   source?: TagSource;
 }) {
   const capabilities = useMemo(() => detectCapabilities(), []);
@@ -578,6 +612,18 @@ export function TagWalk({
                 ? "Nothing left to bind in this container."
                 : "The walk has been all the way round."}
             </p>
+            {/* PLAN.md: a provisioning pass is "always followed by a verification
+                pass", and that one is "not optional busywork". Finishing the binds
+                and then offering no route to it left the walk ending on a success
+                message — the commonest dead end there is, and the one place the
+                next step is not a matter of taste. */}
+            {kind === "provision" && onVerifyNext !== undefined && (
+              <div className="row">
+                <button type="button" className="primary" onClick={onVerifyNext}>
+                  Verify these tags now
+                </button>
+              </div>
+            )}
           </Notice>
         ) : (
           <>
@@ -651,6 +697,7 @@ export function TagWalk({
           busy={busy}
           canUndo={(provision?.undo_depth ?? 0) > 0}
           undoLabel={provision?.undo_label ?? null}
+          canSkip={cursor !== null}
           onSkip={() => {
             const walk = sessionId;
             const slot = cursor;
@@ -681,7 +728,7 @@ export function TagWalk({
                   setOutcome({
                     tone: "info",
                     title: "Undone, with a caveat",
-                    detail: result.not_restored_reason,
+                    detail: undoCaveat(result.not_restored_reason),
                   });
                 }
               })
@@ -799,6 +846,7 @@ function ProvisionControls({
   busy,
   canUndo,
   undoLabel,
+  canSkip,
   onSkip,
   onUndo,
 }: {
@@ -808,12 +856,16 @@ function ProvisionControls({
   busy: boolean;
   canUndo: boolean;
   undoLabel: string | null;
+  canSkip: boolean;
   onSkip: () => void;
   onUndo: () => void;
 }) {
   return (
     <div className="row">
-      <button type="button" disabled={busy} onClick={onSkip}>
+      {/* `canSkip` is false at a null cursor: with the walk finished there is no
+          slot to skip, and the handler silently returned — a live control that
+          does nothing, one-handed, at a cabinet. */}
+      <button type="button" disabled={busy || !canSkip} onClick={onSkip}>
         Skip this slot
       </button>
       <button type="button" disabled={busy || !canUndo} onClick={onUndo}>

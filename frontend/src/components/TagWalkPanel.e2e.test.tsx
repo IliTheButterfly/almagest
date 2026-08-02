@@ -373,6 +373,58 @@ describe("provisioning a cabinet, tap by tap", () => {
     expect(server.writeResults.every((result) => result.readBackUrl !== null)).toBe(true);
   });
 
+  it("offers the verification walk once the last drawer is bound, instead of ending nowhere", async () => {
+    const reader = simulatedTagSource(tagsFor());
+    const onVerifyNext = vi.fn();
+    render(
+      <TagWalk
+        location={CABINET}
+        kind="provision"
+        onChanged={() => undefined}
+        onVerifyNext={onVerifyNext}
+        source={reader}
+      />,
+    );
+
+    await cursorIs("A1");
+    for (const [index, uid] of UIDS.entries()) {
+      reader.tap(uid);
+      await waitFor(() => expect(server.bindings.get(SLOTS[index]!.locationId)?.uid).toBe(uid));
+    }
+    await waitFor(() => expect(screen.getByText("Every slot has a tag")).toBeTruthy());
+
+    // PLAN.md: a provisioning pass is "always followed by a verification pass",
+    // and that one is "not optional busywork". Finishing the binds used to leave
+    // a success message and no route onward — the commonest dead end there is.
+    const onward = screen.getByRole("button", { name: "Verify these tags now" });
+    fireEvent.click(onward);
+    expect(onVerifyNext).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops offering Skip once there is no slot left to skip", async () => {
+    const reader = simulatedTagSource(tagsFor());
+    render(
+      <TagWalk location={CABINET} kind="provision" onChanged={() => undefined} source={reader} />,
+    );
+
+    await cursorIs("A1");
+    expect(screen.getByRole("button", { name: "Skip this slot" }).hasAttribute("disabled")).toBe(
+      false,
+    );
+
+    for (const [index, uid] of UIDS.entries()) {
+      reader.tap(uid);
+      await waitFor(() => expect(server.bindings.get(SLOTS[index]!.locationId)?.uid).toBe(uid));
+    }
+    await waitFor(() => expect(screen.getByText("Every slot has a tag")).toBeTruthy());
+
+    // It was tappable with a null cursor and its handler silently returned — a
+    // live control that does nothing, one-handed, at a cabinet.
+    expect(screen.getByRole("button", { name: "Skip this slot" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+  });
+
   it("does not walk the cabinet on its own when a tag is left on the reader", async () => {
     const reader = simulatedTagSource(tagsFor());
     render(

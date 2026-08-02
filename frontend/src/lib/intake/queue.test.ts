@@ -121,3 +121,73 @@ describe("the intake queue", () => {
     expect(queue.size).toBe(1);
   });
 });
+
+describe("when this device will not let the queue be saved", () => {
+  function refusingStorage(): QueueStorage {
+    return {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("quota", "QuotaExceededError");
+      },
+      removeItem: () => {
+        throw new DOMException("quota", "QuotaExceededError");
+      },
+    };
+  }
+
+  it("keeps taking scans rather than stopping the scanner", () => {
+    const queue = new IntakeQueue(refusingStorage());
+    queue.add(entry("op-1"));
+    queue.add(entry("op-2"));
+    // Refusing to park would cost the whole box of reels, not the tab.
+    expect(queue.list().map((parked) => parked.id)).toEqual(["op-1", "op-2"]);
+  });
+
+  it("says so, because the failure mode of this feature is losing intake data", () => {
+    const queue = new IntakeQueue(refusingStorage());
+    expect(queue.degraded).toBe(false);
+
+    queue.add(entry("op-1"));
+
+    expect(queue.degraded).toBe(true);
+  });
+
+  it("tells the screens on the same change that caused it", () => {
+    const queue = new IntakeQueue(refusingStorage());
+    let seen = false;
+    queue.subscribe(() => {
+      seen = queue.degraded;
+    });
+
+    queue.add(entry("op-1"));
+
+    // The warning has to reach the UI through the subscription every other
+    // change uses, or a screen has to poll for it.
+    expect(seen).toBe(true);
+  });
+
+  it("stays degraded once it has been, because the lost entries are not coming back", () => {
+    let refuse = true;
+    const map = new Map<string, string>();
+    const flaky: QueueStorage = {
+      getItem: (key) => map.get(key) ?? null,
+      setItem: (key, value) => {
+        if (refuse) {
+          throw new DOMException("quota", "QuotaExceededError");
+        }
+        map.set(key, value);
+      },
+      removeItem: (key) => {
+        map.delete(key);
+      },
+    };
+    const queue = new IntakeQueue(flaky);
+    queue.add(entry("op-1"));
+    expect(queue.degraded).toBe(true);
+
+    refuse = false;
+    queue.add(entry("op-2"));
+
+    expect(queue.degraded).toBe(true);
+  });
+});

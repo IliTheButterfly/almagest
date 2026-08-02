@@ -17,7 +17,10 @@ fails on the request count rather than on correctness, which is deliberate — t
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.models.storage import LocationTag
 from app.services import provisioning
 
 
@@ -373,6 +376,86 @@ def test_move_here_moves_the_binding_and_undo_restores_it(client: TestClient) ->
     # tag — a restored binding pointing at a URL nobody wrote would be a lie.
     assert undone["restored_tag"]["ndef_url"] == original_url
     assert undone["state"]["cursor"]["slot_label"] == "B1"
+
+
+def test_undo_will_not_put_a_tag_back_that_is_now_on_another_container(
+    client: TestClient,
+) -> None:
+    """One physical tag must never be bound to two containers at once.
+
+    `bind` refuses this outright — that is the `already_bound_elsewhere` prompt
+    and the `two_conflicts` refusal — but undo's restore path used to check only
+    that the *prior slot* was free, never whether the tag it was about to put
+    back had gone somewhere else meanwhile. `location_tags.tag_uid` is indexed
+    and **not** unique, so nothing below caught it: the duplicate resolved to
+    whichever row had the lower id, meaning the station would identify the wrong
+    container and commit stock into it while the other drawer's page showed a tag
+    it did not own.
+
+    The sequence is the one this module's own premise describes — another device
+    binding mid-session — and it takes two overlapping walks:
+    """
+    cabinet = _cabinet(client, slots=3, name="Alpha")
+    other = _cabinet(client, slots=3, name="Beta")
+    walk = _start(client, cabinet["id"])["session"]["id"]
+    _bind(client, walk, _uid(1))  # A1 of Alpha
+    _bind(client, walk, _uid(1), move=True)  # moved to B1, A1 now free
+
+    # A second walk claims the same physical tag for a different cabinet.
+    elsewhere = _start(client, other["id"])["session"]["id"]
+    stolen = _bind(client, elsewhere, _uid(1), move=True)
+    assert stolen["status"] == "moved", stolen
+
+    # Undoing the first walk's move wants to put the tag back on A1.
+    undone = client.post(f"/api/provisioning-sessions/{walk}/undo", json={}).json()
+
+    assert undone["restored_tag"] is None
+    assert undone["not_restored_reason"] == "prior_tag_bound_elsewhere"
+
+    # And the tag is bound in exactly one place: where the second walk put it.
+    bindings = [
+        slot for slot in _layout_slots(client, cabinet["id"]) if slot.get("tag_uid") == _uid(1)
+    ]
+    assert bindings == [], bindings
+
+
+def test_undo_says_so_when_the_slot_was_rebound_by_somebody_else(
+    client: TestClient, db: Session
+) -> None:
+    """ "Undone" must not be reported for an undo that removed nothing.
+
+    When something rebinds the slot after this walk bound it, the delete is
+    correctly skipped — but the action was still marked undone with no caveat, so
+    the bench read "undone" and peeled a sticker off a drawer whose binding still
+    stood. `bound_count` is left alone too: the binding is gone from the slot, but
+    not by this walk's hand.
+
+    The rebind is applied straight to `location_tags` rather than through a second
+    walk, because two walks on one cabinet are deliberately the *same* walk
+    (`test_two_sessions_on_one_cabinet_are_the_same_session`). What this stands
+    for is the case the module's opening premise names: another device — a
+    station, a Flipper — binding the slot outside this session.
+    """
+    cabinet = _cabinet(client, slots=3, name="Gamma")
+    walk = _start(client, cabinet["id"])["session"]["id"]
+    bound = _bind(client, walk, _uid(1))  # A1
+    before = bound["state"]["progress"]["bound"]
+    slot_id = bound["tag"]["location_id"]
+
+    existing = db.execute(
+        select(LocationTag).where(LocationTag.location_id == slot_id)
+    ).scalar_one()
+    existing.tag_uid = _uid(2)
+    db.commit()
+
+    undone = client.post(f"/api/provisioning-sessions/{walk}/undo", json={}).json()
+
+    assert undone["not_restored_reason"] == "slot_rebound_since"
+    assert undone["state"]["progress"]["bound"] == before
+    # And the other device's binding is still standing — undo removed nothing.
+    db.expire_all()
+    still = db.execute(select(LocationTag).where(LocationTag.location_id == slot_id)).scalar_one()
+    assert still.tag_uid == _uid(2)
 
 
 def test_re_tapping_the_same_tag_on_the_same_slot_writes_nothing(client: TestClient) -> None:

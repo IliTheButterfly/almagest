@@ -291,10 +291,6 @@ export function extractSuggestions({ regions, resolved }: ExtractInput): Suggest
     if (heading.field === "supplier_part_number") {
       add(out, "mpn", suggestion);
     }
-    // The description is the only sensible name for a part nobody has named.
-    if (heading.field === "name") {
-      add(out, "name", suggestion);
-    }
   }
 
   return out;

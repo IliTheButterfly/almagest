@@ -46,8 +46,19 @@ function usePending(): readonly PendingScan[] {
   );
 }
 
+/** Whether this device could not write the queue to disk. Same subscription the
+ *  list uses, so the warning appears on the change that caused it. */
+function useDegraded(): boolean {
+  return useSyncExternalStore(
+    (listener) => intakeQueue.subscribe(listener),
+    () => intakeQueue.degraded,
+    () => false,
+  );
+}
+
 export function IntakeQueueScreen() {
   const local = usePending();
+  const degraded = useDegraded();
   const [syncing, setSyncing] = useState(false);
   const [outcome, setOutcome] = useState<SyncOutcome | null>(null);
   const [reload, setReload] = useState(0);
@@ -74,6 +85,15 @@ export function IntakeQueueScreen() {
           <h1 style={{ flex: 1 }}>Intake queue</h1>
           <span className="badge">{local.length + onServer.length}</span>
         </div>
+        {degraded && (
+          <Notice kind="warn" title="These scans are only in this tab">
+            <p style={{ margin: 0 }}>
+              This device would not let the queue be saved to disk — storage is full, or
+              the browser is in private mode. Scanning carries on, but closing the tab
+              loses whatever has not been synced. Sync now.
+            </p>
+          </Notice>
+        )}
         <p className="muted-note" style={{ margin: 0 }}>
           Labels parked at scan time, curated here. Parking writes to this device first
           so scanning never waits for the network; syncing sends them to the server,
