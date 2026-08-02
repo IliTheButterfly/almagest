@@ -41,8 +41,16 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
-from agent import ndef
-from agent.tags import TagRead, TagSourceError, format_uid
+from agent import ndef, tags
+from agent.tags import (
+    READS_BOTH_AND_WRITES,
+    TagCapabilities,
+    TagRead,
+    TagSourceError,
+    TagWrite,
+    TagWriteRefused,
+    format_uid,
+)
 
 #: The PN532's own timeout for one anticollision attempt. Short on purpose: the
 #: station polls continuously, so a long block here does not find more tags.
@@ -102,6 +110,64 @@ class Pn532TagSource:
             self._reader.SAM_configuration()
         except Exception as error:  # pragma: no cover — needs hardware
             raise TagSourceError(f"cannot open PN532 on {port}: {error}") from error
+
+    @property
+    def capabilities(self) -> TagCapabilities:
+        """Both carriers and a write. **The write has never run** — see the
+        module docstring; `ntag2xx_write_block` is as unverified as the read."""
+        return READS_BOTH_AND_WRITES
+
+    def write_uri(self, url: str, *, overwrite: bool = False) -> TagWrite:
+        """Put `url` on the tag in the field, then read it back through this reader.
+
+        Four refusals before a single byte is written, in this order, and the
+        order is the point — each one is cheaper and less destructive than the
+        next:
+
+        1. **No tag in the field.** Nothing to write to.
+        2. **The payload will not fit.** `ndef.pages_for_uri` raises rather than
+           truncating, because a Type 2 Tag write is page-at-a-time with no
+           transaction: running off the end leaves the earlier pages committed,
+           and a half-written tag is worse than an unwritten one.
+        3. **The tag is not blank** and `overwrite` was not asked for. A tag
+           carrying a URI is very likely bound to another container, and the two
+           mistakes are not symmetrical — refusing costs a toggle, overwriting
+           costs a drawer that answers to someone else's short id. `nfc.ts`
+           defaults the same way for the same reason.
+        4. **The read-back came back empty.** Reported as a refusal rather than
+           a success with a null, because the caller must not treat it as done.
+
+        Read-back is unconditional and goes through this same reader. A write
+        that reports its own success is exactly what ADR 0012 refuses, and the
+        reader holding the tag is the only witness available.
+        """
+        existing = self.poll()
+        if existing is None:
+            raise TagWriteRefused("no tag in the field", reason=tags.NO_TAG)
+        pages = ndef.pages_for_uri(url)
+        if existing.ndef_url is not None and not overwrite:
+            raise TagWriteRefused(
+                f"the tag already carries {existing.ndef_url!r}", reason=tags.NOT_BLANK
+            )
+
+        for offset, page in enumerate(pages):
+            try:
+                self._reader.ntag2xx_write_block(ndef.FIRST_USER_PAGE + offset, page)
+            except Exception as error:  # pragma: no cover — needs hardware
+                # A failed write mid-run is a *reader* fault, not a refusal: the
+                # tag is now in the degraded state ADR 0012 names, and the
+                # operator needs to know the write started rather than being
+                # told the tag was not blank.
+                raise TagSourceError(
+                    f"PN532 write failed at page {ndef.FIRST_USER_PAGE + offset}: {error}"
+                ) from error
+
+        read_back = self._read_ndef_url()
+        if read_back is None:
+            raise TagWriteRefused(
+                "the tag did not read back after writing", reason=tags.READ_BACK_FAILED
+            )
+        return TagWrite(read_back_url=read_back)
 
     def poll(self) -> TagRead | None:
         """One anticollision attempt, then user memory if a tag answered."""

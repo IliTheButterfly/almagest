@@ -17,7 +17,7 @@ import pytest
 from agent.config import AgentSettings
 from agent.fake_tags import FakeTagSource
 from agent.main import build_source
-from agent.tags import TagSource
+from agent.tags import READS_BOTH, TagCapabilities, TagSource
 
 
 class _Recorder:
@@ -25,6 +25,14 @@ class _Recorder:
 
     def __init__(self, **kwargs: object) -> None:
         self.kwargs = kwargs
+
+    @property
+    def capabilities(self) -> TagCapabilities:
+        """Present because `TagSource` requires it since ADR 0014, and the
+        assertion below is an `isinstance` against that protocol — a stub
+        missing it is not a `TagSource`, which is precisely what that check is
+        for. The value is irrelevant here; what is under test is the dispatch."""
+        return READS_BOTH
 
     def poll(self) -> None:
         return None

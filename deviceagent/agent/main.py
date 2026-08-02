@@ -44,19 +44,29 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Final
 
 from agent import __version__, events
 from agent.api import HttpStationApi, StationApi
+from agent.bridge import TagWriter, bridge_forever
 from agent.config import AgentSettings, get_settings
+from agent.devices import (
+    KIND_STATION_PN532,
+    KIND_STATION_RC522,
+    DeviceBackend,
+    DeviceRegistry,
+    FlipperUsbBackend,
+)
 from agent.events import Event
 from agent.fake_tags import FakeTagSource, load_script
 from agent.hub import EventHub
 from agent.presence import TagPresence
-from agent.session import StationSession
+from agent.session import StationSession, parse_frame
 from agent.tags import TagSource, TagSourceError
 from agent.ws import serve_events
 
@@ -186,17 +196,46 @@ def build_api(settings: AgentSettings) -> StationApi:
     )
 
 
+def build_registry(settings: AgentSettings) -> DeviceRegistry:
+    """The one place the bridge's discovery backends are chosen.
+
+    BLE is opt-in — see `AgentSettings.flipper_ble` and ADR 0014. It is off not
+    because it is undesirable but because nothing has ever run it.
+    """
+    backends: list[DeviceBackend] = []
+    if settings.flipper_usb:
+        backends.append(FlipperUsbBackend())
+    if settings.flipper_ble:
+        from agent.flipper.discovery import FlipperBleBackend
+
+        backends.append(FlipperBleBackend())
+    return DeviceRegistry(backends)
+
+
 async def run(
     source: TagSource,
     settings: AgentSettings,
     *,
     api: StationApi | None = None,
     max_polls: int | None = None,
+    registry: DeviceRegistry | None = None,
+    max_sweeps: int | None = None,
 ) -> None:
     """Wire everything and run until cancelled.
 
     `api` is injectable so a test can drive the real loop, the real socket and the
     real state machines against a fake server — the same reason `source` is.
+
+    **Two loops, one hub.** The station loop owns `source` and its cadence; the
+    bridge loop owns everything the registry discovered. They run concurrently
+    and neither can stall the other, which matters because a Flipper doing an
+    NFC read takes an RPC round trip and the station's budgets are counted in
+    300 ms polls.
+
+    The station's own reader is `adopt`ed into the roster rather than discovered:
+    that makes it nameable by a `tag.write` — closing the gap ADR 0012 recorded,
+    where binding from the bench left every tag `unverified` — while leaving it
+    polled by exactly one loop.
     """
     hub = EventHub()
     presence = TagPresence(
@@ -207,16 +246,49 @@ async def run(
         api if api is not None else build_api(settings),
         debounce_ms=settings.command_debounce_ms,
     )
+    devices = registry if registry is not None else build_registry(settings)
+    writer = TagWriter(devices)
 
     async def on_frame(raw: str) -> None:
+        frame = parse_frame(raw)
+        if frame is not None and frame.get("type") == events.TAG_WRITE:
+            for event in await writer.handle(frame):
+                await _publish(hub, event)
+            return
         for event in await session.handle_frame(raw):
             await _publish(hub, event)
 
+    async def publish(event: Event) -> None:
+        await _publish(hub, event)
+
     async with serve_events(
-        hub, host=settings.ws_host, port=settings.ws_port, on_frame=on_frame
+        hub,
+        host=settings.ws_host,
+        port=settings.ws_port,
+        on_frame=on_frame,
+        allowed_origin=settings.allowed_origin,
     ) as port:
         logger.info("event stream on ws://%s:%s", settings.ws_host, port)
         logger.info("committing through %s as device %r", settings.api_base_url, settings.device_id)
+
+        for event in devices.adopt(
+            source,
+            device_id=STATION_DEVICE_ID,
+            kind=_station_kind(source, settings),
+            label=_station_label(source, settings),
+        ):
+            await publish(event)
+
+        bridge = asyncio.create_task(
+            bridge_forever(
+                devices,
+                publish,
+                sweep_interval_s=settings.sweep_interval_s,
+                tap_interval_s=settings.tap_interval_s,
+                debounce_ms=settings.command_debounce_ms,
+                max_sweeps=max_sweeps,
+            )
+        )
         try:
             await poll_forever(
                 source,
@@ -227,7 +299,39 @@ async def run(
                 max_polls=max_polls,
             )
         finally:
+            bridge.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await bridge
+            devices.close()
             source.close()
+
+
+#: The station's reader always has this id. Fixed rather than derived from a port
+#: because there is exactly one station per bridge and a PWA that has been told
+#: to use "the station" must not have to re-learn its name when
+#: `DEVICEAGENT_PN532_PORT` changes.
+STATION_DEVICE_ID: Final = "station"
+
+
+def _station_kind(source: TagSource, settings: AgentSettings) -> str:
+    """Which `ProvisioningDevice` the station's own reader records itself as.
+
+    Not folded into one "station" value: ADR 0013 makes the RC522 the module with
+    less antenna and less margin, so "which one read this tag" is the first
+    question worth asking about a drawer that binds intermittently. A fake
+    reports as a PN532 because that is what it is standing in for.
+    """
+    if not isinstance(source, FakeTagSource) and settings.reader == "rc522":
+        return KIND_STATION_RC522
+    return KIND_STATION_PN532
+
+
+def _station_label(source: TagSource, settings: AgentSettings) -> str:
+    if isinstance(source, FakeTagSource):
+        return "Simulated station reader"
+    if settings.reader == "rc522":
+        return f"Station RC522 on SPI {settings.rc522_spi_bus}.{settings.rc522_spi_device}"
+    return f"Station PN532 on {settings.pn532_port}"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

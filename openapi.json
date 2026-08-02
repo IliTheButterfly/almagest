@@ -11443,7 +11443,9 @@
         "enum": [
           "phone_webnfc",
           "station_pn532",
-          "manual"
+          "manual",
+          "flipper_rpc",
+          "station_rc522"
         ],
         "title": "ProvisioningDevice",
         "type": "string"

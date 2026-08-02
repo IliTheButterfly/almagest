@@ -1,4 +1,4 @@
-# ADR 0014 — The capture, and where text gets read
+# ADR 0015 — The capture, and where text gets read
 
 **Status:** accepted
 **Date:** 2026-07-31

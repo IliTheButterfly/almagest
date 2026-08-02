@@ -21,7 +21,7 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 - **captures** — the still the scanner keeps, with every barcode *and* every
   OCR'd line outlined on it and tappable. Text is read in the browser
   (`tesseract.js`), which amends ADR 0005 for this one case and only this one;
-  see ADR 0014 for why the datasheet split does not fit here. A capture parks
+  see ADR 0015 for why the datasheet split does not fit here. A capture parks
   into the intake queue with its photograph attached, and `extract.ts` pairs each
   printed heading with the value under it to suggest fields — **ranked
   suggestions, never applied values**, per the never-auto-accept rule
@@ -33,19 +33,33 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   session, NDEF decoding, NDEF-first/UID-fallback resolution, tag presence, the
   **station session** (PLAN.md workflow 5: identify → ready → propose → confirm →
   commit, looping while the tag stays put), the API client, and the loopback
-  WebSocket. **Two drivers, both unrun**: `Pn532TagSource` (UART, what PLAN.md
-  specifies, the default) and `Rc522TagSource` (SPI, added because an MFRC522 was
-  already on hand — see ADR 0013, and note PLAN.md rejects it on library grounds
-  that no longer apply since `agent/iso14443a.py` is ours and unit-tested). Both
-  contract tests are `live`-marked. `DEVICEAGENT_READER` chooses; nothing above
-  the driver knows which answered
+  WebSocket. **Three drivers, none of them ever run**: `Pn532TagSource` (UART,
+  what PLAN.md specifies, the default) and `Rc522TagSource` (SPI, added because an
+  MFRC522 was already on hand — see ADR 0013, and note PLAN.md rejects it on
+  library grounds that no longer apply since `agent/iso14443a.py` is ours and
+  unit-tested), plus a Flipper Zero over RPC (ADR 0014). All three contract tests
+  are `live`-marked. `DEVICEAGENT_READER` chooses between the two station
+  modules; nothing above the driver knows which answered
+- `deviceagent/` again, as the **device bridge** (ADR 0014) — reader discovery, a
+  capability set per attached device, `tag.write`, and a write path on every
+  station driver, plus a Flipper Zero over its own RPC on USB or BLE launched
+  into bridge mode automatically. `agent/flipper/fake.py` is a Flipper made of
+  software, so the whole path is tested with nothing plugged in. **No hardware
+  has run any of it**; BLE is opt-in because not even its discovery call has ever
+  executed
+- `frontend/src/lib/tags/bridge.ts` — the browser's client for the above, which
+  degrades in silence when no bridge is running (almost every page load)
+- `antlia/` bridge mode — the Flipper side. Compiles against Momentum API 87.1
+  with `-Werror` and its NDEF encoder is asserted byte-identical to
+  `agent/ndef.py`'s, but has never run on a device
 
 **Not built yet:** the scan resolver chain and alias learning, layout
-authoring, tag provisioning, label sheets, FTS5 — with the caveat that this list
-is older than the code and has been wrong before, `frontend/` having sat in it
-while the PWA grew to ~190 files. Check before trusting a line of it. Also absent:
-any *agent-assisted* field filling. Capture extraction is algorithmic, and offers
-candidates a person chooses between. The station's **scale half is
+authoring, label sheets, FTS5. Tag provisioning has its API, its walks and now a
+reader that can write; what it does not have is a tag written by real hardware.
+Also absent: any *agent-assisted* field filling — capture extraction is
+algorithmic, and offers candidates a person chooses between. Treat this whole
+list with suspicion: it is older than the code and has been wrong before,
+`frontend/` having sat in it while the PWA grew to ~190 files. The station's **scale half is
 deferred, not pending** — see `docs/adr/0003`, which supersedes PLAN.md's
 weight-triggered state machine: continuous PN532 polling is the trigger, and
 nothing weight-related exists (no `weighings`, no `WeightSource`, no `weight.*`
