@@ -7,6 +7,12 @@ autogenerate — it silently produces an empty migration instead of an error.
 
 from __future__ import annotations
 
+# Imported for its side effect: registering the `before_delete` listener that
+# releases a container's identity. Importing `app.models` is what every entry
+# point already does — the API, Alembic, the scripts — so the invariant is armed
+# wherever a `Location` can be deleted, rather than wherever somebody remembered
+# to wire it. Last in the file because it imports from the modules above.
+from app.models import events as events
 from app.models.captures import Capture, CaptureRegion
 from app.models.catalog import (
     Manufacturer,

@@ -369,15 +369,32 @@ def test_every_card_with_a_qr_still_carries_readable_text(
     ]
     assert text_ink, "the card carries a QR and nothing anybody can read"
 
-    # **And specifically the code**, not merely some ink. Asserting "a dark pixel
-    # exists" was satisfied by the slot label alone, which is how the short id
-    # went missing from these very geometries without this test noticing.
-    short_side_px = min(width_px, height_px)
-    available_px = qr_left - 2 * pad_px
-    _, _, printed = _fitted(
-        ImageDraw.Draw(image), TextBlock("4K7T-92M8", "secondary"), short_side_px, available_px
+    # **And specifically the code, on the card.** Two earlier versions of this
+    # assertion could not see the bug it exists for: the first asked only that
+    # some dark pixel existed left of the QR, which the slot label satisfies on
+    # its own, and the second called `_fitted` directly with hand-recomputed
+    # geometry, which pins the helper and never looks at what was drawn. Both
+    # passed while `render_card_image` printed no short id at all.
+    #
+    # Rendering the same card with and without the code and comparing the ink is
+    # the only form of this that fails when the code is dropped, shrunk to
+    # nothing, or drawn off the edge — none of which the helper can tell you.
+    without_code = render_card_image(
+        _spec(
+            width_mm,
+            height_mm,
+            fields=LabelFields(primary="A1", secondary=None, tertiary="Workshop / Cabinet A"),
+        )
     )
-    assert printed == "4K7T-92M8", "the printed fallback identity is missing from the card"
+    bare = without_code.load()
+    assert bare is not None
+    ink_with = sum(
+        1 for y in range(height_px) for x in range(qr_left) if pixels[x, y] != (255, 255, 255)
+    )
+    ink_without = sum(
+        1 for y in range(height_px) for x in range(qr_left) if bare[x, y] != (255, 255, 255)
+    )
+    assert ink_with > ink_without, "the printed fallback identity is missing from the card"
 
 
 def test_the_qr_gives_way_to_text_but_never_below_what_will_scan() -> None:
