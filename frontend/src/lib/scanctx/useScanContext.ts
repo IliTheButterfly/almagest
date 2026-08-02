@@ -52,7 +52,12 @@ export function useGlobalTagReader(): void {
     }
     const unsubscribes = devices
       .filter((device) => device.capabilities.readsNdef || device.capabilities.readsUid)
-      .map((device) =>
+      .flatMap((device) => [
+        // Lifted off. The row stays in the panel — it is still the last thing
+        // you scanned — but nothing may claim any more that you are holding it.
+        connection.onGone(device.deviceId, () => {
+          scanContext.lifted(device.deviceId);
+        }),
         bridgeSource(connection, device).subscribe((tap) => {
           // NDEF first, UID as the fallback: the resolver's own order, and what
           // makes a tag whose record was never written still identifiable.
@@ -69,6 +74,7 @@ export function useGlobalTagReader(): void {
                 symbology: "nfc",
                 target: response.target ?? null,
                 status: response.status,
+                presentOn: device.deviceId,
               });
             })
             .catch(() => {
@@ -82,10 +88,11 @@ export function useGlobalTagReader(): void {
                 symbology: "nfc",
                 target: null,
                 status: "unmatched",
+                presentOn: device.deviceId,
               });
             });
         }),
-      );
+      ]);
     return () => {
       for (const unsubscribe of unsubscribes) {
         unsubscribe();

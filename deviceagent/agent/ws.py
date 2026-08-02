@@ -37,6 +37,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from websockets.asyncio.server import ServerConnection, serve
+from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
 
 from agent.hub import EventHub
@@ -146,6 +147,14 @@ async def serve_events(
                     await on_frame(frame)
                 except Exception:
                     logger.exception("command handler failed")
+        except ConnectionClosed:
+            # **The normal way a bench client leaves.** A kiosk reload, a closed
+            # lid, a tab killed by a restart: none of them send a close frame, so
+            # `websockets` raises out of the iterator and logged a full traceback
+            # for each one. The `finally` below already says this is expected;
+            # the log did not, and a stack trace per reload is how a genuine
+            # fault goes unnoticed on a machine nobody reads the log of daily.
+            logger.debug("client went away without a close frame")
         finally:
             # In a `finally` because a client that vanishes without a close frame
             # is the normal case at a bench — a kiosk reload, a closed lid — and a

@@ -106,6 +106,8 @@ DEVICE_ERROR: Final = "device.error"
 #: consumes. Overloading `tag.identified` would have forced one of the two to
 #: pretend, and the station's vocabulary is load-bearing for workflow 5.
 TAG_SEEN: Final = "tag.seen"
+#: The field a bridge reader was watching is empty again, after it was not.
+TAG_GONE: Final = "tag.gone"
 
 TAG_WRITING: Final = "tag.writing"
 TAG_WRITTEN: Final = "tag.written"
@@ -348,6 +350,25 @@ def tag_seen(*, device_id: str, identity: TagIdentity) -> Event:
             "via": identity.via,
         },
     )
+
+
+def tag_gone(*, device_id: str) -> Event:
+    """The tag that was on this reader has been lifted off it.
+
+    **The bridge had no way to say this**, and its absence was load-bearing in
+    the wrong direction. `tag.seen` was re-published every hold-off window for as
+    long as a tag sat in the field, so a client could infer presence from the
+    drumbeat continuing — which meant every client had to keep a timer, and a
+    client that only wanted to know *what changed* recorded the same tag over
+    and over. Now presence is stated: one `tag.seen` when a tag arrives, one
+    `tag.gone` when it leaves, and silence in between meaning "nothing has
+    changed" rather than "nobody is looking".
+
+    Carries no tag: what left is whatever `tag.seen` last named for this device,
+    and repeating it would invite a client to match them up and get it wrong
+    across a reconnect.
+    """
+    return Event(TAG_GONE, {"device_id": device_id})
 
 
 def tag_writing(*, request_id: str, device_id: str, url: str) -> Event:
