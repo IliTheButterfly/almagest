@@ -68,6 +68,8 @@ function stubApi(
     adopted?: boolean;
     previous?: string | null;
     conflict?: { reason: string; message: string; held_by?: string | null };
+    /** Merged into the location payload, for the cards that render conditionally. */
+    location?: Record<string, unknown>;
   } = {},
 ): void {
   vi.stubGlobal(
@@ -88,7 +90,7 @@ function stubApi(
         });
 
       if (url.pathname === "/api/locations/11") {
-        return json({ ...LOCATION, short_id: options.existing ?? null });
+        return json({ ...LOCATION, short_id: options.existing ?? null, ...options.location });
       }
       if (url.pathname === "/api/locations/11/short-id") {
         if (options.conflict !== undefined) {
@@ -249,5 +251,49 @@ describe("the printed id", () => {
     await screen.findByText(/mistyped or misread/);
     // Retyping beats starting over: the code is in your hand, on a label.
     expect(screen.getByRole("textbox")).toHaveProperty("value", "4K7T-92MQ");
+  });
+});
+
+describe("the cards a drawer only shows when it has something to say", () => {
+  it("draws neither a picture nor a capacity meter when there is neither", async () => {
+    // This is the screen every tag tap and every QR lands on. An unconditional
+    // `Picture` drew a 150px dashed "?" that is not a link and not a button, and
+    // `Capacity` printed "0 of ? none used" under it — together pushing the
+    // contents of the drawer off the bottom of a phone. Absence is communicated
+    // by absence (ADR 0003), including here.
+    stubApi();
+    renderScreen();
+    await waitFor(() => expect(screen.getAllByText("Drawer 07")[0]).toBeTruthy());
+
+    // The placeholder, not `role="img"`: with nothing to show `ContainerPhoto`
+    // renders a dashed box carrying no role at all, which is exactly the empty
+    // affordance being removed — so querying for an image would pass on the very
+    // markup this test exists to prevent.
+    expect(document.querySelector(".container-photo-placeholder")).toBeNull();
+    expect(document.querySelector(".container-photo")).toBeNull();
+    expect(screen.queryByText(/capacity/i)).toBeNull();
+  });
+
+  it("draws them when there is a photograph and a real capacity model", async () => {
+    // The control. Without it the test above passes on a screen that has lost
+    // the ability to show either.
+    stubApi({
+      location: {
+        effective_photo: "/api/documents/7/content",
+        capacity: {
+          model: "slots",
+          used: 3,
+          capacity: 4,
+          unit: "slots",
+          fill_ratio: 0.75,
+          is_overfull: false,
+        },
+      },
+    });
+    renderScreen();
+    await waitFor(() => expect(screen.getAllByText("Drawer 07")[0]).toBeTruthy());
+
+    expect(document.querySelector(".container-photo, .container-photo-placeholder")).toBeTruthy();
+    expect(screen.getByText(/capacity/i)).toBeTruthy();
   });
 });

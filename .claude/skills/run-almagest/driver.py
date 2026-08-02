@@ -96,6 +96,27 @@ def find_chrome() -> str:
 PROXY_PREFIXES = ("/api/", "/s/", "/openapi.json", "/docs")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Hand 3xx back to the browser instead of chasing it.
+
+    `/s/{short_id}` — the entire tag scheme — answers `302` with a **relative**
+    `Location`, resolved by whoever receives it. `urlopen` follows redirects by
+    default, so this proxy used to fetch `/locations/4` from the API, find it is
+    not an API route, and hand back FastAPI's `404` under the tag's own URL. The
+    one journey the tags exist for could not be driven with this tool, and an
+    agent that tried would report the app broken.
+
+    `deploy/station/station_web.py` has had this since it was written, with nine
+    tests; the driver never got the same treatment.
+    """
+
+    def redirect_request(self, *args: object, **kwargs: object) -> None:
+        return None
+
+
+_NO_REDIRECT = urllib.request.build_opener(_NoRedirect)
+
+
 class PwaHandler(BaseHTTPRequestHandler):
     """Serves the built PWA and forwards the API calls it makes.
 
@@ -124,17 +145,23 @@ class PwaHandler(BaseHTTPRequestHandler):
         for header in ("content-type", "accept", "idempotency-key"):
             if self.headers.get(header):
                 req.add_header(header, self.headers[header])
+        location = None
         try:
-            with urllib.request.urlopen(req) as upstream:
+            with _NO_REDIRECT.open(req) as upstream:
                 payload, status = upstream.read(), upstream.status
                 ctype = upstream.headers.get("content-type", "application/json")
         except urllib.error.HTTPError as exc:
+            # 3xx lands here now that redirects are not followed, which is the
+            # point: `exc.headers` carries the Location the browser needs.
             payload, status = exc.read(), exc.code
             ctype = exc.headers.get("content-type", "application/json")
+            location = exc.headers.get("location")
         except OSError as exc:
             payload = json.dumps({"detail": f"driver proxy: {exc}"}).encode()
             status, ctype = 502, "application/json"
         self.send_response(status)
+        if location is not None:
+            self.send_header("location", location)
         self.send_header("content-type", ctype)
         self.send_header("content-length", str(len(payload)))
         self.end_headers()

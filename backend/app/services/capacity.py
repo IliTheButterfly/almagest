@@ -183,6 +183,16 @@ class ContainerCapacityInputs:
     fill_factor: float
     full_threshold: float
 
+    #: Child containers standing in this one's slots, when it has any.
+    #:
+    #: A cabinet's slots hold *drawers*, not lots, so counting distinct
+    #: `part_id`s among lots placed directly in it reported 0 of 30 used for a
+    #: cabinet with all thirty drawers in place — the only quantitative
+    #: statement on that screen, wrong by 100%, above a list of the thirty
+    #: children it had just said were not there. `None` means "this container
+    #: holds stock directly", which is the leaf case and the original one.
+    occupied_child_slots: int | None = None
+
     # --- grid_units (ADR 0002) ----------------------------------------------
     #
     # This model is the odd one out: every other strategy measures the *lots*
@@ -272,7 +282,13 @@ class SlotsCapacityStrategy(CapacityStrategy):
         capacity = (
             float(inputs.capacity_slots * per_slot) if inputs.capacity_slots is not None else None
         )
-        used = float(len({o.part_id for o in occupants}))
+        # A container whose slots hold other containers is measured by those,
+        # not by the lots sitting loose in it — of which a cabinet has none.
+        used = (
+            float(inputs.occupied_child_slots)
+            if inputs.occupied_child_slots is not None
+            else float(len({o.part_id for o in occupants}))
+        )
         fill_ratio = used / capacity if capacity else None
         is_full = capacity is not None and used >= capacity
         return CapacitySnapshot(
@@ -548,8 +564,29 @@ def compute_location_snapshot(session: Session, location: Location) -> CapacityS
     inputs = container_inputs(location, container_type)
     if inputs.capacity_model == CapacityModel.GRID_UNITS:
         inputs = replace(inputs, consumed_grid_units=consumed_grid_units(session, location.id))
+    if inputs.capacity_model == CapacityModel.SLOTS:
+        children = occupied_child_slots(session, location.id)
+        if children is not None:
+            inputs = replace(inputs, occupied_child_slots=children)
     occupants = load_occupants(session, location.id)
     return get_strategy(inputs.capacity_model).snapshot(inputs, occupants)
+
+
+def occupied_child_slots(session: Session, location_id: int) -> int | None:
+    """How many child containers stand in this container's slots.
+
+    `None` when it has none, which means "this holds stock directly" and leaves
+    the lot-derived count alone — a drawer's slots really are measured by what is
+    in the drawer. Retired children do not count, for the same reason
+    `child_count` excludes them: a container that has left the tree must not keep
+    its parent claiming to hold something.
+    """
+    count = session.execute(
+        select(func.count())
+        .select_from(Location)
+        .where(Location.parent_id == location_id, Location.retired_at.is_(None))
+    ).scalar_one()
+    return int(count) if count else None
 
 
 def consumed_grid_units(session: Session, location_id: int) -> int:

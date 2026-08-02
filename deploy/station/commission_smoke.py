@@ -27,7 +27,25 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080"
+#: `--yes` is required for the same reason `commission_hardware.py` requires it,
+#: and the asymmetry was a bug: this script binds three invented UIDs to the
+#: largest real cabinet it can find, and *mints short IDs on those drawers*.
+#: A binding can be undone; a minted short id is permanent — ids are never
+#: re-minted — so this leaves a permanent mark on a real cabinet and used to do
+#: it with no confirmation at all, while the script that does strictly more
+#: damage stopped and explained itself.
+_ARGS = [a for a in sys.argv[1:] if a != "--yes"]
+BASE = _ARGS[0] if _ARGS else "http://127.0.0.1:8080"
+
+if "--yes" not in sys.argv[1:]:
+    print(
+        "Refusing to run without --yes.\n\n"
+        "This picks the largest cabinet on the station and binds three invented\n"
+        "tag UIDs to its first three drawers. Bindings can be undone; the short\n"
+        "IDs it mints on those drawers cannot — ids are never re-minted. Point it\n"
+        "at a station holding demo seed data, never one holding a real cabinet."
+    )
+    raise SystemExit(2)
 
 failures: list[str] = []
 
@@ -46,6 +64,16 @@ def call(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
             return exc.code, json.loads(raw or b"{}")
         except json.JSONDecodeError:
             return exc.code, {"raw": raw.decode("utf-8", "replace")}
+    except urllib.error.URLError as exc:
+        # The likeliest first-run outcome at a bench, and a traceback full of
+        # urllib frames names nothing a person can act on.
+        print(
+            f"Nothing is answering on {BASE} ({exc.reason}).\n"
+            "  The station's web unit serves that port:\n"
+            "    systemctl --user start almagest-station-web almagest-station-api\n"
+            "    systemctl --user status almagest-station-api"
+        )
+        raise SystemExit(1) from exc
 
 
 def check(label: str, ok: bool, detail: object = "") -> None:

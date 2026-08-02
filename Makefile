@@ -77,7 +77,7 @@ typecheck: ## mypy
 # `idcodec-check` goes **first**: it is the fastest of the three by an order of
 # magnitude and both others depend on it, so a broken codec should be named as
 # such rather than as fifty failing backend tests.
-check: idcodec-check lint typecheck test agent-check mcp-check station-check ## Everything CI runs
+check: idcodec-check lint typecheck test agent-check mcp-check station-check openapi-check ## Everything CI runs except the frontend and the image build
 
 migrate: ## Apply migrations up to head
 	cd $(BE) && $(UV) run alembic upgrade head
@@ -184,6 +184,14 @@ agent-run: ## Run the device agent against the fake reader (no hardware needed)
 
 run: ## Run the API with autoreload
 	cd $(BE) && $(UV) run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+openapi-check: ## Fail if the committed openapi.json is stale (CI's `openapi.json is current`)
+	# `mcp-check`'s coverage manifest diffs against the *committed* schema, so
+	# adding or renaming a route leaves `make check` green while CI goes red on
+	# staleness. That is the one asymmetry the label "Everything CI runs" must
+	# not hide.
+	cd $(BE) && $(UV) run python -m app.scripts.export_openapi ../openapi.json
+	git diff --exit-code openapi.json
 
 openapi: ## Regenerate openapi.json (source for the generated API clients)
 	cd $(BE) && $(UV) run python -m app.scripts.export_openapi ../openapi.json
