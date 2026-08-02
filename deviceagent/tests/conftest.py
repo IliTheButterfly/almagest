@@ -30,6 +30,22 @@ from agent.tags import TagRead, TagSourceError
 from tests.fake_api import FakeStationApi
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """A second opt-in, on top of `-m live`, for the tests that *modify a tag*.
+
+    Every other live assertion observes hardware; the Flipper's write tests
+    change what is on the tag in your hand. Running the whole live file because
+    you wanted the read checks, and silently rewriting a drawer's tag, is the
+    sort of thing that is discovered at a bench a week later.
+    """
+    parser.addoption(
+        "--flipper-write",
+        action="store_true",
+        default=False,
+        help="allow the live Flipper tests that write to the tag on the antenna",
+    )
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if "live" in str(config.getoption("markexpr", default="") or ""):
         return
