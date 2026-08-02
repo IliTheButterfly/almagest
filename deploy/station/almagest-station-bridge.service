@@ -19,6 +19,11 @@ ExecStart=%h/.local/bin/uv run almagest-deviceagent --reader none
 Environment=DEVICEAGENT_ALLOWED_ORIGIN=http://127.0.0.1:8080
 Environment=DEVICEAGENT_API_BASE_URL=http://127.0.0.1:8000
 Environment=DEVICEAGENT_DEVICE_ID=jetson-station
+# uvicorn/the agent relay SIGTERM and exit 143. Without this every ordinary
+# `stop` is recorded as `Failed with result 'exit-code'`, which teaches the
+# operator to ignore the one line that would have mattered. Same reason as
+# the api unit; it was missing here, and the bench journal showed it.
+SuccessExitStatus=143
 Restart=on-failure
 RestartSec=3
 # A Flipper that is unplugged and replugged comes back as a new /dev/ttyACM node;

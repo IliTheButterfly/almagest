@@ -27,6 +27,7 @@ make, and pretending otherwise is worse than the gap.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -368,3 +369,32 @@ def test_the_handoff_qr_encodes_a_path_and_refuses_anything_that_leaves_the_orig
         refused = client.get("/api/handoff/qr.svg", params={"path": hostile})
         assert refused.status_code == 422, (hostile, refused.text)
         assert refused.json()["detail"]["reason"] == "unsafe_handoff_path"
+
+
+def test_the_handoff_qr_names_the_missing_extra_rather_than_500ing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`segno` is in the optional `labels` extra, so a default install has no QR.
+
+    The operator taps "carry on with this on my phone". If the import failure is
+    left uncaught they get a generic error banner and the only explanation sits
+    in a log nobody at a bench is reading. 503 naming the extra is the difference
+    between a five-second fix and an afternoon.
+    """
+    import builtins
+
+    real_import = builtins.__import__
+
+    def without_segno(name: str, *args: object, **kwargs: object) -> object:
+        if name == "segno":
+            raise ImportError("No module named 'segno'")
+        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(builtins, "__import__", without_segno)
+
+    refused = client.get("/api/handoff/qr.svg", params={"path": "/builds/12"})
+    assert refused.status_code == 503, refused.text
+    detail = refused.json()["detail"]
+    assert detail["reason"] == "labels_extra_missing"
+    # The message has to carry the command, not just the diagnosis.
+    assert "--extra labels" in detail["message"]

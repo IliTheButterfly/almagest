@@ -53,6 +53,26 @@ DEFAULT_LAUNCH_TIMEOUT_S: Final = 10.0
 START_RPC: Final = b"start_rpc_session\r"
 
 
+class AntliaProtocolMismatch(TagSourceError):
+    """Antlia answered `HELLO`, and it speaks a version this bridge does not.
+
+    A subclass rather than a bare `TagSourceError` because the two facts have
+    opposite meanings to whoever is holding the device. Every other failure on
+    the way up — no app installed, a `.fap` without bridge mode, a ping into a
+    void, the wrong `by-id` node — is *"this Flipper is not set up"*, which is a
+    prerequisite. This one is *"this Flipper is set up and the two halves
+    disagree"*, which is a defect: the app and the bridge were built from
+    different commits.
+
+    `tests/test_flipper_live.py` is what forced the distinction. Its fixture
+    skips on a missing prerequisite and fails on a defect, and with one exception
+    type it could only do one or the other — either a stale `.fap` silently
+    skipped the version check that exists to catch it, or a stock Flipper with no
+    Antlia on it turned the whole live suite red with a message saying Antlia was
+    installed but unusable.
+    """
+
+
 class FlipperRpc:
     """Command ids, the frame pump, and the two requests the bridge makes.
 
@@ -217,7 +237,7 @@ class FlipperRpc:
             reply = antlia.parse_reply(line)
             if isinstance(reply, antlia.Hello):
                 if reply.version != antlia.PROTOCOL_VERSION:
-                    raise TagSourceError(
+                    raise AntliaProtocolMismatch(
                         f"{self.description} runs Antlia protocol {reply.version}, "
                         f"this bridge speaks {antlia.PROTOCOL_VERSION}"
                     )

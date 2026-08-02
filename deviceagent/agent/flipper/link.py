@@ -117,6 +117,12 @@ class SerialFlipperLink:
             # `session.open_serial`'s docstring calls unrecoverable for the life
             # of the session, and one that presents as "the Flipper stopped
             # answering" rather than as a second process. Better to fail at open.
+            #
+            # It is pyserial's advisory lock, so it stops *another instance of
+            # this bridge* — the realistic case, since a station may be started
+            # twice — and does not stop `cat /dev/ttyACM0` or `screen`. There is
+            # no portable way to stop those, and a human who runs one is not the
+            # failure mode this guards.
             self._serial: Any = serial.Serial(port, baudrate=baudrate, timeout=0, exclusive=True)
         except Exception as error:  # pragma: no cover — needs hardware
             raise FlipperLinkError(f"cannot open a Flipper on {port}: {error}") from error

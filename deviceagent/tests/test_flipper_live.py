@@ -39,8 +39,9 @@ from pathlib import Path
 import pytest
 
 from agent.devices import KIND_FLIPPER, DeviceRegistry, FlipperUsbBackend
+from agent.flipper.session import AntliaProtocolMismatch
 from agent.identity import VIA_NDEF, VIA_UID, identify
-from agent.tags import TagRead, TagSource, TagSourceError, TagWriteRefused, WritableTagSource
+from agent.tags import TagRead, TagSource, TagWriteRefused, WritableTagSource
 
 pytestmark = pytest.mark.live
 
@@ -94,15 +95,19 @@ def reader(port: str) -> Iterator[TagSource]:
 
     try:
         source = open_serial(port)
-    except TagSourceError as error:
-        # A `TagSourceError` here is a *finding*, not a missing prerequisite:
-        # `session.launch_antlia` raises it for a protocol mismatch, which is
-        # the stale-`.fap` case this module's version test exists to catch. A
-        # blanket `except Exception: skip` turned that into a green run.
-        raise AssertionError(f"Antlia is on the device but unusable: {error}") from error
+    except AntliaProtocolMismatch as error:
+        # A *defect*, not a missing prerequisite: the app on the device and this
+        # bridge were built from different commits. Precisely the stale-`.fap`
+        # case the version test below exists to catch, so it must not skip.
+        raise AssertionError(
+            f"Antlia is installed but disagrees with this bridge: {error}"
+        ) from error
     except Exception as error:
-        # Anything else is the device not being ready for us — no app installed,
-        # the port grabbed by something else — which is a prerequisite.
+        # Everything else is the device not being ready for us — no Antlia
+        # installed, a build without bridge mode, a ping into a void, the wrong
+        # `by-id` node. All prerequisites, all skips. Deliberately broad: the
+        # alternative is 13 red tests misdiagnosing a stock Flipper as a broken
+        # Antlia, which is the mistake `ping`'s own message exists to prevent.
         pytest.skip(f"could not bring up Antlia over RPC on {port}: {error!r}")
     yield source
     source.close()

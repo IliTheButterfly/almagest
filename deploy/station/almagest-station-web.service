@@ -18,6 +18,11 @@ ExecStart=%h/.local/bin/uv run --no-project --python 3.12 -- \
     --dist %h/prog/almagest/frontend/dist \
     --api http://127.0.0.1:8000 \
     --port 8080
+# uvicorn/the agent relay SIGTERM and exit 143. Without this every ordinary
+# `stop` is recorded as `Failed with result 'exit-code'`, which teaches the
+# operator to ignore the one line that would have mattered. Same reason as
+# the api unit; it was missing here, and the bench journal showed it.
+SuccessExitStatus=143
 Restart=on-failure
 RestartSec=3
 
