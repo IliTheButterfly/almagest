@@ -73,16 +73,22 @@ class LotRead(BaseModel):
     location_label_path: str | None = None
 
 
-def lot_read(session: Session, lot: StockLot) -> LotRead:
-    """Render a lot for the wire, resolving its location path.
+def lot_read(session: Session, lot: StockLot, part: Part | None = None) -> LotRead:
+    """Render a lot for the wire, resolving its location path and its part's name.
 
     `Session.get` is an identity-map lookup, so rendering every lot in one bin
     costs one query for the location, not one per lot.
+
+    **`part` is passed in by callers rendering many lots at once.** The identity
+    map alone is not enough for this one: `Session.get` re-issues a SELECT for an
+    object that has been *expired* (which every `commit` does), so relying on it
+    turns a drawer of six distinct parts into six queries in exactly the
+    situations that matter. A caller that has already loaded the parts hands them
+    over; one that has not still gets the correct answer, one query at a time.
     """
     location = session.get(Location, lot.location_id)
-    # Same argument as the location above: an identity-map lookup, so a bin of
-    # twenty lots of one part costs one query, not twenty.
-    part = session.get(Part, lot.part_id)
+    if part is None:
+        part = session.get(Part, lot.part_id)
     return LotRead(
         id=lot.id,
         part_id=lot.part_id,

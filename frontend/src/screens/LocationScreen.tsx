@@ -170,9 +170,18 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
 
       {editing && <ContainerEditMode location={location} onChanged={refresh} />}
 
-      <Picture location={location} />
+      {/* Only when there is something to show. This is the screen every tag tap
+          and every QR lands on, and an unconditional `Picture` drew a dashed
+          150px "?" that is not a link, not a button and says nothing — an
+          affordance drawn because a component exists rather than because there
+          is content, which is ADR 0003's rule inverted. With `Capacity` below it
+          that pushed CONTENTS to y≈736 of a 932px phone, so a person who just
+          tapped a drawer saw one of its two lots. */}
+      {(location.effective_photo !== null || location.effective_glyph !== null) && (
+        <Picture location={location} />
+      )}
 
-      <Capacity location={location} />
+      {location.capacity.model !== "none" && <Capacity location={location} />}
 
       <PrintedId location={location} onDone={onChanged} />
 

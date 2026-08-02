@@ -549,7 +549,7 @@ export function TagWalk({
         <Notice kind="warn" title="That reader has gone">
           <p style={{ margin: 0 }}>
             The reader you were using is no longer attached — a cable, or its app closed on
-            the device. Taps will not arrive until you pick another reader below; typing the
+            the device. Taps will not arrive until you pick another reader above; typing the
             UID still works and the walk keeps its place.
           </p>
         </Notice>

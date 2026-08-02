@@ -173,6 +173,11 @@ station-check: ## The bench station's one-origin server (deploy/station/)
 	# five seconds here rather than being a file nobody runs.
 	cd deploy/station && $(UV) run --no-project --python 3.12 --with pytest -- \
 		python -m pytest test_station_web.py -q
+	# The same two the `station` CI job runs. Without them a formatting
+	# violation in deploy/station/ is green locally and red on the PR, which is
+	# the asymmetry this target was added to remove.
+	cd deploy/station && $(UV) run --no-project --with ruff -- ruff check .
+	cd deploy/station && $(UV) run --no-project --with ruff -- ruff format --check .
 
 agent-run: ## Run the device agent against the fake reader (no hardware needed)
 	cd $(AG) && $(UV) run almagest-deviceagent --fake

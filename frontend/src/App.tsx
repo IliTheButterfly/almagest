@@ -140,9 +140,13 @@ export function App() {
             a pair: what a container is, and what a part is. */}
         <NavLink to="/part-types">Part types</NavLink>
         <NavLink to="/projects">Projects</NavLink>
-        {/* What intake could not place lands in the inbox, so the tab that
-            empties it stays in the same half of the strip as the one that fills
-            it, even though Intake has moved forward. */}
+        {/* Staging empties the inbox that Intake fills, and they used to be
+            adjacent for that reason — "next to the tab that fills it or nobody
+            goes looking". Promoting Scan cost that: Intake is now 4th and on
+            screen at 430 px, Staging is 9th and is not. Recorded rather than
+            papered over, because it is a real trade and the next person to
+            touch this bar should know it was made deliberately. The inbox is
+            also reachable from Storage, which is what makes it survivable. */}
         <NavLink to="/staging">Staging</NavLink>
         <NavLink to="/review">Review</NavLink>
         {/* Next to Review because it is the same kind of errand: looking again at
