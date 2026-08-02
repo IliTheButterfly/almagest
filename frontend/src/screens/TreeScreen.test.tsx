@@ -9,7 +9,7 @@
  * luminance match, so no state may rest on colour.
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -283,10 +283,16 @@ describe("fill state", () => {
     // Bin 1 has fill_ratio null: no capacity model, so there is nothing to be a
     // fraction of. Drawing that as 0% would invent a measurement.
     renderTree("/tree?at=2");
-    await findCell(/Bin 1/);
+    const bin = await findCell(/Bin 1/);
 
-    expect(screen.getByLabelText(/no capacity model/)).toBeTruthy();
-    expect(screen.getByText("n/m")).toBeTruthy();
+    // Scoped to the cell under test rather than to the document.
+    // `getByLabelText` across the whole screen made this test depend on how many
+    // *other* cells on the plate happened to have no capacity model — it passed
+    // in a full-suite run and failed on its own, which is the wrong way round
+    // and cost a CI cycle to notice. Pre-existing; unrelated to why it was
+    // being run.
+    expect(within(bin).getByLabelText(/no capacity model/)).toBeTruthy();
+    expect(within(bin).getByText("n/m")).toBeTruthy();
   });
 });
 
