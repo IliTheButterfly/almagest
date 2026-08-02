@@ -461,6 +461,11 @@ def _evaluate_all_locations(
     )
     container_types = {ct.id: ct for ct in session.execute(select(ContainerType)).scalars()}
     occupants_by_location = capacity.load_all_occupants(session)
+    # Both per-model extras, in bulk, so the scorer sees the same fill the map
+    # and the container's own page do. It saw neither before: a full cabinet and
+    # a full baseplate both scored as empty.
+    grid_units_by_location = capacity.all_consumed_grid_units(session)
+    child_slots_by_location = capacity.all_occupied_child_slots(session)
     parts_by_id = {p.id: p for p in session.execute(select(Part)).scalars()}
     categories_by_id = {c.id: c for c in session.execute(select(PartCategory)).scalars()}
 
@@ -477,7 +482,11 @@ def _evaluate_all_locations(
             else None
         )
         occupants: list[OccupantLot] = occupants_by_location.get(location.id, [])
-        inputs = capacity.container_inputs(location, container_type)
+        inputs = capacity.enrich(
+            capacity.container_inputs(location, container_type),
+            grid_units=grid_units_by_location.get(location.id, 0),
+            child_slots=child_slots_by_location.get(location.id),
+        )
         try:
             snapshot = capacity.get_strategy(inputs.capacity_model).snapshot(inputs, occupants)
         except NotImplementedError:

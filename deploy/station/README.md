@@ -76,8 +76,12 @@ the scale.
 
 ## Checking a station actually commissions containers
 
+**It binds real tags and mints short IDs on real drawers, and a minted short id
+is permanent — ids are never re-minted.** Point it at a station holding demo seed
+data, never one holding a real cabinet. `--yes` is required for that reason.
+
 ```bash
-uv run --no-project --python 3.12 -- python deploy/station/commission_smoke.py
+uv run --no-project --python 3.12 -- python deploy/station/commission_smoke.py --yes
 ```
 
 Drives a whole provisioning walk and then a verification walk over HTTP against
@@ -97,9 +101,6 @@ and then the thing the verification walk exists for: a tag stuck on the wrong
 drawer is reported with the reverse lookup ("this tag belongs to 02"), left
 `resolved_at: null`, and **never auto-fixed** — no software can stop someone
 sticking a tag on the wrong drawer, only detect it.
-
-It writes real bindings, so run it against a station whose database is demo seed
-data, not one holding a real cabinet.
 
 ## Commissioning with the Flipper, on hardware
 

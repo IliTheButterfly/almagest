@@ -10,14 +10,13 @@ of computing them.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, select, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from app.models.enums import CapacityModel
 from app.models.projects import RESERVED_CACHE_REBUILD_SQL, RESERVED_SUM_SQL
 from app.models.storage import ContainerType, Location, LocationOccupancy
 from app.models.types import utcnow
@@ -175,6 +174,10 @@ def rebuild_location_occupancy(session: Session, *, only_dirty: bool = False) ->
     # occupant load does not carry. Fetched in bulk here so this path and the
     # single-location read agree — see all_consumed_grid_units on why.
     grid_units_by_location = capacity.all_consumed_grid_units(session)
+    # The same, for a container whose slots hold containers. Without it the map
+    # and the container's own page disagree about the same cabinet, and only
+    # this path writes `is_overfull`.
+    child_slots_by_location = capacity.all_occupied_child_slots(session)
     now = utcnow()
 
     payload: list[dict[str, Any]] = []
@@ -184,12 +187,11 @@ def rebuild_location_occupancy(session: Session, *, only_dirty: bool = False) ->
             if location.container_type_id is not None
             else None
         )
-        inputs = capacity.container_inputs(location, container_type)
-        if inputs.capacity_model == CapacityModel.GRID_UNITS:
-            inputs = replace(
-                inputs,
-                consumed_grid_units=grid_units_by_location.get(location.id, 0),
-            )
+        inputs = capacity.enrich(
+            capacity.container_inputs(location, container_type),
+            grid_units=grid_units_by_location.get(location.id, 0),
+            child_slots=child_slots_by_location.get(location.id),
+        )
         occupants = occupants_by_location.get(location.id, [])
         try:
             snapshot = capacity.get_strategy(inputs.capacity_model).snapshot(inputs, occupants)

@@ -636,6 +636,13 @@ class LineShortageRead(BaseModel):
     bom_line_id: int
     line_no: int
     part_id: int | None
+    #: What the part *is*. Shortages is the default tab and the "what do I go and
+    #: get" view: without a name every row reads "Line 3 · part #4", so a 40-line
+    #: BOM is 40 taps through to `/parts/N` to learn what anything is. The pick
+    #: list and the roster beside it already carry this — the roster even titles
+    #: an *off-BOM* line with its part name while titling a BOM line "Line 2".
+    part_name: str | None = None
+    part_mpn: str | None = None
     kind: str
     required_milli: int
     #: The line's per-assembly quantity, so a client can render the arithmetic
@@ -1000,11 +1007,13 @@ def _allocation_read(allocation: StockAllocation) -> AllocationRead:
     return AllocationRead.model_validate(allocation)
 
 
-def _line_shortage_read(line: LineShortage) -> LineShortageRead:
+def _line_shortage_read(line: LineShortage, part: Part | None = None) -> LineShortageRead:
     return LineShortageRead(
         bom_line_id=line.bom_line_id,
         line_no=line.line_no,
         part_id=line.part_id,
+        part_name=part.name if part is not None else None,
+        part_mpn=part.mpn if part is not None else None,
         kind=line.kind.value,
         required_milli=line.required_milli,
         qty_per_assembly_milli=line.qty_per_assembly_milli,
@@ -1863,11 +1872,20 @@ def read_shortages(build_id: RowId, db: Session = Depends(get_db)) -> ShortageRe
     read — see `reservations.shortage_for_build` for the netting rules."""
     build = _require_build(db, build_id)
     report = shortage_for_build(db, build)
+    # One query for every part the report names, rather than one per line.
+    wanted = {line.part_id for line in report.lines if line.part_id is not None}
+    parts = {
+        part.id: part
+        for part in db.execute(select(Part).where(Part.id.in_(wanted))).scalars().all()
+    }
     return ShortageResponse(
         build_id=report.build_id,
         assembly_count=report.assembly_count,
         is_buildable=report.is_buildable,
-        lines=[_line_shortage_read(line) for line in report.lines],
+        lines=[
+            _line_shortage_read(line, parts.get(line.part_id) if line.part_id else None)
+            for line in report.lines
+        ],
     )
 
 

@@ -5147,6 +5147,10 @@ export interface components {
             needed_milli: number;
             /** Part Id */
             part_id: number | null;
+            /** Part Mpn */
+            part_mpn?: string | null;
+            /** Part Name */
+            part_name?: string | null;
             /** Qty Per Assembly Milli */
             qty_per_assembly_milli: number;
             /** Required Milli */

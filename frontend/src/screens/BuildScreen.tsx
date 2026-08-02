@@ -454,8 +454,13 @@ function ShortageLine({
     <li>
       <div className="list-item">
         <div className="row">
+          {/* The part, not the line number. This is the default tab and the
+              "what do I go and get" view: titled "Line 3" it took a tap through
+              to `/parts/N` per row to learn what anything was, on a screen whose
+              whole job is to be read standing up. The roster beside it already
+              titles an off-BOM line with its part name. */}
           <span className="title" style={{ flex: 1 }}>
-            Line {line.line_no}
+            {line.part_name ?? `Line ${line.line_no}`}
           </span>
           <KindBadge line={line} />
         </div>
@@ -515,7 +520,12 @@ function ShortageLine({
         )}
         {line.part_id !== null && (
           <div className="sub">
-            <Link to={`/parts/${line.part_id}`}>part #{line.part_id}</Link>
+            <Link to={`/parts/${line.part_id}`}>
+              {line.part_mpn ?? `part #${line.part_id}`}
+            </Link>
+            {line.part_name !== null && line.part_name !== undefined
+              ? ` · line ${line.line_no}`
+              : ""}
           </div>
         )}
         {line.kind === "unidentified" && (
