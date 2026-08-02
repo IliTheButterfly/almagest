@@ -34,7 +34,7 @@ class _Upstream(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:
         pass
 
-    def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
+    def do_GET(self) -> None:
         if self.path.startswith("/s/"):
             # Exactly what the backend does: a *relative* Location the browser
             # has to resolve against the origin that served it.
@@ -85,9 +85,7 @@ def station(tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
     upstream.shutdown()
 
 
-def request(
-    port: int, method: str, path: str
-) -> tuple[int, dict[str, str], bytes]:
+def request(port: int, method: str, path: str) -> tuple[int, dict[str, str], bytes]:
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     try:
         conn.request(method, path)
@@ -177,7 +175,7 @@ def test_a_wedged_upstream_answers_504_rather_than_hanging(
         def log_message(self, fmt: str, *args: object) -> None:
             pass
 
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             threading.Event().wait(30)
 
     dist = tmp_path / "dist"
@@ -198,3 +196,34 @@ def test_a_wedged_upstream_answers_504_rather_than_hanging(
     finally:
         server.shutdown()
         hung.shutdown()
+
+
+def test_an_api_that_is_not_running_answers_502_not_504(tmp_path: Path) -> None:
+    """The distinction is the point, and only half of it had a test.
+
+    "Not running" and "running and stuck" send an operator to different places:
+    one starts a service, the other looks at what is holding the SQLite writer.
+    A proxy that reported the same code for both would make the 504 above
+    meaningless.
+    """
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html>")
+
+    # A port with nothing on it. Bound and closed so the number is certainly free.
+    with __import__("socket").socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        dead_port = probe.getsockname()[1]
+
+    class Orphaned(StationHandler):
+        pass
+
+    Orphaned.dist = dist.resolve()
+    Orphaned.api = f"http://127.0.0.1:{dead_port}"
+    server, port = _serve(Orphaned)
+    try:
+        status, _, body = request(port, "GET", "/api/anything")
+        assert status == 502
+        assert "not answering" in json.loads(body)["detail"]
+    finally:
+        server.shutdown()

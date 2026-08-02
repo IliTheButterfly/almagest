@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Drive a full commissioning walk against a running station, over HTTP only.
 
 Deliberately no imports from `app`: this exercises the station the way the PWA
@@ -109,7 +110,9 @@ for n in range(3):
     if ok:
         bound.append((here, tag, resp["tag"]["ndef_url"]))
         state = resp["state"]
-        check(f"the cursor moved off {here}", cursor_of(state) != here, cursor_of(state))
+        check(
+            f"the cursor moved off {here}", cursor_of(state) != here, cursor_of(state)
+        )
 
 if len(bound) < 2:
     print("not enough slots bound to exercise the conflicts")
@@ -123,9 +126,18 @@ print("== the same tag tapped twice costs nothing")
 status, resp = call(
     "POST",
     f"/api/provisioning-sessions/{sid}/bind",
-    {"tag_uid": tag_a, "location_id": slot_a, "client_op_id": "e2e-dup", "device_id": "e2e"},
+    {
+        "tag_uid": tag_a,
+        "location_id": slot_a,
+        "client_op_id": "e2e-dup",
+        "device_id": "e2e",
+    },
 )
-check("a re-tap is already_bound_here", resp.get("status") == "already_bound_here", resp.get("status"))
+check(
+    "a re-tap is already_bound_here",
+    resp.get("status") == "already_bound_here",
+    resp.get("status"),
+)
 check(
     "and adds no undo step",
     # `len(bound)`, not a hardcoded 3: the bind loop breaks early when the
@@ -140,28 +152,59 @@ print("== this tag already means another drawer")
 status, resp = call(
     "POST",
     f"/api/provisioning-sessions/{sid}/bind",
-    {"tag_uid": tag_a, "location_id": free_slot, "client_op_id": "e2e-elsewhere", "device_id": "e2e"},
+    {
+        "tag_uid": tag_a,
+        "location_id": free_slot,
+        "client_op_id": "e2e-elsewhere",
+        "device_id": "e2e",
+    },
 )
-check("refused as already_bound_elsewhere", resp.get("status") == "already_bound_elsewhere", resp.get("status"))
+check(
+    "refused as already_bound_elsewhere",
+    resp.get("status") == "already_bound_elsewhere",
+    resp.get("status"),
+)
 conflict = resp.get("conflict") or {}
-check("and names the drawer it means", conflict.get("location_id") == slot_a, conflict.get("label_path"))
+check(
+    "and names the drawer it means",
+    conflict.get("location_id") == slot_a,
+    conflict.get("label_path"),
+)
 
 print("== this drawer already has a tag")
 fresh = uid(90)
 status, resp = call(
     "POST",
     f"/api/provisioning-sessions/{sid}/bind",
-    {"tag_uid": fresh, "location_id": slot_a, "client_op_id": "e2e-slotbound", "device_id": "e2e"},
+    {
+        "tag_uid": fresh,
+        "location_id": slot_a,
+        "client_op_id": "e2e-slotbound",
+        "device_id": "e2e",
+    },
 )
-check("refused as slot_already_bound", resp.get("status") == "slot_already_bound", resp.get("status"))
+check(
+    "refused as slot_already_bound",
+    resp.get("status") == "slot_already_bound",
+    resp.get("status"),
+)
 conflict = resp.get("conflict") or {}
-check("and names the tag in the way", conflict.get("tag_uid") == tag_a, conflict.get("tag_uid"))
+check(
+    "and names the tag in the way",
+    conflict.get("tag_uid") == tag_a,
+    conflict.get("tag_uid"),
+)
 
 print("== both at once is refused outright, not half-done")
 status, resp = call(
     "POST",
     f"/api/provisioning-sessions/{sid}/bind",
-    {"tag_uid": tag_b, "location_id": slot_a, "client_op_id": "e2e-two", "device_id": "e2e"},
+    {
+        "tag_uid": tag_b,
+        "location_id": slot_a,
+        "client_op_id": "e2e-two",
+        "device_id": "e2e",
+    },
 )
 check("two conflicts is a 409", status == 409, status)
 check(
@@ -182,7 +225,11 @@ status, resp = call(
         "device_id": "e2e",
     },
 )
-check("a confirmed move is accepted", status == 200 and resp.get("status") in {"moved", "rebound"}, resp.get("status"))
+check(
+    "a confirmed move is accepted",
+    status == 200 and resp.get("status") in {"moved", "rebound"},
+    resp.get("status"),
+)
 moved_state = resp.get("state", {})
 
 print("== and the move is undoable, because a person can be wrong")
@@ -193,7 +240,11 @@ status, resp = call(
 )
 check("the move can be undone", status == 200, status)
 undone = resp.get("undone") or {}
-check("the undo names what it put back", undone.get("action_kind") in {"move", "rebind"}, undone.get("action_kind"))
+check(
+    "the undo names what it put back",
+    undone.get("action_kind") in {"move", "rebind"},
+    undone.get("action_kind"),
+)
 
 print("== the verification walk: the same cabinet, re-read")
 status, vstarted = call(
@@ -220,7 +271,11 @@ status, resp = call(
         "device_id": "e2e",
     },
 )
-check("the right tag on the right drawer matches", resp.get("status") == "match", resp.get("status"))
+check(
+    "the right tag on the right drawer matches",
+    resp.get("status") == "match",
+    resp.get("status"),
+)
 check(
     "and a tag carrying the right URI reads as verified",
     resp.get("ndef_state") == "verified",
@@ -239,11 +294,14 @@ status, resp = call(
         "device_id": "e2e",
     },
 )
-check("a swapped tag is a mismatch", resp.get("status") == "mismatch", resp.get("status"))
+check(
+    "a swapped tag is a mismatch", resp.get("status") == "mismatch", resp.get("status")
+)
 mismatch = resp.get("mismatch") or {}
 check(
     "it records what was expected and what was read",
-    mismatch.get("expected_tag_uid") == tag_a and mismatch.get("scanned_tag_uid") == tag_b,
+    mismatch.get("expected_tag_uid") == tag_a
+    and mismatch.get("scanned_tag_uid") == tag_b,
     (mismatch.get("expected_tag_uid"), mismatch.get("scanned_tag_uid")),
 )
 check(
@@ -277,5 +335,9 @@ check(
 )
 
 print()
-print("FAILURES: " + ", ".join(failures) if failures else "all commissioning checks passed")
+print(
+    "FAILURES: " + ", ".join(failures)
+    if failures
+    else "all commissioning checks passed"
+)
 raise SystemExit(1 if failures else 0)

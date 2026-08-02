@@ -40,6 +40,10 @@
  */
 
 :root {
+  /* Height of the fixed bottom nav, including the home-indicator inset.
+   * Declared here rather than on `.app-nav` because `.commit-bar` is a sibling
+   * of that bar, not a descendant, and custom properties only inherit down. */
+  --nav-h: calc(3.25rem + env(safe-area-inset-bottom, 0px));
   /* ------------------------------------------------------------------------
    * The scale. Theme-independent raw values — the only hex codes in the
    * project. Nothing outside this block should ever name a colour literal.
@@ -577,6 +581,18 @@ h3 {
   letter-spacing: 0.06em;
   color: var(--text-dim);
   white-space: nowrap;
+}
+
+/* A badge whose content is a *value*, not a label.
+ *
+ * `text-transform: uppercase` is fine for "STAGING" and lethal for "22 μF": it
+ * case-folds µ to Μ, so the one control that confirms an entered value was
+ * understood reads "22 MF" — off by twelve orders of magnitude. Same for mΩ,
+ * which becomes MΩ. Any badge rendering a parsed quantity must use this. */
+.badge-value {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -2165,10 +2181,21 @@ button.tall {
   text-align: center;
 }
 
+/* Sticky *above the nav bar*, not 0.5rem from the viewport floor.
+ *
+ * `.app-nav` is `position: fixed; bottom: 0`, so a sticky bottom smaller than
+ * its height parks the button underneath it. On `/lots/:id` at 430x932 — the
+ * default phone viewport and the most-used screen there is — only a ~20px
+ * sliver of "Take 1" was visible, its label completely covered, so every take
+ * needed a scroll after every keypad entry, one-handed, while holding a
+ * container. `--nav-h` is the bar's own height plus the home-indicator inset. */
 .commit-bar {
   position: sticky;
-  bottom: 0.5rem;
+  bottom: calc(var(--nav-h) + 0.5rem);
   z-index: 15;
+  /* The page scrolls under it, so it needs a floor of its own. */
+  padding-block: 0.4rem;
+  background: var(--bg);
 }
 
 .undo-bar {

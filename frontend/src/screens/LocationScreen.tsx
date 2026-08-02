@@ -189,13 +189,22 @@ function Bin({ location, onChanged }: { location: LocationRead; onChanged: () =>
             {location.lots.map((lot) => (
               <li key={lot.id}>
                 <Link className="list-item" to={`/lots/${lot.id}`}>
+                  {/* What it *is* leads, and the count follows. This is the
+                      landing screen for every tag tap and every QR: it used to
+                      title each row with the quantity and subtitle it "part 4",
+                      so a bin holding a 4k7 and a 10k could not be told apart
+                      without opening both. The name comes from the lot row
+                      itself (`part_name`), not a request per line. */}
                   <div className="row">
-                    <span className="title">{formatQty(lot.qty_milli)}</span>
+                    <span className="title">{lot.part_name ?? `part ${lot.part_id}`}</span>
                     <span className="spacer" />
                     {lot.status !== "active" && <span className="badge">{lot.status}</span>}
                   </div>
                   <div className="sub">
-                    part {lot.part_id}
+                    {formatQty(lot.qty_milli)}
+                    {lot.part_mpn === null || lot.part_mpn === undefined
+                      ? ""
+                      : ` · ${lot.part_mpn}`}
                     {lot.batch_code === null || lot.batch_code === undefined
                       ? ""
                       : ` · batch ${lot.batch_code}`}

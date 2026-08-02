@@ -15,9 +15,10 @@ from collections.abc import Callable
 
 import pytest
 
+from agent.bridge import DeviceLocks
 from agent.config import AgentSettings
-from agent.devices import DeviceRegistry
-from agent.fake_tags import FakeTagSource, load_script
+from agent.devices import DeviceRegistry, StaticBackend
+from agent.fake_tags import FakeTagSource, FakeWritableTagSource, load_script
 from agent.main import build_source, run
 from agent.no_reader import NoTagSource
 from agent.tags import READS_BOTH, TagCapabilities, TagSource
@@ -192,6 +193,47 @@ def test_a_station_with_no_platform_announces_nothing() -> None:
     and the user would be told to hold a tag against a platform that is not
     there."""
     assert _roster_after_a_run(NoTagSource()) == ()
+
+
+def test_the_writer_and_the_tap_loop_share_one_set_of_locks() -> None:
+    """`run` must hand the *same* `DeviceLocks` to both, or it locks nothing.
+
+    The bug this guards is a one-word edit: drop `busy=busy` from the
+    `bridge_forever` call and each side makes a private lock, which is exactly
+    the race that corrupted a write on real hardware. `test_bridge.py` proves the
+    locking works when both are given the same object; only this proves they are.
+    """
+    seen: list[str] = []
+
+    class Watching(DeviceLocks):
+        def for_device(self, device_id: str) -> asyncio.Lock:
+            seen.append(device_id)
+            return super().for_device(device_id)
+
+        def snapshot(self) -> int:
+            return id(self)
+
+    watching = Watching()
+    registry = DeviceRegistry([StaticBackend(sources={"flipper-usb:a": FakeWritableTagSource()})])
+
+    async def scenario() -> None:
+        await run(
+            NoTagSource(),
+            AgentSettings(
+                ws_port=0, poll_interval_ms=20, sweep_interval_ms=200, tap_interval_ms=50
+            ),
+            api=FakeStationApi(),
+            max_polls=2,
+            registry=registry,
+            max_sweeps=2,
+            busy=watching,
+        )
+
+    asyncio.run(asyncio.wait_for(scenario(), 10.0))
+
+    # The tap loop asked this object for the reader's lock, which it can only do
+    # if `run` passed it through rather than letting the loop make its own.
+    assert "flipper-usb:a" in seen
 
 
 def test_the_unused_driver_is_never_imported() -> None:

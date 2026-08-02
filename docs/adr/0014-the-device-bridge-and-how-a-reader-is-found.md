@@ -225,31 +225,52 @@ behaviour of the envelope; but a version-1 client also cannot write, and telling
 it apart from a version-2 client matters for the UI. The bump is cheap and the
 alternative is guessing.
 
-## Unverified, and honest about it
+## Verified on hardware, 2026-08-02
 
-Nothing here has touched hardware, and the list is longer than usual:
+This section was headed *"Unverified, and honest about it"* and opened *"Nothing
+here has touched hardware."* That stopped being true on 2026-08-02, when a
+Flipper Zero (Momentum `mntm-012`, API 87.1) on the bench Jetson ran the whole
+USB leg. What actually ran, and what it cost:
+
+- **The Flipper has been driven by this code.** Discovery matched the real udev
+  name, the registry attached it, `start_rpc_session` and the CLI-banner drain
+  worked, `ping` answered, `app_start_request` launched Antlia into bridge mode,
+  and `HELLO 1 rw` came back. `tests/test_flipper_live.py` is the checklist and
+  it passes: 11 of its 14, the rest being a manual cable-pull and the two write
+  cases that need `--flipper-write`.
+- **A write survives the platform** — the bullet that said it was the biggest
+  unknown. A real NTAG took a server-minted URI, read it back identically
+  through the same reader, and a verification walk then resolved the drawer by
+  its URI rather than its UID. `deploy/station/commission_hardware.py` is that
+  run, end to end.
+- **Two bugs no fake could have found**, both now fixed:
+  - *One reader, two callers.* The tap loop polled every 500 ms in a worker
+    thread while a `tag.write` ran in another, against an `FlipperRpc` documented
+    as "one link, one session, one caller". A fake replaying bytes for a single
+    caller is perfectly happy; a real Flipper interleaves the two conversations
+    on one CDC stream and the write's reply is eaten by the poller. The bridge
+    then published `tag.write_failed` — *while the tag was written correctly* —
+    and a client believing it records a good sticker `degraded` for ever.
+    `agent/bridge.py`'s `DeviceLocks` is the fix.
+  - *An app already running blocks the launch.* `app_start_request` cannot start
+    Antlia while anything is in the foreground, including Antlia in wedge mode;
+    the loader answers `ERROR_APP_CANT_START`. Worth knowing before blaming the
+    `.fap`.
+
+Still unverified, and the list is now short:
 
 - **No PN532 exists.** The write path is `ntag2xx_write_block` in a loop and has
   never run, exactly like the read path it sits beside. Its contract test is
   `live`-marked.
-- **No Flipper has been driven by this code.** The RPC framing, the app launch,
-  and the data-exchange round trip are tested against a fake that replays the
-  byte sequences this codec produces. That proves the codec is self-consistent,
-  not that a Flipper agrees with it. The field numbers come from upstream and the
-  encoding is asserted byte-for-byte, which is the strongest check available
-  without the device.
-- **BLE is the least-verified leg.** `bleak` scanning, the GATT characteristics
-  the serial profile exposes, and pairing are all untested; the bench machine has
-  no Bluetooth stack installed at all. USB is expected to work first.
-- ~~**Antlia's write path does not exist yet.**~~ **Superseded 2026-08-02.** It
-  landed with bridge mode: `antlia/src/antlia_rpc.c` handles `WRITE` and `WRITE!`
-  via `mf_ultralight_poller_sync_write_page`, and answers `HELLO 1 rw`. It is
-  still unrun on a device, which is the *next* bullet and the one that matters.
-  Noted here rather than deleted because this ADR was cited as current authority
-  for "a Flipper in bridge mode reads only" after it had stopped being true.
-- **Whether a write survives the platform.** PLAN.md already calls antenna
-  centring at 8-12 mm through PETG the design's biggest unknown, and a write is
-  strictly more demanding of the coupling than a read.
+- **BLE remains the least-verified leg, and now has a known blocker.** `bleak`
+  needs BlueZ >= 5.51 for the adapter `Roles` property; the bench Jetson runs
+  Ubuntu 18.04 with BlueZ 5.48, so `BleakScanner.discover` raises `KeyError:
+  'Roles'` before it reaches a radio. The GATT characteristics and pairing are
+  therefore still untested from here, and will stay so until that machine is
+  replaced or its stack backported. USB was expected to work first, and did.
+- **Whether a write survives a *container*.** The write above was a tag on a
+  desk. PLAN.md's real unknown is antenna centring at 8-12 mm through PETG, and
+  nothing has been mounted in a fixture yet.
 
 ## Alternatives rejected
 

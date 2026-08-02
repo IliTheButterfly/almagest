@@ -47,18 +47,24 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   capability set per attached device, `tag.write`, and a write path on every
   station driver, plus a Flipper Zero over its own RPC on USB or BLE launched
   into bridge mode automatically. `agent/flipper/fake.py` is a Flipper made of
-  software, so the whole path is tested with nothing plugged in. **No hardware
-  has run any of it**; BLE is opt-in because not even its discovery call has ever
-  executed
+  software, so the whole path is tested with nothing plugged in. **The USB half
+  has now run on real hardware** (see the antlia bullet below); BLE stays opt-in
+  and its discovery call has still never reached a radio
 - `frontend/src/lib/tags/bridge.ts` — the browser's client for the above, which
   degrades in silence when no bridge is running (almost every page load)
-- `antlia/` bridge mode — the Flipper side. Compiles against Momentum API 87.1
-  with `-Werror` and its NDEF encoder is asserted byte-identical to
-  `agent/ndef.py`'s, but has never run on a device
+- `antlia/` bridge mode — the Flipper side, and **it has now run on a device**
+  (Momentum `mntm-012`, API 87.1, 2026-08-02): a real tag was read, written with a
+  server-minted URI, read back identically, and resolved by a verification walk.
+  `deploy/station/commission_hardware.py` is that run and
+  `deviceagent/tests/test_flipper_live.py` is the checklist. Two bugs only
+  hardware could find are fixed in passing — see ADR 0014's "Verified on
+  hardware". **BLE is still unrun and now has a known blocker**: `bleak` needs
+  BlueZ >= 5.51 and the bench machine has 5.48
 
 **Not built yet:** the scan resolver chain and alias learning, layout
-authoring, label sheets, FTS5. Tag provisioning has its API, its walks and now a
-reader that can write; what it does not have is a tag written by real hardware.
+authoring, label sheets, FTS5. Tag provisioning has its API, its walks, a reader
+that can write, **and now tags written by real hardware** — what it does not have
+is a tag written through a mounted container rather than one lying on a desk.
 Also absent: any *agent-assisted* field filling — capture extraction is
 algorithmic, and offers candidates a person chooses between. Treat this whole
 list with suspicion: it is older than the code and has been wrong before,

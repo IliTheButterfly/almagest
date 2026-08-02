@@ -71,8 +71,20 @@ CONTENT_TYPES = {
 # Forwarded in both directions. Small and explicit rather than "everything minus
 # a deny list": a hop-by-hop header copied through a proxy that does not honour
 # it (`Transfer-Encoding`, `Connection`) is a hang that only shows up under load.
-REQUEST_HEADERS = ("accept", "accept-language", "content-type", "idempotency-key", "if-none-match")
-RESPONSE_HEADERS = ("content-type", "location", "etag", "cache-control", "content-disposition")
+REQUEST_HEADERS = (
+    "accept",
+    "accept-language",
+    "content-type",
+    "idempotency-key",
+    "if-none-match",
+)
+RESPONSE_HEADERS = (
+    "content-type",
+    "location",
+    "etag",
+    "cache-control",
+    "content-disposition",
+)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -105,7 +117,9 @@ class StationHandler(BaseHTTPRequestHandler):
     def _proxy(self) -> None:
         length = int(self.headers.get("content-length") or 0)
         body = self.rfile.read(length) if length else None
-        request = urllib.request.Request(self.api + self.path, data=body, method=self.command)
+        request = urllib.request.Request(
+            self.api + self.path, data=body, method=self.command
+        )
         for header in REQUEST_HEADERS:
             value = self.headers.get(header)
             if value is not None:
@@ -146,7 +160,9 @@ class StationHandler(BaseHTTPRequestHandler):
             self._relay_bytes(
                 502,
                 "application/json",
-                json.dumps({"detail": f"the station API is not answering: {exc}"}).encode(),
+                json.dumps(
+                    {"detail": f"the station API is not answering: {exc}"}
+                ).encode(),
             )
 
     def _relay(self, status: int, headers: object, payload: bytes) -> None:
@@ -223,7 +239,9 @@ class StationHandler(BaseHTTPRequestHandler):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", required=True, type=Path, help="the built PWA")
-    parser.add_argument("--api", default="http://127.0.0.1:8000", help="the station's API")
+    parser.add_argument(
+        "--api", default="http://127.0.0.1:8000", help="the station's API"
+    )
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument(
         "--upstream-timeout",

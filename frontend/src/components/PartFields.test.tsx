@@ -187,3 +187,38 @@ describe("PartFields", () => {
     expect(screen.getByText(/1 field every part of this sort has/i)).toBeTruthy();
   });
 });
+
+describe("a parsed value is shown as it was parsed", () => {
+  it("marks the confirmation badge as a value, so it is not uppercased", async () => {
+    // Not a style assertion for its own sake: `.badge` uppercases, and this is
+    // the badge that tells a person their "22u" became 22 μF. Uppercased it
+    // reads 22 MF — off by twelve orders of magnitude, on the one control whose
+    // job is to confirm the value was understood. `styles.tokens.test.ts` pins
+    // the CSS half; this pins that the class reaches the element.
+    //
+    // Its own stub, because the shared one returns every field unrecorded and
+    // the badge only exists once there is a value to confirm.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json({
+          part_id: 7,
+          category: "capacitor",
+          filed: true,
+          parameters: [field({ display: "22 \u03bcF", raw_input: "22uF" })],
+        }),
+      ),
+    );
+    renderFields();
+
+    const badge = await waitFor(() => {
+      const found = document.querySelector(".badge-good");
+      if (found === null) {
+        throw new Error("no confirmation badge rendered");
+      }
+      return found;
+    });
+    expect(badge.textContent).toBe("22 \u03bcF");
+    expect(badge.className).toContain("badge-value");
+  });
+});

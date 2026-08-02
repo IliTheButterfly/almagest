@@ -133,8 +133,11 @@ function useTagSource(
         return bridgeSource(connection, device);
       }
       // Unplugged mid-walk. Falling back to typing keeps the walk usable rather
-      // than leaving a dead source subscribed to nothing; the picker has already
-      // dropped the radio, so the UI agrees.
+      // than leaving a dead source subscribed to nothing — but it must be said
+      // out loud: the radio has gone from the picker, so nothing is checked, and
+      // a walk that has quietly become "type the hex off the sticker" without
+      // announcing it is how a person ends up thinking the reader is broken.
+      // `lostReader` below renders that.
       return manualTagSource();
     }
     if (choice === "simulated") {
@@ -219,11 +222,22 @@ export function TagWalk({
       return;
     }
     if (choice === "manual") {
-      setChoice(bridgeChoice(bridgeDevices[0]!.deviceId));
+      // Prefer one that can write. A read-only reader binds perfectly well but
+      // leaves every sticker `unverified`, and roster order is arrival order —
+      // so with two readers attached the operator would silently get the worse
+      // one about half the time.
+      const writable = bridgeDevices.find((device) => device.capabilities.writesNdef);
+      setChoice(bridgeChoice((writable ?? bridgeDevices[0]!).deviceId));
     }
   }, [bridgeDevices, choice, readerPicked]);
 
   const detected = useTagSource(choice, bridgeDevices, bridge);
+
+  // The chosen bridged reader is no longer in the roster: it was unplugged, or
+  // its app was closed on the device.
+  const lostReader =
+    choice.startsWith("bridge:") &&
+    !bridgeDevices.some((device) => bridgeChoice(device.deviceId) === choice);
   const source = injected ?? detected;
 
   const [cursor, setCursor] = useState<SlotCursorRead | null>(null);
@@ -531,6 +545,15 @@ export function TagWalk({
         disabled={injected !== undefined}
         bridgeDevices={bridgeDevices}
       />
+      {lostReader && (
+        <Notice kind="warn" title="That reader has gone">
+          <p style={{ margin: 0 }}>
+            The reader you were using is no longer attached — a cable, or its app closed on
+            the device. Taps will not arrive until you pick another reader below; typing the
+            UID still works and the walk keeps its place.
+          </p>
+        </Notice>
+      )}
       {notice !== null && (
         <Notice kind="warn" title="No Web NFC here">
           <p style={{ margin: 0 }}>{notice}</p>

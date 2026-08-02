@@ -5513,6 +5513,10 @@ export interface components {
             packaging_id?: number | null;
             /** Part Id */
             part_id: number;
+            /** Part Mpn */
+            part_mpn?: string | null;
+            /** Part Name */
+            part_name?: string | null;
             /** Qty Milli */
             qty_milli: number;
             /** Qty Reserved Milli */

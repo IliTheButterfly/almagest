@@ -17,7 +17,7 @@
  * not leave a warning, an empty affordance or a delay behind.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TagWalk } from "./TagWalkPanel";
@@ -112,6 +112,45 @@ const STATE = {
  * in `{state}`. Returning one body for both is how this file first failed, with
  * the component crashing on a cursor that was never there.
  */
+/** A bridge that opens immediately and attaches readers only when told to. */
+class SlowAttachingSocket extends SilentSocket {
+  static latest: SlowAttachingSocket | null = null;
+  static seq = 10;
+  constructor(url: string) {
+    super(url);
+    SlowAttachingSocket.latest = this;
+    queueMicrotask(() => {
+      this.readyState = 1;
+      this.onopen?.();
+      this.onmessage?.({
+        data: JSON.stringify({
+          type: "station.hello",
+          seq: 1,
+          at: new Date(0).toISOString(),
+          data: { protocol: 2, agent: "almagest-deviceagent/0.1.0", last_seq: 0 },
+        }),
+      });
+    });
+  }
+
+  static attach(deviceId: string, label: string): void {
+    SlowAttachingSocket.seq += 1;
+    SlowAttachingSocket.latest?.onmessage?.({
+      data: JSON.stringify({
+        type: "device.attached",
+        seq: SlowAttachingSocket.seq,
+        at: new Date(0).toISOString(),
+        data: {
+          device_id: deviceId,
+          kind: "flipper_rpc",
+          label,
+          capabilities: { reads_uid: true, reads_ndef: true, writes_ndef: true },
+        },
+      }),
+    });
+  }
+}
+
 function stubFetch(): void {
   vi.stubGlobal(
     "fetch",
@@ -131,6 +170,7 @@ function stubFetch(): void {
 afterEach(() => {
   vi.unstubAllGlobals();
   SilentSocket.instances = [];
+  SlowAttachingSocket.latest = null;
 });
 
 describe("a reader the browser cannot reach", () => {
@@ -171,6 +211,45 @@ describe("a reader the browser cannot reach", () => {
     // bind for the same reason. A URL derived from the origin would be a station
     // trying to reach a reader plugged into a server.
     expect(SilentSocket.instances[0]!.url).toBe("ws://127.0.0.1:8765");
+  });
+
+  it("does not move the choice under an operator who has already made one", async () => {
+    // The safety property of the auto-select: a reader arriving mid-walk may
+    // take over from the fallback, but never from a deliberate choice. Somebody
+    // who deliberately went back to typing — because the reader is across the
+    // bench, or its tag is unreadable — must not find their taps going
+    // somewhere else when a second reader appears.
+    //
+    // The operator has to be moved *away* from a selected radio for this to
+    // mean anything: clicking an already-checked radio fires no `onChange`, so
+    // a test that starts on "Type the UID" and clicks it is asserting nothing.
+    stubFetch();
+    vi.stubGlobal("WebSocket", SlowAttachingSocket);
+    render(
+      <TagWalk location={CABINET} kind="provision" onChanged={() => undefined} />,
+    );
+
+    // A reader arrives and is auto-selected, because nothing was chosen yet.
+    SlowAttachingSocket.attach("flipper-usb:one", "Flipper One");
+    const first = await screen.findByRole("radio", { name: /Flipper One/ });
+    await waitFor(() => expect((first as HTMLInputElement).checked).toBe(true));
+
+    // The operator goes back to typing. That is a real change, and it pins.
+    fireEvent.click(screen.getByRole("radio", { name: /Type the UID/ }));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("radio", { name: /Type the UID/ }) as HTMLInputElement).checked,
+      ).toBe(true),
+    );
+
+    // A second reader shows up. Nothing may move.
+    SlowAttachingSocket.attach("flipper-usb:two", "Flipper Two");
+    const second = await screen.findByRole("radio", { name: /Flipper Two/ });
+
+    expect((second as HTMLInputElement).checked).toBe(false);
+    expect(
+      (screen.getByRole("radio", { name: /Type the UID/ }) as HTMLInputElement).checked,
+    ).toBe(true);
   });
 
   it("changes nothing at all when no bridge is running", async () => {
