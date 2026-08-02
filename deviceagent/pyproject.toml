@@ -33,15 +33,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Installed only on the Pi. `Pn532TagSource` imports these inside its
+# Installed only on the Pi. Both drivers import their transport inside the
 # constructor precisely so that a dev machine — which has no reader to talk to —
-# can run the whole agent against `FakeTagSource` without them present.
+# can run the whole agent against `FakeTagSource` without any of them present.
+#
+# One extra rather than one per reader: three wheels is not worth the second
+# install path, and a station that swaps modules should not need a re-sync to try
+# the other cable. `spidev` is the only thing the RC522 needs, because the ISO
+# 14443-3 layer above it is `agent/iso14443a.py` and this repo's — see ADR 0013.
 pi = [
     "adafruit-circuitpython-pn532>=2.4",
     "pyserial>=3.5",
+    "spidev>=3.6",
 ]
 
-# Talking to a Flipper Zero (ADR 0013). **Not installed on the Pi**: the station
+# Talking to a Flipper Zero (ADR 0014). **Not installed on the Pi**: the station
 # has a PN532 under its platform and no reason to carry a Bluetooth stack. This
 # is for the other deployment the bridge now has — a laptop, where the Flipper is
 # the only reader in the building and Web NFC does not exist.
@@ -149,7 +155,7 @@ strict = true
 # modules rather than global so that a typo in a first-party import is still an
 # error.
 [[tool.mypy.overrides]]
-module = ["adafruit_pn532.*", "board", "busio", "serial.*", "bleak.*"]
+module = ["adafruit_pn532.*", "board", "busio", "serial.*", "spidev", "bleak.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
@@ -159,6 +165,6 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 markers = [
-    "live: needs the real PN532 wired to this machine; skipped unless -m live is passed",
+    "live: needs a real reader (PN532 or RC522) wired to this machine; skipped unless -m live is passed",
 ]
 filterwarnings = ["error"]

@@ -669,7 +669,7 @@ class ProvisioningDevice(StrEnum):
     MANUAL = "manual"
 
     #: A Flipper Zero running Antlia in bridge mode, reached over its RPC by the
-    #: device bridge (ADR 0013). Reads both carriers and — once Antlia's write
+    #: device bridge (ADR 0014). Reads both carriers and — once Antlia's write
     #: path lands — writes, which makes a desktop with a USB cable into a
     #: provisioning station. That matters because every other writing path needs
     #: an Android phone: Web NFC is Chromium-on-Android only, and the station's
@@ -680,6 +680,14 @@ class ProvisioningDevice(StrEnum):
     #: plain `VARCHAR`, so a new kind of reader is additive by construction; with
     #: `sa.Enum` it would have been a SQLite table rebuild.
     FLIPPER_RPC = "flipper_rpc"
+
+    #: The station's other driver (ADR 0013). Named separately from
+    #: `STATION_PN532` rather than folded into a generic "station" because the
+    #: two modules differ in exactly the way that matters when a binding is later
+    #: found to be wrong: ADR 0013 records the RC522 as having less antenna and
+    #: less margin, so "which module read this tag" is the first question worth
+    #: asking about a drawer that reads intermittently.
+    STATION_RC522 = "station_rc522"
 
 
 class NdefState(StrEnum):

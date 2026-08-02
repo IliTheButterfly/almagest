@@ -8680,6 +8680,30 @@
         "title": "PartKindUpdate",
         "type": "object"
       },
+      "PartLocation": {
+        "description": "One container a search result is actually in.\n\n`label_path` is the derived human path and is **never** written to a tag or a\nlabel \u2014 same rule as everywhere else: containers move, so an encoded path\nbecomes a lie the moment a drawer changes cabinet. Here it is display text\ncomputed per request, which is exactly what it is for.",
+        "properties": {
+          "label_path": {
+            "title": "Label Path",
+            "type": "string"
+          },
+          "location_id": {
+            "title": "Location Id",
+            "type": "integer"
+          },
+          "qty_milli": {
+            "title": "Qty Milli",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "label_path",
+          "qty_milli"
+        ],
+        "title": "PartLocation",
+        "type": "object"
+      },
       "PartParameterCleared": {
         "properties": {
           "name": {
@@ -9259,6 +9283,14 @@
           "location_count": {
             "title": "Location Count",
             "type": "integer"
+          },
+          "locations": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PartLocation"
+            },
+            "title": "Locations",
+            "type": "array"
           },
           "lot_count": {
             "title": "Lot Count",
@@ -10906,7 +10938,8 @@
           "phone_webnfc",
           "station_pn532",
           "manual",
-          "flipper_rpc"
+          "flipper_rpc",
+          "station_rc522"
         ],
         "title": "ProvisioningDevice",
         "type": "string"

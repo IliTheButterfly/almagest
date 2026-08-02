@@ -30,6 +30,20 @@ from dataclasses import dataclass
 from typing import Any, Final, Protocol, runtime_checkable
 
 
+def format_uid(raw: bytes | bytearray) -> str:
+    """Reader bytes → the hex string `agent.identity` normalises.
+
+    Here rather than in a driver because there are now two drivers, and a UID
+    rendered by one differently from the other is the exact failure
+    `almagest-idcodec` exists to prevent one layer down: it stays invisible to
+    the `location_tags` binding it should match while looking perfectly correct
+    on screen. `bytes(...)` rather than `.hex()` on the argument so an empty UID
+    produces `""` — which every caller turns into `None` — rather than something
+    `normalize_tag_uid` would accept.
+    """
+    return bytes(raw).hex().upper()
+
+
 class TagSourceError(RuntimeError):
     """The *reader* failed, as distinct from the tag being unreadable.
 
@@ -80,7 +94,7 @@ class TagCapabilities:
     Writing is not derived from a stream. It is a command the client issues
     against a named device, and no history of read events can tell a PN532 that
     writes from a Flipper that does not, nor say which of two attached readers
-    the user should hold the tag against. See ADR 0013.
+    the user should hold the tag against. See ADR 0014.
     """
 
     #: Produces an anticollision UID. False for a keyboard wedge.

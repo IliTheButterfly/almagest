@@ -167,7 +167,7 @@ GET_ERROR_TEXT: Final = 2
 STATUS_OK: Final = 0
 
 #: The path Antlia installs to, and the argument that puts it in bridge mode
-#: rather than keyboard-wedge mode. See ADR 0013: claiming USB HID would sever
+#: rather than keyboard-wedge mode. See ADR 0014: claiming USB HID would sever
 #: the very CDC interface this session is riding on, so the two modes are
 #: disjoint and the launch argument is what selects between them.
 ANTLIA_FAP_PATH: Final = "/ext/apps/NFC/antlia.fap"

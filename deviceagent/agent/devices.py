@@ -1,6 +1,6 @@
 """Which readers exist right now, what each can do, and where a write goes.
 
-ADR 0013 in one object. `agent.presence` answers "is a tag on the platform";
+ADR 0014 in one object. `agent.presence` answers "is a tag on the platform";
 this answers the question underneath it — "is there a platform at all, and can
 it write" — which nothing needed until a reader could be unplugged mid-walk.
 
@@ -51,6 +51,7 @@ logger = logging.getLogger("almagest.deviceagent.devices")
 #: when a walk records who bound a tag. Not an enum here: this process must not
 #: import `app.models`, and a string that matches is the whole contract.
 KIND_STATION_PN532: Final = "station_pn532"
+KIND_STATION_RC522: Final = "station_rc522"
 KIND_FLIPPER: Final = "flipper_rpc"
 
 #: `device.detached` reasons.
@@ -396,7 +397,7 @@ def default_backends(*, flipper_usb: bool = True) -> list[DeviceBackend]:
     BLE is **not** here. `BleFlipperLink` has never executed — the development
     machine has no Bluetooth stack — and a scan that spins up an adapter on every
     Pi boot to look for hardware nobody has confirmed works is a worse default
-    than making it opt-in. `DEVICEAGENT_FLIPPER_BLE=1` turns it on; ADR 0013
+    than making it opt-in. `DEVICEAGENT_FLIPPER_BLE=1` turns it on; ADR 0014
     records why it is off.
     """
     backends: list[DeviceBackend] = []

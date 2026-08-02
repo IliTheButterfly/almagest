@@ -23,14 +23,20 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   session, NDEF decoding, NDEF-first/UID-fallback resolution, tag presence, the
   **station session** (PLAN.md workflow 5: identify → ready → propose → confirm →
   commit, looping while the tag stays put), the API client, and the loopback
-  WebSocket. `Pn532TagSource` is written but **has never run**: no reader exists,
-  so its contract test is `live`-marked
-- `deviceagent/` again, as the **device bridge** (ADR 0013) — reader discovery, a
-  capability set per attached device, `tag.write` and a PN532 write path, and a
-  Flipper Zero over its own RPC on USB or BLE, launched into bridge mode
-  automatically. `agent/flipper/fake.py` is a Flipper made of software, so the
-  whole path is tested with nothing plugged in. **No hardware has run any of it**;
-  BLE is opt-in because not even its discovery call has ever executed
+  WebSocket. **Three drivers, none of them ever run**: `Pn532TagSource` (UART,
+  what PLAN.md specifies, the default) and `Rc522TagSource` (SPI, added because an
+  MFRC522 was already on hand — see ADR 0013, and note PLAN.md rejects it on
+  library grounds that no longer apply since `agent/iso14443a.py` is ours and
+  unit-tested), plus a Flipper Zero over RPC (ADR 0014). All three contract tests
+  are `live`-marked. `DEVICEAGENT_READER` chooses between the two station
+  modules; nothing above the driver knows which answered
+- `deviceagent/` again, as the **device bridge** (ADR 0014) — reader discovery, a
+  capability set per attached device, `tag.write`, and a write path on every
+  station driver, plus a Flipper Zero over its own RPC on USB or BLE launched
+  into bridge mode automatically. `agent/flipper/fake.py` is a Flipper made of
+  software, so the whole path is tested with nothing plugged in. **No hardware
+  has run any of it**; BLE is opt-in because not even its discovery call has ever
+  executed
 - `frontend/src/lib/tags/bridge.ts` — the browser's client for the above, which
   degrades in silence when no bridge is running (almost every page load)
 - `antlia/` bridge mode — the Flipper side. Compiles against Momentum API 87.1

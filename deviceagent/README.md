@@ -1,9 +1,16 @@
 # `deviceagent` — the bench-station device agent
 
 A small daemon on the station's Raspberry Pi. It exists for exactly what a
-browser sandbox cannot reach: the **PN532 NFC reader** on the Pi's UART, and
-later the CSI camera. Barcode decoding is *not* here — that happens in the
-browser, identically on a phone and on the kiosk.
+browser sandbox cannot reach: the **NFC reader** wired to the Pi, and later the
+CSI camera. Barcode decoding is *not* here — that happens in the browser,
+identically on a phone and on the kiosk.
+
+**Two readers are supported and they are not equivalent.** A PN532 on the UART is
+what PLAN.md specifies and is the default; an MFRC522 (RC522) on SPI exists
+because one was already on the shelf while no PN532 was, and it has less range
+margin — [ADR 0013](../docs/adr/0013-the-rc522-as-a-second-reader.md) is the trade
+in full. `DEVICEAGENT_READER` picks one. Nothing above the driver knows which is
+attached: presence, identity, the session and the ledger path are shared.
 
 It publishes an event stream over a **loopback WebSocket** that the kiosk PWA
 subscribes to, and it owns the station session: PLAN.md's workflow 5, from a
@@ -17,7 +24,8 @@ one except for its `source` and `device_id`.
 ```bash
 uv sync                          # from deviceagent/, or `make agent-sync` from the root
 uv run almagest-deviceagent --fake   # no reader needed: replays a scripted session
-uv run almagest-deviceagent          # the real PN532 on DEVICEAGENT_PN532_PORT
+uv run almagest-deviceagent          # the reader named by DEVICEAGENT_READER
+uv run almagest-deviceagent --reader rc522   # the other module, without editing .env
 ```
 
 `--fake` fakes the *reader*, not the API: point `DEVICEAGENT_API_BASE_URL` at a real
@@ -27,9 +35,30 @@ visible failure.
 
 ## What is built, and what is deliberately not
 
-Built: the `TagSource` protocol, a fake that replays a scripted session, the real
-PN532 driver (unrun), NDEF decoding, NDEF-first-with-UID-fallback resolution, tag
-presence, the station session, the API client, and the WebSocket stream.
+Built: the `TagSource` protocol, a fake that replays a scripted session, two real
+drivers (both unrun) — the PN532 over UART and the RC522 over SPI — the ISO
+14443-3 Type A layer the second of those needs, NDEF decoding,
+NDEF-first-with-UID-fallback resolution, tag presence, the station session, the
+API client, and the WebSocket stream.
+
+### The two readers
+
+|  | PN532 (`pn532`, default) | RC522 (`rc522`) |
+|---|---|---|
+| Transport | UART, `DEVICEAGENT_PN532_PORT` | SPI, `DEVICEAGENT_RC522_SPI_BUS`/`_DEVICE` |
+| Host setup | `enable_uart=1`, Bluetooth off the primary UART | SPI enabled in `raspi-config`; **RST tied to 3V3** |
+| ISO 14443-3 | `adafruit-circuitpython-pn532` | `agent/iso14443a.py`, this repo's, unit-tested |
+| Range, open air | 30–50 mm on an NTAG213 (PLAN.md) | Appreciably less; gain is pinned at maximum |
+| An empty poll costs | its full 250 ms timeout | ~25 ms, the chip's own timer |
+| One NDEF read | ~9 round trips, one page each | ~2; a `READ` returns four pages and they are cached |
+| Writing tags | not implemented | possible, and still not implemented (ADR 0012) |
+
+Everything above the driver is shared, which is the point: `agent/ndef.py`,
+`agent/identity.py`, `agent/presence.py` and the session do not know which reader
+answered. `agent/iso14443a.py` exists as a separate pure module for the same
+reason `agent/ndef.py` does — the 7-byte-UID cascade is a *decision*, it is the
+one that silently corrupts bindings when it is wrong, and a decision can be tested
+with no reader on the desk.
 
 **Nothing weight-related, per [ADR 0003](../docs/adr/0003-hardware-locked-and-the-scale-deferred.md).**
 The load cell and its ADC are deferred, so there is no `WeightSource`, no
@@ -291,7 +320,7 @@ produced the local short id and claims nothing more.
 
 ## The bridge: readers that are not the station's
 
-Since ADR 0013 this daemon is two things at once, and keeping them apart is the
+Since ADR 0014 this daemon is two things at once, and keeping them apart is the
 whole design.
 
 **The station half** is everything above: one reader, a presence machine, a
@@ -401,9 +430,18 @@ is that it is bound to the loopback and refuses to be bound anywhere else.
   `description` field — with a test asserting it still says so. Re-record it from
   real polls the day a reader exists; the tests assert the *situations*, so a
   re-recorded file containing them keeps every one as a real regression test.
-- `Pn532TagSource` is the thinnest module here on purpose. Its contract test is
-  `tests/test_pn532_live.py`, marked `live` and skipped by default, and it is the
-  checklist for the day the hardware arrives.
+- **Both drivers are the thinnest modules here on purpose.** Their contract tests
+  are `tests/test_pn532_live.py` and `tests/test_rc522_live.py`, marked `live` and
+  skipped by default, and they are the checklist for the day each reader is wired
+  up. `tests/test_rc522_live.py` carries two assertions the other cannot: that the
+  UID is 14 hex characters (a 7-byte NTAG21x UID, so a truncated cascade is caught
+  before it writes a binding) and that an empty poll is cheap enough for the
+  budgets in item 2 below.
+- The RC522's protocol layer is *not* unverifiable, and that is deliberate.
+  `tests/test_iso14443a.py` drives both cascade lengths, a wrong BCC, a bad SAK
+  CRC and a cascade bit that disagrees with the cascade tag off scripted frames;
+  `tests/test_rc522_page_cache.py` covers the four-pages-per-read cache, including
+  that it cannot outlive the container it was read from.
 - `tests/test_poll_loop.py` drives the real loop against a reader that **charges a
   clock the test owns** instead of blocking. Every fake here is instant, which is
   how a poll period of `read + interval` looked correct for as long as it did; a
@@ -427,7 +465,10 @@ is that it is bound to the loopback and refuses to be bound anywhere else.
 1. **Read range through the platform.** A bottom-pocket tag ~8-12 mm above the
    antenna through printed PETG. PLAN.md calls antenna centring the design's
    biggest unknown; ADR 0003 removed the load cell that was to be mounted beside
-   it, so even the geometry to be tested is not final.
+   it, so even the geometry to be tested is not final. **On the RC522 this is the
+   sharpest of the two**, per ADR 0013: less antenna, less margin, and the gain is
+   already pinned at maximum, so if the platform does not read there is nothing
+   left to turn up.
 2. **How long one poll actually costs, and therefore what the budgets are in
    seconds.** Two parts, and both are unmeasured. The anticollision attempt is
    charged on *every* poll — `read_passive_target` blocks for its full 250 ms
@@ -441,6 +482,10 @@ is that it is bound to the loopback and refuses to be bound anywhere else.
    that reads user memory once per placement, which the state machine already
    tolerates because it accepts a UID-only poll. **`5 × 300 ms = 1.5 s` is
    arithmetic this machine can check; that a real reader honours it is not.**
+   The RC522 path is expected to be far more comfortable here — ~25 ms for an
+   empty poll rather than 250, and ~2 round trips for an NDEF read rather than 9 —
+   and `tests/test_rc522_live.py` measures the first of those rather than assuming
+   it. Expected, not known: no reader of either kind has run.
 3. **Whether the chosen debounce and identify budgets feel right.** 5 polls and 3
    empty polls come from PLAN.md and from reasoning about the failure modes, not
    from watching anyone use a bench. Separate question from item 2: that one is
@@ -448,9 +493,12 @@ is that it is bound to the loopback and refuses to be bound anywhere else.
    anyone wants.
 4. **Which tags answer.** NTAG213/215/216 assumed; anything else is a UID-only
    tag as far as this code is concerned.
-5. **Pi UART setup.** `enable_uart=1`, and the Bluetooth modem moved off the
-   primary UART, are host configuration this package cannot do and has not been
-   able to try.
+5. **Pi host setup, whichever reader.** `enable_uart=1` and the Bluetooth modem
+   moved off the primary UART (PN532), or SPI enabled and RST tied to 3V3
+   (RC522), are host configuration this package cannot do and has not been able
+   to try. On the RC522 a floating RST is the single most common wiring mistake
+   and presents as `VersionReg` reading `0x00` or `0xFF`, which the driver
+   refuses to start on rather than reporting as "no tags, ever".
 6. **Whether awaiting the API inline is the right trade.** While a placement or a
    commit is outstanding the reader is not polled, deliberately: interleaving a
    commit with a container swap is a ledger row against the wrong bin, whereas a
@@ -476,7 +524,11 @@ physical machine's ports, not about the deployment.
 | `DEVICEAGENT_POLL_INTERVAL_MS` | `300` | The poll *period*: the loop sleeps `interval − elapsed`, not the interval flat. × `IDENTIFY_POLLS` **bounds** PLAN.md's ~1.5 s identify budget, and only while one read fits inside one interval — unmeasured, see item 2 above. |
 | `DEVICEAGENT_IDENTIFY_POLLS` | `5` | A count of polls, which is what the code honours. |
 | `DEVICEAGENT_ABSENT_POLLS` | `3` | Empty polls before a removal is believed; ≤ ~0.9 s at the default cadence, same caveat. |
-| `DEVICEAGENT_PN532_PORT` | `/dev/ttyAMA0` | |
+| `DEVICEAGENT_READER` | `pn532` | `pn532` or `rc522`. Refused at config time if it is neither, and deliberately not probed for: a station whose reader came unplugged would otherwise fall through to the other one and report an empty platform instead of a broken reader. `--reader` overrides it for one run. |
+| `DEVICEAGENT_PN532_PORT` | `/dev/ttyAMA0` | Read only when the reader is `pn532`. |
+| `DEVICEAGENT_RC522_SPI_BUS` | `0` | `/dev/spidev<bus>.<device>`; CE0 on a Pi's primary bus is `0.0`. |
+| `DEVICEAGENT_RC522_SPI_DEVICE` | `0` | |
+| `DEVICEAGENT_RC522_SPI_HZ` | `1000000` | The chip's ceiling is 10 MHz; 18-byte frames over dupont wire have no reason to approach it. |
 | `DEVICEAGENT_API_BASE_URL` | `http://127.0.0.1:8000` | The API **as reachable from the Pi** — not `ALMAGEST_BASE_URL`, which is the public origin stamped into tags and labels (ADR 0001) and must stay put. `https` needs that ADR's private CA in the Pi's trust store; there is deliberately no switch to skip verification. |
 | `DEVICEAGENT_API_TIMEOUT_S` | `5` | Bounds how long one round trip holds up the poll loop. |
 | `DEVICEAGENT_DEVICE_ID` | `station` | Recorded on every movement (`client_operations.device_id`). |

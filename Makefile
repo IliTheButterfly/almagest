@@ -160,7 +160,7 @@ agent-typecheck: ## mypy for the deviceagent
 agent-test: ## deviceagent tests (hardware tests excluded)
 	cd $(AG) && $(UV) run pytest -q
 
-agent-test-live: ## Only the tests that need a real PN532 wired up
+agent-test-live: ## Only the tests that need a real reader (PN532 or RC522) wired up
 	cd $(AG) && $(UV) run pytest -q -m live
 
 agent-check: agent-lint agent-typecheck agent-test ## Everything CI runs for the deviceagent

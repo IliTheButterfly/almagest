@@ -51,7 +51,7 @@ from agent.identity import TagIdentity
 #: Bumped only for a change a current client could not survive. Reported in
 #: `station.hello`, which is the one message whose shape may never change.
 #:
-#: **2** adds the bridge half (ADR 0013): `device.*`, `tag.writing` and its two
+#: **2** adds the bridge half (ADR 0014): `device.*`, `tag.writing` and its two
 #: outcomes, and the `tag.write` command. A version-1 client survives all of it
 #: — unknown types are ignored by design — but it cannot write, and a UI that
 #: offers a write it cannot perform is worse than one that does not offer it. So
@@ -76,7 +76,7 @@ STATION_ABORTED: Final = "station.aborted"
 STATION_REJECTED: Final = "station.rejected"
 STATION_FAILED: Final = "station.failed"
 
-#: The bridge half — ADR 0013. `device.*` says what readers exist and what each
+#: The bridge half — ADR 0014. `device.*` says what readers exist and what each
 #: one can do; the `tag.write*` family says what happened to a write.
 #:
 #: **`device.*` is a capability announcement, and `station.hello` still is not.**
@@ -85,7 +85,7 @@ STATION_FAILED: Final = "station.failed"
 #: drawn from a stream: it is a command issued against a *named* device, and no
 #: history of `tag.identified` distinguishes a PN532 that can write from a
 #: Flipper that cannot, nor says which of two attached readers to hold the tag
-#: against. That is the whole argument, and ADR 0013 makes it at length.
+#: against. That is the whole argument, and ADR 0014 makes it at length.
 DEVICE_ATTACHED: Final = "device.attached"
 DEVICE_DETACHED: Final = "device.detached"
 DEVICE_ERROR: Final = "device.error"

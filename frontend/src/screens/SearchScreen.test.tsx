@@ -65,8 +65,41 @@ function part(id: number) {
     description: null,
     is_stub: false,
     category_id: 3,
+    qty_milli: 4000,
+    lot_count: 1,
+    location_count: 1,
+    locations: [{ location_id: 20, label_path: "Workshop / Cabinet A / Drawer A2", qty_milli: 4000 }],
   };
 }
+
+/** A workshop, one cabinet, four drawers — enough for a walk with a haystack. */
+const TREE = [
+  ["1", "Workshop", null, "list", null],
+  ["10", "Cabinet A", 1, "cabinet_face", null],
+  ["20", "Drawer A2", 10, "list", "A2"],
+  ["21", "Drawer A1", 10, "list", "A1"],
+  ["22", "Drawer B1", 10, "list", "B1"],
+].map(([id, name, parent, view, slot]) => ({
+  id: Number(id),
+  name,
+  parent_id: parent,
+  depth: 0,
+  id_path: `/${String(id)}/`,
+  label_path: name,
+  container_type_id: null,
+  slot_label: slot,
+  is_placeable: true,
+  effective_child_view: view,
+  child_grid_rows: null,
+  child_grid_cols: null,
+  effective_glyph: null,
+  is_overfull: false,
+  is_staging: false,
+  fill_ratio: 0.2,
+  lot_count: 1,
+  qty_milli: 1000,
+  retired_at: null,
+}));
 
 interface Call {
   readonly path: string;
@@ -114,6 +147,9 @@ function stubApi(total = 120): void {
       }
       if (url.pathname === "/api/parameter-templates") {
         return json({ total: 7, templates: TEMPLATES });
+      }
+      if (url.pathname === "/api/locations/tree") {
+        return json({ nodes: TREE });
       }
       if (url.pathname === "/api/search/parts") {
         const offset = Number(body["offset"] ?? 0);
@@ -408,5 +444,34 @@ describe("a value the server refuses", () => {
     await screen.findAllByText(/megafarads/, {}, SETTLED);
     // A refused *filter* has not invalidated the parts already listed.
     expect(screen.getByText("part 1")).toBeTruthy();
+  });
+});
+
+
+describe("where a result is", () => {
+  beforeEach(() => stubApi());
+
+  it("names the container on the row without being asked", async () => {
+    renderSearch();
+
+    // The old row could say "in 2 bins" and never which — this is the whole
+    // point of the field, and it must not need a click.
+    expect((await screen.findAllByText(/Workshop \/ Cabinet A \/ Drawer A2/)).length).toBeGreaterThan(0);
+    expect(callsTo("/api/locations/tree")).toHaveLength(0);
+  });
+
+  it("draws the walk only once it is asked for", async () => {
+    renderSearch();
+
+    const toggles = await screen.findAllByRole("button", { name: "Where is it?" });
+    // A results list is dozens of rows; loading the tree for each would be a
+    // page of fetches for a picture nobody has opened.
+    expect(callsTo("/api/locations/tree")).toHaveLength(0);
+
+    fireEvent.click(toggles[0] as HTMLElement);
+
+    expect(await screen.findByText("Workshop, then Cabinet A, then Drawer A2")).toBeTruthy();
+    // Drawn against its siblings, and exactly one of them flagged.
+    expect(screen.getAllByText("this one").length).toBeGreaterThan(0);
   });
 });

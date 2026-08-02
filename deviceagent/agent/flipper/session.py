@@ -189,7 +189,7 @@ class FlipperRpc:
 
         Nobody touches the Flipper. The loader is told a path and the argument
         `RPC`, which is what selects bridge mode over keyboard-wedge mode — see
-        ADR 0013: in bridge mode Antlia must not claim USB HID, because claiming
+        ADR 0014: in bridge mode Antlia must not claim USB HID, because claiming
         it would replace the CDC interface this very session is riding on.
 
         Two waits, and they are separate on purpose. The loader acks the *launch
@@ -280,7 +280,7 @@ class FlipperTagSource:
 
     Capabilities come from Antlia's `HELLO` rather than from a constant, because
     they genuinely differ: an Antlia build without the write path answers `r` and
-    one with it answers `rw`, and the whole point of ADR 0013's capability set is
+    one with it answers `rw`, and the whole point of ADR 0014's capability set is
     that the client is told rather than guessing. `agent.tags.TagSource`'s
     contract that capabilities are constant for the object's lifetime holds — the
     `HELLO` is read once, at construction.

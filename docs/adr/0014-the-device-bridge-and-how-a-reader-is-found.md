@@ -1,4 +1,4 @@
-# ADR 0013 — The device bridge, and how a reader is found
+# ADR 0014 — The device bridge, and how a reader is found
 
 Status: accepted, 2026-08-01
 

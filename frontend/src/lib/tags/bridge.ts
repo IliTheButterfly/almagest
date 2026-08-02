@@ -3,7 +3,7 @@
  *
  * `deviceagent` runs on the same machine as the browser and reaches hardware a
  * page cannot — a PN532 on a Pi's UART, a Flipper Zero on a USB cable or over
- * Bluetooth. It has always published a loopback event stream; until ADR 0013
+ * Bluetooth. It has always published a loopback event stream; until ADR 0014
  * nothing in this app had ever opened it, and `station_pn532` was a
  * `TagDeviceKind` with no implementation behind it.
  *
@@ -166,6 +166,7 @@ function readCapabilities(raw: unknown): BridgeCapabilities {
 const DEVICE_KINDS: readonly TagDeviceKind[] = [
   "phone_webnfc",
   "station_pn532",
+  "station_rc522",
   "flipper_rpc",
   "manual",
 ];

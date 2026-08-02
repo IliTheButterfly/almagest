@@ -8,7 +8,7 @@ PN532, a laptop with a cable) never touches a radio.
 
 The honesty warning from `agent.flipper.link` applies doubly here: the machine
 this was written on has no Bluetooth stack at all, so neither the scan nor the
-connect has run even once. ADR 0013 lists it as the least-verified code in the
+connect has run even once. ADR 0014 lists it as the least-verified code in the
 repository. What is written here is what `bleak`'s API says; whether a Flipper
 answers it is unknown.
 

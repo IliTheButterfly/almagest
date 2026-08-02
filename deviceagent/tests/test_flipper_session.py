@@ -6,7 +6,7 @@ frames and the real Antlia grammar against a real simulated tag, so a write in
 this file goes through `agent.ndef`'s encoder, lands in user memory, and is read
 back out through the parser.
 
-What this cannot prove: that a real Flipper agrees. See ADR 0013's "unverified"
+What this cannot prove: that a real Flipper agrees. See ADR 0014's "unverified"
 section. What it does prove is everything that is a decision rather than a fact
 about hardware — the ack-then-answer ordering, the unprompted `HELLO`, the
 capability handshake, and that every refusal reaches the caller with the same
@@ -39,7 +39,7 @@ def connect(link: FakeFlipperLink) -> FlipperTagSource:
 class TestLaunch:
     def test_the_bridge_launches_antlia_into_rpc_mode(self) -> None:
         """The auto-launch. Nobody touches the Flipper's screen, and the argument
-        is what selects bridge mode over keyboard-wedge mode (ADR 0013)."""
+        is what selects bridge mode over keyboard-wedge mode (ADR 0014)."""
         link = FakeFlipperLink()
         connect(link)
         assert link.launched == [(proto.ANTLIA_FAP_PATH, proto.RPC_LAUNCH_ARGS)]

@@ -227,7 +227,7 @@ def encode_uri_record(url: str) -> bytes:
 
     The inverse of `parse_uri_record`, and a round-trip test is the only check on
     that parser which does not consist of bytes typed out by the same person who
-    wrote it. Since ADR 0013 this is also the real write path: `pages_for_uri`
+    wrote it. Since ADR 0014 this is also the real write path: `pages_for_uri`
     wraps it, and `Pn532TagSource.write_uri` puts the result on a tag.
     """
     code, prefix = 0, ""

@@ -208,7 +208,7 @@ def test_commands_are_imperative_and_events_are_not() -> None:
         "station.confirm",
         "station.cancel",
         "station.refresh",
-        # ADR 0013's one addition. `tag.write` is imperative and `tag.written` is
+        # ADR 0014's one addition. `tag.write` is imperative and `tag.written` is
         # past tense, which is the same rule the four above follow.
         "tag.write",
     } == events.COMMAND_TYPES
