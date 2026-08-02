@@ -721,6 +721,75 @@ def test_a_per_line_substitute_covers_a_shortage_and_says_so(db: Session) -> Non
     assert report.is_buildable
 
 
+def test_a_substitute_naming_the_lines_own_part_is_counted_once(db: Session) -> None:
+    """A line listing itself as its own alternate must not double its stock.
+
+    `UniqueConstraint("bom_line_id", "part_id")` on `bom_line_substitutes` stops
+    the same alternate appearing twice, but nothing joins that column to
+    `bom_lines.part_id`, so a row naming the line's own part is accepted. Counted
+    twice, 100 on the shelf answered a need for 150 with `available 200,
+    satisfied` — and the pool was debited only once while the total was
+    accumulated twice, so every later line sharing that part over-reported too.
+    "A BOM that looks buildable and is not" is the failure the netting loop
+    exists to prevent.
+
+    Latent rather than live today: no route writes `bom_line_substitutes`. The
+    realistic path to it is a human matching an unidentified line to one of the
+    alternates already listed on it.
+    """
+    specified = make_part(db, name="LM317T")
+    make_lot(db, specified, make_location(db), qty_milli=100_000)
+
+    project = make_project(db)
+    line = make_bom_line(
+        db, project, line_no=1, part_id=specified.id, qty_per_assembly_milli=150_000
+    )
+    db.add(BomLineSubstitute(bom_line_id=line.id, part_id=specified.id))
+    db.flush()
+    build = make_build(db, project)
+
+    report = reservations.shortage_for_build(db, build)
+
+    (result,) = report.lines
+    assert result.available_milli == 100_000
+    assert result.shortfall_milli == 50_000
+    assert result.kind is ShortageKind.SHORT
+    # Named once as the line's own part, so it is not also an "alternate".
+    assert result.substitute_part_ids == ()
+    assert not report.is_buildable
+
+
+def test_two_lines_sharing_a_self_named_substitute_do_not_over_draw(db: Session) -> None:
+    """The knock-on half: a double-counted line leaves the pool wrong for the next.
+
+    The first line draws what it can from the shared pool; the second must see
+    only what is left. When the self-named substitute inflated line one's total,
+    the pool was debited by less than the report claimed line one had taken, and
+    line two inherited stock that was already spoken for.
+    """
+    shared = make_part(db, name="1N4148")
+    make_lot(db, shared, make_location(db), qty_milli=100_000)
+
+    project = make_project(db)
+    first = make_bom_line(db, project, line_no=1, part_id=shared.id, qty_per_assembly_milli=80_000)
+    db.add(BomLineSubstitute(bom_line_id=first.id, part_id=shared.id))
+    make_bom_line(db, project, line_no=2, part_id=shared.id, qty_per_assembly_milli=80_000)
+    db.flush()
+    build = make_build(db, project)
+
+    report = reservations.shortage_for_build(db, build)
+
+    one, two = report.lines
+    # What line one could *see*: the whole shelf, named once. Double-counted it
+    # read 200k, which is the number this pins.
+    assert one.available_milli == 100_000
+    assert one.kind is ShortageKind.SATISFIED
+    # 100k on the shelf, 80k drawn by line one, so 20k is all line two can see.
+    assert two.available_milli == 20_000
+    assert two.shortfall_milli == 60_000
+    assert not report.is_buildable
+
+
 def test_a_substitute_on_an_unmatched_line_does_not_make_it_buildable(db: Session) -> None:
     """Nobody has said the alternate is equivalent *to what*. The line stays
     unidentified until a human matches it."""
