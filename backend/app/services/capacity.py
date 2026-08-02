@@ -279,16 +279,23 @@ class SlotsCapacityStrategy(CapacityStrategy):
         self, inputs: ContainerCapacityInputs, occupants: list[OccupantLot]
     ) -> CapacitySnapshot:
         per_slot = max(inputs.max_parts_per_slot or 1, 1)
-        capacity = (
-            float(inputs.capacity_slots * per_slot) if inputs.capacity_slots is not None else None
-        )
-        # A container whose slots hold other containers is measured by those,
-        # not by the lots sitting loose in it — of which a cabinet has none.
-        used = (
-            float(inputs.occupied_child_slots)
-            if inputs.occupied_child_slots is not None
-            else float(len({o.part_id for o in occupants}))
-        )
+        if inputs.occupied_child_slots is not None:
+            # `max_parts_per_slot` means "how many distinct parts may share one
+            # compartment". It says nothing about drawers standing in a cabinet,
+            # and multiplying by it made a full cabinet read 33% — the same bug
+            # this branch exists to fix, wearing a different number.
+            capacity = float(inputs.capacity_slots) if inputs.capacity_slots is not None else None
+        else:
+            capacity = (
+                float(inputs.capacity_slots * per_slot)
+                if inputs.capacity_slots is not None
+                else None
+            )
+        # Children *and* loose lots, not one or the other. Nothing makes them
+        # mutually exclusive — a divided drawer can hold five parts and a small
+        # sub-bin — and taking only the child count made that drawer's meter
+        # *drop* from 5 to 1 the moment the sub-bin went in.
+        used = float((inputs.occupied_child_slots or 0) + len({o.part_id for o in occupants}))
         fill_ratio = used / capacity if capacity else None
         is_full = capacity is not None and used >= capacity
         return CapacitySnapshot(
@@ -561,13 +568,15 @@ def compute_location_snapshot(session: Session, location: Location) -> CapacityS
         if location.container_type_id
         else None
     )
-    inputs = container_inputs(location, container_type)
-    if inputs.capacity_model == CapacityModel.GRID_UNITS:
-        inputs = replace(inputs, consumed_grid_units=consumed_grid_units(session, location.id))
-    if inputs.capacity_model == CapacityModel.SLOTS:
-        children = occupied_child_slots(session, location.id)
-        if children is not None:
-            inputs = replace(inputs, occupied_child_slots=children)
+    inputs = enrich(
+        container_inputs(location, container_type),
+        grid_units=(
+            consumed_grid_units(session, location.id)
+            if location.container_type_id is not None
+            else None
+        ),
+        child_slots=occupied_child_slots(session, location.id),
+    )
     occupants = load_occupants(session, location.id)
     return get_strategy(inputs.capacity_model).snapshot(inputs, occupants)
 
@@ -604,6 +613,44 @@ def consumed_grid_units(session: Session, location_id: int) -> int:
         .where(Location.parent_id == location_id)
     ).all()
     return sum(max(row[0] or 1, 1) * max(row[1] or 1, 1) for row in rows)
+
+
+def all_occupied_child_slots(session: Session) -> dict[int, int]:
+    """Child containers per parent, for every parent at once.
+
+    The bulk sibling of `occupied_child_slots`, and it exists for the reason
+    `all_consumed_grid_units` below spells out — a lesson this module had already
+    learned and that the slots model promptly re-broke. When only the
+    single-location read knew about child containers, a cabinet reported 100% on
+    its own page and 0% on the storage map one scroll above it, was never flagged
+    overfull (only the bulk path writes `is_overfull`), and the assignment scorer
+    saw an empty cabinet.
+    """
+    rows = session.execute(
+        select(Location.parent_id, func.count())
+        .where(Location.parent_id.is_not(None), Location.retired_at.is_(None))
+        .group_by(Location.parent_id)
+    ).all()
+    return {int(parent_id): int(count) for parent_id, count in rows if parent_id is not None}
+
+
+def enrich(
+    inputs: ContainerCapacityInputs,
+    *,
+    grid_units: int | None = None,
+    child_slots: int | None = None,
+) -> ContainerCapacityInputs:
+    """Apply the per-model extras a bare `container_inputs` cannot know.
+
+    One function so the three callers that answer "how full is this?" — the
+    single-location read, the bulk rebuild that *persists* it, and the assignment
+    scorer — cannot drift again. They have now drifted twice, once per model.
+    """
+    if inputs.capacity_model == CapacityModel.GRID_UNITS and grid_units is not None:
+        return replace(inputs, consumed_grid_units=grid_units)
+    if inputs.capacity_model == CapacityModel.SLOTS and child_slots:
+        return replace(inputs, occupied_child_slots=child_slots)
+    return inputs
 
 
 def all_consumed_grid_units(session: Session) -> dict[int, int]:

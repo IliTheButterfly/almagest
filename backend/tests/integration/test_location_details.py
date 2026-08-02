@@ -280,3 +280,71 @@ def test_a_drawer_is_still_measured_by_what_is_in_it(client: TestClient, db: Ses
     capacity = client.get(f"/api/locations/{drawer.id}").json()["capacity"]
 
     assert capacity["used"] == 2
+
+
+def test_the_map_and_the_container_page_agree_about_the_same_cabinet(
+    client: TestClient, db: Session
+) -> None:
+    """The two answers to "how full is this?" must be one answer.
+
+    `/api/locations/{id}` computes a snapshot live; the tree and the storage map
+    read `location_occupancy`, written by the bulk rebuild. When only the live
+    read knew that a cabinet's slots hold *drawers*, the map card said 0% with an
+    empty meter and the detail panel one scroll below said 100% — on the same
+    screen, about the same cabinet. Only the bulk path writes `is_overfull`, so
+    the cabinet could never be flagged either.
+
+    `capacity.all_consumed_grid_units`'s docstring records this exact lesson
+    being learned for the grid model. The slots model then re-broke it, which is
+    why the enrichment now lives in one `capacity.enrich` both paths call.
+    """
+    kind = make_container_type(db, "cab", capacity_model="slots", capacity_slots=3)
+    cabinet = make_location(db, name="Cabinet B", container_type_id=kind.id)
+    for index in range(3):
+        make_location(db, name=f"Drawer {index}", parent_id=cabinet.id)
+    db.commit()
+
+    assert client.post("/api/system/caches/rebuild").status_code == 200
+
+    live = client.get(f"/api/locations/{cabinet.id}").json()["capacity"]
+    node = next(
+        n for n in client.get("/api/locations/tree").json()["nodes"] if n["id"] == cabinet.id
+    )
+
+    assert live["fill_ratio"] == 1.0
+    assert node["fill_ratio"] == live["fill_ratio"]
+
+
+def test_a_divided_drawer_counts_its_sub_bin_and_its_loose_parts(
+    client: TestClient, db: Session
+) -> None:
+    """Children and lots are not mutually exclusive, and taking only the children
+    made a drawer's meter *drop* when a sub-bin went into it."""
+    kind = make_container_type(db, "divided", capacity_model="slots", capacity_slots=10)
+    drawer = make_location(db, name="Divided drawer", container_type_id=kind.id)
+    make_lot(db, make_part(db, name="Loose one"), drawer, qty_milli=1_000)
+    make_lot(db, make_part(db, name="Loose two"), drawer, qty_milli=1_000)
+    make_location(db, name="Sub-bin", parent_id=drawer.id)
+    db.commit()
+
+    capacity = client.get(f"/api/locations/{drawer.id}").json()["capacity"]
+
+    assert capacity["used"] == 3
+
+
+def test_a_cabinet_is_not_scaled_by_parts_per_slot(client: TestClient, db: Session) -> None:
+    """`max_parts_per_slot` means "distinct parts sharing one compartment" and
+    says nothing about drawers standing in a cabinet. Multiplying by it made a
+    full cabinet read 33% — the same defect wearing a different number."""
+    kind = make_container_type(
+        db, "cab3", capacity_model="slots", capacity_slots=3, max_parts_per_slot=3
+    )
+    cabinet = make_location(db, name="Cabinet C", container_type_id=kind.id)
+    for index in range(3):
+        make_location(db, name=f"D{index}", parent_id=cabinet.id)
+    db.commit()
+
+    capacity = client.get(f"/api/locations/{cabinet.id}").json()["capacity"]
+
+    assert capacity["capacity"] == 3
+    assert capacity["fill_ratio"] == 1.0

@@ -274,6 +274,20 @@ describe("the cards a drawer only shows when it has something to say", () => {
     expect(screen.queryByText(/capacity/i)).toBeNull();
   });
 
+  it("does not draw a card for a glyph, which is a pictogram and not a photograph", async () => {
+    // The case the previous version of this test missed. `ContainerPhoto` at
+    // card size renders a glyph as the *same* 150px dashed box with a 24px
+    // symbol in the middle, and glyphs are inherited from the container type —
+    // so the moment anyone gives their drawer type one, every drawer regains the
+    // tall empty card. Without this, restoring `effective_photo || effective_glyph`
+    // leaves the suite green.
+    stubApi({ location: { effective_glyph: "drawer", effective_photo: null } });
+    renderScreen();
+    await waitFor(() => expect(screen.getAllByText("Drawer 07")[0]).toBeTruthy());
+
+    expect(document.querySelector(".container-photo-placeholder")).toBeNull();
+  });
+
   it("draws them when there is a photograph and a real capacity model", async () => {
     // The control. Without it the test above passes on a screen that has lost
     // the ability to show either.
