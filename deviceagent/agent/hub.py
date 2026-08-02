@@ -50,6 +50,13 @@ class EventHub:
         self._seq = 0
         #: The last state-defining envelope, kept with its **original** `seq`.
         self._sticky: dict[str, Any] | None = None
+        #: Attached readers, keyed by `device_id`, each with its **original**
+        #: `seq`. Separate from `_sticky` because the roster is a *set* and the
+        #: sticky slot holds one envelope: a kiosk reloading with a PN532 and a
+        #: Flipper attached needs to hear about both, and a single slot would
+        #: tell it about whichever attached last. Insertion order is preserved,
+        #: so a client sees readers in the order they appeared.
+        self._devices: dict[str, dict[str, Any]] = {}
 
     @property
     def last_seq(self) -> int:
@@ -63,6 +70,11 @@ class EventHub:
         """Stamp, remember if it is state, send to everyone. Returns the envelope."""
         self._seq += 1
         message = envelope(event, seq=self._seq, at=self._clock())
+
+        if event.type == events.ROSTER_ADD:
+            self._devices[str(event.data["device_id"])] = message
+        elif event.type == events.ROSTER_REMOVE:
+            self._devices.pop(str(event.data["device_id"]), None)
 
         if event.type in events.STICKY_TYPES:
             self._sticky = message
@@ -95,8 +107,20 @@ class EventHub:
         )
         if not await self._send(sink, to_json(greeting)):
             return
+        # Readers first, then what is on the platform. That order matters: a
+        # replayed `tag.identified` names the device it came from, and a client
+        # that had not yet heard of that device would have to hold the reading
+        # until it did.
+        for device in list(self._devices.values()):
+            if not await self._send(sink, to_json(device)):
+                return
         if self._sticky is not None:
             await self._send(sink, to_json(self._sticky))
+
+    @property
+    def devices(self) -> tuple[str, ...]:
+        """The roster, in the order the readers attached. For tests and logs."""
+        return tuple(self._devices)
 
     def detach(self, sink: Sink) -> None:
         if sink in self._sinks:

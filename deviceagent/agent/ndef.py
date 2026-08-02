@@ -225,11 +225,10 @@ def parse_uri_record(data: bytes) -> str | None:
 def encode_uri_record(url: str) -> bytes:
     """The NDEF message bytes for `url`, abbreviated where possible.
 
-    Not used by the agent — the PWA writes tags over Web NFC and the station's
-    write path is a later phase. It exists because it is the inverse of the
-    function above, and a round-trip test is the only check on `parse_uri_record`
-    that does not consist of bytes typed out by the same person who wrote the
-    parser.
+    The inverse of `parse_uri_record`, and a round-trip test is the only check on
+    that parser which does not consist of bytes typed out by the same person who
+    wrote it. Since ADR 0014 this is also the real write path: `pages_for_uri`
+    wraps it, and `Pn532TagSource.write_uri` puts the result on a tag.
     """
     code, prefix = 0, ""
     for candidate, text in enumerate(URI_PREFIXES):
@@ -240,6 +239,38 @@ def encode_uri_record(url: str) -> bytes:
         raise ValueError("URI too long for a short NDEF record")
     header = 0xD1  # MB | ME | SR, TNF=1
     return bytes([header, len(RECORD_TYPE_URI), len(payload)]) + RECORD_TYPE_URI + payload
+
+
+#: Bytes in one Type 2 Tag page. Fixed by the tag, not a tuning knob.
+PAGE_SIZE: Final = 4
+
+#: User memory on an NTAG213, the tag PLAN.md specifies: pages 4-39, so 36 pages
+#: and 144 bytes. A payload that does not fit is refused *before* anything is
+#: written, because a write that runs off the end of the tag leaves the earlier
+#: pages committed — a half-written tag rather than an untouched one.
+NTAG213_USER_PAGES: Final = 36
+
+
+def pages_for_uri(url: str, *, user_pages: int = NTAG213_USER_PAGES) -> list[bytes]:
+    """The 4-byte pages to write to a blank Type 2 Tag, starting at `FIRST_USER_PAGE`.
+
+    Zero-padded to a page boundary, because a Type 2 Tag write is page-atomic
+    and there is no way to write three bytes. The padding lands after the
+    terminator TLV, so a reader stops before it.
+
+    Raises `ValueError` if the payload will not fit. That check is here rather
+    than in the caller so that every writer — the PN532 today, a Flipper
+    tomorrow — refuses the same payloads for the same reason. `NTAG215`/`216`
+    have more room; passing a larger `user_pages` is how a caller says so, and
+    nothing guesses on the tag's behalf.
+    """
+    body = wrap_tlv(encode_uri_record(url))
+    padding = (-len(body)) % PAGE_SIZE
+    body += b"\x00" * padding
+    pages = [body[i : i + PAGE_SIZE] for i in range(0, len(body), PAGE_SIZE)]
+    if len(pages) > user_pages:
+        raise ValueError(f"{url!r} needs {len(pages)} pages and the tag has {user_pages}")
+    return pages
 
 
 def wrap_tlv(message: bytes) -> bytes:

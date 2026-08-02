@@ -208,6 +208,9 @@ def test_commands_are_imperative_and_events_are_not() -> None:
         "station.confirm",
         "station.cancel",
         "station.refresh",
+        # ADR 0014's one addition. `tag.write` is imperative and `tag.written` is
+        # past tense, which is the same rule the four above follow.
+        "tag.write",
     } == events.COMMAND_TYPES
     session_events = {
         events.STATION_READY,
@@ -219,7 +222,21 @@ def test_commands_are_imperative_and_events_are_not() -> None:
         events.STATION_FAILED,
         events.STATION_HELLO,
     }
-    assert not events.COMMAND_TYPES & session_events
+    bridge_events = {
+        events.DEVICE_ATTACHED,
+        events.DEVICE_DETACHED,
+        events.DEVICE_ERROR,
+        events.TAG_SEEN,
+        events.TAG_WRITING,
+        events.TAG_WRITTEN,
+        events.TAG_WRITE_REFUSED,
+        events.TAG_WRITE_FAILED,
+    }
+    assert not events.COMMAND_TYPES & (session_events | bridge_events)
+    # The near-miss worth guarding: `tag.write` the command and `tag.writing` the
+    # event differ by three letters, and a client that sent the latter would
+    # otherwise be silently ignored rather than told.
+    assert events.TAG_WRITE not in bridge_events
 
 
 def test_every_session_event_carries_the_state(station_events: list[Event]) -> None:

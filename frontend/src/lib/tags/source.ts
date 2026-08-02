@@ -57,8 +57,21 @@ export interface TagPresentation {
   readonly carriesNdef: boolean;
 }
 
-/** Matches the server's `ProvisioningDevice`, which records who bound a tag. */
-export type TagDeviceKind = "phone_webnfc" | "station_pn532" | "manual";
+/**
+ * Matches the server's `ProvisioningDevice`, which records who bound a tag.
+ *
+ * `station_pn532` and `flipper_rpc` both arrive over the device bridge's
+ * WebSocket (ADR 0014) rather than from anything in this browser — which is the
+ * point of them. Web NFC is Chromium-on-Android only, so without the bridge a
+ * desktop, an iPhone and the Pi kiosk can all read a tag by some means and none
+ * of them can write one.
+ */
+export type TagDeviceKind =
+  | "phone_webnfc"
+  | "station_pn532"
+  | "station_rc522"
+  | "flipper_rpc"
+  | "manual";
 
 export interface TagSource {
   readonly kind: TagDeviceKind;

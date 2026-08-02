@@ -50,7 +50,13 @@ from agent.identity import TagIdentity
 
 #: Bumped only for a change a current client could not survive. Reported in
 #: `station.hello`, which is the one message whose shape may never change.
-PROTOCOL_VERSION: Final = 1
+#:
+#: **2** adds the bridge half (ADR 0014): `device.*`, `tag.writing` and its two
+#: outcomes, and the `tag.write` command. A version-1 client survives all of it
+#: — unknown types are ignored by design — but it cannot write, and a UI that
+#: offers a write it cannot perform is worse than one that does not offer it. So
+#: the bump is not about compatibility, it is so a client can tell.
+PROTOCOL_VERSION: Final = 2
 
 TAG_READING: Final = "tag.reading"
 TAG_IDENTIFIED: Final = "tag.identified"
@@ -70,6 +76,42 @@ STATION_ABORTED: Final = "station.aborted"
 STATION_REJECTED: Final = "station.rejected"
 STATION_FAILED: Final = "station.failed"
 
+#: The bridge half — ADR 0014. `device.*` says what readers exist and what each
+#: one can do; the `tag.write*` family says what happened to a write.
+#:
+#: **`device.*` is a capability announcement, and `station.hello` still is not.**
+#: The rule ADR 0003 set — no feature flags, an affordance is drawn because an
+#: event arrived — is about sensors whose absence is silence. A write is not
+#: drawn from a stream: it is a command issued against a *named* device, and no
+#: history of `tag.identified` distinguishes a PN532 that can write from a
+#: Flipper that cannot, nor says which of two attached readers to hold the tag
+#: against. That is the whole argument, and ADR 0014 makes it at length.
+DEVICE_ATTACHED: Final = "device.attached"
+DEVICE_DETACHED: Final = "device.detached"
+DEVICE_ERROR: Final = "device.error"
+
+#: `tag.writing` is `tag.reading`'s twin: something is happening and nothing is
+#: decided. The two outcomes are split the same way `station.rejected` and
+#: `station.failed` are, and for the same reason — the recovery differs. A
+#: *refusal* is a fact about the tag (it is not blank, the field is empty) with a
+#: user-facing answer; a *failure* is the reader breaking, and telling someone to
+#: re-seat a drawer would be a lie.
+#: A tap on a *bridge* reader — one debounced sighting, carriers as read.
+#:
+#: **Deliberately not `tag.identified`.** That one is the output of the station's
+#: presence machine: an identify budget, a removal debounce, a settling rule, all
+#: counted in `poll_forever`'s polls. A provisioning walk wants none of that. It
+#: wants "a tag was held against this reader", which is what the browser's
+#: `TagPresentation` already models and what `frontend/src/lib/tags/source.ts`
+#: consumes. Overloading `tag.identified` would have forced one of the two to
+#: pretend, and the station's vocabulary is load-bearing for workflow 5.
+TAG_SEEN: Final = "tag.seen"
+
+TAG_WRITING: Final = "tag.writing"
+TAG_WRITTEN: Final = "tag.written"
+TAG_WRITE_REFUSED: Final = "tag.write_refused"
+TAG_WRITE_FAILED: Final = "tag.write_failed"
+
 #: Commands, client → agent. Imperative where every event is past tense, so a
 #: frame's direction is readable without a table.
 STATION_PROPOSE: Final = "station.propose"
@@ -77,11 +119,15 @@ STATION_CONFIRM: Final = "station.confirm"
 STATION_CANCEL: Final = "station.cancel"
 STATION_REFRESH: Final = "station.refresh"
 
+#: Put a URI on the tag in a named device's field. Imperative, like the four
+#: above; `tag.written` is what comes back.
+TAG_WRITE: Final = "tag.write"
+
 #: The **entire** inbound vocabulary. Anything else a client sends is dropped
 #: unread, which is what keeps this socket's command surface small enough to
 #: reason about.
 COMMAND_TYPES: Final = frozenset(
-    {STATION_PROPOSE, STATION_CONFIRM, STATION_CANCEL, STATION_REFRESH}
+    {STATION_PROPOSE, STATION_CONFIRM, STATION_CANCEL, STATION_REFRESH, TAG_WRITE}
 )
 
 #: The events that describe a *state* rather than a moment, so a client that
@@ -107,6 +153,15 @@ STICKY_TYPES: Final = frozenset(
 #: emptied rather than replayed. Both say the platform is clear: `tag.removed`
 #: from the reader, `station.aborted` from the session that removal ended.
 CLEARING_TYPES: Final = frozenset({TAG_REMOVED, STATION_ABORTED})
+
+#: The device roster is replayed to a reconnecting client too, and it is **a set
+#: rather than a slot** — which is why it cannot use `STICKY_TYPES`. A kiosk that
+#: reloads with two readers attached needs to hear about both; the sticky
+#: mechanism holds exactly one envelope and would tell it about whichever
+#: attached last. `agent.hub.EventHub` keeps a dict keyed by `device_id`,
+#: inserted on attached and removed on detached.
+ROSTER_ADD: Final = DEVICE_ATTACHED
+ROSTER_REMOVE: Final = DEVICE_DETACHED
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +278,148 @@ def tag_removed(*, missed_polls: int) -> Event:
     is the number to look at when removals feel sluggish or spurious.
     """
     return Event(TAG_REMOVED, {"missed_polls": missed_polls})
+
+
+# ---------------------------------------------------------------------------
+# The bridge — which readers exist, and what happened to a write
+# ---------------------------------------------------------------------------
+
+
+def device_attached(
+    *, device_id: str, kind: str, label: str, capabilities: dict[str, bool]
+) -> Event:
+    """A reader is present and ready to be named in a command.
+
+    `device_id` is stable across a detach and reattach of the same physical
+    thing — derived from a port or a Bluetooth address, never from a counter — so
+    a PWA that had chosen a reader does not lose it when a cable is jiggled.
+
+    `kind` is one of `ProvisioningDevice`'s values, so it can be forwarded to the
+    API verbatim when the walk records who bound a tag. `label` is prose for a
+    status line and is never parsed.
+    """
+    return Event(
+        DEVICE_ATTACHED,
+        {"device_id": device_id, "kind": kind, "label": label, "capabilities": capabilities},
+    )
+
+
+def device_detached(*, device_id: str, reason: str) -> Event:
+    """The reader is gone. `reason` is `unplugged` or `failed`.
+
+    Split because they mean different things to a user mid-walk: a cable pulled
+    is something they did, and a reader that faulted is not.
+    """
+    return Event(DEVICE_DETACHED, {"device_id": device_id, "reason": reason})
+
+
+def device_error(*, device_id: str, message: str) -> Event:
+    """A reader could not be opened, or faulted while attached.
+
+    Emitted once per run of consecutive failures, the same shape as `tag.error`:
+    a Flipper that is plugged in but has no Antlia installed would otherwise
+    produce one of these on every discovery sweep, for ever.
+    """
+    return Event(DEVICE_ERROR, {"device_id": device_id, "message": message})
+
+
+def tag_seen(*, device_id: str, identity: TagIdentity) -> Event:
+    """One debounced tap on a bridge reader. The walk's whole input.
+
+    Carries **both carriers plus the short id**, because the three are not
+    interchangeable and the walk needs different ones at different steps: binding
+    a tag is a claim about a specific piece of silicon and needs the UID, while
+    confirming which container is in your hand works from any of them. Which ones
+    are populated is a property of the reader, which is what
+    `device.attached`'s capability set describes.
+
+    `carries_ndef` says whether user memory was looked at *at all*, so a `None`
+    URL from a reader that cannot read NDEF never gets mistaken for a blank tag.
+    The server enforces the same distinction from the other side
+    (`CheckRequest.carries_ndef`); this is where the honest answer is produced.
+    """
+    return Event(
+        TAG_SEEN,
+        {
+            "device_id": device_id,
+            "short_id": identity.short_id,
+            "tag_uid": identity.tag_uid,
+            "ndef_url": identity.ndef_url,
+            "via": identity.via,
+        },
+    )
+
+
+def tag_writing(*, request_id: str, device_id: str, url: str) -> Event:
+    """A write has started. `tag.reading`'s twin: nothing is decided yet.
+
+    Published *before* the write so a client can disable its own button from an
+    event rather than from optimism, and so a write that never returns is
+    visible in the stream rather than being an absence.
+    """
+    return Event(TAG_WRITING, {"request_id": request_id, "device_id": device_id, "url": url})
+
+
+def tag_written(*, request_id: str, device_id: str, url: str, read_back_url: str | None) -> Event:
+    """The write completed, and this is what the tag read back.
+
+    **`read_back_url` is the payload, and there is deliberately no `verified`
+    boolean.** ADR 0012 refuses a client-computed one and makes
+    `POST /api/location-tags/{id}/write-result` take the read-back URI, compared
+    server-side by short id rather than by string. The bridge is a client, so it
+    reports what it saw; the PWA forwards it, because the PWA is the thing
+    holding the provisioning session and therefore the only thing that knows the
+    `tag_id`.
+
+    `url` is echoed alongside so a client that lost track of its own request can
+    still tell what was intended from what arrived.
+    """
+    return Event(
+        TAG_WRITTEN,
+        {
+            "request_id": request_id,
+            "device_id": device_id,
+            "url": url,
+            "read_back_url": read_back_url,
+        },
+    )
+
+
+def tag_write_refused(*, request_id: str, device_id: str, reason: str, message: str) -> Event:
+    """The write did not happen and the reader is fine. **Nothing was written.**
+
+    `reason` is from the closed vocabulary in `agent.tags` — `no_tag`,
+    `not_blank`, `too_long`, `unsupported`, `read_back_failed` — which a PN532
+    and a Flipper both draw from, so the PWA has one table and not one per
+    reader. `message` is prose and is never parsed.
+    """
+    return Event(
+        TAG_WRITE_REFUSED,
+        {
+            "request_id": request_id,
+            "device_id": device_id,
+            "reason": reason,
+            "message": message,
+        },
+    )
+
+
+def tag_write_failed(*, request_id: str, device_id: str, message: str) -> Event:
+    """The *reader* broke. Kept apart from a refusal because the recovery differs.
+
+    A refusal has a user-facing answer — re-seat the tag, tick overwrite, pick a
+    different drawer. A failure does not, and telling someone to re-seat a drawer
+    when the reader is unplugged is a lie that costs them a minute.
+
+    Whether anything was written is **unknown** after this, which is exactly
+    ADR 0012's `degraded`: the UID lives in factory-locked pages 0-2, so the tag
+    still identifies itself and the honest next step is to read it back, not to
+    assume either way.
+    """
+    return Event(
+        TAG_WRITE_FAILED,
+        {"request_id": request_id, "device_id": device_id, "message": message},
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -102,6 +102,42 @@ class AgentSettings(BaseSettings):
         default=400, alias="DEVICEAGENT_COMMAND_DEBOUNCE_MS", ge=0, le=5000
     )
 
+    # -- the bridge (ADR 0014) ------------------------------------------------
+
+    #: Look for Flippers on USB. On by default: a directory listing of
+    #: `/dev/serial/by-id` costs nothing and finds nothing when nothing is
+    #: plugged in, so the failure mode of leaving it on is zero.
+    flipper_usb: bool = Field(default=True, alias="DEVICEAGENT_FLIPPER_USB")
+
+    #: Look for Flippers over Bluetooth. **Off by default, and that is a
+    #: statement about verification rather than about preference.**
+    #: `BleFlipperLink` has never executed — the machine it was written on has no
+    #: Bluetooth stack — so switching it on spins up an adapter to look for
+    #: hardware nobody has confirmed the code can talk to. It also needs the
+    #: `flipper` extra for `bleak`. Turn it on when there is a Flipper to test
+    #: against; see ADR 0014's "unverified" section first.
+    flipper_ble: bool = Field(default=False, alias="DEVICEAGENT_FLIPPER_BLE")
+
+    #: How often to look for readers appearing or vanishing.
+    sweep_interval_ms: int = Field(default=2000, alias="DEVICEAGENT_SWEEP_INTERVAL_MS", ge=200)
+
+    #: How often each attached bridge reader is asked for a tag. Deliberately
+    #: slower than `poll_interval_ms`: that one paces the station's *budgets*,
+    #: while this one paces a hand holding a tag against a Flipper.
+    tap_interval_ms: int = Field(default=500, alias="DEVICEAGENT_TAP_INTERVAL_MS", ge=50)
+
+    #: The origin the PWA is served from, allowed through the WebSocket
+    #: handshake's CORS and Private Network Access checks.
+    #:
+    #: **Why this exists at all.** The PWA is on `https://almagest.lan` (ADR
+    #: 0001) and opens `ws://127.0.0.1:8765`. Loopback is "potentially
+    #: trustworthy" per the secure-context spec so this is *specified* to work,
+    #: but Chrome's Private Network Access rollout adds a preflight for
+    #: public→local requests and browsers have differed here before. Answering
+    #: explicitly is cheap; discovering the default was wrong means a bridge that
+    #: is running, reachable by curl, and invisible to the page.
+    allowed_origin: str = Field(default="https://almagest.lan", alias="DEVICEAGENT_ALLOWED_ORIGIN")
+
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     @field_validator("ws_host")
@@ -153,6 +189,14 @@ class AgentSettings(BaseSettings):
     @property
     def poll_interval_s(self) -> float:
         return self.poll_interval_ms / 1000.0
+
+    @property
+    def sweep_interval_s(self) -> float:
+        return self.sweep_interval_ms / 1000.0
+
+    @property
+    def tap_interval_s(self) -> float:
+        return self.tap_interval_ms / 1000.0
 
 
 @lru_cache

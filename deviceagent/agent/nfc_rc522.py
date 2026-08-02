@@ -42,7 +42,7 @@ import time
 from typing import Any, Final
 
 from agent import iso14443a, ndef
-from agent.tags import TagRead, TagSourceError, format_uid
+from agent.tags import READS_BOTH, TagCapabilities, TagRead, TagSourceError, format_uid
 
 # --- registers, from the MFRC522 datasheet §9.2 ------------------------------
 # Only the ones this driver touches. Named as the datasheet names them so a
@@ -167,6 +167,27 @@ class Rc522TagSource:
             raise TagSourceError(f"cannot open the RC522 on SPI {bus}.{device}: {error}") from error
 
     # --- the TagSource protocol ----------------------------------------------
+
+    @property
+    def capabilities(self) -> TagCapabilities:
+        """Both carriers, **no write** — and that is a statement about this
+        module, not about the hardware.
+
+        An MFRC522 can perfectly well write an NTAG: it is `CMD_WRITE` (0xA2)
+        and a four-bit ACK, the mirror of `iso14443a.read_block`. It is absent
+        because it has not been written, not because it cannot be, and the
+        capability set is the honest way to say so: ADR 0014's whole point is
+        that a client is *told* what a reader can do rather than assuming, so a
+        provisioning walk on an RC522 station simply does not offer a write.
+
+        The PN532 driver beside it does write, so a bench that needs to
+        provision has an answer today. Adding it here is a small, self-contained
+        change — `CMD_WRITE`, a `write_block`, and `write_uri` — and the reason
+        to do it separately is that this whole module is still unrun, and
+        stacking an unverified write on an unverified read makes a bench session
+        debug two things at once.
+        """
+        return READS_BOTH
 
     def poll(self) -> TagRead | None:
         """One anticollision attempt, then user memory if a tag selected."""
