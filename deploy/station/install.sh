@@ -24,10 +24,22 @@ command -v uv >/dev/null || {
 }
 
 echo "==> syncing the two venvs the station runs"
-# Not `--all-extras`: that pulls `spidev` for the RC522, which needs to compile
-# and fails on a Jetson Nano — and this station has no SPI reader anyway.
+# Extras are chosen per project rather than with `--all-extras`, and both
+# choices matter:
+#
+#   backend  `--extra labels`, exactly as backend/Dockerfile does. It is
+#            documented as "kept out of the default install so the API image
+#            stays small", but `app/api/routes/handoff.py` imports `segno` at
+#            module scope — so a bare `uv sync` produces a venv whose API
+#            cannot import, and uvicorn exits before it binds. Not
+#            `--all-extras`, which would also pull the `datasheets` parser the
+#            API is specified never to install.
+#
+#   agent    `--extra flipper` only. `--all-extras` pulls `spidev` for the
+#            RC522, which builds from source and fails on a Jetson Nano — and a
+#            station whose reader is on USB has no SPI device to talk to.
 (cd "${repo}/idcodec" && uv sync --quiet)
-(cd "${repo}/backend" && uv sync --quiet)
+(cd "${repo}/backend" && uv sync --quiet --extra labels)
 (cd "${repo}/deviceagent" && uv sync --quiet --extra flipper)
 
 echo "==> migrating the database"
