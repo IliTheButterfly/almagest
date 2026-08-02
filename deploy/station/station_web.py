@@ -43,6 +43,18 @@ from pathlib import Path
 # `/docs` and `/openapi.json` are convenience for someone debugging at the bench.
 PROXY_PREFIXES = ("/api/", "/s/", "/openapi.json", "/docs", "/redoc")
 
+#: How long to wait for the API before giving up on one request.
+#:
+#: `urllib` defaults to *no* timeout, and the difference is not academic: an API
+#: that accepts the connection and then wedges — the SQLite writer holding a
+#: lock, a long cache rebuild, the Nano swapping — leaves the kiosk tab spinning
+#: with no error and no end, and every retap adds another thread here that is
+#: never released. The `except OSError` arm below only ever covered *refused*.
+#:
+#: 30 s rather than something snappier because uploads go through this path and a
+#: datasheet on a Nano is not instant; the point is that it is finite.
+DEFAULT_UPSTREAM_TIMEOUT_S = 30.0
+
 CONTENT_TYPES = {
     ".css": "text/css",
     ".html": "text/html",
@@ -80,6 +92,7 @@ _opener = urllib.request.build_opener(_NoRedirect)
 class StationHandler(BaseHTTPRequestHandler):
     dist: Path
     api: str
+    upstream_timeout_s: float = DEFAULT_UPSTREAM_TIMEOUT_S
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
@@ -99,12 +112,29 @@ class StationHandler(BaseHTTPRequestHandler):
                 request.add_header(header, value)
 
         try:
-            with _opener.open(request) as upstream:
+            with _opener.open(request, timeout=self.upstream_timeout_s) as upstream:
                 self._relay(upstream.status, upstream.headers, upstream.read())
         except urllib.error.HTTPError as exc:
             # 3xx arrives here now that redirects are not followed, which is the
             # point: `exc.headers` carries the Location the browser needs.
             self._relay(exc.code, exc.headers, exc.read())
+        except TimeoutError as exc:
+            # Distinct from the refusal below, because the answer is different: a
+            # refused connection means the API is not running, and a timeout means
+            # it is running and stuck. Saying "not answering" for both sends
+            # someone to restart a process that is already up.
+            self._relay_bytes(
+                504,
+                "application/json",
+                json.dumps(
+                    {
+                        "detail": (
+                            f"the station API accepted the connection and did not answer "
+                            f"within {self.upstream_timeout_s:.0f}s ({exc})"
+                        )
+                    }
+                ).encode(),
+            )
         except OSError as exc:
             # The API is not up yet, or has been restarted under us. 502 with a
             # readable body beats a connection reset the PWA reports as
@@ -195,10 +225,17 @@ def main() -> None:
     parser.add_argument("--dist", required=True, type=Path, help="the built PWA")
     parser.add_argument("--api", default="http://127.0.0.1:8000", help="the station's API")
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument(
+        "--upstream-timeout",
+        type=float,
+        default=DEFAULT_UPSTREAM_TIMEOUT_S,
+        help="seconds to wait for the API before answering 504",
+    )
     args = parser.parse_args()
 
     StationHandler.dist = args.dist.resolve()
     StationHandler.api = args.api.rstrip("/")
+    StationHandler.upstream_timeout_s = args.upstream_timeout
     # Loopback, never 0.0.0.0. See the module docstring.
     ThreadingHTTPServer(("127.0.0.1", args.port), StationHandler).serve_forever()
 

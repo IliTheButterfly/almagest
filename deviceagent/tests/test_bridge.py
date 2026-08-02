@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from agent import events, tags
-from agent.bridge import TagWriter, bridge_forever
+from agent.bridge import DeviceLocks, TagWriter, bridge_forever
 from agent.devices import (
     FAILED,
     KIND_FLIPPER,
@@ -358,6 +358,70 @@ class _SlowTag(FakeWritableTagSource):
 
         time.sleep(0.05)
         return super().write_uri(url, overwrite=overwrite)
+
+
+class TestOneReaderOneCaller:
+    """The tap loop and a write must never be on the reader at the same time.
+
+    Found on hardware and not findable without it. `FlipperRpc` says "one link,
+    one session, one caller"; the bridge had two, both via `asyncio.to_thread`.
+    On a real Flipper the two conversations interleave on one CDC stream and the
+    write's reply is consumed by the poller — so `tag.write_failed` is published
+    saying the device "answered a WRITE with" a read's answer, *while the tag is
+    written correctly*. A client believing that posts a null read-back and a good
+    sticker is recorded `degraded` for ever.
+    """
+
+    @staticmethod
+    def _counting() -> tuple[DeviceRegistry, list[int]]:
+        """A reader that records how many times it was polled."""
+        polls = [0]
+
+        class Counting(FakeWritableTagSource):
+            def poll(self) -> object:
+                polls[0] += 1
+                return super().poll()
+
+        registry, _ = registry_with(**{"flipper-usb:a": Counting()})
+        registry.sweep()
+        return registry, polls
+
+    async def _one_sweep(self, registry: DeviceRegistry, locks: DeviceLocks) -> None:
+        async def publish(event: Event) -> None:
+            return None
+
+        await bridge_forever(
+            registry,
+            publish,
+            sweep_interval_s=999,
+            tap_interval_s=0,
+            max_sweeps=1,
+            busy=locks,
+        )
+
+    def test_a_poll_does_not_run_while_a_write_holds_the_reader(self) -> None:
+        locks = DeviceLocks()
+        registry, polls = self._counting()
+
+        async def scenario() -> int:
+            # Hold the reader exactly as an in-flight write does.
+            async with locks.for_device("flipper-usb:a"):
+                await self._one_sweep(registry, locks)
+            return polls[0]
+
+        assert asyncio.run(asyncio.wait_for(scenario(), TIMEOUT_S)) == 0
+
+    def test_a_poll_runs_normally_when_nothing_holds_the_reader(self) -> None:
+        """The control. Without it the test above would pass on a loop that never
+        polls at all, which is the easiest way to 'fix' a race by accident."""
+        locks = DeviceLocks()
+        registry, polls = self._counting()
+
+        async def scenario() -> int:
+            await self._one_sweep(registry, locks)
+            return polls[0]
+
+        assert asyncio.run(asyncio.wait_for(scenario(), TIMEOUT_S)) > 0
 
 
 class TestBridgeLoop:

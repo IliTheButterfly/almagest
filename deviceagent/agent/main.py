@@ -53,7 +53,7 @@ from typing import Final
 
 from agent import __version__, events
 from agent.api import HttpStationApi, StationApi
-from agent.bridge import TagWriter, bridge_forever
+from agent.bridge import DeviceLocks, TagWriter, bridge_forever
 from agent.config import AgentSettings, get_settings
 from agent.devices import (
     KIND_STATION_PN532,
@@ -256,7 +256,11 @@ async def run(
         debounce_ms=settings.command_debounce_ms,
     )
     devices = registry if registry is not None else build_registry(settings)
-    writer = TagWriter(devices)
+    # One set of per-device locks for both users of a reader — the tap loop
+    # and the write path. Two readers of one RPC session interleave on real
+    # hardware; see `DeviceLocks`.
+    busy = DeviceLocks()
+    writer = TagWriter(devices, busy=busy)
 
     async def on_frame(raw: str) -> None:
         frame = parse_frame(raw)
@@ -303,6 +307,7 @@ async def run(
                 tap_interval_s=settings.tap_interval_s,
                 debounce_ms=settings.command_debounce_ms,
                 max_sweeps=max_sweeps,
+                busy=busy,
             )
         )
         try:

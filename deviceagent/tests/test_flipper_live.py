@@ -37,6 +37,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from idcodec.tagpayload import parse_ndef_url
 
 from agent.devices import KIND_FLIPPER, DeviceRegistry, FlipperUsbBackend
 from agent.flipper.session import AntliaProtocolMismatch
@@ -52,9 +53,16 @@ BY_ID = "/dev/serial/by-id"
 NAME_HINT = "Flipper"
 
 #: A URI that is unmistakably a test write when found on a tag six months later.
-#: Deliberately not a plausible short id: `idcodec` would accept a well-formed one
-#: and a real drawer could then answer to it.
+#: `LIVETEST` is not a valid short id — `L` is not even in the Crockford alphabet
+#: — which is deliberate twice over: a real drawer can never answer to it, *and*
+#: it exercises the refusal below.
 TEST_URI = "https://almagest.lan/s/LIVETEST"
+
+#: The same idea with a check symbol that actually verifies, computed once by
+#: `idcodec` (`VETESTV` + `ALPHABET[check_value("VETESTV")]`). Still not bound to
+#: anything, so resolving it 404s; but `identify` will trust it, which is the
+#: only way to prove the NDEF path end to end.
+VALID_TEST_URI = "https://almagest.lan/s/VETESTVP"
 
 
 def _nodes() -> list[str]:
@@ -97,8 +105,12 @@ def reader(port: str) -> Iterator[TagSource]:
         source = open_serial(port)
     except AntliaProtocolMismatch as error:
         # A *defect*, not a missing prerequisite: the app on the device and this
-        # bridge were built from different commits. Precisely the stale-`.fap`
-        # case the version test below exists to catch, so it must not skip.
+        # bridge were built from different commits.
+        #
+        # **This is where a stale `.fap` fails**, not the version test below —
+        # that test takes this fixture, so on a mismatch it never runs at all. The
+        # test below is a belt-and-braces assertion on a session that already got
+        # past here; do not weaken this branch on the assumption it is the guard.
         raise AssertionError(
             f"Antlia is installed but disagrees with this bridge: {error}"
         ) from error
@@ -220,18 +232,32 @@ def test_the_same_tag_reads_the_same_way_twice(reader: TagSource) -> None:
 
 
 def test_the_carrier_a_tag_identifies_by_is_the_one_it_actually_has(reader: TagSource) -> None:
-    """NDEF-first with a UID fallback, against a real tag rather than a fixture."""
+    """NDEF-first with a UID fallback, against a real tag rather than a fixture.
+
+    **The branch is on whether the URL carries a short id that verifies, not on
+    whether there is a URL at all.** Those are different, and the difference is
+    the whole safety property: a tag can hold a perfectly well-formed URL whose
+    short id fails its mod-37 check, and the only correct answer then is to fall
+    back to the UID rather than claim a drawer.
+
+    This file asserted the weaker version first and a real tag disproved it — the
+    tag was carrying `/s/LIVETEST`, which is not a short id at all.
+    """
     read = reader.poll()
     if read is None:
         pytest.skip("no tag in the field")
     carrier = identify(read)
-    if read.ndef_url:
+    trusted = None if read.ndef_url is None else parse_ndef_url(read.ndef_url)
+
+    if trusted is not None:
         assert carrier.via == VIA_NDEF
+        assert carrier.short_id == trusted
     else:
         assert carrier.via == VIA_UID, (
-            "a tag with no NDEF must still identify by UID — that is what makes an "
-            "unprovisioned tag bindable"
+            "a tag with no usable NDEF must still identify by UID — that is what "
+            "makes an unprovisioned tag bindable"
         )
+        assert carrier.short_id is None
 
 
 # -- writing ---------------------------------------------------------------
@@ -268,17 +294,45 @@ def test_a_blank_tag_takes_a_uri_and_reads_it_back(
     )
 
 
-def test_a_written_tag_then_identifies_by_its_uri(
+def test_a_uri_whose_check_symbol_fails_is_not_trusted(
     reader: TagSource, request: pytest.FixtureRequest
 ) -> None:
-    """The point of writing at all: the next tap resolves without the UID table."""
+    """A tag can carry a URI and still not be identified by it.
+
+    This is the mod-37 check symbol doing its job against real silicon, and it is
+    the property that makes a misread safe: `LIVETEST` is a syntactically fine
+    URL and a bad short id, so `identify` must fall back to the UID rather than
+    claim a drawer. A wrong-but-plausible id is worse than no id.
+
+    Found by getting it wrong — this file originally asserted `VIA_NDEF` here and
+    the hardware said `uid`, which was the code being right.
+    """
     _require_write_opt_in(request)
     read = reader.poll()
     if read is None:
         pytest.skip("no tag in the field")
     if read.ndef_url != TEST_URI:
         pytest.skip("this tag does not carry the test URI; run the write test first")
-    assert identify(read).via == VIA_NDEF
+    assert identify(read).via == VIA_UID
+    assert identify(read).short_id is None
+
+
+def test_a_tag_written_with_a_valid_short_id_identifies_by_its_uri(
+    reader: TagSource, request: pytest.FixtureRequest
+) -> None:
+    """The point of writing at all: the next tap resolves without the UID table."""
+    _require_write_opt_in(request)
+    if reader.poll() is None:
+        pytest.skip("no tag in the field")
+    assert isinstance(reader, WritableTagSource)
+    reader.write_uri(VALID_TEST_URI, overwrite=True)
+
+    read = reader.poll()
+    assert read is not None
+    assert read.ndef_url == VALID_TEST_URI
+    identity = identify(read)
+    assert identity.via == VIA_NDEF
+    assert identity.short_id == "VETESTVP"
 
 
 def test_a_tag_that_already_has_a_uri_is_not_overwritten_by_accident(

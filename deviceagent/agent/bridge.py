@@ -59,6 +59,31 @@ class _BadWrite(Exception):
         self.reason = reason
 
 
+class DeviceLocks:
+    """One lock per reader, held by *everything* that talks to it.
+
+    `FlipperRpc` says it in as many words — "not thread-safe by design: one link,
+    one session, one caller" — and the bridge had two callers: the tap loop
+    polling every 500 ms in a worker thread, and a `tag.write` running in
+    another. Both go through `asyncio.to_thread`, so they genuinely overlap.
+
+    **This was found on hardware and could not have been found without it.** The
+    fake replays a byte sequence for a single caller, so it is perfectly happy;
+    a real Flipper interleaves the two conversations on one CDC stream and the
+    write's reply gets consumed by the poller. The visible symptom is the worst
+    kind: `tag.write_failed` saying the Flipper "answered a WRITE with" a read's
+    answer — *while the tag is written correctly*. A client that believes that
+    event posts a null read-back, and a perfectly good sticker is recorded
+    `degraded` for ever.
+    """
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def for_device(self, device_id: str) -> asyncio.Lock:
+        return self._locks.setdefault(device_id, asyncio.Lock())
+
+
 class TagWriter:
     """Carries out `tag.write`, one at a time per device.
 
@@ -75,10 +100,11 @@ class TagWriter:
         registry: DeviceRegistry,
         *,
         timeout_s: float = DEFAULT_WRITE_TIMEOUT_S,
+        busy: DeviceLocks | None = None,
     ) -> None:
         self._registry = registry
         self._timeout_s = timeout_s
-        self._busy: dict[str, asyncio.Lock] = {}
+        self._busy = busy if busy is not None else DeviceLocks()
 
     async def handle(self, frame: dict[str, Any]) -> list[Event]:
         """One `tag.write` command into its events. Never raises.
@@ -98,7 +124,7 @@ class TagWriter:
             logger.warning("dropping a malformed tag.write: %s", bad)
             return []
 
-        lock = self._busy.setdefault(device_id, asyncio.Lock())
+        lock = self._busy.for_device(device_id)
         if lock.locked():
             return [
                 events.tag_write_refused(
@@ -186,6 +212,7 @@ async def bridge_forever(
     max_sweeps: int | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    busy: DeviceLocks | None = None,
 ) -> None:
     """Sweep for readers, poll the ones found, publish what they see.
 
@@ -203,6 +230,9 @@ async def bridge_forever(
     it; production passes `None`.
     """
     holdoff = HoldOff(debounce_ms, clock=clock)
+    # Shared with the `TagWriter` by `main.run`; a private one here would lock
+    # against nothing, which is exactly the bug this is fixing.
+    busy = busy if busy is not None else DeviceLocks()
     sweeps = 0
     since_sweep = sweep_interval_s  # sweep immediately on the first pass
 
@@ -217,8 +247,15 @@ async def bridge_forever(
 
         for attached in registry.pollable():
             device_id = attached.info.device_id
+            lock = busy.for_device(device_id)
+            if lock.locked():
+                # A write is in flight on this reader. Skipping the poll rather
+                # than queueing behind it: by the time the write finishes this
+                # tick is stale, and the next one is 500 ms away.
+                continue
             try:
-                read = await asyncio.to_thread(attached.source.poll)
+                async with lock:
+                    read = await asyncio.to_thread(attached.source.poll)
             except TagSourceError as error:
                 logger.warning("%s faulted: %s", device_id, error)
                 for event in registry.fault(device_id, str(error)):
