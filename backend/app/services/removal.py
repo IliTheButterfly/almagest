@@ -56,15 +56,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, object_session
 
 from app.models.catalog import Part
-from app.models.documents import DocumentLink
 from app.models.enums import EntityType
-from app.models.identity import ObjectId
+from app.models.events import identity_release_statements
 from app.models.layout_authoring import LabelPrint
-from app.models.scanning import BarcodeAlias
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import Location, LocationTag
 from app.services import room_plan
@@ -401,51 +399,14 @@ def apply_removal(session: Session, plan: RemovalPlan) -> RemovalPlan:
 
 
 def release_location_identity(session: Session, location_id: int) -> None:
-    """Give up every name that pointed at this container, before its row goes.
+    """Give up every name that pointed at this container.
 
-    **`locations.id` is an `INTEGER PRIMARY KEY` with no `AUTOINCREMENT`, so
-    SQLite reuses a freed rowid.** Every one of these tables addresses a location
-    by that integer, so a row left behind does not merely dangle — it is adopted
-    by whatever container is created next, and the printed card in somebody's hand
-    silently starts meaning a different drawer. A scan that lands on the wrong
-    container is worse than a scan that lands on nothing.
-
-    * `object_ids` — the short id. Left behind, `/api/resolve` reports the code as
-      `resolved` and hands back a pk that either does not exist or belongs to
-      somebody else.
-    * `label_prints` — what was printed and when, which is how "is this card
-      current?" is answerable at all.
-    * `document_links` — a photograph, which after rowid reuse becomes the *next*
-      container's picture.
-    * `barcode_aliases` — a code somebody taught to mean this drawer.
-
-    Public because two paths destroy a container and both must do this:
-    `removal._delete`, and `layout_authoring.apply_layout_to_location`, which
-    deletes the slots a re-layout removed. The second one did not, for as long as
-    it has existed.
+    Kept as a callable for anything that wants to release an identity without
+    deleting the row; **the deletion path no longer calls it**, because
+    remembering to was the bug. See `app.models.events`.
     """
-    session.execute(
-        delete(ObjectId).where(
-            ObjectId.entity_type == EntityType.LOCATION, ObjectId.entity_pk == location_id
-        )
-    )
-    session.execute(
-        delete(LabelPrint).where(
-            LabelPrint.entity_type == EntityType.LOCATION, LabelPrint.entity_pk == location_id
-        )
-    )
-    session.execute(
-        delete(DocumentLink).where(
-            DocumentLink.entity_type == EntityType.LOCATION,
-            DocumentLink.entity_pk == location_id,
-        )
-    )
-    session.execute(
-        delete(BarcodeAlias).where(
-            BarcodeAlias.entity_type == EntityType.LOCATION,
-            BarcodeAlias.entity_pk == location_id,
-        )
-    )
+    for statement in identity_release_statements(location_id):
+        session.execute(statement)
 
 
 def _mark_parent_occupancy_dirty(location: Location) -> None:
@@ -524,7 +485,10 @@ def _delete(session: Session, location: Location) -> None:
     removable. Deleting one row at a time is the only way deepest-first ordering
     reaches SQL at all.
     """
-    release_location_identity(session, location.id)
+    # The four identity tables are released by `models.events`'s `before_delete`
+    # listener, not here — three separate delete paths had to remember to do it
+    # and two of them did not. See that module for why it cannot be an FK.
+    #
     # Before the row goes: `_mark_parent_occupancy_dirty` reads `parent_id` off
     # it, and a deleted instance cannot answer. A hard delete empties a slot
     # exactly as a retire does, so the parent is stale in the same way and the

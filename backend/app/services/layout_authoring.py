@@ -44,7 +44,7 @@ from sqlalchemy.orm import Session
 from app.models.enums import EntityType, SizeClass, SlotLabelScheme, TagGranularity
 from app.models.stock import StockLot
 from app.models.storage import ContainerType, ContainerTypeSlotTemplate, Location, LocationTag
-from app.services import removal, shortid
+from app.services import shortid
 from app.services.capacity import grid_incompatibility
 from app.services.tree import location_tree
 
@@ -880,13 +880,11 @@ def apply_layout_to_location(
         loc.inner_volume_mm3 = spec.inner_volume_mm3
 
     for loc in diff.deletes:
-        # The slot's short id, printed card, photograph and taught aliases go with
-        # it. Without this the `object_ids` row outlived the location — and
-        # because SQLite reuses a freed rowid, the next slot created here adopted
-        # it, so a card printed for the bottom-left cell resolved to the
-        # bottom-right one. `removal._delete` has always done this; the re-layout
-        # path, which destroys containers just as thoroughly, never did.
-        removal.release_location_identity(session, loc.id)
+        # The slot's short id, printed card, photograph and taught aliases go
+        # with it, released by `models.events`'s `before_delete` listener. This
+        # path used to have to remember, and did not: a card printed for the
+        # bottom-left cell resolved to the bottom-right one after a merge and a
+        # re-split, because SQLite reuses the freed rowid.
         session.delete(loc)
     session.flush()
 
