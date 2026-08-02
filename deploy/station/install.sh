@@ -9,13 +9,17 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 units="${HOME}/.config/systemd/user"
 
+# The units hardcode `%h/prog/almagest`, which is where this is normally cloned.
+# A checkout somewhere else is not refused — it gets a drop-in. Editing the
+# checked-in units instead would make the file in git and the file that runs
+# differ, which is the drift that makes a bench machine unexplainable a year
+# later; a drop-in is a separate, visible file that `systemctl cat` prints right
+# underneath the original.
+drop_in_needed=0
 if [[ "${repo}" != "${HOME}/prog/almagest" ]]; then
-    # The units hardcode %h/prog/almagest. Rewriting them at install time would
-    # make the checked-in file and the running one differ, which is exactly the
-    # sort of drift that makes a bench machine unexplainable a year later.
-    echo "This checkout is at ${repo}, but the units expect ${HOME}/prog/almagest." >&2
-    echo "Clone it there, or edit WorkingDirectory in deploy/station/*.service." >&2
-    exit 1
+    drop_in_needed=1
+    echo "note: this checkout is at ${repo}, not ${HOME}/prog/almagest."
+    echo "      Writing per-unit drop-ins so the units point at it."
 fi
 
 command -v uv >/dev/null || {
@@ -55,7 +59,34 @@ fi
 echo "==> installing user units into ${units}"
 mkdir -p "${units}"
 for unit in "${repo}"/deploy/station/almagest-station-*.service; do
+    name="$(basename "${unit}")"
     install -m 0644 "${unit}" "${units}/"
+    if [[ "${drop_in_needed}" == 1 ]]; then
+        # `WorkingDirectory` and the paths inside `ExecStart` both move, and
+        # `ExecStart=` must be cleared before being set again or systemd appends
+        # a second command rather than replacing the first.
+        mkdir -p "${units}/${name}.d"
+        {
+            echo "# Written by deploy/station/install.sh — this checkout is not at"
+            echo "# \$HOME/prog/almagest. Delete this directory if it ever moves back."
+            echo "[Service]"
+            case "${name}" in
+                *-api.service)
+                    echo "WorkingDirectory=${repo}/backend"
+                    ;;
+                *-bridge.service)
+                    echo "WorkingDirectory=${repo}/deviceagent"
+                    ;;
+                *-web.service)
+                    echo "WorkingDirectory=${repo}"
+                    echo "ExecStart="
+                    echo "ExecStart=${HOME}/.local/bin/uv run --no-project --python 3.12 -- \\"
+                    echo "    python ${repo}/deploy/station/station_web.py \\"
+                    echo "    --dist ${repo}/frontend/dist --api http://127.0.0.1:8000 --port 8080"
+                    ;;
+            esac
+        } > "${units}/${name}.d/checkout.conf"
+    fi
 done
 
 systemctl --user daemon-reload

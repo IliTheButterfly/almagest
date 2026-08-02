@@ -6,16 +6,41 @@ Description=Almagest station API (SQLite, one writer)
 After=network.target
 
 [Service]
-Type=exec
+# Deliberately not `Type=exec`: it arrived in systemd 240 and the bench Jetson
+# runs 237, where it is not merely inert but *rejected* — "Failed to parse
+# service type, ignoring: exec" on every reload, silently falling back to
+# `simple`. Since `simple` is what we would actually get there, it is what is
+# written here. The consequence is real and is why the ordering below is
+# `Wants`/`After` rather than a dependency anything relies on: `start` returns
+# as soon as the process is forked, not when uvicorn has bound. The web unit's
+# proxy answers 502 until then, which is the designed behaviour.
+Type=simple
 WorkingDirectory=%h/prog/almagest/backend
 # `uv run` resolves the pinned 3.12 that uv itself downloaded; the Jetson's
 # system interpreter is 3.6 and cannot run this code at all.
 ExecStart=%h/.local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# The origin stamped into every tag payload and printed label (ADR 0001), which
+# is NOT the address this API is reachable at. Without it the station inherits
+# `.env`, and `.env.example` ships `http://localhost:8000` — so a tag written
+# here would carry `http://localhost:8000/s/{short_id}`, a URL that means "this
+# machine" on every phone that reads it and therefore resolves to nothing. A
+# tag write is physical: no amount of software fixes a sticker that is already
+# on a drawer. It also decides what `location_tags.ndef_url` records at bind
+# time, so a wrong value here makes every later verification read `degraded`.
+Environment=ALMAGEST_BASE_URL=https://almagest.lan
+
 Restart=on-failure
 RestartSec=3
-# Exactly one replica, always — the same rule as the cluster's `Recreate`
-# strategy, for the same reason: two SQLite writers is corruption.
-KillMode=mixed
+# `control-group`, so the whole tree gets SIGTERM. `uv run` is the main process
+# and uvicorn is its *child*, so under `mixed` only `uv` is asked to stop and
+# the one SQLite writer is SIGKILLed after the timeout — the opposite of what
+# a single-writer store wants.
+KillMode=control-group
+# uvicorn relays SIGTERM and exits 143. Without this every ordinary `stop` is
+# recorded as `Failed with result 'exit-code'`, which teaches the operator to
+# ignore the one line that would have mattered.
+SuccessExitStatus=143
 
 [Install]
 WantedBy=default.target

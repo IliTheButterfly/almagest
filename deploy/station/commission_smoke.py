@@ -90,7 +90,10 @@ sid = state["session"]["id"]
 check("the cursor starts on a slot", cursor_of(state) is not None, cursor_of(state))
 
 print("== walking the cabinet, one tag per drawer")
-bound: list[tuple[int, str]] = []
+#: (slot, tag uid, the URI the server says belongs on that tag). The third is
+#: what a writer must put on the sticker, and using anything else is how a walk
+#: silently reports `degraded` for a tag that is actually fine.
+bound: list[tuple[int, str, str]] = []
 for n in range(3):
     here = cursor_of(state)
     if here is None:
@@ -104,7 +107,7 @@ for n in range(3):
     ok = status == 200 and resp.get("status") == "bound"
     check(f"drawer {here} takes a tag", ok, resp.get("status"))
     if ok:
-        bound.append((here, tag))
+        bound.append((here, tag, resp["tag"]["ndef_url"]))
         state = resp["state"]
         check(f"the cursor moved off {here}", cursor_of(state) != here, cursor_of(state))
 
@@ -112,8 +115,8 @@ if len(bound) < 2:
     print("not enough slots bound to exercise the conflicts")
     raise SystemExit(1)
 
-slot_a, tag_a = bound[0]
-slot_b, tag_b = bound[1]
+slot_a, tag_a, url_a = bound[0]
+slot_b, tag_b, url_b = bound[1]
 free_slot = cursor_of(state)
 
 print("== the same tag tapped twice costs nothing")
@@ -123,7 +126,15 @@ status, resp = call(
     {"tag_uid": tag_a, "location_id": slot_a, "client_op_id": "e2e-dup", "device_id": "e2e"},
 )
 check("a re-tap is already_bound_here", resp.get("status") == "already_bound_here", resp.get("status"))
-check("and adds no undo step", resp["state"]["undo_depth"] == started["state"]["undo_depth"] + 3, resp["state"]["undo_depth"])
+check(
+    "and adds no undo step",
+    # `len(bound)`, not a hardcoded 3: the bind loop breaks early when the
+    # subtree runs out of slots, and against a small cabinet a literal turns
+    # this into a failure printed against the re-tap rule, which is not what
+    # would be wrong.
+    resp["state"]["undo_depth"] == started["state"]["undo_depth"] + len(bound),
+    resp["state"]["undo_depth"],
+)
 
 print("== this tag already means another drawer")
 status, resp = call(
@@ -199,13 +210,22 @@ status, resp = call(
     {
         "tag_uid": tag_a,
         "location_id": slot_a,
-        "ndef_url": "https://almagest.lan/s/4K7T92M8",
+        # The URI the bind recorded for *this* slot. An unrelated short id
+        # here still answers `match` — the UID is right — while quietly
+        # marking the binding `degraded`, so the one outcome that says a tag
+        # was written correctly would never be asserted anywhere.
+        "ndef_url": url_a,
         "carries_ndef": True,
         "client_op_id": "e2e-vok",
         "device_id": "e2e",
     },
 )
 check("the right tag on the right drawer matches", resp.get("status") == "match", resp.get("status"))
+check(
+    "and a tag carrying the right URI reads as verified",
+    resp.get("ndef_state") == "verified",
+    resp.get("ndef_state"),
+)
 
 print("== a tag on the wrong drawer — the reason this walk exists")
 status, resp = call(

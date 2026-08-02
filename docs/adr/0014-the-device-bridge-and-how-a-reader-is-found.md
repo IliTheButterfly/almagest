@@ -241,9 +241,12 @@ Nothing here has touched hardware, and the list is longer than usual:
 - **BLE is the least-verified leg.** `bleak` scanning, the GATT characteristics
   the serial profile exposes, and pairing are all untested; the bench machine has
   no Bluetooth stack installed at all. USB is expected to work first.
-- **Antlia's write path does not exist yet.** `mf_ultralight_poller_sync_write_page`
-  is exported by API 87.1, so it is possible; it is a separate change in a
-  separate repo, and until it lands a Flipper in bridge mode reads only.
+- ~~**Antlia's write path does not exist yet.**~~ **Superseded 2026-08-02.** It
+  landed with bridge mode: `antlia/src/antlia_rpc.c` handles `WRITE` and `WRITE!`
+  via `mf_ultralight_poller_sync_write_page`, and answers `HELLO 1 rw`. It is
+  still unrun on a device, which is the *next* bullet and the one that matters.
+  Noted here rather than deleted because this ADR was cited as current authority
+  for "a Flipper in bridge mode reads only" after it had stopped being true.
 - **Whether a write survives the platform.** PLAN.md already calls antenna
   centring at 8-12 mm through PETG the design's biggest unknown, and a write is
   strictly more demanding of the coupling than a read.

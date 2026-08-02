@@ -29,7 +29,6 @@ from __future__ import annotations
 import io
 import re
 
-import segno
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.config import get_settings
@@ -67,6 +66,15 @@ def handoff_qr(
                 "message": "give a same-origin absolute path such as /builds/12?tab=pick",
             },
         )
+
+    # Imported here, not at module scope. `segno` lives in the `labels` extra,
+    # which `backend/pyproject.toml` keeps out of the default install "so the
+    # API image stays small" — and a module-scope import made that a lie: a
+    # default `uv sync` produced a venv whose `app.main` could not be imported
+    # at all, so uvicorn exited before binding and the failure named `segno`
+    # rather than the missing extra. Deferring it means the rest of the API
+    # runs and only this one route 500s, which is what "optional" has to mean.
+    import segno
 
     target = f"{get_settings().base_url.rstrip('/')}{path}"
     buffer = io.BytesIO()

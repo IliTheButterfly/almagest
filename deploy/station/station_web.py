@@ -33,6 +33,7 @@ loopback only:
 from __future__ import annotations
 
 import argparse
+import json
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -108,11 +109,14 @@ class StationHandler(BaseHTTPRequestHandler):
             # The API is not up yet, or has been restarted under us. 502 with a
             # readable body beats a connection reset the PWA reports as
             # "something went wrong".
+            # `json.dumps` rather than interpolating into a byte literal: an
+            # OSError message containing a quote would otherwise emit invalid
+            # JSON, and the PWA would report a parse error instead of the reason
+            # the API is down.
             self._relay_bytes(
                 502,
                 "application/json",
-                b'{"detail": "the station API is not answering: %s"}'
-                % str(exc).encode("utf-8", "replace"),
+                json.dumps({"detail": f"the station API is not answering: {exc}"}).encode(),
             )
 
     def _relay(self, status: int, headers: object, payload: bytes) -> None:
@@ -138,7 +142,14 @@ class StationHandler(BaseHTTPRequestHandler):
         self.send_header("content-type", content_type)
         self.send_header("content-length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        # The same HEAD guard `_relay` has. Without it a HEAD answer carries the
+        # body as well as its `content-length`, and because this speaks HTTP/1.1
+        # the connection is persistent: the *next* response on it starts being
+        # read at `<!doctype html>`, so the client sees a garbage status line
+        # rather than anything it can report. A missing guard here is not a
+        # cosmetic spec violation, it is a corrupted connection.
+        if self.command != "HEAD":
+            self.wfile.write(payload)
 
     # -- the PWA half ------------------------------------------------------
 
@@ -147,7 +158,12 @@ class StationHandler(BaseHTTPRequestHandler):
         target = (self.dist / path.lstrip("/")).resolve()
         # The containment check is not paranoia about a hostile LAN — there is no
         # LAN here — it is about `..` in a URL turning a typo into `/etc/passwd`.
-        inside = target.is_file() and str(target).startswith(str(self.dist))
+        #
+        # `is_relative_to`, not a string prefix: `startswith(".../frontend/dist")`
+        # also accepts `.../frontend/dist.bak/x` and `.../frontend/dist-old/x`,
+        # both of which the README's own `rsync` line makes likely to exist right
+        # next to the real one.
+        inside = target.is_file() and target.is_relative_to(self.dist)
         if not inside:
             # SPA fallback: `/locations/4` is a client route, not a file.
             target = self.dist / "index.html"

@@ -49,7 +49,12 @@ at.
 ./deploy/station/install.sh
 systemctl --user start almagest-station-{api,web,bridge,kiosk}
 systemctl --user status almagest-station-bridge
+
+# On systemd >= 240 (a Pi, a laptop) the user journal has it:
 journalctl --user -u almagest-station-bridge -f
+# On the bench Jetson (systemd 237) user units forward to syslog instead, and
+# the journalctl form above answers "No journal files were found":
+tail -f /var/log/syslog | grep almagest
 ```
 
 ### `--reader none` is a statement, not a disabled feature
@@ -108,6 +113,21 @@ cd frontend && pnpm install && pnpm build
 rsync -a --delete frontend/dist/ jetson:prog/almagest/frontend/dist/
 ```
 
+**Do not let it write tags with the wrong base URL.** The tag payload is
+`{ALMAGEST_BASE_URL}/s/{short_id}`, and `.env.example` ships
+`http://localhost:8000` — a URL that means "this machine" to every phone that
+reads it, and therefore resolves to nothing. `almagest-station-api.service` sets
+`ALMAGEST_BASE_URL=https://almagest.lan` (ADR 0001) for exactly this reason; if
+you override it, override it to the public origin and not to the station's own
+address. **A tag write is physical and no software undoes it.** The same value
+decides what `location_tags.ndef_url` records at bind time, so getting it wrong
+also makes every later verification read `degraded`.
+
+Note the standing constraint in `CLAUDE.md`: **provision no tags until a reverse
+proxy fronts 443**, because the cluster answers on `:30443` and a tag must carry
+a portless URL. Commissioning *bindings* at this station is fine and is what
+`commission_smoke.py` exercises; burning stickers is not, yet.
+
 **It cannot open a USB reader until the operator is in `dialout`.** `/dev/ttyACM0`
 is `root:dialout 0660` and a fresh Ubuntu user is not a member, so the bridge's
 discovery sweep finds a Flipper it cannot open. This is the one step that needs
@@ -131,8 +151,13 @@ It is therefore a **display setting in the PWA**, remembered per device:
 resolution readout under the viewfinder. Set it once on this machine and it
 sticks in `localStorage`.
 
-Only the picture turns, and that module explains at length why that is enough
-rather than a shortcut: the decoder reads a *centred* crop, which a half turn
+**It has never been looked at on a real inverted camera.** The webcam was
+disconnected from the bench before that could be done, and every test for it runs
+in jsdom — which asserts a class name and a stored value, not a picture. The
+reasoning below is an argument, not a photograph.
+
+The *preview* turns and the decode path is deliberately left alone, for reasons
+that module sets out at length: the decoder reads a *centred* crop, which a half turn
 maps onto itself, and `decodeImageData` already passes `tryRotate: true` for the
 symbologies that care. What an inverted mount actually breaks is a person trying
 to aim, so that is what is fixed. **The still-capture path is a different

@@ -206,7 +206,13 @@ class DeviceRegistry:
                         error,
                     )
                 continue
-            self._scan_failed.discard(backend.kind)
+            if backend.kind in self._scan_failed:
+                # Say so on the recovering edge too. Without this, an operator who
+                # has just fixed the Bluetooth stack gets exactly the same silence
+                # from a working backend as from a broken one, and the only way to
+                # tell is to plug something in and see whether it appears.
+                self._scan_failed.discard(backend.kind)
+                logger.info("scanning %s works again", backend.kind)
             for device_id, label in found.items():
                 seen[device_id] = (backend, label)
 

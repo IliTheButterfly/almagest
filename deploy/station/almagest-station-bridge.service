@@ -4,7 +4,9 @@ After=almagest-station-api.service
 Wants=almagest-station-api.service
 
 [Service]
-Type=exec
+# Not `Type=exec`: it arrived in systemd 240 and the bench Jetson runs 237,
+# which rejects it outright and falls back to `simple`. See the api unit.
+Type=simple
 WorkingDirectory=%h/prog/almagest/deviceagent
 # `--reader none`: this bench has no platform under it. The Flipper on USB is
 # found by the bridge's own discovery sweep, not by this flag — see ADR 0014 and

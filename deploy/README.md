@@ -7,6 +7,16 @@ this file is the operational half.
 `docker compose` (repo root) remains the desktop path and is not generated from
 any of this.
 
+## Two deployment targets, not one
+
+Everything below is the **cluster**: the Kubernetes manifests, one API replica on
+an RWO volume, nginx serving the PWA over TLS.
+
+The other one is **the machine at the bench** — API, PWA, device bridge and a
+kiosk browser, all on loopback, all as one user with no root, on a Jetson or a Pi
+or a laptop with a Flipper on a cable. It is not a cut-down cluster and does not
+share these manifests: see **[station/README.md](station/README.md)**.
+
 ## The shape
 
 ```

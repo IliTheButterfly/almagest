@@ -4,7 +4,9 @@ After=almagest-station-web.service
 Wants=almagest-station-web.service
 
 [Service]
-Type=exec
+# Not `Type=exec`: it arrived in systemd 240 and the bench Jetson runs 237,
+# which rejects it outright and falls back to `simple`. See the api unit.
+Type=simple
 # The station's display is the one already logged in on tty1. This unit is a
 # `--user` unit, so it inherits that session's environment except for DISPLAY,
 # which systemd does not import.

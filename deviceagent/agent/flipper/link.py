@@ -110,7 +110,14 @@ class SerialFlipperLink:
             # `timeout=0` makes every read non-blocking; the caller's timeout is
             # applied per call in `read` instead, so one link cannot pin a
             # thread for longer than the caller asked for.
-            self._serial: Any = serial.Serial(port, baudrate=baudrate, timeout=0)
+            # `exclusive=True` because a CDC node is openable twice on Linux and
+            # the second opener does real damage: `open_serial` writes `\r` and
+            # the start-RPC incantation into the port, which desynchronises the
+            # `FrameDecoder` of the session already using it — the exact failure
+            # `session.open_serial`'s docstring calls unrecoverable for the life
+            # of the session, and one that presents as "the Flipper stopped
+            # answering" rather than as a second process. Better to fail at open.
+            self._serial: Any = serial.Serial(port, baudrate=baudrate, timeout=0, exclusive=True)
         except Exception as error:  # pragma: no cover — needs hardware
             raise FlipperLinkError(f"cannot open a Flipper on {port}: {error}") from error
 
