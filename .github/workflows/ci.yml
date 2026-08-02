@@ -53,6 +53,35 @@ jobs:
       - name: pytest
         run: uv run pytest -q
 
+  station:
+    name: station
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/station
+    steps:
+      # No submodules: `station_web.py` is standard-library-only and belongs to
+      # none of the four uv projects — it sits in front of them.
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Everything this pins fails *silently* when it breaks: a `/s/{short_id}`
+      # tap that quietly answers 200 instead of relaying the redirect, a HEAD
+      # that corrupts the next response on a keep-alive connection. It runs in
+      # under two seconds, and `make check` has claimed to be "everything CI
+      # runs" while this was in neither.
+      - name: pytest
+        run: uv run --no-project --python 3.12 --with pytest -- python -m pytest test_station_web.py -q
+
+      - name: ruff check
+        run: uv run --no-project --with ruff -- ruff check .
+
+      - name: ruff format
+        run: uv run --no-project --with ruff -- ruff format --check .
+
   backend:
     name: backend
     runs-on: ubuntu-latest

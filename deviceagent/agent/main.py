@@ -229,6 +229,7 @@ async def run(
     max_polls: int | None = None,
     registry: DeviceRegistry | None = None,
     max_sweeps: int | None = None,
+    busy: DeviceLocks | None = None,
 ) -> None:
     """Wire everything and run until cancelled.
 
@@ -259,7 +260,10 @@ async def run(
     # One set of per-device locks for both users of a reader — the tap loop
     # and the write path. Two readers of one RPC session interleave on real
     # hardware; see `DeviceLocks`.
-    busy = DeviceLocks()
+    # Injectable for the same reason `api` and `registry` are: the property that
+    # both users of a reader share *one* set of locks is only assertable if a
+    # test can watch the object they share.
+    busy = busy if busy is not None else DeviceLocks()
     writer = TagWriter(devices, busy=busy)
 
     async def on_frame(raw: str) -> None:

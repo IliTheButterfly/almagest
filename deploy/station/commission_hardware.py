@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Commission a real drawer with a real tag, through the real Flipper.
 
 Everything the docs describe, on hardware, in one pass:
@@ -20,12 +21,15 @@ Two things this is careful about, both of them ADR 0012's rules:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
+import socket
 import sys
 import urllib.error
 import urllib.request
 import uuid
+from urllib.parse import urlparse
 
 import websockets
 
@@ -61,19 +65,76 @@ def check(label: str, ok: bool, detail: object = "") -> None:
         failures.append(label)
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    # `--yes` rather than a prompt-by-default, because this is also run from a
+    # terminal over ssh where a prompt would hang. Either way it is not the
+    # default: the script picks the cabinet *and* the slot itself, and a tag
+    # write is physical.
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="required: this binds and PHYSICALLY WRITES the tag on the antenna",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="let the write replace a URI already on the tag (refused otherwise)",
+    )
+    return parser.parse_args()
+
+
+def _warn_if_unreachable(url: str) -> None:
+    """A tag is about to carry this host. Say so if this machine cannot find it.
+
+    Not fatal — the host is the *public* origin (ADR 0001) and need not resolve
+    from the bench — but a sticker pointing at a name nothing resolves is a
+    sticker that does nothing when tapped, and it is worth one line before it is
+    burned rather than a puzzle a month later.
+    """
+    host = urlparse(url).hostname
+    if host is None:
+        return
+    try:
+        socket.getaddrinfo(host, None)
+    except OSError:
+        print(
+            f"  !!  {host} does not resolve from this machine. The tag will still be\n"
+            f"      written with it (ADR 0001 makes it the public origin), but nothing\n"
+            f"      here will be able to follow the tag until DNS and the CA are in place."
+        )
+
+
 async def main() -> int:
+    args = _parse_args()
+    if not args.yes:
+        print(
+            "Refusing to run without --yes.\n\n"
+            "This picks a cabinet and a slot by itself, binds whatever tag is on the\n"
+            "antenna to it, and PHYSICALLY WRITES that tag. A tag write cannot be\n"
+            "undone by software. Run it against a station holding demo seed data and\n"
+            "a tag you are willing to lose."
+        )
+        return 2
+
     async with websockets.connect(BRIDGE, additional_headers={"Origin": ORIGIN}) as ws:
         # --- the reader the bench actually has -------------------------------
         device_id = None
         tap = None
         deadline = asyncio.get_running_loop().time() + 25
-        while asyncio.get_running_loop().time() < deadline and (device_id is None or tap is None):
+        while asyncio.get_running_loop().time() < deadline and (
+            device_id is None or tap is None
+        ):
             event = json.loads(await asyncio.wait_for(ws.recv(), 20))
             if event["type"] == "device.attached":
                 device_id = event["data"]["device_id"]
                 caps = event["data"]["capabilities"]
                 print(f"== reader: {event['data']['label']}  {caps}")
-                check("the bridge offers a reader that can write", caps["writes_ndef"], caps)
+                check(
+                    "the bridge offers a reader that can write",
+                    caps["writes_ndef"],
+                    caps,
+                )
             elif event["type"] == "tag.seen" and device_id is not None:
                 tap = event["data"]
 
@@ -96,7 +157,11 @@ async def main() -> int:
         status, started = call(
             "POST",
             f"/api/locations/{root_id}/provisioning-sessions",
-            {"device_kind": "flipper_rpc", "client_op_id": str(uuid.uuid4()), "device_id": "hw"},
+            {
+                "device_kind": "flipper_rpc",
+                "client_op_id": str(uuid.uuid4()),
+                "device_id": "hw",
+            },
         )
         check("a walk starts", status == 201, status)
         state = started["state"]
@@ -111,14 +176,23 @@ async def main() -> int:
             f"/api/provisioning-sessions/{sid}/bind",
             {"tag_uid": uid, "client_op_id": str(uuid.uuid4()), "device_id": "hw"},
         )
-        check("the real tag binds to the drawer", bound.get("status") == "bound", bound.get("status"))
+        check(
+            "the real tag binds to the drawer",
+            bound.get("status") == "bound",
+            bound.get("status"),
+        )
         if bound.get("status") != "bound":
             print(json.dumps(bound)[:400])
             return 1
         tag = bound["tag"]
         url = tag["ndef_url"]
         print(f"== the server minted {url}")
-        check("the binding starts unverified", tag["ndef_state"] == "unverified", tag["ndef_state"])
+        _warn_if_unreachable(url)
+        check(
+            "the binding starts unverified",
+            tag["ndef_state"] == "unverified",
+            tag["ndef_state"],
+        )
 
         # --- the Flipper writes it -------------------------------------------
         request_id = str(uuid.uuid4())
@@ -129,7 +203,7 @@ async def main() -> int:
                     "request_id": request_id,
                     "device_id": device_id,
                     "url": url,
-                    "overwrite": True,
+                    "overwrite": args.overwrite,
                 }
             )
         )
@@ -150,6 +224,17 @@ async def main() -> int:
                     break
                 # `tag.writing` is progress, not an outcome: keep waiting.
         check("the Flipper wrote the tag and read it back", read_back == url, read_back)
+        if read_back != url:
+            # Stop rather than posting a null read-back. `check_write_result`
+            # maps `None` to `degraded`, so carrying on would record a sticker
+            # that may be perfectly good as permanently suspect — the exact
+            # outcome the lock fix exists to prevent, reintroduced by the client.
+            print(
+                "\nthe write did not report success, so nothing is being posted:\n"
+                "  a null read-back is recorded as `degraded` and that is a claim\n"
+                "  about the sticker this run cannot honestly make."
+            )
+            return 1
 
         # --- the client posts the read-back; the server decides --------------
         status, result = call(
@@ -172,7 +257,11 @@ async def main() -> int:
         status, vstarted = call(
             "POST",
             f"/api/locations/{root_id}/verification-sessions",
-            {"device_kind": "flipper_rpc", "client_op_id": str(uuid.uuid4()), "device_id": "hw"},
+            {
+                "device_kind": "flipper_rpc",
+                "client_op_id": str(uuid.uuid4()),
+                "device_id": "hw",
+            },
         )
         check("a verification walk starts", status == 201, status)
         vsid = vstarted["state"]["session"]["id"]
@@ -190,7 +279,11 @@ async def main() -> int:
         if fresh is None:
             return 1
         print(f"== re-read: {fresh['ndef_url']} via {fresh['via']}")
-        check("and now identifies by its URI, not its UID", fresh["via"] == "ndef", fresh["via"])
+        check(
+            "and now identifies by its URI, not its UID",
+            fresh["via"] == "ndef",
+            fresh["via"],
+        )
 
         status, checked = call(
             "POST",
@@ -204,11 +297,23 @@ async def main() -> int:
                 "device_id": "hw",
             },
         )
-        check("the drawer checks out", checked.get("status") == "match", checked.get("status"))
-        check("with a verified sticker", checked.get("ndef_state") == "verified", checked.get("ndef_state"))
+        check(
+            "the drawer checks out",
+            checked.get("status") == "match",
+            checked.get("status"),
+        )
+        check(
+            "with a verified sticker",
+            checked.get("ndef_state") == "verified",
+            checked.get("ndef_state"),
+        )
 
     print()
-    print("FAILURES: " + ", ".join(failures) if failures else "commissioned on real hardware")
+    print(
+        "FAILURES: " + ", ".join(failures)
+        if failures
+        else "commissioned on real hardware"
+    )
     return 1 if failures else 0
 
 

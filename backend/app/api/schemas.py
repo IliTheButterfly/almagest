@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.limits import GridIndex, GridSpan
+from app.models.catalog import Part
 from app.models.enums import SizeClass
 from app.models.stock import StockLot
 from app.models.storage import Location
@@ -46,6 +47,13 @@ class LotRead(BaseModel):
 
     id: int
     part_id: int
+    #: What the part *is*, carried on the lot because the screens that list lots
+    #: are exactly the screens that cannot afford a request per row. Without it
+    #: a drawer renders "250 / part 4" — the landing screen for every tag tap
+    #: and every QR, showing a primary key, so two lots in one bin cannot be
+    #: told apart without opening each.
+    part_name: str | None = None
+    part_mpn: str | None = None
     location_id: int
     #: Read from `stock_lots.qty_milli_cached`. **Never** a `SUM(delta_milli)`
     #: over the ledger — that is the query that stops being sub-second somewhere
@@ -72,9 +80,14 @@ def lot_read(session: Session, lot: StockLot) -> LotRead:
     costs one query for the location, not one per lot.
     """
     location = session.get(Location, lot.location_id)
+    # Same argument as the location above: an identity-map lookup, so a bin of
+    # twenty lots of one part costs one query, not twenty.
+    part = session.get(Part, lot.part_id)
     return LotRead(
         id=lot.id,
         part_id=lot.part_id,
+        part_name=part.name if part is not None else None,
+        part_mpn=part.mpn if part is not None else None,
         location_id=lot.location_id,
         qty_milli=lot.qty_milli_cached,
         qty_reserved_milli=lot.qty_reserved_milli_cached,

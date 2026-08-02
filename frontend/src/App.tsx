@@ -120,8 +120,15 @@ export function App() {
 
       <nav className="app-nav" aria-label="Main" ref={navRef}>
         <NavLink to="/search">Search</NavLink>
-        <NavLink to="/datasheets">Datasheets</NavLink>
+        {/* Second, not seventh. Eleven tabs do not fit a phone: at 430 CSS px
+            the strip shows about six, and Scan used to sit past the right edge
+            on every fresh load — so the bench's most-used entry point that is
+            not a tag tap was invisible until you thought to swipe a nav bar. The
+            `scrollIntoView` below only helps once you are already on it. */}
+        <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/tree">Storage</NavLink>
+        <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
+        <NavLink to="/datasheets">Datasheets</NavLink>
         {/* "Types" was jargon: the tab that lets you make your own cabinets and
             drawers read as a settings page, and was reported twice as "I still
             can't create my own containers". "Containers" is what the screen is
@@ -133,11 +140,9 @@ export function App() {
             a pair: what a container is, and what a part is. */}
         <NavLink to="/part-types">Part types</NavLink>
         <NavLink to="/projects">Projects</NavLink>
-        <NavLink to="/scan">Scan</NavLink>
-        <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
-        {/* Beside Intake on purpose: what intake could not place lands in the
-            inbox, and the tab that empties it has to be next to the tab that
-            fills it or nobody goes looking. */}
+        {/* What intake could not place lands in the inbox, so the tab that
+            empties it stays in the same half of the strip as the one that fills
+            it, even though Intake has moved forward. */}
         <NavLink to="/staging">Staging</NavLink>
         <NavLink to="/review">Review</NavLink>
         {/* Next to Review because it is the same kind of errand: looking again at

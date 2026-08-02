@@ -65,7 +65,35 @@ hand. Judge:
   dies.
 - **Honest limits**: does user-facing text imply precision that does not exist?
 
-### 4. Test quality
+### 4. Getting around the app
+
+Judge the **navigation**, not just the screen in front of you. This is a
+mobile-first PWA used one-handed at a cabinet, and the failure mode is not an
+ugly screen — it is a person who cannot get from what they are looking at to
+what they need next.
+
+- **Reachability.** Is every destination reachable from the tab bar or from a
+  screen that links to it? Count the taps for the common journeys: scan a tag →
+  see the drawer → take stock; find a part → see where it is → go there; intake
+  something new. A destination that exists only via a URL is not shipped.
+- **Dead ends.** After an action completes — a bind, a commit, an undo — is
+  there an obvious next step, or does the screen leave the user staring at a
+  success message? A walk that ends nowhere is the commonest one.
+- **Back and state.** Does the browser back button do the obvious thing? Is
+  in-progress work (a walk, a cart, an edit) lost by navigating away, and if it
+  can be resumed, does the UI say so?
+- **Where am I.** Does every screen with a place in the tree show it? A drawer
+  that does not say which cabinet it is in is unusable at a bench.
+- **Tab bar honesty.** Are the destinations ones a person recognises, or are
+  they the developer's module names? Are any unreachable or duplicated?
+- **One-handed.** Are the controls a person uses while holding a container
+  within thumb reach, and are the destructive ones not?
+
+Report the tap counts you measured and the journey you took. Run the app if you
+can (`.claude/skills/run-almagest/driver.py`) and screenshot rather than
+reasoning from source alone — a navigation claim from reading JSX is a guess.
+
+### 5. Test quality
 Do the tests pin *behaviour a person depends on*, or do they restate the
 implementation? Look for:
 - a **control** — a test that would fail if the mechanism under test were removed;
@@ -74,20 +102,20 @@ implementation? Look for:
   (a test that was "fixed" by changing the assertion is a finding);
 - missing negative cases, especially around refusals and conflicts.
 
-### 5. Conventions CI enforces
+### 6. Conventions CI enforces
 `CLAUDE.md` lists them; each has a test that fails loudly. No `CHECK` constraints
 and no `sa.Enum`; migrations that do not import from `app`; every route having a
 line in `mcpserver/almagest_mcp/coverage.py`; numeric `parameter_value` rows
 carrying `value_min`/`value_max`; `UtcDateTime`, `*_milli`, `*_micro`. Also check
 that `make check` would actually pass, including `ruff format`.
 
-### 6. Reversibility and blast radius
+### 7. Reversibility and blast radius
 What does this change destroy if it is wrong? The ledger is append-only and undo
 is a compensating row. Anything that deletes, overwrites a tag, or resets a
 database deserves scrutiny proportional to how hard it is to undo — and a tag
 write is *physical*, so it cannot be rolled back by software at all.
 
-### 7. Scope discipline
+### 8. Scope discipline
 Did the change do what was asked, without silently widening or narrowing it? Both
 are findings. Unused code added "for later" is a finding; so is a stated
 deliverable quietly dropped.

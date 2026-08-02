@@ -311,3 +311,15 @@ describe("the pre-paint theme script", () => {
     expect(HTML).toContain('setAttribute("data-theme"');
   });
 });
+
+describe("a badge that holds a value is never case-folded", () => {
+  it("gives `.badge-value` text-transform: none", () => {
+    // `.badge` uppercases, which is right for "STAGING" and catastrophic for a
+    // quantity: µ case-folds to Μ, so "22 μF" renders "22 MF" — off by twelve
+    // orders of magnitude on the one control that confirms an entered value was
+    // understood. mΩ → MΩ the same way.
+    const rule = CSS.match(/\.badge-value\s*\{[^}]*\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![0]).toMatch(/text-transform:\s*none/);
+  });
+});

@@ -171,7 +171,7 @@ function FieldRow({
         {field.base_unit !== null && <span className="mono dim">{field.base_unit}</span>}
         <span className="spacer" />
         {hasValue ? (
-          <span className="badge badge-good">{field.display ?? field.raw_input}</span>
+          <span className="badge badge-good badge-value">{field.display ?? field.raw_input}</span>
         ) : (
           <span className="muted-note">not recorded</span>
         )}

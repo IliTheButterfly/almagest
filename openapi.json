@@ -7153,6 +7153,28 @@
             "title": "Part Id",
             "type": "integer"
           },
+          "part_mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Mpn"
+          },
+          "part_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Name"
+          },
           "qty_milli": {
             "title": "Qty Milli",
             "type": "integer"

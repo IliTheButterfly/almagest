@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Upload a .fap to a Flipper over its text CLI.
 
 `ufbt install` is the normal route and cannot be used here: the fbt toolchain
@@ -11,6 +12,8 @@ upload needs nothing but pyserial.
 
 from __future__ import annotations
 
+import hashlib
+import posixpath
 import sys
 import time
 
@@ -41,9 +44,23 @@ def command(port: serial.Serial, line: str, quiet_s: float = 0.5) -> str:
 
 
 def main() -> int:
+    if len(sys.argv) != 4:
+        print(__doc__)
+        print("usage: flipper_install.py <by-id node> <local file> <remote path>")
+        return 2
     node, local, remote = sys.argv[1], sys.argv[2], sys.argv[3]
-    payload = open(local, "rb").read()
-    print(f"uploading {len(payload)} bytes to {remote}")
+    with open(local, "rb") as handle:
+        payload = handle.read()
+    want = hashlib.md5(payload).hexdigest()
+    print(f"uploading {len(payload)} bytes to {remote} (md5 {want})")
+
+    # Upload beside the target and only move it into place once the md5 checks
+    # out. The previous version removed the working `.fap` first, so a short or
+    # corrupt write left the Flipper with no app at all — and said nothing,
+    # because it returned 0 regardless.
+    staging = posixpath.join(
+        posixpath.dirname(remote) or "/ext", ".almagest-upload.tmp"
+    )
 
     port = serial.Serial(node, baudrate=115200, timeout=0.2, exclusive=True)
     try:
@@ -51,18 +68,19 @@ def main() -> int:
         port.write(b"\r")
         drain(port)
 
-        # The directory may or may not exist; a failure here is not fatal.
-        print(command(port, "storage mkdir /ext/apps").strip()[:120])
-        print(command(port, "storage mkdir /ext/apps/NFC").strip()[:120])
-        # Remove any previous copy so the write is not appending into a stale file.
-        print(command(port, f"storage remove {remote}").strip()[:120])
+        # Make the target's directory, following `remote` rather than a
+        # hardcoded path. Already-exists is the normal answer and not fatal.
+        parts = posixpath.dirname(remote).strip("/").split("/")
+        for depth in range(1, len(parts) + 1):
+            command(port, "storage mkdir /" + "/".join(parts[:depth]))
+        command(port, f"storage remove {staging}")
 
         # `\r` only, never `\r\n`. The CLI terminates a line on `\r` and leaves the
         # `\n` in the stream — which then becomes the *first byte the payload
         # reader sees*, shifting the whole file by one and dropping its last
         # byte. The file lands with exactly the right size and the wrong md5,
         # which is as quiet as corruption gets.
-        port.write(f"storage write_chunk {remote} {len(payload)}\r".encode())
+        port.write(f"storage write_chunk {staging} {len(payload)}\r".encode())
         port.flush()
         # The firmware answers "Ready" before it will accept the bytes; sending
         # early is how the first chunk gets eaten by the echo.
@@ -77,8 +95,27 @@ def main() -> int:
             sent += len(block)
         print(f"sent {sent} bytes")
 
-        print("after:", drain(port, quiet_s=1.0, limit_s=15.0).decode("utf-8", "replace").strip()[:200])
-        print("stat:", command(port, f"storage stat {remote}", quiet_s=1.0).strip()[:200])
+        drain(port, quiet_s=1.0, limit_s=15.0)
+
+        # Verify before replacing anything. The corruption this file exists to
+        # avoid produces a file of exactly the right *size*, so a `stat` is not
+        # evidence — only the digest is.
+        got = command(port, f"storage md5 {staging}", quiet_s=1.5)
+        if want not in got:
+            print(f"md5 MISMATCH: wanted {want}, device said {got.strip()[:120]}")
+            print("leaving the previous file in place and removing the upload")
+            command(port, f"storage remove {staging}")
+            return 1
+
+        command(port, f"storage remove {remote}")
+        moved = command(port, f"storage rename {staging} {remote}", quiet_s=1.0)
+        stat = command(port, f"storage stat {remote}", quiet_s=1.0)
+        if str(len(payload)) not in stat:
+            print(
+                f"the file did not land: {moved.strip()[:120]} / {stat.strip()[:160]}"
+            )
+            return 1
+        print(f"installed {remote}: md5 verified, {len(payload)} bytes")
     finally:
         port.close()
     return 0
