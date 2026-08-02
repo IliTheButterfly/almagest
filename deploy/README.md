@@ -31,6 +31,7 @@ share these manifests: see **[station/README.md](station/README.md)**.
 
   almagest-backup      CronJob, 03:17 daily, keeps 14
   almagest-maintenance CronJob, 03:42 daily, no volume — talks to the API
+  almagest-blob-scrub  CronJob, 04:17 Sundays, no volume — talks to the API
 ```
 
 Everything is named `almagest-*` and labelled
@@ -150,6 +151,24 @@ to zero.
 one), and keeps 14. It writes to `/data/backups` on the same PVC, which protects
 against corruption but *not* against losing the disk — `make k8s-backup-pull`
 is the off-cluster half and is currently manual.
+
+## The blob scrub
+
+`almagest-blob-scrub` runs at 04:17 on Sundays and re-hashes every stored file
+against its own name. Weekly rather than nightly, and its own CronJob rather than
+a step in the pass below, because it reads every blob in full: its cost grows
+with the datasheet store while the cache pass's does not, and bit rot is a slow
+enough failure that a week is a perfectly good detection window.
+
+It repairs nothing. A blob is re-fetchable — it is a PDF on a manufacturer's
+website — while the row's metadata, links and extracted text are not, so deleting
+a bad file would trade a recoverable failure for an unrecoverable one. A finding
+fails the Job, which is the alert channel here.
+
+The two findings differ: `missing` is a file that is gone and can be repaired by
+re-uploading the same bytes, `corrupt` is a file that is present, served as
+authoritative and cached `immutable`, and which every future upload of the
+correct bytes will dedup onto. The second is the dangerous one.
 
 ## Cache maintenance
 

@@ -161,6 +161,7 @@ function slotSpecOutToOriginal(spec: {
   size_class: string | null;
   inner_volume_mm3: number | null;
   short_id: string | null;
+  last_printed_at: string | null;
   has_tag: boolean;
   lot_count: number;
   qty_milli: number;
@@ -176,6 +177,7 @@ function slotSpecOutToOriginal(spec: {
     innerVolumeMm3: spec.inner_volume_mm3,
     locationId: spec.location_id,
     shortId: spec.short_id,
+    lastPrintedAt: spec.last_printed_at,
     hasTag: spec.has_tag,
     lotCount: spec.lot_count,
     qtyMilli: spec.qty_milli,
@@ -421,8 +423,16 @@ function Editor({
                       re-layout is a legitimate thing to do. But the card in the
                       drawer front stops working the moment this saves, and the
                       person doing it is the person who will find that out, so
-                      they are told before rather than after. */}
-                  {!blocked && slot.shortId !== null && (
+                      they are told before rather than after.
+
+                      Gated on `lastPrintedAt`, not on having a code: with
+                      `tag_granularity="slot"` every slot is given a `short_id`
+                      at instantiation, so keying off that warned about a card
+                      that had never been printed on most deletions — and a
+                      warning that is usually wrong is one people learn to skip
+                      past. A location cannot claim to be printed on its own
+                      say-so; this is the field the "never printed" badge reads. */}
+                  {!blocked && slot.lastPrintedAt !== null && (
                     <span className="muted-note">
                       {" "}
                       — the card printed for this slot ({slot.shortId}) will stop working

@@ -157,6 +157,12 @@ _MAINTENANCE: Final = (
     "overwrites the drift that proves a write path is broken, which is the one "
     "thing that must survive until a person has looked at it."
 )
+_SCRUB: Final = (
+    "The same CronJob's other door, and heavier: it reads every stored blob in "
+    "full, so an agent that called it out of curiosity would occupy the single "
+    "API replica for as long as the datasheet store takes to hash. Its finding "
+    "is bit rot, which is an operator's problem and not an inventory question."
+)
 _LABELS: Final = (
     "Label sheets exist to be printed and stuck onto containers. Generating one "
     "no person is standing by to print wastes short ids on paper that never gets "
@@ -469,6 +475,7 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "read_caches": Exposed("check_caches"),
         "run_maintenance": Excluded(Reason.MACHINE_DOOR, _MAINTENANCE),
         "rebuild_caches": Excluded(Reason.MACHINE_DOOR, _MAINTENANCE),
+        "scrub_blobs": Excluded(Reason.MACHINE_DOOR, _SCRUB),
     }
 )
 

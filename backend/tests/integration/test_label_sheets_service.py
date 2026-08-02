@@ -89,6 +89,10 @@ def test_missing_front_dimensions_is_a_clear_error(db: Session) -> None:
     with pytest.raises(LabelError) as excinfo:
         labels.card_size_mm(container_type)
     assert excinfo.value.reason == "missing_front_dimensions"
+    # A refusal with no path forward teaches people to stop trying. It names the
+    # type and the measurement to take.
+    assert container_type.display_name in str(excinfo.value)
+    assert "measure" in str(excinfo.value)
 
 
 def test_a_container_type_with_no_type_at_all_is_the_same_error() -> None:
@@ -409,3 +413,38 @@ def test_slot_ids_is_refused_for_a_cabinet_card(db: Session) -> None:
             dpi=300,
         )
     assert excinfo.value.reason == "slot_ids_not_applicable"
+
+
+def test_a_cabinet_from_the_seed_library_can_actually_print(db: Session) -> None:
+    """A fresh install's cabinets could not print a card at all.
+
+    The seed library shipped with no `front_width_mm`/`front_height_mm`, and
+    nothing could supply them afterwards: `PATCH /api/container-types/{id}`
+    clones a seed rather than mutating it, and no route repoints a standing
+    location at the clone. So `POST /api/labels/sheets` answered 422 for every
+    container created from the library, permanently — and "printing a drawer
+    card today means curl" was not true either, because curl got the same 422.
+
+    The numbers are read off the seed's own committed description ("full-width
+    label holders (~18x87 mm cards)"), which is why the card comes out at exactly
+    that size rather than at something plausible.
+    """
+    seeded = db.execute(
+        select(ContainerType).where(ContainerType.slug == "raaco-c8-30")
+    ).scalar_one()
+
+    assert labels.card_size_mm(seeded) == (87.0, 18.0)
+
+
+def test_the_seed_whose_front_nobody_has_measured_still_refuses(db: Session) -> None:
+    """Akro-Mils is left null on purpose. Its description gives no card size and
+    PLAN.md gives no drawer front, so a plausible-looking number would print
+    cards that are subtly the wrong size and look deliberate. The refusal now
+    tells whoever has the cabinet what to measure."""
+    seeded = db.execute(
+        select(ContainerType).where(ContainerType.slug == "akro-mils-10144")
+    ).scalar_one()
+
+    with pytest.raises(LabelError) as excinfo:
+        labels.card_size_mm(seeded)
+    assert excinfo.value.reason == "missing_front_dimensions"

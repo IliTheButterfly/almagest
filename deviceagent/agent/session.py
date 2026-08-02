@@ -587,7 +587,8 @@ class StationSession:
         """
         if self.pending is not None:
             raise _BadCommand("action_pending", "cancel the pending action before refreshing")
-        if not self._holdoff.admit(f"refresh:{self.session_id}"):
+        key = f"refresh:{self.session_id}"
+        if not self._holdoff.admit(key):
             return []
 
         container = self.container
@@ -595,8 +596,17 @@ class StationSession:
             try:
                 self.container = await self._api.read_container(container.location_id)
             except ApiUnavailable as error:
+                # The window is given back before returning. Every other silent
+                # hold-off here is justified by "the state already says what the
+                # user wanted" — that is false when the last thing on screen is
+                # an error. Without this the second tap of Refresh produces *no
+                # event at all*: no retry, no rejection, nothing, for 400 ms, with
+                # a failure showing. `_propose` gets the ordering right by
+                # admitting after its validation; this admitted before the work.
+                self._holdoff.forget(key)
                 return [self._failed("api_unavailable", str(error))]
             except ApiError as error:
+                self._holdoff.forget(key)
                 return [self._failed(error.reason, str(error))]
             self.state = SessionState.READY
             return self._ready_events()
@@ -605,6 +615,9 @@ class StationSession:
             self.state = SessionState.RESOLVING
             return await self._resolve()
 
+        # Same reason: a refusal the user can act on must not also cost them the
+        # next tap.
+        self._holdoff.forget(key)
         raise _BadCommand(
             "nothing_to_resolve",
             "this placement produced no readable carrier; lift the container and set it down again",

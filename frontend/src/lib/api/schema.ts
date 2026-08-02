@@ -2903,6 +2903,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/blobs/scrub": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scrub Blobs
+         * @description Re-hash every stored blob against its own name. Reads only; repairs nothing.
+         *
+         *     **Its own route, deliberately not part of `POST /maintenance`.** Every blob is
+         *     read in full, so this is I/O-bound in the size of the store — putting a
+         *     gigabyte of datasheet hashing inside the nightly pass would make the pass that
+         *     rebuilds occupancy and checks two caches take as long as the slowest disk in
+         *     the deployment. Separate call, separate schedule.
+         *
+         *     It has to be a route at all for the same reason the nightly pass is: the
+         *     CronJob has no volume mount and there is exactly one process holding the
+         *     ReadWriteOnce disk. `app.scripts.maintenance --scrub` is what calls it.
+         *
+         *     Nothing is deleted or rewritten. A blob is re-fetchable — it is a PDF on a
+         *     manufacturer's website — while the row's metadata, its links and its extracted
+         *     text are not, so turning one bad sector into a deleted document would trade a
+         *     recoverable failure for an unrecoverable one.
+         */
+        post: operations["scrub_blobs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/caches": {
         parameters: {
             query?: never;
@@ -3340,6 +3375,18 @@ export interface components {
             /** Status */
             status: string;
             tag: components["schemas"]["TagRead"] | null;
+        };
+        /**
+         * BlobScrubResponse
+         * @description What re-hashing the blob store found. Complete counts, not a sample.
+         */
+        BlobScrubResponse: {
+            /** Checked */
+            checked: number;
+            /** Corrupt */
+            corrupt: string[];
+            /** Missing */
+            missing: string[];
         };
         /** BomImportRequest */
         BomImportRequest: {
@@ -8011,6 +8058,8 @@ export interface components {
             has_tag: boolean;
             /** Inner Volume Mm3 */
             inner_volume_mm3: number | null;
+            /** Last Printed At */
+            last_printed_at: string | null;
             /** Location Id */
             location_id: number;
             /** Lot Count */
@@ -13048,6 +13097,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scrub_blobs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlobScrubResponse"];
                 };
             };
         };

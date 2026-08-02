@@ -1,0 +1,81 @@
+# Weekly blob scrub: re-hash every stored file against its own name.
+#
+# Separate from `almagest-maintenance` on purpose. `documents.scrub` reads every
+# blob in full, so folding it into the nightly pass would make that pass as slow
+# as the datasheet store is large; and the two find different kinds of wrong —
+# one a derived number that disagrees with its source, the other a file that no
+# longer is what its name says it is.
+#
+# It goes through the API for the same reason the cache pass does: one process
+# holds the ReadWriteOnce volume, and this Job has no mount of its own.
+#
+# A finding fails the Job deliberately — there is no metrics stack here, and a
+# corrupt blob is served as authoritative and cached `immutable`, so it must not
+# sit in a log nobody reads.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: almagest-blob-scrub
+  labels:
+    app.kubernetes.io/component: maintenance
+spec:
+  # After `almagest-backup` at 03:17, not before. If a night's run turns up
+  # drift, the backup taken minutes earlier holds the *un-repaired* state, which
+  # is the only copy that can still show how a write path broke.
+  # Weekly, not nightly, and hours away from the cache pass. It reads every
+  # stored blob in full, so its cost grows with the datasheet store while the
+  # nightly pass's does not — and bit rot is a slow failure, so a week is a
+  # perfectly good detection window for it.
+  schedule: "17 4 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  # Drift is the alert channel here — there is no metrics stack — so keep more
+  # failures than successes: a failed Job weeks old is the record of when the
+  # numbers first went wrong.
+  failedJobsHistoryLimit: 7
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      # Zero, not the default 6. A drift finding is a state of the data, not a
+      # flake: retrying only records the same finding six more times and buries
+      # the one that mattered. A genuinely transient failure (the API mid-restart)
+      # is picked up by tomorrow's run.
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: almagest
+            app.kubernetes.io/component: maintenance
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: maintenance
+              # The API image, because this program lives in that repo and shares
+              # its OpenAPI contract. It needs nothing from the image but a Python
+              # and the standard library — the client is `urllib`.
+              image: ghcr.io/ilithebutterfly/almagest-api
+              command:
+                - python
+                - -m
+                - app.scripts.maintenance
+                - --base-url
+                - http://almagest-api:8000
+                - --scrub
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi

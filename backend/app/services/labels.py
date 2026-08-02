@@ -81,9 +81,12 @@ def card_size_mm(container_type: ContainerType | None) -> tuple[float, float]:
         or container_type.front_width_mm is None
         or container_type.front_height_mm is None
     ):
+        named = "this container" if container_type is None else f'"{container_type.display_name}"'
         raise LabelError(
-            "this container type has no front_width_mm/front_height_mm; "
-            "card size cannot be derived",
+            f"{named} has no drawer-front dimensions recorded, so a card cannot be "
+            "sized: measure the face a label sits on and set front width and height "
+            "on the container type. Guessing would print at whatever size happened "
+            "to be convenient rather than at what the drawer is.",
             reason="missing_front_dimensions",
         )
     width = container_type.front_width_mm - LIP_MARGIN_WIDTH_MM

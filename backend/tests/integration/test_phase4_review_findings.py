@@ -559,6 +559,41 @@ def test_the_scrub_finds_what_dedup_cannot(db: Session) -> None:
     assert good.sha256 not in report.corrupt + report.missing
 
 
+def test_the_scrub_is_reachable_from_the_job_that_is_supposed_to_run_it(
+    client: TestClient, db: Session
+) -> None:
+    """A function only a test calls detects exactly as much bit rot as no scrub.
+
+    `documents.scrub` existed, its docstring said "run nightly, beside
+    `check_lot_balance_drift`", and nothing outside this file ever called it —
+    the same defect PR #59 fixed for cache maintenance, one module along. It now
+    has a route, and `python -m app.scripts.maintenance --scrub` and a weekly
+    CronJob behind it.
+
+    Deliberately **not** part of `POST /api/system/maintenance`: it reads every
+    blob in full, so folding it in would make the nightly pass as slow as the
+    datasheet store is large.
+    """
+    document = documents.store_document(
+        db, data=_pdf(b"intact"), media_type=PDF, kind=DocumentKind.DATASHEET
+    ).document
+    db.commit()
+
+    clean = client.post("/api/system/blobs/scrub")
+    assert clean.status_code == 200, clean.text
+    assert clean.json() == {"checked": 1, "missing": [], "corrupt": []}
+
+    path = blobstore.path_for(document.storage_path)
+    path.write_bytes(b"X" * len(path.read_bytes()))
+
+    found = client.post("/api/system/blobs/scrub").json()
+    assert found["corrupt"] == [document.sha256]
+    # And the nightly pass is not where it lives, so that pass stays fast.
+    assert "blob" not in " ".join(
+        entry["cache_name"] for entry in client.post("/api/system/maintenance").json()["drift"]
+    )
+
+
 def test_a_part_with_a_document_is_untouched_by_the_scrub(client: TestClient, db: Session) -> None:
     """The scrub reads and hashes; it must never write. A repair that deleted a
     row would turn one bad sector into a lost datasheet, and the blob is

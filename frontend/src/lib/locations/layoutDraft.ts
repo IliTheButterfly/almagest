@@ -46,6 +46,10 @@ export interface DraftSlot extends Cell {
 export interface OriginalSlot extends DraftSlot {
   readonly locationId: number | null;
   readonly shortId: string | null;
+  /** When a card was last actually printed for this slot, not when a code was
+   *  minted for it. With `tag_granularity="slot"` every slot has a `short_id`
+   *  from instantiation, so the two are very different questions. */
+  readonly lastPrintedAt: string | null;
   readonly hasTag: boolean;
   readonly lotCount: number;
   readonly qtyMilli: number;

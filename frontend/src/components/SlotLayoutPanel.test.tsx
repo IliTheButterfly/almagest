@@ -85,6 +85,7 @@ function slotState(overrides: Record<string, unknown>): Record<string, unknown> 
     inner_volume_mm3: null,
     sort_order: 0,
     short_id: null,
+    last_printed_at: null,
     has_tag: false,
     lot_count: 0,
     qty_milli: 0,
@@ -483,4 +484,69 @@ it("tells the page behind, so the picture it draws actually changes", async () =
   // fronts, `GET …/plan` was never issued, and reopening this panel re-read the
   // select from the stale row and showed the *old* choice.
   await waitFor(() => expect(saved).toHaveBeenCalled());
+});
+
+describe("deleting a slot that has a card in its drawer front", () => {
+  /**
+   * A printed card deliberately does **not** block a re-layout — cardstock is
+   * cheap and re-laying out a cabinet is a legitimate thing to do. What must not
+   * happen is the person finding out afterwards, at the cabinet, holding a card
+   * that no longer resolves.
+   *
+   * The signal has to be `last_printed_at` and not "has a short id": with
+   * `tag_granularity="slot"` every slot is given a code at instantiation, so
+   * keying off the code warned on almost every deletion, about cards that had
+   * never existed — and a warning that is usually wrong is one people learn to
+   * tap past.
+   *
+   * A1 is used rather than A2 because A2 holds stock, and a blocked slot is
+   * reported as blocked instead.
+   */
+  function withPrintState(printedAt: string | null): void {
+    stubApi();
+    const original = globalThis.fetch as unknown as (r: Request) => Promise<Response>;
+    vi.stubGlobal("fetch", async (request: Request) => {
+      const url = new URL(request.url, "http://localhost");
+      if (url.pathname === "/api/locations/11/layout" && request.method === "GET") {
+        return json(
+          layoutRead({
+            slots: [
+              slotState({
+                location_id: 100,
+                slot_label: "A1",
+                col_idx: 0,
+                short_id: "4K7T-92M8",
+                last_printed_at: printedAt,
+              }),
+              slotState({ location_id: 101, slot_label: "A2", col_idx: 1 }),
+            ],
+          }),
+        );
+      }
+      return original(request);
+    });
+  }
+
+  it("says which card stops working, before the save rather than after", async () => {
+    withPrintState("2026-07-01T10:00:00Z");
+    renderPanel();
+    await screen.findByText("A1", { selector: ".cell-slot" });
+
+    clickCell("A1");
+    fireEvent.click(await screen.findByRole("button", { name: "Remove this slot" }));
+
+    expect(await screen.findByText(/the card printed for this slot/)).toBeTruthy();
+  });
+
+  it("stays quiet about a slot that has a code but was never printed", async () => {
+    withPrintState(null);
+    renderPanel();
+    await screen.findByText("A1", { selector: ".cell-slot" });
+
+    clickCell("A1");
+    fireEvent.click(await screen.findByRole("button", { name: "Remove this slot" }));
+
+    expect(await screen.findByText(/removed/)).toBeTruthy();
+    expect(screen.queryByText(/the card printed for this slot/)).toBeNull();
+  });
 });

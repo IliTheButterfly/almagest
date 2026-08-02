@@ -330,6 +330,30 @@ export function ContainerTypeForm({
             ))}
           </select>
         </label>
+        <div className="fields">
+          <label className="field">
+            <span>Drawer front width (mm)</span>
+            <input
+              inputMode="decimal"
+              value={draft.frontWidthMm}
+              onChange={(event) => set("frontWidthMm", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Drawer front height (mm)</span>
+            <input
+              inputMode="decimal"
+              value={draft.frontHeightMm}
+              onChange={(event) => set("frontHeightMm", event.target.value)}
+            />
+          </label>
+        </div>
+        <p className="muted-note" style={{ margin: 0 }}>
+          The face a label goes on, not the compartment inside. Without both, no card can
+          be printed for anything of this type — the sheet is sized from these minus the
+          label lip, so there is nothing to guess from. Measure the drawer front, not the
+          existing card.
+        </p>
         {draft.capacityModel === "slots" && (
           <label className="field">
             <span>How many compartments</span>

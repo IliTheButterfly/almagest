@@ -35,6 +35,7 @@ from pathlib import Path
 
 import pytest
 
+from app.api.limits import QTY_MILLI_MAX
 from app.services.bom_import import (
     BomField,
     ParsedBom,
@@ -658,12 +659,44 @@ def test_an_ambiguous_decimal_quantity_is_refused_rather_than_guessed() -> None:
     assert line.qty_per_assembly_milli == 1_000
 
 
-@pytest.mark.parametrize("cell", ["four", "0", "-3"])
+@pytest.mark.parametrize("cell", ["four", "0", "-3", "NaN", "Infinity", "-Infinity", "nan"])
 def test_an_unusable_quantity_is_ignored_not_fatal(cell: str) -> None:
+    """`NaN` and `Infinity` are here because `Decimal` parses them happily and
+    then every comparison below raises: `NaN <= 0` is `InvalidOperation`,
+    `int(Infinity)` is `OverflowError`. Both escaped uncaught and 500'd the
+    route, against a module whose first docstring line is that an import never
+    fails. They are the same kind of cell as "four" — somebody typed something
+    that is not a quantity — so they take the same path."""
     line = parse_bom(f"Reference,Value,Qty\nR1,10k,{cell}\n").lines[0]
     assert line.declared_qty_milli is None
     assert line.qty_per_assembly_milli == 1_000
     assert line.warnings != ()
+
+
+def test_an_astronomical_quantity_is_clamped_and_says_so() -> None:
+    """This is the only milli writer that does not go through `limits.QtyMilli`,
+    because it writes rows rather than validating a request body.
+
+    Past 2**63 the row died at the INSERT with a bare `OverflowError`. Between
+    the cap and that, it landed **silently** as a demand figure no number of
+    builds could ever consume. The line still lands — that is this module's whole
+    contract — carrying the largest quantity the system can represent and a
+    warning saying so.
+    """
+    line = parse_bom("Reference,Value,Qty\nR1,10k,1e30\n").lines[0]
+
+    assert line.qty_per_assembly_milli == QTY_MILLI_MAX
+    assert "larger than this system records" in " ".join(line.warnings)
+
+
+def test_a_designator_range_with_an_absurd_number_is_kept_verbatim() -> None:
+    """`int()` refuses a string of more than ~4300 digits outright, which
+    escaped as a 500 from a cell somebody pasted. Whatever such a token is, it is
+    not a range."""
+    token = "R1-R" + "9" * 4400
+    line = parse_bom(f"Reference,Value,Qty\n{token},10k,1\n").lines[0]
+
+    assert "implausibly long number" in " ".join(line.warnings)
 
 
 # ---------------------------------------------------------------------------
