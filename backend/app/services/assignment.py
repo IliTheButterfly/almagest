@@ -413,6 +413,27 @@ def _distinct_active_locations_for_part(session: Session, part_id: int) -> int:
     ).scalar_one()
 
 
+def _is_overfull(snapshot: capacity.CapacitySnapshot, location: Location) -> bool:
+    """Over capacity by the live count **or** by the last persisted one.
+
+    `locations.is_overfull` is written only by the nightly bulk pass, so between
+    over-filling a bin and that pass running it still reads `False` — and the
+    scorer would offer the bin as a `DIRECT` candidate for the parts that just
+    over-filled it. That is the same defect the container page had, one function
+    away: a live `used`/`fill_ratio` served beside a stale flag.
+
+    The `or` is not belt-and-braces. Dropping the column would take the *other*
+    direction with it: the persisted flag is what the bulk pass sets for
+    conditions this snapshot cannot see on its own, and `hard_filter_reasons`
+    keeps overfull excluded even under relaxation precisely because it is the one
+    condition that a looser search must not talk itself out of. Reading both means
+    the scorer never offers a bin that either measure calls full — and an emptied
+    bin is still gated by the stale column until the pass clears it, which is the
+    conservative direction of the two.
+    """
+    return bool(snapshot.is_overfull or location.is_overfull)
+
+
 def _effective_is_placeable(location: Location, container_type: ContainerType | None) -> bool:
     if location.is_placeable is not None:
         return location.is_placeable
@@ -513,7 +534,7 @@ def _evaluate_all_locations(
                 capacity_slots=capacity_slots,
                 distinct_parts_at_location=len(distinct_parts),
                 part_already_present=part_already_present,
-                is_overfull=location.is_overfull,
+                is_overfull=_is_overfull(snapshot, location),
                 ctx=ctx,
                 strict=True,
             )
@@ -529,7 +550,7 @@ def _evaluate_all_locations(
                 capacity_slots=capacity_slots,
                 distinct_parts_at_location=len(distinct_parts),
                 part_already_present=part_already_present,
-                is_overfull=location.is_overfull,
+                is_overfull=_is_overfull(snapshot, location),
                 ctx=ctx,
                 strict=False,
             )

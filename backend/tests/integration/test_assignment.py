@@ -187,6 +187,37 @@ def test_already_overfull_location_is_excluded_from_direct_assignment(db: Sessio
     assert overfull.id not in _candidate_ids(result)
 
 
+def test_a_freshly_overfilled_bin_is_not_offered_before_the_pass_runs(db: Session) -> None:
+    """The live half of overfull, which nothing pinned.
+
+    `locations.is_overfull` is written only by the nightly bulk pass, so between
+    over-filling a bin and that pass running the column still says `False`. The
+    scorer builds a live capacity snapshot for every candidate anyway — and then
+    threw it away for this one field, reading the stale column instead. So the
+    bin that had just been over-filled was offered as a `DIRECT` candidate for
+    the very parts that over-filled it.
+
+    Deliberately **no** `rebuild_location_occupancy` here: the missing rebuild is
+    the whole scenario.
+    `test_already_overfull_location_is_excluded_from_direct_assignment` covers
+    the persisted flag, which is still read — an emptied bin stays excluded until
+    the pass clears it, and that is the conservative direction.
+    """
+    ct = make_container_type(db, "tight", capacity_model=CapacityModel.SLOTS, capacity_slots=1)
+    bin_ = make_location(db, "Just over-filled", container_type_id=ct.id)
+    lot_a = make_lot(db, make_part(db, "Occupant A"), bin_)
+    make_lot(db, make_part(db, "Occupant B"), bin_)
+    post(db, lot_a, 1000, LedgerKind.RECEIVE)
+    db.commit()
+
+    # The cache has not been rebuilt, so the persisted flag has not caught up.
+    assert bin_.is_overfull is False
+
+    result = assign_location(db, make_part(db, "Newcomer"))
+
+    assert bin_.id not in _candidate_ids(result)
+
+
 # ---------------------------------------------------------------------------
 # Escalation level 1: drop soft preferences
 # ---------------------------------------------------------------------------
@@ -280,10 +311,16 @@ def test_defrag_plan_proposed_when_the_only_fit_is_over_capacity(db: Session) ->
     make_lot(db, occupant_b, location)
     post(db, lot_a, 1000, LedgerKind.RECEIVE)
     db.commit()
-    # capacity=1 (1 slot), used=2 distinct parts -> literally overfull. The
-    # hard filter reads the *cached* `locations.is_overfull` flag (the fast
-    # path `assign_location` relies on to avoid recomputing occupancy for
-    # every candidate), so that cache has to be rebuilt before it is true.
+    # capacity=1 (1 slot), used=2 distinct parts -> literally overfull.
+    #
+    # The rebuild is kept because *this* test is about the persisted flag: it is
+    # what the bulk pass sets and what must keep a bin excluded even under
+    # relaxation. The comment that used to sit here said the hard filter reads
+    # the cached flag "to avoid recomputing occupancy for every candidate", and
+    # that stopped being true — the scorer builds a live snapshot on the line
+    # above the filter call, so it now reads `snapshot.is_overfull or
+    # location.is_overfull`. `test_a_freshly_overfilled_bin_is_not_offered_before_the_pass_runs`
+    # is the other half, without a rebuild.
     rebuild_location_occupancy(db)
     db.commit()
 

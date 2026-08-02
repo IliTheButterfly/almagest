@@ -447,9 +447,15 @@ def test_undoing_one_committed_line_reverses_only_that_line(
     `reversed_seqs [13, 14]`, the resistor's balance going 7000 -> 10000 when
     nobody asked it to.
 
-    Not reachable from the PWA — `checkout.ts` keeps the batch's `group_uuid` for
-    whole-commit undo and `LotScreen` only undoes single-lot movements — but live
-    on the raw route and on the MCP write tools.
+    **Nothing in the PWA reaches this**, and the first version of this docstring
+    overstated why. `checkout.ts` carries a `groupUuid` field but its own comment
+    says it is "always `null` as things stand" — neither of ADR 0010's two
+    destinations writes ledger rows — and `moveStockBatch` is exported and called
+    by nothing. The only `undoMovement` in the app is `LotScreen.tsx`, a
+    single-lot undo by `client_op_id`. So the aggregate group this test creates is
+    reachable today only from the raw HTTP route and, for the narrow handle, the
+    MCP `undo_movement` tool. It is pinned here because the route is public and
+    the endpoint outlived the UI that was going to call it.
     """
     bin_a = make_location(db, "Bin A")
     resistor = make_part(db, "10k")
@@ -496,9 +502,12 @@ def test_undoing_one_committed_line_reverses_only_that_line(
 def test_the_whole_commit_is_still_undoable_by_its_group(client: TestClient, db: Session) -> None:
     """Narrowing the `client_op_id` handle must not take the wide one away.
 
-    `group_uuid_to_undo` asks for the group and gets the group, aggregate or not
-    — that is the handle `checkout.ts` records and the one the eight-second
-    "undo that commit" button uses.
+    `group_uuid_to_undo` asks for the group and gets the group, aggregate or not.
+
+    No UI calls it — there is no "undo that commit" button, and an earlier
+    version of this docstring claimed there was. It is the wide handle the route
+    offers, kept working so that narrowing `client_op_id_to_undo` took nothing
+    away from a caller that already had it.
     """
     bin_a = make_location(db, "Bin A")
     resistor = make_part(db, "10k")
