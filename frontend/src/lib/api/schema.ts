@@ -6900,8 +6900,7 @@ export interface components {
         };
         /** ProvisioningUndoResponse */
         ProvisioningUndoResponse: {
-            /** Not Restored Reason */
-            not_restored_reason: string | null;
+            not_restored_reason: components["schemas"]["UndoNotRestoredReason"] | null;
             /**
              * Replayed
              * @description True when this is the stored response of an earlier request carrying the same client_op_id; no new movement was recorded.
@@ -8395,6 +8394,22 @@ export interface components {
             replayed?: boolean;
             unbound: components["schemas"]["TagRead"];
         };
+        /**
+         * UndoNotRestoredReason
+         * @description Why an undo did less than the word implies.
+         *
+         *     An enum rather than three bare string literals so that the set is
+         *     **enumerable from the schema**. Every one of these reaches somebody standing
+         *     at a cabinet, and each needs a sentence naming the slot and the next action —
+         *     a raw token there ("Undone, with a caveat / prior_slot_rebound") names nothing
+         *     and suggests nothing. Typed here, the generated TypeScript is a string-literal
+         *     union and `TagWalkPanel`'s `UNDO_CAVEATS` is a `Record` over it, so adding a
+         *     fourth member fails the frontend build until it has been given words. That is
+         *     the same trick `mcpserver/coverage.py` plays for routes: nobody has to
+         *     remember.
+         * @enum {string}
+         */
+        UndoNotRestoredReason: "prior_slot_rebound" | "prior_tag_bound_elsewhere" | "slot_rebound_since";
         /**
          * UndoRequest
          * @description Undo by whichever handle the caller has.

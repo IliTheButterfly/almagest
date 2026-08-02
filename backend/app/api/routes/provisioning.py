@@ -35,7 +35,7 @@ from app.api import idempotency
 from app.api.limits import RowId
 from app.api.schemas import ReplayableResponse
 from app.db.session import get_db
-from app.models.enums import ProvisioningDevice, ProvisioningKind
+from app.models.enums import ProvisioningDevice, ProvisioningKind, UndoNotRestoredReason
 from app.models.layout_authoring import ProvisioningSession, VerificationMismatch
 from app.models.storage import Location, LocationTag
 from app.services import provisioning
@@ -246,7 +246,7 @@ class ProvisioningUndoResponse(ReplayableResponse):
     #: Set when a prior binding could not be restored because its slot has been
     #: re-tagged since. Reported rather than forced — overwriting a binding made
     #: after the fact would be a second silent rebind.
-    not_restored_reason: str | None
+    not_restored_reason: UndoNotRestoredReason | None
     state: ProvisioningState
 
 

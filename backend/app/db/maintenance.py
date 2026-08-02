@@ -304,6 +304,65 @@ def check_reserved_quantity_drift(session: Session, *, sample_limit: int = 20) -
     return report
 
 
+TAG_BINDINGS = "tag_bindings"
+
+_COUNT_DUPLICATE_TAG_UIDS = text(
+    "SELECT COUNT(*) FROM ("
+    "  SELECT tag_uid FROM location_tags"
+    "  WHERE tag_uid IS NOT NULL"
+    "  GROUP BY tag_uid HAVING COUNT(*) > 1"
+    ")"
+)
+
+_LOCATIONS_SHARING_A_TAG_UID = text(
+    "SELECT location_id FROM location_tags"
+    " WHERE tag_uid IN ("
+    "   SELECT tag_uid FROM location_tags"
+    "   WHERE tag_uid IS NOT NULL"
+    "   GROUP BY tag_uid HAVING COUNT(*) > 1"
+    " )"
+    " ORDER BY tag_uid, location_id LIMIT :limit"
+)
+
+
+def check_duplicate_tag_uids(session: Session, *, sample_limit: int = 20) -> DriftReport:
+    """Count physical tags bound to more than one container. Repairs nothing.
+
+    **Not a cache check — the only one here that isn't.** `location_tags` is the
+    record, not a derivation of anything, so there is nothing to rebuild it from
+    and `POST /api/system/caches/rebuild` deliberately cannot touch it. It is
+    reported through the same machinery because this is where an operator already
+    looks, and because ADR 0013's rule applies with more force here than anywhere
+    else: an automatic repair would have to *choose* which drawer keeps the tag,
+    and getting that wrong silently is exactly the harm being detected.
+
+    One UID on two rows means `tag_with_uid` — which resolves by lowest `id` —
+    hands the station a container the tag is not on, so stock is committed into
+    the wrong drawer while both containers' pages look correct. `bind` has always
+    refused to create one and `undo` stopped being able to (see
+    `provisioning.undo`'s `prior_tag_bound_elsewhere`), but neither of those
+    heals a row already written, and the fix landed after the bug had been live.
+
+    This is also the **missing precondition for a unique index** on
+    `location_tags.tag_uid`. A `CREATE UNIQUE INDEX` migration fails outright on a
+    database that already holds a duplicate, so somebody has to know whether one
+    exists — and, if it does, decide which binding is the real one — before that
+    migration can be written. `sample_ids` are the location ids sharing a UID, so
+    the answer names the drawers to go and look at.
+    """
+    drift_count = session.execute(_COUNT_DUPLICATE_TAG_UIDS).scalar_one()
+    sample: tuple[int, ...] = ()
+    if drift_count:
+        rows = (
+            session.execute(_LOCATIONS_SHARING_A_TAG_UID, {"limit": sample_limit}).scalars().all()
+        )
+        sample = tuple(rows)
+
+    report = DriftReport(cache_name=TAG_BINDINGS, drift_count=drift_count, sample_ids=sample)
+    _record_check(session, report)
+    return report
+
+
 def _record_check(session: Session, report: DriftReport) -> None:
     detail = ",".join(str(i) for i in report.sample_ids) if report.sample_ids else None
     session.execute(

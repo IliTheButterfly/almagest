@@ -56,6 +56,7 @@ from app.models.enums import (
     ProvisioningActionKind,
     ProvisioningDevice,
     ProvisioningKind,
+    UndoNotRestoredReason,
 )
 from app.models.layout_authoring import (
     ProvisioningAction,
@@ -651,7 +652,7 @@ class UndoOutcome:
     #:
     #: Every value here reaches the bench, so each needs a sentence in
     #: `TagWalkPanel`'s `UNDO_CAVEATS` naming the slot and the next action.
-    not_restored_reason: str | None = None
+    not_restored_reason: UndoNotRestoredReason | None = None
 
 
 def undo(session: Session, walk: ProvisioningSession) -> UndoOutcome:
@@ -674,7 +675,7 @@ def undo(session: Session, walk: ProvisioningSession) -> UndoOutcome:
         raise ProvisioningError("the slot this action touched is gone", reason="unknown_location")
 
     restored: LocationTag | None = None
-    not_restored: str | None = None
+    not_restored: UndoNotRestoredReason | None = None
 
     if action.kind == ProvisioningActionKind.SKIP:
         walk.skipped_count = max(walk.skipped_count - 1, 0)
@@ -691,14 +692,14 @@ def undo(session: Session, walk: ProvisioningSession) -> UndoOutcome:
             # reads "undone" and peels a sticker off a drawer whose binding still
             # stands. `bound_count` is left alone for the same reason; this walk's
             # binding is gone from the slot but not by our hand.
-            not_restored = "slot_rebound_since"
+            not_restored = UndoNotRestoredReason.SLOT_REBOUND_SINCE
         else:
             walk.bound_count = max(walk.bound_count - 1, 0)
 
         if action.prior_location_id is not None and action.prior_tag_uid is not None:
             displaced = tag_with_uid(session, action.prior_tag_uid)
             if tag_at(session, action.prior_location_id) is not None:
-                not_restored = "prior_slot_rebound"
+                not_restored = UndoNotRestoredReason.PRIOR_SLOT_REBOUND
             elif displaced is not None and displaced.location_id != action.prior_location_id:
                 # **The tag is somewhere else now.** Restoring it here would leave
                 # one physical UID bound to two containers at once, which `bind`
@@ -707,7 +708,7 @@ def undo(session: Session, walk: ProvisioningSession) -> UndoOutcome:
                 # resolves to whichever row has the lower id, so the station would
                 # identify the wrong container and commit stock into it — and the
                 # other drawer's page would show a tag it does not own.
-                not_restored = "prior_tag_bound_elsewhere"
+                not_restored = UndoNotRestoredReason.PRIOR_TAG_BOUND_ELSEWHERE
             else:
                 restored = LocationTag(
                     location_id=action.prior_location_id,

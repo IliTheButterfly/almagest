@@ -68,6 +68,13 @@ it**: the scan resolver chain (`services/scanning/resolver.py` behind
 label sheets (`POST|GET /api/labels/sheets` + `label_rendering.py`) and FTS5
 (`services/search/fts.py` and its migration). 235 tests cover the five.
 
+**Label sheets exist as routes only** — nothing in the PWA calls them, there is
+no print affordance on a container screen, and `mcpserver/coverage.py` excludes
+both as `HANDS_ON`. Printing a drawer card today means `curl`. Said out loud
+because the correction above otherwise trades one misleading absence for a
+misleading presence: the next person looking for the print button would conclude
+it had broken.
+
 **Not built yet:** any *agent-assisted* field filling — capture extraction is
 algorithmic and offers candidates a person chooses between. Tag provisioning has
 its API, its walks, a reader that can write, **and now tags written by real

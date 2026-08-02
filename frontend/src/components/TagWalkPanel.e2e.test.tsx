@@ -64,6 +64,8 @@ function tagsFor(overrides: Partial<Record<string, Partial<SimulatedTag>>> = {})
 class FakeServer {
   readonly bindings = new Map<number, { uid: string; tagId: number; ndefState: string }>();
   readonly writeResults: { tagId: number; readBackUrl: string | null }[] = [];
+  /** What the next `/undo` reports as its caveat. Null is the ordinary case. */
+  undoReason: string | null = null;
   readonly checks: {
     locationId: number;
     uid: string;
@@ -134,7 +136,7 @@ class FakeServer {
         skipped: 0,
         is_complete: this.bindings.size === SLOTS.length,
       },
-      undo_depth: this.bindings.size,
+      undo_depth: Math.max(this.bindings.size, 1),
       undo_label: null,
     };
   }
@@ -270,6 +272,20 @@ function stubFetch(): void {
       }
       if (url.pathname.endsWith("/provisioning-sessions")) {
         return json({ state: server.provisionState() }, 201);
+      }
+      if (url.pathname.endsWith("/undo")) {
+        return json({
+          undone: {
+            action_kind: "bind",
+            location_id: SLOTS[0]!.locationId,
+            slot_label: SLOTS[0]!.slotLabel,
+            label_path: `Cabinet / ${SLOTS[0]!.slotLabel}`,
+            tag_uid: UIDS[0]!,
+          },
+          restored_tag: null,
+          not_restored_reason: server.undoReason,
+          state: server.provisionState(),
+        });
       }
       if (url.pathname.endsWith("/verification-sessions")) {
         return json({ state: server.verifyState() }, 201);
@@ -581,4 +597,41 @@ describe("verifying what was bound", () => {
     // A person reading a number off a sticker has said nothing about page 4.
     expect(server.checks[0]?.carriesNdef).toBe(false);
   });
+});
+
+describe("what an undo admits it did not do", () => {
+  /**
+   * These three sentences are the only place the walk tells somebody at a
+   * cabinet that "undone" was not the whole truth. Before this they rendered as
+   * the raw enum token — "Undone, with a caveat / prior_slot_rebound" — which
+   * names nothing and offers no next action.
+   *
+   * The key set is checked against the generated union at compile time
+   * (`UNDO_CAVEATS` is a `Record<UndoNotRestoredReason, string>`), so what is
+   * left to test is that the sentence actually reaches the screen.
+   */
+  const REASONS = [
+    "prior_slot_rebound",
+    "prior_tag_bound_elsewhere",
+    "slot_rebound_since",
+  ] as const;
+
+  for (const reason of REASONS) {
+    it(`explains ${reason} in words rather than printing the token`, async () => {
+      const reader = simulatedTagSource(tagsFor());
+      server.undoReason = reason;
+      render(
+        <TagWalk location={CABINET} kind="provision" onChanged={() => undefined} source={reader} />,
+      );
+      await cursorIs("A1");
+
+      fireEvent.click(screen.getByRole("button", { name: /^Undo/ }));
+
+      await waitFor(() => expect(screen.getByText("Undone, with a caveat")).toBeTruthy());
+      expect(screen.queryByText(reason)).toBeNull();
+      // Every sentence has to name a next action, or the caveat is just bad news.
+      const shown = screen.getByText(/The tag that used to be here|Nothing was removed/);
+      expect(shown.textContent ?? "").toMatch(/[Uu]nbind|leave it where it is/);
+    });
+  }
 });

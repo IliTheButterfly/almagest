@@ -90,14 +90,16 @@ def test_caches_route_reports_every_seeded_cache(client: TestClient) -> None:
     response = client.get("/api/system/caches")
     assert response.status_code == 200
     names = {row["name"] for row in response.json()}
-    # The five the core-schema migration seeds. A cache added later without a
-    # `cache_state` row has nowhere to record its drift, so this is worth pinning.
+    # The five the core-schema migration seeds, plus `tag_bindings`. A check
+    # added later without a `cache_state` row has nowhere to record what it
+    # found, so this is worth pinning.
     assert names == {
         "lot_balances",
         "location_tree",
         "category_tree",
         "location_occupancy",
         "reservations",
+        "tag_bindings",
     }
 
 
@@ -211,7 +213,7 @@ def test_maintenance_on_a_consistent_database_finds_nothing(
 
     assert body["has_drift"] is False
     assert all(entry["drift_count"] == 0 for entry in body["drift"])
-    assert _drift_by_name(body).keys() == {"lot_balances", "reservations"}
+    assert _drift_by_name(body).keys() == {"lot_balances", "reservations", "tag_bindings"}
 
 
 # ---------------------------------------------------------------------------
@@ -318,3 +320,78 @@ def test_script_exits_two_when_the_api_is_unreachable(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(script, "post_json", unreachable)
     assert script.main(["--base-url", "http://nowhere:8000"]) == 2
+
+
+def test_maintenance_finds_one_physical_tag_bound_to_two_containers(
+    client: TestClient, db: Session
+) -> None:
+    """The condition that sends somebody to the wrong drawer, and the one thing
+    here that is not a cache.
+
+    `tag_with_uid` resolves a duplicate by lowest `id`, so the station identifies
+    a container the tag is not on and commits stock into it — while both
+    containers' pages look perfectly correct. `bind` has always refused to create
+    one and `undo` no longer can, but neither heals a row written before those
+    guards, and nothing looked for such a row at all.
+
+    Written straight to `location_tags` because there is deliberately no API that
+    will produce this state any more; what is being pinned is that an existing
+    one is *found*.
+    """
+    from datetime import UTC, datetime
+
+    from app.models.storage import LocationTag
+
+    written = datetime(2026, 7, 1, tzinfo=UTC)
+    first = make_location(db, name="Drawer one")
+    second = make_location(db, name="Drawer two")
+    db.add(
+        LocationTag(location_id=first.id, tag_uid="04AABBCCDDEE80", ndef_url="", written_at=written)
+    )
+    db.add(
+        LocationTag(
+            location_id=second.id, tag_uid="04AABBCCDDEE80", ndef_url="", written_at=written
+        )
+    )
+    db.commit()
+
+    body = client.post("/api/system/maintenance").json()
+
+    assert body["has_drift"] is True
+    reported = _drift_by_name(body)["tag_bindings"]
+    assert reported["drift_count"] == 1
+    # The drawers to go and look at, because a person has to decide which
+    # binding is the real one — a scheduled repair would be choosing for them.
+    assert sorted(reported["sample_ids"]) == sorted([first.id, second.id])
+
+
+def test_the_nightly_pass_does_not_unbind_a_duplicated_tag(client: TestClient, db: Session) -> None:
+    """Reported, never repaired — ADR 0013, and with more force here than for a
+    cache: an automatic fix would have to *choose* which drawer keeps the tag,
+    and choosing wrong silently is the harm being detected."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import func
+
+    from app.models.storage import LocationTag
+
+    written = datetime(2026, 7, 1, tzinfo=UTC)
+    first = make_location(db, name="Drawer one")
+    second = make_location(db, name="Drawer two")
+    db.add(
+        LocationTag(location_id=first.id, tag_uid="04AABBCCDDEE80", ndef_url="", written_at=written)
+    )
+    db.add(
+        LocationTag(
+            location_id=second.id, tag_uid="04AABBCCDDEE80", ndef_url="", written_at=written
+        )
+    )
+    db.commit()
+
+    client.post("/api/system/maintenance")
+
+    db.expire_all()
+    surviving = db.execute(
+        select(func.count()).select_from(LocationTag).where(LocationTag.tag_uid == "04AABBCCDDEE80")
+    ).scalar_one()
+    assert surviving == 2, "the pass must report the duplicate, not resolve it"

@@ -156,6 +156,11 @@ def run_maintenance(db: Session = Depends(get_db)) -> MaintenanceRun:
     reports = [
         maintenance.check_lot_balance_drift(db),
         maintenance.check_reserved_quantity_drift(db),
+        # Not a cache, and reported here anyway: one physical tag bound to two
+        # containers sends the station to the wrong drawer, and nothing else
+        # looks for it. `caches/rebuild` cannot repair it — deciding which
+        # drawer keeps the tag is a person's call.
+        maintenance.check_duplicate_tag_uids(db),
     ]
     db.commit()
     return MaintenanceRun(

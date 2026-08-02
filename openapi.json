@@ -11582,13 +11582,12 @@
           "not_restored_reason": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/UndoNotRestoredReason"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Not Restored Reason"
+            ]
           },
           "replayed": {
             "default": false,
@@ -15767,6 +15766,16 @@
         ],
         "title": "UnbindResponse",
         "type": "object"
+      },
+      "UndoNotRestoredReason": {
+        "description": "Why an undo did less than the word implies.\n\nAn enum rather than three bare string literals so that the set is\n**enumerable from the schema**. Every one of these reaches somebody standing\nat a cabinet, and each needs a sentence naming the slot and the next action \u2014\na raw token there (\"Undone, with a caveat / prior_slot_rebound\") names nothing\nand suggests nothing. Typed here, the generated TypeScript is a string-literal\nunion and `TagWalkPanel`'s `UNDO_CAVEATS` is a `Record` over it, so adding a\nfourth member fails the frontend build until it has been given words. That is\nthe same trick `mcpserver/coverage.py` plays for routes: nobody has to\nremember.",
+        "enum": [
+          "prior_slot_rebound",
+          "prior_tag_bound_elsewhere",
+          "slot_rebound_since"
+        ],
+        "title": "UndoNotRestoredReason",
+        "type": "string"
       },
       "UndoRequest": {
         "description": "Undo by whichever handle the caller has.\n\nExactly one must be given. `client_op_id_to_undo` is the one the UI actually\nuses \u2014 it already generated that key at scan time, so the eight-second undo\nbutton needs to remember nothing else.\n\n**What each handle reverses**, since the three are not interchangeable:\n\n* `seq` \u2014 that one row, and nothing else. The scalpel.\n* `group_uuid_to_undo` \u2014 every row of the group. A whole work-panel tab\n  commit in one tap.\n* `client_op_id_to_undo` \u2014 the row carrying that key, *plus* the rest of its\n  group only when the group is atomic (a partial move's two halves, which\n  cannot be reversed separately without duplicating stock). One line of a\n  committed tab reverses alone. See `_rows_to_undo`.",
