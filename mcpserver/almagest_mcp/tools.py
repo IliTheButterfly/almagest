@@ -804,6 +804,13 @@ def register_write_tools(server: MCPServer[Any], client: ApiClient, settings: Mc
         reversed — nothing is edited or deleted, and the history keeps both rows,
         which is deliberate: a corrected mistake that leaves no trace is
         indistinguishable from one that never happened.
+
+        **How far it reaches.** A `client_op_id` reverses the movement it names.
+        Where that movement was one indivisible statement written as two rows — a
+        partial move, which takes stock out of one bin and puts it into another —
+        both rows are reversed, because undoing half of it would leave the same
+        stock recorded in two places at once. It will **not** reach sideways into
+        other movements that happened to be submitted alongside it.
         """
         if (client_op_id_to_undo is None) == (seq is None):
             raise ValueError("give exactly one of client_op_id_to_undo or seq")

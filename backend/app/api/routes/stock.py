@@ -32,7 +32,7 @@ from app.api.limits import CountMilli, DeltaMilli, MassMg, MoneyMicro, QtyMilli,
 from app.api.schemas import LotRead, ReplayableResponse, lot_read
 from app.db.session import get_db
 from app.models.catalog import Part
-from app.models.enums import LedgerSource, LotStatus
+from app.models.enums import LedgerGroupKind, LedgerSource, LotStatus
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import Location
 from app.services import ledger
@@ -243,6 +243,16 @@ class UndoRequest(MovementRequest):
     Exactly one must be given. `client_op_id_to_undo` is the one the UI actually
     uses — it already generated that key at scan time, so the eight-second undo
     button needs to remember nothing else.
+
+    **What each handle reverses**, since the three are not interchangeable:
+
+    * `seq` — that one row, and nothing else. The scalpel.
+    * `group_uuid_to_undo` — every row of the group. A whole work-panel tab
+      commit in one tap.
+    * `client_op_id_to_undo` — the row carrying that key, *plus* the rest of its
+      group only when the group is atomic (a partial move's two halves, which
+      cannot be reversed separately without duplicating stock). One line of a
+      committed tab reverses alone. See `_rows_to_undo`.
     """
 
     seq: RowId | None = None
@@ -785,6 +795,12 @@ def _apply_movement_line(
             note=line.note if line.note is not None else request.note,
             client_op_id=line.client_op_id,
             group_uuid=group,
+            # The one aggregate group in the codebase. Every other `group_uuid`
+            # ties rows that are halves of one indivisible statement; these are
+            # independent statements that happened to be submitted together, and
+            # `_rows_to_undo` needs to be told which it is because the two are
+            # indistinguishable after the fact.
+            group_kind=LedgerGroupKind.AGGREGATE,
         )
         if line.direction is MovementDirection.TAKE:
             row = ledger.consume(db, lot, line.qty_milli, attribution=attribution)
@@ -957,16 +973,30 @@ def undo_movement(request: UndoRequest, db: Session = Depends(get_db)) -> UndoRe
 def _rows_to_undo(db: Session, request: UndoRequest) -> list[StockLedger]:
     """Resolve an undo handle to the rows it names.
 
-    A `client_op_id` identifies the *first* row an operation wrote; if that row
-    belongs to a group, the whole group is undone together. That is what makes
-    one tap undo both halves of a partial move rather than leaving stock
-    duplicated across two bins.
+    A `client_op_id` identifies the *first* row an operation wrote. Whether the
+    rest of that row's group comes with it depends on **why** the group exists,
+    which `stock_ledger.group_kind` records at mint time:
+
+    * **atomic** (the default, and every group but one) — the rows are halves of
+      one indivisible statement. A partial move is `split_out -N` and
+      `split_in +N`; reversing one without the other leaves the stock duplicated
+      across two bins. The whole group goes.
+    * **aggregate** — independent statements submitted together, which is what
+      committing a work-panel tab is. The named line is reversed **alone**;
+      `group_uuid_to_undo` is how you reverse the whole commit.
+
+    The kind is read, never inferred. From inside this function a two-line commit
+    and a move look identical — same group, one keyed row — so guessing either
+    way silently destroys real stock records. A NULL kind is every row written
+    before the column existed and reads as atomic, which is the behaviour those
+    rows were written under.
     """
     if request.seq is not None:
         row = db.get(StockLedger, request.seq)
         return [row] if row is not None else []
 
     if request.group_uuid_to_undo is not None:
+        # Naming the group asks for the group, whatever kind it is.
         return ledger.rows_of_group(db, request.group_uuid_to_undo)
 
     first = db.execute(
@@ -974,7 +1004,7 @@ def _rows_to_undo(db: Session, request: UndoRequest) -> list[StockLedger]:
     ).scalar_one_or_none()
     if first is None:
         return []
-    if first.group_uuid is not None:
+    if first.group_uuid is not None and first.group_kind != LedgerGroupKind.AGGREGATE:
         return ledger.rows_of_group(db, first.group_uuid)
     return [first]
 

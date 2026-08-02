@@ -59,6 +59,34 @@ class LedgerKind(StrEnum):
     RETURN = "return"
 
 
+class LedgerGroupKind(StrEnum):
+    """Why the rows of a `group_uuid` are grouped — which decides what undo means.
+
+    Two operations produce a group and they want opposite things from undo:
+
+    * **`ATOMIC`** — the rows are halves of one indivisible statement. A partial
+      move is `split_out -N` and `split_in +N`; reversing one without the other
+      duplicates the stock across two bins. Undoing *any* row of an atomic group
+      undoes all of them, and that is the behaviour that must not regress.
+    * **`AGGREGATE`** — the rows are independent statements that happened to be
+      submitted together, which is what committing a work-panel tab is. Each line
+      stands alone, so undoing one line must not silently reverse the other
+      nineteen.
+
+    **Recorded when the group is minted, never inferred from the rows.** The two
+    shapes are indistinguishable after the fact — a caller cannot tell "a move"
+    from "a two-line commit" by looking at keys or signs — and guessing wrong in
+    either direction destroys real stock records.
+
+    A NULL column is read as `ATOMIC`: that is what every row written before this
+    column existed meant, and reinterpreting history retroactively is worse than
+    leaving it alone.
+    """
+
+    ATOMIC = "atomic"
+    AGGREGATE = "aggregate"
+
+
 class LedgerSource(StrEnum):
     """How the movement was captured. Drives trust when balances disagree."""
 

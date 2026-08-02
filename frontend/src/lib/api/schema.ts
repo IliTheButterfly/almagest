@@ -8402,6 +8402,16 @@ export interface components {
          *     Exactly one must be given. `client_op_id_to_undo` is the one the UI actually
          *     uses — it already generated that key at scan time, so the eight-second undo
          *     button needs to remember nothing else.
+         *
+         *     **What each handle reverses**, since the three are not interchangeable:
+         *
+         *     * `seq` — that one row, and nothing else. The scalpel.
+         *     * `group_uuid_to_undo` — every row of the group. A whole work-panel tab
+         *       commit in one tap.
+         *     * `client_op_id_to_undo` — the row carrying that key, *plus* the rest of its
+         *       group only when the group is atomic (a partial move's two halves, which
+         *       cannot be reversed separately without duplicating stock). One line of a
+         *       committed tab reverses alone. See `_rows_to_undo`.
          */
         UndoRequest: {
             /**
