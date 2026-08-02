@@ -63,7 +63,13 @@ class AgentSettings(BaseSettings):
     #: reader had come unplugged would silently fall through to the other one and
     #: report an empty platform instead of a broken reader, which is the one
     #: distinction `TagSourceError` exists to preserve.
-    reader: Literal["pn532", "rc522"] = Field(default="pn532", alias="DEVICEAGENT_READER")
+    #:
+    #: `none` is the third answer, and it is not a disabled station — it is a
+    #: machine with no platform under it at all: the laptop-with-a-Flipper shape
+    #: ADR 0014 widened this process to cover. The station loop then reports an
+    #: empty field forever and the bridge does the work. See `agent/no_reader.py`
+    #: for why that is a `NoTagSource` rather than `--fake` with an empty script.
+    reader: Literal["pn532", "rc522", "none"] = Field(default="pn532", alias="DEVICEAGENT_READER")
 
     pn532_port: str = Field(default="/dev/ttyAMA0", alias="DEVICEAGENT_PN532_PORT")
 

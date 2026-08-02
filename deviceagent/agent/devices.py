@@ -139,6 +139,14 @@ class DeviceRegistry:
         #: Ids whose last `open` failed, so the failure is reported on the edge
         #: rather than on every sweep for as long as the thing stays plugged in.
         self._failed: set[str] = set()
+        #: The same rule for a backend whose *scan* is failing. A scan failure is
+        #: usually permanent rather than transient — the machine's Bluetooth
+        #: stack is too old for `bleak`, `/dev/serial/by-id` does not exist —
+        #: so without an edge it prints once per sweep interval for as long as
+        #: the bridge runs, which at the default 2 s buries every other line in
+        #: the journal. Keyed by `backend.kind`, since that is what identifies a
+        #: backend and there is one of each.
+        self._scan_failed: set[str] = set()
         self._clock = clock
 
     # -- the roster --------------------------------------------------------
@@ -184,8 +192,21 @@ class DeviceRegistry:
             try:
                 found = backend.scan()
             except Exception as error:
-                logger.warning("scanning %s failed: %s", backend.kind, error)
+                # Once per run of failures, the same shape as `open`'s `_failed`
+                # above and as `TagPresence.observe_fault`. A backend that cannot
+                # scan at all generally never can — BlueZ 5.48 on the bench
+                # Jetson has no `Roles` property, so `bleak` raises `KeyError`
+                # on every attempt — and at a 2 s sweep that is 1800 identical
+                # lines an hour on top of whatever the operator is reading.
+                if backend.kind not in self._scan_failed:
+                    self._scan_failed.add(backend.kind)
+                    logger.warning(
+                        "scanning %s failed and will stay quiet until it works: %r",
+                        backend.kind,
+                        error,
+                    )
                 continue
+            self._scan_failed.discard(backend.kind)
             for device_id, label in found.items():
                 seen[device_id] = (backend, label)
 

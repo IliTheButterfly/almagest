@@ -1,0 +1,23 @@
+[Unit]
+Description=Almagest station PWA (one origin with the API)
+After=almagest-station-api.service
+Wants=almagest-station-api.service
+
+[Service]
+Type=exec
+WorkingDirectory=%h/prog/almagest
+# `--no-project` because this server is standard-library-only and deliberately
+# belongs to none of the three uv projects it sits in front of — it must not
+# acquire the backend's venv just to serve files. It still runs under uv's
+# pinned 3.12: the Jetson's system python is 3.6, which cannot even parse
+# `from __future__ import annotations`.
+ExecStart=%h/.local/bin/uv run --no-project --python 3.12 -- \
+    python deploy/station/station_web.py \
+    --dist %h/prog/almagest/frontend/dist \
+    --api http://127.0.0.1:8000 \
+    --port 8080
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

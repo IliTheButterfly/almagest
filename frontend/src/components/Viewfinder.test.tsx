@@ -15,6 +15,22 @@ function controls(overrides: Partial<CameraControls> = {}): CameraControls {
   };
 }
 
+/**
+ * A fresh rotation store per render, so one test flipping the preview cannot
+ * change what the next one sees. The default is real `localStorage`, which in
+ * jsdom is shared by every test in the file.
+ */
+function rotationStore(initial: Record<string, string> = {}) {
+  const entries: Record<string, string> = { ...initial };
+  return {
+    entries,
+    getItem: (key: string) => entries[key] ?? null,
+    setItem: (key: string, value: string) => {
+      entries[key] = value;
+    },
+  };
+}
+
 function renderViewfinder(props: Partial<Parameters<typeof Viewfinder>[0]> = {}) {
   return render(
     <Viewfinder
@@ -22,9 +38,18 @@ function renderViewfinder(props: Partial<Parameters<typeof Viewfinder>[0]> = {})
       status="live"
       message={null}
       unavailableNotice={null}
+      rotationStore={rotationStore()}
       {...props}
     />,
   );
+}
+
+function video(container: HTMLElement): HTMLVideoElement {
+  const element = container.querySelector("video");
+  if (element === null) {
+    throw new Error("no preview rendered");
+  }
+  return element;
 }
 
 function roi(container: HTMLElement): HTMLElement {
@@ -143,11 +168,15 @@ describe("camera diagnostics and tuning", () => {
     expect(set).toHaveBeenCalledWith(2.5);
   });
 
-  it("renders no tuning row at all when the platform offers nothing", () => {
+  it("still offers the mount setting when the platform reports nothing else", () => {
+    // A bench webcam advertises neither torch nor zoom, and on the station it is
+    // the only camera there is. The row used to disappear entirely in that case,
+    // which is precisely the machine that needs the half turn.
     const { container } = renderViewfinder({
       camera: controls({ resolution: null }),
     });
-    expect(container.querySelector(".camera-tuning")).toBeNull();
+    expect(container.querySelector(".camera-tuning")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /mount/i })).toBeTruthy();
   });
 
   it("renders no tuning row before the camera is live", () => {
@@ -159,6 +188,50 @@ describe("camera diagnostics and tuning", () => {
     const { container } = renderViewfinder();
     expect(container.querySelector(".viewfinder")).toBeTruthy();
     expect(container.querySelector(".camera-tuning")).toBeNull();
+  });
+});
+
+describe("a camera mounted upside down", () => {
+  it("previews upright by default", () => {
+    const { container } = renderViewfinder({ camera: controls() });
+    expect(video(container).className).not.toContain("is-half-turned");
+    expect(screen.getByRole("button", { name: "Upright mount" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
+  it("turns the picture half way round when the mount is inverted", () => {
+    const { container } = renderViewfinder({ camera: controls() });
+    fireEvent.click(screen.getByRole("button", { name: "Upright mount" }));
+    expect(video(container).className).toContain("is-half-turned");
+    expect(
+      screen.getByRole("button", { name: "Upside-down mount" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("remembers the choice, because a bracket does not move between page loads", () => {
+    const store = rotationStore();
+    renderViewfinder({ camera: controls(), rotationStore: store });
+    fireEvent.click(screen.getByRole("button", { name: "Upright mount" }));
+    expect(store.entries["almagest.camera-rotation"]).toBe("180");
+  });
+
+  it("starts turned when the store already says so", () => {
+    const { container } = renderViewfinder({
+      camera: controls(),
+      rotationStore: rotationStore({ "almagest.camera-rotation": "180" }),
+    });
+    expect(video(container).className).toContain("is-half-turned");
+  });
+
+  it("leaves the ROI overlay exactly where it was", () => {
+    // The decoder reads a *centred* crop, which a half turn maps onto itself, so
+    // the aiming box must not move. If this ever fails, the preview and the
+    // decoded region have come apart and the box is pointing at the wrong place.
+    const { container } = renderViewfinder({ camera: controls() });
+    const before = roi(container).style.inset;
+    fireEvent.click(screen.getByRole("button", { name: "Upright mount" }));
+    expect(roi(container).style.inset).toBe(before);
   });
 });
 
