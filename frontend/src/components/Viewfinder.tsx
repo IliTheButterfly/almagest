@@ -16,12 +16,22 @@
  *   `getSettings()` and printed.
  *
  * Torch and zoom are offered only where the track reports them, which on a
- * laptop webcam is neither.
+ * laptop webcam is neither. The third knob, the half turn, is offered
+ * everywhere: no camera reports which way up its bracket holds it, so it is the
+ * one setting the user has to tell us — see `lib/scan/orientation.ts`.
  */
 
 import type { RefObject } from "react";
+import { useCallback, useState } from "react";
 
 import { DECODE_PASSES } from "../lib/scan/decoder";
+import type { CameraRotation, RotationStore } from "../lib/scan/orientation";
+import {
+  defaultRotationStore,
+  flipRotation,
+  readCameraRotation,
+  writeCameraRotation,
+} from "../lib/scan/orientation";
 import { roiOverlayInset } from "../lib/scan/roi";
 import type { ScannerHandle, ScannerStatus } from "../lib/scan/useScanner";
 import { Notice } from "./Feedback";
@@ -42,6 +52,11 @@ export interface ViewfinderProps {
   readonly hint?: string | undefined;
   /** Omit to render the preview with no controls and no diagnostics. */
   readonly camera?: CameraControls | undefined;
+  /**
+   * Where the half-turn setting is remembered. Defaults to `localStorage`;
+   * injectable so a test does not have to reach for a real one.
+   */
+  readonly rotationStore?: RotationStore | null | undefined;
 }
 
 const STATUS_TEXT: Readonly<Record<ScannerStatus, string>> = {
@@ -73,7 +88,10 @@ export function Viewfinder({
   unavailableNotice,
   hint,
   camera,
+  rotationStore,
 }: ViewfinderProps) {
+  const rotation = useCameraRotation(rotationStore);
+
   if (status === "unavailable") {
     return (
       <Notice kind="warn" title="Scanning is not available here">
@@ -103,7 +121,13 @@ export function Viewfinder({
   return (
     <div className="stack">
       <div className="viewfinder">
-        <video ref={videoRef} playsInline muted autoPlay />
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          className={rotation.value === 180 ? "is-half-turned" : undefined}
+        />
         <div
           className={`roi${roiBinding ? "" : " is-advisory"}`}
           style={{ inset: `${(inset.y * 100).toFixed(2)}% ${(inset.x * 100).toFixed(2)}%` }}
@@ -111,16 +135,49 @@ export function Viewfinder({
         <div className="status">{caption}</div>
       </div>
       {status === "error" && message !== null && <Notice kind="error">{message}</Notice>}
-      {live && camera !== undefined && <CameraTuning camera={camera} />}
+      {live && camera !== undefined && <CameraTuning camera={camera} rotation={rotation} />}
     </div>
   );
 }
 
-function CameraTuning({ camera }: { readonly camera: CameraControls }) {
+/**
+ * The remembered half turn, plus the toggle.
+ *
+ * State lives here rather than in a prop the callers thread through, because it
+ * is a property of the machine the browser is running on and every caller would
+ * pass the same thing. `useState`'s lazy initialiser reads storage once per
+ * mount, not once per render.
+ */
+interface RotationControl {
+  readonly value: CameraRotation;
+  readonly flip: () => void;
+}
+
+function useCameraRotation(store: RotationStore | null | undefined): RotationControl {
+  const [resolved] = useState<RotationStore | null>(() =>
+    store === undefined ? defaultRotationStore() : store,
+  );
+  const [value, setValue] = useState<CameraRotation>(() => readCameraRotation(resolved));
+
+  const flip = useCallback(() => {
+    setValue((current) => {
+      const next = flipRotation(current);
+      writeCameraRotation(resolved, next);
+      return next;
+    });
+  }, [resolved]);
+
+  return { value, flip };
+}
+
+function CameraTuning({
+  camera,
+  rotation,
+}: {
+  readonly camera: CameraControls;
+  readonly rotation: RotationControl;
+}) {
   const { resolution, torch, zoom } = camera;
-  if (resolution === null && !torch.available && !zoom.available) {
-    return null;
-  }
 
   return (
     <div className="camera-tuning">
@@ -149,6 +206,18 @@ function CameraTuning({ camera }: { readonly camera: CameraControls }) {
           />
         </label>
       )}
+      {/* Always offered, unlike torch and zoom: those are advertised by the
+       * track, and which way up a bracket holds the camera is not something any
+       * track can advertise. The station's webcam is mounted head-down, so this
+       * is the control that makes it usable at all. */}
+      <button
+        type="button"
+        aria-pressed={rotation.value === 180}
+        onClick={rotation.flip}
+        title="Turn the preview half way round, for a camera mounted upside down"
+      >
+        {rotation.value === 180 ? "Upside-down mount" : "Upright mount"}
+      </button>
     </div>
   );
 }

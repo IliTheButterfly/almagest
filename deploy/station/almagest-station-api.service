@@ -1,0 +1,21 @@
+[Unit]
+Description=Almagest station API (SQLite, one writer)
+# The web unit proxies to this one, and the bridge commits stock movements
+# through it. Neither is fatal if it starts first — the proxy answers 502 and the
+# bridge retries — so this is `Wants`-shaped ordering, not a hard dependency.
+After=network.target
+
+[Service]
+Type=exec
+WorkingDirectory=%h/prog/almagest/backend
+# `uv run` resolves the pinned 3.12 that uv itself downloaded; the Jetson's
+# system interpreter is 3.6 and cannot run this code at all.
+ExecStart=%h/.local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+# Exactly one replica, always — the same rule as the cluster's `Recreate`
+# strategy, for the same reason: two SQLite writers is corruption.
+KillMode=mixed
+
+[Install]
+WantedBy=default.target

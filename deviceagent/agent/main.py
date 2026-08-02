@@ -65,6 +65,7 @@ from agent.devices import (
 from agent.events import Event
 from agent.fake_tags import FakeTagSource, load_script
 from agent.hub import EventHub
+from agent.no_reader import NoTagSource
 from agent.presence import TagPresence
 from agent.session import StationSession, parse_frame
 from agent.tags import TagSource, TagSourceError
@@ -166,6 +167,14 @@ def build_source(
     """
     if fake or script is not None:
         return FakeTagSource(load_script(script), repeat=True)
+
+    if (reader or settings.reader) == "none":
+        # A machine with no platform under it: ADR 0014's laptop-with-a-Flipper.
+        # Deliberately not `--fake`, which would replay a placement forever and
+        # narrate a container that is not on the bench. See `agent/no_reader.py`.
+        # Imported at module scope, unlike the two driver modules: it has no
+        # transport library behind it to keep off a machine that lacks one.
+        return NoTagSource()
 
     if (reader or settings.reader) == "rc522":
         from agent.nfc_rc522 import Rc522TagSource
@@ -271,13 +280,20 @@ async def run(
         logger.info("event stream on ws://%s:%s", settings.ws_host, port)
         logger.info("committing through %s as device %r", settings.api_base_url, settings.device_id)
 
-        for event in devices.adopt(
-            source,
-            device_id=STATION_DEVICE_ID,
-            kind=_station_kind(source, settings),
-            label=_station_label(source, settings),
-        ):
-            await publish(event)
+        # A station with no platform reader announces no platform reader. The
+        # roster is what the PWA offers as a thing to hold a tag against, so an
+        # entry that can neither read nor write is a dead choice in a chooser —
+        # the "supported/unsupported flag" ADR 0012 refuses, sign flipped.
+        # Absence is communicated by absence, exactly as ADR 0003 does for the
+        # scale.
+        if not isinstance(source, NoTagSource):
+            for event in devices.adopt(
+                source,
+                device_id=STATION_DEVICE_ID,
+                kind=_station_kind(source, settings),
+                label=_station_label(source, settings),
+            ):
+                await publish(event)
 
         bridge = asyncio.create_task(
             bridge_forever(
@@ -354,10 +370,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--reader",
-        choices=("pn532", "rc522"),
+        choices=("pn532", "rc522", "none"),
         default=None,
         help="override DEVICEAGENT_READER for this run; for trying the other module "
-        "at the bench without editing .env",
+        "at the bench without editing .env. `none` means this machine has no "
+        "platform reader and only the bridge's readers (a Flipper on USB) matter",
     )
     parser.add_argument(
         "--max-polls",

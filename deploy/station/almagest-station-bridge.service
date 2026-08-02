@@ -1,0 +1,27 @@
+[Unit]
+Description=Almagest device bridge (NFC readers the browser cannot reach)
+After=almagest-station-api.service
+Wants=almagest-station-api.service
+
+[Service]
+Type=exec
+WorkingDirectory=%h/prog/almagest/deviceagent
+# `--reader none`: this bench has no platform under it. The Flipper on USB is
+# found by the bridge's own discovery sweep, not by this flag — see ADR 0014 and
+# `agent/no_reader.py` for why the answer is not `--fake`.
+ExecStart=%h/.local/bin/uv run almagest-deviceagent --reader none
+# The origin the PWA is actually served from here. The default is
+# https://almagest.lan, which is right for a phone and wrong for a kiosk pointed
+# at loopback — the WebSocket handshake would be refused and the bridge would
+# look absent rather than rejected.
+Environment=DEVICEAGENT_ALLOWED_ORIGIN=http://127.0.0.1:8080
+Environment=DEVICEAGENT_API_BASE_URL=http://127.0.0.1:8000
+Environment=DEVICEAGENT_DEVICE_ID=jetson-station
+Restart=on-failure
+RestartSec=3
+# A Flipper that is unplugged and replugged comes back as a new /dev/ttyACM node;
+# the registry's sweep handles that without a restart, so restarts here are for
+# real crashes only.
+
+[Install]
+WantedBy=default.target

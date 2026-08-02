@@ -1,0 +1,31 @@
+[Unit]
+Description=Almagest station kiosk (Chromium on the bench display)
+After=almagest-station-web.service
+Wants=almagest-station-web.service
+
+[Service]
+Type=exec
+# The station's display is the one already logged in on tty1. This unit is a
+# `--user` unit, so it inherits that session's environment except for DISPLAY,
+# which systemd does not import.
+Environment=DISPLAY=:0
+# http://127.0.0.1 is a *secure context* per the spec even without TLS, which is
+# the whole reason the kiosk points at loopback instead of https://almagest.lan:
+# `getUserMedia` exists here with no certificate and no private CA installed.
+# `NDEFReader` still does not — kiosk Chromium has no Web NFC on any origin —
+# and that gap is what the device bridge fills.
+ExecStart=/usr/bin/chromium-browser \
+    --kiosk \
+    --app=http://127.0.0.1:8080/scan \
+    --user-data-dir=%h/.config/almagest-kiosk \
+    --start-fullscreen \
+    --noerrdialogs \
+    --disable-infobars \
+    --disable-session-crashed-bubble \
+    --autoplay-policy=no-user-gesture-required \
+    --use-fake-ui-for-media-stream
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

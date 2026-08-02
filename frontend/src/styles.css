@@ -2174,6 +2174,14 @@ button.tall {
   object-fit: cover;
 }
 
+/* A camera bolted to a bench arm head-down. Only the picture turns: the decoder
+ * reads a centred crop, which is unchanged by a half turn, and the ROI overlay
+ * is drawn from that same crop — so the box stays over the region actually being
+ * read. See `lib/scan/orientation.ts` for why a quarter turn is not offered. */
+.viewfinder video.is-half-turned {
+  transform: rotate(180deg);
+}
+
 /* Mirrors the centre-ROI crop the cheap decode pass reads, so the user aims at
  * the region being decoded rather than at the whole frame. `inset` is set
  * inline from `roiOverlayInset()` rather than here: the video is `object-fit:
