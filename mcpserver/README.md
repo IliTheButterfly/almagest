@@ -5,7 +5,7 @@ it, can I build this board, what am I short?*
 
 Those are the questions this system exists to answer, and they get asked in the
 middle of doing something else — in a chat window, away from the bench. This
-server makes each one a single tool call instead of asking a model to learn 142
+server makes each one a single tool call instead of asking a model to learn 147
 HTTP routes and invent a query language.
 
 ```bash
@@ -27,7 +27,7 @@ It is a **translation layer**, and the translation is the work:
 |---|---|
 | `qty_milli` — integer thousandths, exact ledger sums | `quantity` in whole units, converted at the boundary |
 | `filters: [{template, value}]` | `filters: {"capacitance": "20-30uF"}` — one value per template is all `UNIQUE(part_id, template_id)` permits anyway |
-| 142 operations | 26 tools, each named for a question |
+| 147 operations | 26 tools, each named for a question |
 | `{"detail": {"reason", "message"}}` | `ApiError` with the server's own reason, kept apart from `ApiUnavailable` so a refusal is not retried |
 
 Quantities are the one worth spelling out. Milli-units exist so ledger sums stay
@@ -37,7 +37,7 @@ every tool takes and returns units, and refuses anything finer than a thousandth
 rather than rounding it to a movement that claims to have happened and moved
 nothing.
 
-## 26 tools, and 116 deliberate refusals
+## 26 tools, and 121 deliberate refusals
 
 The curation *is* the product. A model handed one tool per operation chooses badly
 among them,

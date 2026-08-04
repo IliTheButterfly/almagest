@@ -1825,6 +1825,78 @@
         "title": "CandidateRead",
         "type": "object"
       },
+      "CandidateSubmission": {
+        "description": "One tried URL and its verdict.\n\n`state` is the worker's finding about *this URL*, which it is entitled to\nreport \u2014 unlike the part's overall state, which is derived. The distinction is\nthat the worker fetched this URL and nothing else knows what came back.",
+        "properties": {
+          "document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Sha256"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "rank": {
+            "default": 0,
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reject_reason": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reject Reason"
+          },
+          "source": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ResearchCandidateState"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "url",
+          "state"
+        ],
+        "title": "CandidateSubmission",
+        "type": "object"
+      },
       "CapacityModel": {
         "description": "Selects a Python capacity strategy class.\n\nThe *model* is data; the *formula* is code. Storing a capacity formula as a\nstring in the database is precisely the over-engineering that made the\nprior art in this space unmaintainable.",
         "enum": [
@@ -9784,6 +9856,49 @@
         "title": "PartRead",
         "type": "object"
       },
+      "PartResearchRead": {
+        "description": "One part's research standing, and what was tried.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchCandidateRead"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ResearchState"
+          }
+        },
+        "required": [
+          "part_id",
+          "state",
+          "attempts",
+          "error",
+          "candidates"
+        ],
+        "title": "PartResearchRead",
+        "type": "object"
+      },
       "PartSummary": {
         "properties": {
           "category_id": {
@@ -12801,6 +12916,320 @@
         ],
         "title": "RequirementRejectionRead",
         "type": "object"
+      },
+      "ResearchCandidateRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Sha256"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reject_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reject Reason"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ResearchCandidateState"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "url",
+          "state",
+          "reject_reason",
+          "document_sha256",
+          "rank",
+          "note",
+          "created_at"
+        ],
+        "title": "ResearchCandidateRead",
+        "type": "object"
+      },
+      "ResearchCandidateState": {
+        "description": "What became of one proposed datasheet URL.\n\nADR 0017's rule is that the researcher proposes and never asserts: every URL \u2014\nwhoever proposed it, a distributor API or the model itself \u2014 is fetched and\nchecked before it is believed. This enum is that check's verdict, and the rows\ncarrying it are kept rather than discarded so a person can see *what was tried*\nwhen a part comes back `EXHAUSTED`.\n\nKeeping rejections is the difference between \"no datasheet found\" and \"four\nwere found and all four were the wrong part\", which are different problems with\ndifferent fixes.",
+        "enum": [
+          "proposed",
+          "validated",
+          "rejected"
+        ],
+        "title": "ResearchCandidateState",
+        "type": "string"
+      },
+      "ResearchClaim": {
+        "description": "One leased part, with everything the worker needs to research it.\n\nThe MPN and manufacturer are sent rather than looked up by the worker, so a run\nneeds exactly one API call before it starts working. `mpn_norm` is included\nbeside `mpn` because it is what validation compares against \u2014 the worker must\nnot re-derive it and risk normalising differently from the catalogue.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "title": "Lease Expires At",
+            "type": "string"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "mpn_norm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn Norm"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "part_id": {
+            "title": "Part Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id",
+          "name",
+          "mpn",
+          "mpn_norm",
+          "manufacturer",
+          "attempts",
+          "lease_expires_at"
+        ],
+        "title": "ResearchClaim",
+        "type": "object"
+      },
+      "ResearchClaimBatch": {
+        "properties": {
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchClaim"
+            },
+            "title": "Claims",
+            "type": "array"
+          },
+          "worker_id": {
+            "title": "Worker Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id",
+          "claims"
+        ],
+        "title": "ResearchClaimBatch",
+        "type": "object"
+      },
+      "ResearchClaimRequest": {
+        "properties": {
+          "limit": {
+            "default": 1,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "worker_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Worker Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id"
+        ],
+        "title": "ResearchClaimRequest",
+        "type": "object"
+      },
+      "ResearchQueueStatus": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ResearchState"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "exhausted": {
+            "title": "Exhausted",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "lease_seconds": {
+            "title": "Lease Seconds",
+            "type": "integer"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "counts",
+          "pending",
+          "failed",
+          "exhausted",
+          "lease_seconds",
+          "max_attempts"
+        ],
+        "title": "ResearchQueueStatus",
+        "type": "object"
+      },
+      "ResearchRequeueRequest": {
+        "properties": {
+          "part_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Part Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id"
+        ],
+        "title": "ResearchRequeueRequest",
+        "type": "object"
+      },
+      "ResearchResultRequest": {
+        "description": "A completed run: every candidate tried, or an error.\n\nExactly one of `candidates` and `error`, enforced at the route rather than by a\nvalidator so the refusal carries the same `{reason, message}` shape as every\nother refusal in this module.",
+        "properties": {
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CandidateSubmission"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "part_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Part Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part_id"
+        ],
+        "title": "ResearchResultRequest",
+        "type": "object"
+      },
+      "ResearchResultResponse": {
+        "properties": {
+          "part": {
+            "$ref": "#/components/schemas/PartResearchRead"
+          }
+        },
+        "required": [
+          "part"
+        ],
+        "title": "ResearchResultResponse",
+        "type": "object"
+      },
+      "ResearchState": {
+        "description": "Where one `parts` row stands in the datasheet-research queue (ADR 0017).\n\nDeliberately the same shape as `ExtractionState`, for the reason that enum's\ndocstring gives: **the queue is this column plus an index, not a table.** A\nqueue table would need a row inserted for every part that might ever want a\ndatasheet, kept in step with `parts` by something, and swept when it fell\nbehind. A state on the row it describes cannot fall out of step with itself.\n\nThe subject differs, though, and that is worth being explicit about. Extraction\nis about a *document* that has no text; research is about a *part* that has no\ndocument. So this column lives on `parts`, and the two queues chain: research\nresolves by storing and linking a PDF, which arrives in `documents` as\n`extraction_state = PENDING` and is picked up by the extraction worker with no\ncoupling between the two workers at all.\n\n## `EXHAUSTED` is the member that earns this enum its keep\n\nADR 0017 requires that \"we looked and found nothing\" be distinguishable from\n\"nobody has looked yet\". Without a distinct member those collapse: leaving a\nfruitless part `PENDING` makes the queue re-research it forever and makes the\npending count a lie, and calling it `FAILED` says something went wrong when\nnothing did \u2014 a genuinely obscure part with no datasheet on the open web is a\nnormal outcome, not an error, and it must not show up in a health check that\nexists to surface real breakage.\n\nThe practical difference: `FAILED` is a bug report, `EXHAUSTED` is a shrug. Both\nare terminal until requeued, and requeue is how a part gets another look once a\nnew provider is added.",
+        "enum": [
+          "not_applicable",
+          "pending",
+          "claimed",
+          "resolved",
+          "exhausted",
+          "failed"
+        ],
+        "title": "ResearchState",
+        "type": "string"
       },
       "ResolveRequest": {
         "description": "Mark an entry dealt with, optionally naming what it became.",
@@ -21437,6 +21866,51 @@
         ]
       }
     },
+    "/api/parts/{part_id}/research": {
+      "get": {
+        "description": "One part's research standing and every candidate tried for it.\n\nAnswers 200 for a part nobody has researched, with `state: pending` and an empty\ncandidate list \u2014 the same shape and the same reasoning as\n`GET /api/documents/{sha256}/text` answering 200 for a document with no text. A\npart that has not been researched is not an error; only the datasheet waits.",
+        "operationId": "read_part_research",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Part Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResearchRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Part Research",
+        "tags": [
+          "research"
+        ]
+      }
+    },
     "/api/projects": {
       "get": {
         "description": "Projects, newest first. `status` is repeatable and unset means \"all\" \u2014\nunlike `intake.list_pending`'s worklist, there is no single default status\na project view should hide, since `ARCHIVED` is still a real board someone\nmay re-plan a build against.",
@@ -22292,6 +22766,154 @@
         "summary": "Suggest Parts",
         "tags": [
           "requirements"
+        ]
+      }
+    },
+    "/api/research/claims": {
+      "post": {
+        "description": "Lease up to `limit` parts that want a datasheet.\n\nA POST despite reading like a query, because it **writes**: it takes a lease and\nburns an attempt. A GET that mutated the queue would be retried by every proxy\nand prefetched by every crawler.\n\nAn empty `claims` list is the ordinary answer and not an error \u2014 it means the\nqueue is drained, which is where a healthy install spends most of its life.",
+        "operationId": "claim_research_work",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchClaimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchClaimBatch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Research Work",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/research/requeue": {
+      "post": {
+        "description": "Offer a part to the queue again, from zero attempts.\n\nTwo uses, one operation: retry a `failed` part once its cause is fixed, and\n**re-research an `exhausted` one now that a new provider exists**. The second is\nADR 0017's upgrade path and needs no new machinery because it is this.",
+        "operationId": "requeue_research",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchRequeueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Requeue Research",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/research/results": {
+      "post": {
+        "description": "Record one run's outcome \u2014 the candidates it tried, or a failure.\n\nNote `candidates: []` and `error` are **different submissions**. An empty list\nsays the cascade ran and proposed nothing, which settles the part `exhausted`;\nan error says the run broke, which leaves it claimable until attempts run out.\nCollapsing them would make a dead network indistinguishable from an obscure part.",
+        "operationId": "submit_research_result",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Research Result",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/research/status": {
+      "get": {
+        "description": "Queue depth. One grouped count over an indexed column, cheap enough to poll.",
+        "operationId": "read_research_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchQueueStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Research Status",
+        "tags": [
+          "research"
         ]
       }
     },

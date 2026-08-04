@@ -16,6 +16,13 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
 - `services/shortid.py` (the session-taking half), `services/tree.py`, `services/parameters.py`
 - `services/search/` — the value-parser adapter and the parametric filter executor
 - `/api/search/parts`, `/api/resolve/{short_id}`, `/s/{short_id}`, `/api/system/health`
+- **the datasheet-research queue** (`services/research.py`, `/api/research/*`) —
+  ADR 0017's stage *before* extraction: claim a part that has no datasheet, report
+  every candidate URL tried with its verdict, and let the API derive the outcome.
+  Six states, and `exhausted` is not `failed` — "no datasheet exists for this part"
+  is a normal result and must stay out of the failure health check. The queue is
+  five columns and an index on `parts`, **not a table**, for the reason
+  `ExtractionState`'s docstring gives. The worker that drives it is not written yet
 - both submodule libraries (`elec-value-parser`, `ecia-barcode`), tagged and pinned
 - `frontend/` — the PWA, and far more of it than this file used to admit: search,
   storage, containers, projects, builds, intake, review and the scanner. Camera

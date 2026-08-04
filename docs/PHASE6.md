@@ -15,6 +15,7 @@ More than `CLAUDE.md` admits. Verified against the tree on 2026-08-04:
 | Captures, regions, OCR, `extract.ts` field suggestions | built |
 | Content-addressed blob store, `documents`, `document_links` with roles + primary | built |
 | Extraction work queue — `POST /api/extraction/{claims,results,requeue}`, leases | built |
+| **The extraction worker** — `app/scripts/extract_datasheets.py`, claim/fetch/extract/submit, `--once` | built, **never deployed** |
 | `Extractor` Protocol, `PyPdfExtractor`, `DoclingExtractor` (uninstalled) | built |
 | `ExtractionProvider` Protocol, `schema_for`, `parse_response`, `FakeExtractionProvider` | built, **no real implementation** |
 | MPN decoders — Murata, TDK, Samsung, Yageo, EIA, SMD resistor | built |
@@ -30,8 +31,9 @@ of chat.
 
 ## What is missing
 
-1. No worker process exists. The extraction queue has never been drained by
-   anything but a test.
+1. The extraction worker exists and is tested, but **nothing runs it** —
+   `deploy/jobs/` holds only `migrate.yaml`. The queue has never been drained
+   outside a test.
 2. No research stage, no provider interface, no datasheet acquisition.
 3. No real `ExtractionProvider` — only the fake.
 4. No model serving in the cluster, no GPU workload at all.
@@ -44,23 +46,47 @@ of chat.
 Each chunk is one PR. `make check` green is the gate; every new route needs its
 `coverage.py` line in the same PR.
 
-**A1. `enrichmentworker/` scaffold.**
-Own distribution (`almagest-enrichment-worker`), own venv, own lock, own
-`make worker-check` folded into `make check`. Contains: the API client (HTTP
-only — never opens the database), an OpenAI-compatible model client behind a
-Protocol with a fixture-replaying fake, the claim/submit loop, and a CLI entry
-point. Drains the **existing** extraction queue using `PyPdfExtractor`, so this
-chunk alone makes text extraction real with no model and no GPU. Ends with a
-worker that can be run by hand against a local API and demonstrably fills
-`documents` text.
+**A1. Deploy the worker that already exists.** *(revised — the first draft of
+this chunk proposed a new `enrichmentworker/` component and was wrong.)*
 
-**A2. The research queue in the API.**
-Mirror of the extraction queue, same claim/lease/submit shape, idempotent on a
-natural key. New table for research attempts and their outcomes, so "looked and
-found nothing" is distinguishable from "not looked at yet". Routes:
-`POST /api/research/claims`, `POST /api/research/results`,
-`GET /api/research/status`. `Excluded` in `coverage.py` — an agent has no
-business claiming worker leases.
+`app/scripts/extract_datasheets.py` is built, tested against the real routes
+through `TestClient`, and has the exact shape the rest of Track A needs: an
+`ApiClient` Protocol over `urllib`, HTTP-only access per ADR 0005, `--once` so a
+run is a Job, and a three-way failure split (bad document reported, missing
+extractor aborts loudly, dead worker recovered by the lease). **New worker stages
+extend this module and this pattern — they do not get a new component.** The
+established split is one repo, one extra (`datasheets`), a different *image*, not
+a different distribution.
+
+What is actually missing is that nothing runs it. This chunk is the CronJob
+manifest in `deploy/jobs/`, the worker image target in the release workflow, and a
+`make` target for a hand-run drain. Small, and it makes text extraction real in
+the cluster with no model and no GPU.
+
+**A2. The research queue in the API.** ✅ **built**
+
+Mirror of the extraction queue: same claim/lease/submit shape, same
+count-the-attempt-at-claim-time, same self-repairing `expire_abandoned`, same
+pick-then-take compare-and-swap.
+
+*Corrected during the build:* the first draft called for a queue table. It does
+not get one. `ExtractionState`'s own docstring argues the opposite — "the queue is
+this column plus an index, not a table", because a queue table needs a row per
+candidate subject, something to keep it in step, and a sweep when it falls behind.
+So research state is five columns and an index on `parts`. `research_candidates`
+*is* a table, because there are 0..N per part and ADR 0017 requires the rejections
+be kept.
+
+`ResearchState` has six members, and `EXHAUSTED` is the one that earns its keep:
+"looked and found nothing" is not `FAILED`. A health check that counts obscure
+parts as breakage is a health check nobody reads. `record_result` **derives** the
+outcome from the candidates rather than taking a state field, so the column cannot
+disagree with the rows that are its evidence.
+
+Routes: `POST /api/research/{claims,results,requeue}`, `GET /api/research/status`,
+`GET /api/parts/{id}/research`. All five `Excluded` in `coverage.py`. The
+migration backfills parts that already have a primary datasheet to `resolved`, so
+the first worker run does not re-research several hundred answered parts.
 
 **A3. Datasheet acquisition, with validation.**
 The fetch-and-validate path from ADR 0017: PDF magic bytes, size ceiling, parses,

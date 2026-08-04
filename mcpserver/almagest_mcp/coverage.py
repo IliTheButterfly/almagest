@@ -145,6 +145,13 @@ _EXTRACTION: Final = (
     "The extraction worker's queue door (ADR 0005): claim a lease, submit a "
     "result, requeue a failure. One consumer, and it is not this."
 )
+_RESEARCH: Final = (
+    "The datasheet-research worker's queue door (ADR 0017): claim a lease, submit "
+    "every candidate tried, requeue. One consumer, and it is not this. The read "
+    "rides along because what it reports is *why a provider was refused* — worker "
+    "diagnostics, not an answer about the inventory. A part's actual datasheet is "
+    "already reachable through `get_part`."
+)
 _INTAKE: Final = (
     "The intake desk pass: a scan is parked by a phone at the bench and resolved "
     "later by a human deciding what the barcode actually was."
@@ -458,6 +465,12 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "submit_extraction_result": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
         "requeue_extraction": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
         "read_extraction_status": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
+        # -- research (ADR 0017) -----------------------------------------------
+        "claim_research_work": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        "submit_research_result": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        "requeue_research": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        "read_research_status": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        "read_part_research": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
         # -- captures ----------------------------------------------------------
         "create_capture": Excluded(Reason.MACHINE_DOOR, _CAPTURES),
         "append_capture_regions": Excluded(Reason.MACHINE_DOOR, _CAPTURES),
