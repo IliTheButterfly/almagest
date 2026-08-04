@@ -409,11 +409,11 @@ class HttpStationApi:
 
     `base_url` is the API as reachable *from the Pi*, which is not the same string
     as `ALMAGEST_BASE_URL`: that one is the public origin written into tags
-    (`https://almagest.lan`, ADR 0001) and it must stay stamped on physical
+    (`https://almagest.aether.lan`, ADR 0001) and it must stay stamped on physical
     objects whatever the agent's route to the API happens to be.
 
     TLS is verified with the system trust store and there is deliberately no
-    switch to turn that off. `https://almagest.lan` needs the project's private CA
+    switch to turn that off. `https://almagest.aether.lan` needs the project's private CA
     installed on the Pi (ADR 0001 makes that a prerequisite anyway, for Web NFC),
     and an `insecure=true` flag is the kind of thing that stays on.
     """

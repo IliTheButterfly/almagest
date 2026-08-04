@@ -13,7 +13,7 @@ when both screens are open at once. Two devices on one walk is not a conflict he
 it is two views of the same rows.
 
 **A relative path only.** The QR is rendered from `{base_url}{path}` with the base
-URL the server already knows (ADR 0001: `https://almagest.lan`), and the path is
+URL the server already knows (ADR 0001: `https://almagest.aether.lan`), and the path is
 validated to be a same-origin absolute path. Encoding a caller-supplied *absolute*
 URL would turn this into an open redirect generator with a QR code on the front,
 which is a phishing primitive rather than a feature — the phone scanning it has no

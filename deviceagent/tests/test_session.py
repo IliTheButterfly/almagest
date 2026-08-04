@@ -29,7 +29,7 @@ from tests.conftest import Station
 from tests.fake_api import CONTAINER, LOT, UNKNOWN, FakeStationApi
 
 SHORT_ID = "4K7T92M8"
-TAG = TagRead(uid="04:1A:2B:3C:4D:5E:6F", ndef_url=f"https://almagest.lan/s/{SHORT_ID}")
+TAG = TagRead(uid="04:1A:2B:3C:4D:5E:6F", ndef_url=f"https://almagest.aether.lan/s/{SHORT_ID}")
 UID_ONLY = TagRead(uid="04AABBCCDDEE10", ndef_url=None)
 UNREADABLE = TagRead(uid=None, ndef_url=None)
 

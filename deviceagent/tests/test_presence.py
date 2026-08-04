@@ -25,7 +25,7 @@ UID_B = "04AABBCCDDEE10"
 UID_C = "0499887766554433"
 UID_D = "0455555555555555"
 
-TAG_A = TagRead(uid="04:1A:2B:3C:4D:5E:6F", ndef_url=f"https://almagest.lan/s/{CODE_A}")
+TAG_A = TagRead(uid="04:1A:2B:3C:4D:5E:6F", ndef_url=f"https://almagest.aether.lan/s/{CODE_A}")
 UNREADABLE = TagRead(uid=None, ndef_url=None)
 
 
@@ -91,7 +91,7 @@ def test_the_packaged_script_produces_exactly_this_stream(
             {
                 "short_id": CODE_B,
                 "tag_uid": UID_C,
-                "ndef_url": f"https://almagest.lan/s/{CODE_B}",
+                "ndef_url": f"https://almagest.aether.lan/s/{CODE_B}",
                 "via": "ndef",
             },
         ),
@@ -259,7 +259,7 @@ def test_a_swap_tears_the_old_session_down_before_announcing_the_new_one(
     """Two containers, no gap. A client that saw only the second `tag.identified`
     could reasonably apply input the user entered against the first."""
     presence.observe(TAG_A)
-    emitted = presence.observe(TagRead(uid=UID_C, ndef_url=f"https://almagest.lan/s/{CODE_B}"))
+    emitted = presence.observe(TagRead(uid=UID_C, ndef_url=f"https://almagest.aether.lan/s/{CODE_B}"))
     assert [event.type for event in emitted] == [events.TAG_REMOVED, events.TAG_IDENTIFIED]
     assert emitted[0].data["missed_polls"] == 0
 

@@ -48,13 +48,13 @@ production workloads.
 ## First install
 
 ```bash
-make certs          # private CA + cert for almagest.lan, into the gitignored certs/
+make certs          # private CA + cert for almagest.aether.lan, into the gitignored certs/
 make k8s-tls        # certs/ -> secret/almagest-tls
 make k8s-secrets    # optional: distributor / LLM keys from .env
 make k8s-deploy     # deploys the current commit
 ```
 
-Then point `almagest.lan` at `192.168.85.101` in the router's DNS, and install
+Then point `almagest.aether.lan` at `192.168.85.101` in the router's DNS, and install
 `certs/ca.crt` on every phone that will provision tags — `.lan` cannot obtain a
 publicly trusted certificate, and without the CA the browser refuses the secure
 context that Web NFC and the camera require.
@@ -63,22 +63,22 @@ context that Web NFC and the camera require.
 
 The cluster cannot serve **443**: there is no ingress controller, no
 LoadBalancer, `hostPort` is blocked by PodSecurity, and the node-port range is
-the standard 30000–32767. So the app answers on `https://almagest.lan:30443`,
+the standard 30000–32767. So the app answers on `https://almagest.aether.lan:30443`,
 while every NFC tag and printed QR is specified to carry a **portless**
-`https://almagest.lan/s/{short_id}`.
+`https://almagest.aether.lan/s/{short_id}`.
 
 **Do not provision any tag until that is reconciled**, or the tag will carry an
 origin that never resolves — and a tag cannot be rewritten remotely. Nothing has
 been provisioned yet, so this currently costs nothing.
 
 Note that a router *port-forward* does not fix it: a LAN client resolves
-`almagest.lan`, gets the node's address, and connects directly, so the router is
-never in the path. It needs a **reverse proxy at whatever address `almagest.lan`
+`almagest.aether.lan`, gets the node's address, and connects directly, so the router is
+never in the path. It needs a **reverse proxy at whatever address `almagest.aether.lan`
 resolves to**, forwarding 443 to `192.168.85.101:30443`. Failing that, an ingress
 controller or an extended node-port range — both cluster-admin changes — would
 let `ALMAGEST_BASE_URL` drop the port with no other change here.
 
-**This is deferred on purpose, not forgotten.** Nothing resolves `almagest.lan`
+**This is deferred on purpose, not forgotten.** Nothing resolves `almagest.aether.lan`
 today and nothing needs to until tags are provisioned; the deployment is reached
 by address. The intended fix is OpenWRT on the router providing both the DNS
 entry and the 443 reverse proxy (a 10 GbE firewall could host the proxy instead).

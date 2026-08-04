@@ -28,7 +28,7 @@ ExecStart=%h/.local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 # tag write is physical: no amount of software fixes a sticker that is already
 # on a drawer. It also decides what `location_tags.ndef_url` records at bind
 # time, so a wrong value here makes every later verification read `degraded`.
-Environment=ALMAGEST_BASE_URL=https://almagest.lan
+Environment=ALMAGEST_BASE_URL=https://almagest.aether.lan
 
 Restart=on-failure
 RestartSec=3

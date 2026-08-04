@@ -404,7 +404,7 @@ identifies itself and the honest next step is to read it back.
 
 ### The browser has to be allowed to connect
 
-The PWA is served from `https://almagest.lan` (ADR 0001) and opens
+The PWA is served from `https://almagest.aether.lan` (ADR 0001) and opens
 `ws://127.0.0.1:8765`. Loopback is "potentially trustworthy" per the
 secure-context spec, so this is *specified* to work — but Chrome's Private
 Network Access rollout adds a preflight for public→local requests, so the

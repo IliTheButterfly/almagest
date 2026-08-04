@@ -13,7 +13,7 @@ WorkingDirectory=%h/prog/almagest/deviceagent
 # `agent/no_reader.py` for why the answer is not `--fake`.
 ExecStart=%h/.local/bin/uv run almagest-deviceagent --reader none
 # The origin the PWA is actually served from here. The default is
-# https://almagest.lan, which is right for a phone and wrong for a kiosk pointed
+# https://almagest.aether.lan, which is right for a phone and wrong for a kiosk pointed
 # at loopback — the WebSocket handshake would be refused and the bridge would
 # look absent rather than rejected.
 Environment=DEVICEAGENT_ALLOWED_ORIGIN=http://127.0.0.1:8080

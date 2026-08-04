@@ -5,7 +5,7 @@
 
 ## Context
 
-ADR 0001 settled the origin as `https://almagest.lan`, behind a private CA
+ADR 0001 settled the origin as `https://almagest.aether.lan`, behind a private CA
 installed on every phone. What was never settled was how a request to that name
 actually reaches a pod. The deployment notes carried an explicit open question —
 *ingress class and hostname pattern are unknown, ask before writing an Ingress
@@ -55,7 +55,7 @@ validation held; this one field is the exception.
 and proxying the API as one origin.**
 
 ```
-  client --https--> <whatever answers on 443 for almagest.lan>
+  client --https--> <whatever answers on 443 for almagest.aether.lan>
                       '--> 192.168.85.101:30443   (node "neon")
                              -> almagest-web   nginx, TLS from secret/almagest-tls
                                   |-- /       -> the built PWA
@@ -65,16 +65,16 @@ and proxying the API as one origin.**
 
 ## The unresolved half: who answers on 443
 
-`https://almagest.lan/s/{short_id}` is written into every NFC tag and printed on
+`https://almagest.aether.lan/s/{short_id}` is written into every NFC tag and printed on
 every QR label, with **no port in it**. A tag is a physical object glued to a
 drawer; no migration reaches it. The cluster cannot serve 443 — findings 1–5 —
 so something outside it must, and forward to `192.168.85.101:30443`.
 
 **A router port-forward does not solve this**, and the reason is easy to miss: a
-LAN client asks the router for `almagest.lan`, gets the node's address, and then
+LAN client asks the router for `almagest.aether.lan`, gets the node's address, and then
 connects to the node *directly*. The router is never in the path, so it has
 nothing to forward. What is needed is a **reverse proxy at whatever address
-`almagest.lan` resolves to**.
+`almagest.aether.lan` resolves to**.
 
 Until that exists, `ALMAGEST_BASE_URL` must include the port, and **no tag may be
 provisioned**, because a tag written now would carry an origin that never
@@ -91,10 +91,10 @@ guessing at a configuration nobody has asked for:
   `192.168.85.101:30443` directly, and none of this depends on the WireGuard
   tunnel. That tunnel is only how a developer workstation off that subnet reaches
   the cluster; it is out of scope here and must not be modified.
-- **`almagest.lan` resolves to nothing today**, and does not need to. The
+- **`almagest.aether.lan` resolves to nothing today**, and does not need to. The
   deployment is reached by address until someone wants the name.
 - **OpenWRT on the router can supply both halves** when the time comes: a DNS
-  entry for `almagest.lan`, and a reverse proxy listening on 443 that forwards to
+  entry for `almagest.aether.lan`, and a reverse proxy listening on 443 that forwards to
   `192.168.85.101:30443`. A 10 GbE firewall is also available and could host the
   proxy instead. Either way the proxy needs `certs/server.crt` and its key, or it
   can pass TLS through untouched to our nginx, which already holds the same
@@ -126,7 +126,7 @@ break quietly:
 ## Consequences
 
 - **The router is the only piece outside the repository**: it must resolve
-  `almagest.lan` to the node. That is one DNS record, and it is the intended
+  `almagest.aether.lan` to the node. That is one DNS record, and it is the intended
   division — the cluster does not do LAN DNS.
 - **Deploys have downtime, on purpose.** SQLite tolerates exactly one writer, so
   `scripts/k8s-deploy.sh` scales the API to zero, migrates alone with the

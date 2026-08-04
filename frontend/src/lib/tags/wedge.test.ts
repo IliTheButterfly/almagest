@@ -49,12 +49,12 @@ describe("detecting a wedge", () => {
     const target = new EventTarget();
     const taps = collect(wedgeTagSource({ target }));
 
-    type(target, "https://almagest.lan/s/4K7T92M8");
+    type(target, "https://almagest.aether.lan/s/4K7T92M8");
 
     expect(taps[0]?.shortId).toBe("4K7T92M8");
     // The URL is kept verbatim too: `/api/location-tags/resolve` matches it
     // host-agnostically, which is a stronger answer than the code alone.
-    expect(taps[0]?.url).toBe("https://almagest.lan/s/4K7T92M8");
+    expect(taps[0]?.url).toBe("https://almagest.aether.lan/s/4K7T92M8");
   });
 
   it("never claims to have read the tag's user memory", () => {

@@ -18,7 +18,7 @@ function scan(
     id,
     presentOn,
     at: 1_700_000_000_000,
-    code: `https://almagest.lan/s/${id}`,
+    code: `https://almagest.aether.lan/s/${id}`,
     symbology: "nfc",
     target:
       entityType === null

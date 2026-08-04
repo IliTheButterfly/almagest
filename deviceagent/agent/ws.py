@@ -87,7 +87,7 @@ def _add_headers(
 def private_network_headers(origin: str) -> dict[str, str]:
     """Headers that let an `https://` page open this `ws://` loopback socket.
 
-    The PWA is served from `https://almagest.lan` (ADR 0001) and this socket is
+    The PWA is served from `https://almagest.aether.lan` (ADR 0001) and this socket is
     `ws://127.0.0.1:8765`. Loopback is "potentially trustworthy" per the
     secure-context spec, so the connection is *specified* to be allowed — but
     Chrome's Private Network Access work adds a preflight for requests from a

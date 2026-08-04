@@ -119,7 +119,7 @@ def seeded(db: Session) -> tuple[Location, StockLot]:
         LocationTag(
             location_id=location.id,
             tag_uid=TAG_UID,
-            ndef_url=f"https://almagest.lan/s/{short_id}",
+            ndef_url=f"https://almagest.aether.lan/s/{short_id}",
             written_at=utcnow(),
         )
     )

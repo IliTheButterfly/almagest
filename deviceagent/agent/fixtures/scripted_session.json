@@ -4,13 +4,13 @@
     {"note": "empty platform", "tag": null},
     {"note": "empty platform", "tag": null},
 
-    {"note": "a drawer lands: both carriers read", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.lan/s/4K7T92M8"}},
-    {"note": "still there, and the station must stay silent", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.lan/s/4K7T92M8"}},
+    {"note": "a drawer lands: both carriers read", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.aether.lan/s/4K7T92M8"}},
+    {"note": "still there, and the station must stay silent", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.aether.lan/s/4K7T92M8"}},
     {"note": "still there, this time user memory missed — same tag, not a swap", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": null}},
-    {"note": "still there", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.lan/s/4K7T92M8"}},
+    {"note": "still there", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.aether.lan/s/4K7T92M8"}},
 
     {"note": "a hand passes over the platform: one dropped read, NOT a removal", "tag": null},
-    {"note": "back", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.lan/s/4K7T92M8"}},
+    {"note": "back", "tag": {"uid": "04:1A:2B:3C:4D:5E:6F", "ndef_url": "https://almagest.aether.lan/s/4K7T92M8"}},
 
     {"note": "lifted off", "tag": null},
     {"note": "lifted off", "tag": null},
@@ -33,8 +33,8 @@
     {"note": "a tag whose NDEF was never written but whose UID is fine", "tag": {"uid": "04AABBCCDDEE10", "ndef_url": null}},
     {"note": "still there", "tag": {"uid": "04AABBCCDDEE10", "ndef_url": null}},
 
-    {"note": "swapped for another drawer with no gap in between", "tag": {"uid": "0499887766554433", "ndef_url": "https://almagest.lan/s/NX6C5ZTQ"}},
-    {"note": "still there", "tag": {"uid": "0499887766554433", "ndef_url": "https://almagest.lan/s/NX6C5ZTQ"}},
+    {"note": "swapped for another drawer with no gap in between", "tag": {"uid": "0499887766554433", "ndef_url": "https://almagest.aether.lan/s/NX6C5ZTQ"}},
+    {"note": "still there", "tag": {"uid": "0499887766554433", "ndef_url": "https://almagest.aether.lan/s/NX6C5ZTQ"}},
 
     {"note": "a foreign card: an NDEF record that is not ours", "tag": {"uid": "0455555555555555", "ndef_url": "https://example.invalid/loyalty/1234"}},
 

@@ -34,7 +34,7 @@ def test_a_tag_written_by_this_system_round_trips_to_the_same_short_id() -> None
     """The end-to-end property: what the PWA writes over Web NFC is what the
     station reads back, and the short id survives with its check symbol intact."""
     code = generate()
-    url = f"https://almagest.lan/s/{code}"
+    url = f"https://almagest.aether.lan/s/{code}"
     memory = ndef.wrap_tlv(ndef.encode_uri_record(url))
     collected = ndef.collect_ndef_bytes(reader(pages(memory)))
     assert ndef.parse_uri_record(collected) == url
@@ -44,8 +44,8 @@ def test_a_tag_written_by_this_system_round_trips_to_the_same_short_id() -> None
 @pytest.mark.parametrize(
     ("url", "code", "stored"),
     [
-        ("https://almagest.lan/s/4K7T92M8", 0x04, b"almagest.lan/s/4K7T92M8"),
-        ("http://almagest.lan/s/4K7T92M8", 0x03, b"almagest.lan/s/4K7T92M8"),
+        ("https://almagest.aether.lan/s/4K7T92M8", 0x04, b"almagest.aether.lan/s/4K7T92M8"),
+        ("http://almagest.aether.lan/s/4K7T92M8", 0x03, b"almagest.aether.lan/s/4K7T92M8"),
         ("https://www.example.com/x", 0x02, b"example.com/x"),
         ("weird://host/x", 0x00, b"weird://host/x"),
     ],
@@ -65,7 +65,7 @@ def test_the_abbreviation_code_is_the_prefix_that_was_dropped(
 def test_padding_and_lock_control_tlvs_are_skipped() -> None:
     """A tag formatted by another app can carry both before the NDEF block."""
     code = generate()
-    url = f"https://almagest.lan/s/{code}"
+    url = f"https://almagest.aether.lan/s/{code}"
     memory = (
         bytes([ndef.TLV_NULL, ndef.TLV_NULL])
         + bytes([ndef.TLV_LOCK_CONTROL, 3, 0xAA, 0xBB, 0xCC])
@@ -79,7 +79,7 @@ def test_a_three_byte_tlv_length_is_decoded() -> None:
     """A message over 254 bytes stores its length as `0xFF` plus two bytes. Bigger
     than an NTAG213 holds, so this is correctness rather than an expected case —
     but mis-reading the length shifts every following byte."""
-    url = "https://almagest.lan/" + "a" * 300
+    url = "https://almagest.aether.lan/" + "a" * 300
     payload = bytes([0x04]) + url.removeprefix("https://").encode()
     record = bytes([0xC1, 1]) + len(payload).to_bytes(4, "big") + b"U" + payload
     memory = ndef.wrap_tlv(record)
@@ -89,7 +89,7 @@ def test_a_three_byte_tlv_length_is_decoded() -> None:
 
 def test_a_uri_too_long_for_a_short_record_is_refused_at_encode_time() -> None:
     with pytest.raises(ValueError, match="too long"):
-        ndef.encode_uri_record("https://almagest.lan/" + "a" * 300)
+        ndef.encode_uri_record("https://almagest.aether.lan/" + "a" * 300)
 
 
 def test_a_blank_tag_carries_nothing() -> None:
@@ -105,7 +105,7 @@ def test_a_terminator_before_any_ndef_block_is_nothing() -> None:
 def test_a_truncated_uri_is_refused_rather_than_partially_parsed() -> None:
     """A URI cut short is a different URI, and a different URI is a different
     container. The UID fallback is the correct answer here."""
-    full = ndef.wrap_tlv(ndef.encode_uri_record("https://almagest.lan/s/4K7T92M8"))
+    full = ndef.wrap_tlv(ndef.encode_uri_record("https://almagest.aether.lan/s/4K7T92M8"))
     assert ndef.parse_uri_record(full[:12]) is None
 
 
@@ -114,7 +114,7 @@ def _two_record_message() -> bytes:
 
     Not something this system writes — a tag also formatted by another app.
     """
-    uri = bytes([0x04]) + b"almagest.lan/s/4K7T92M8"
+    uri = bytes([0x04]) + b"almagest.aether.lan/s/4K7T92M8"
     text = b"\x02enhello"
     return (
         bytes([0x91, 1, len(uri)])  # MB | SR, not ME: another record follows
@@ -131,7 +131,7 @@ def test_only_the_first_record_of_a_message_is_read() -> None:
     URI would mean trusting a tag someone else wrote more than one we wrote."""
     assert (
         ndef.parse_uri_record(ndef.wrap_tlv(_two_record_message()))
-        == "https://almagest.lan/s/4K7T92M8"
+        == "https://almagest.aether.lan/s/4K7T92M8"
     )
 
 
@@ -159,7 +159,7 @@ def test_a_text_record_is_not_a_uri_record() -> None:
 
 
 def test_a_non_well_known_tnf_is_refused() -> None:
-    payload = b"\x04almagest.lan/s/4K7T92M8"
+    payload = b"\x04almagest.aether.lan/s/4K7T92M8"
     record = bytes([0xD2, 1, len(payload)]) + b"U" + payload  # TNF 2 = MIME media
     assert ndef.parse_uri_record(ndef.wrap_tlv(record)) is None
 
@@ -167,7 +167,7 @@ def test_a_non_well_known_tnf_is_refused() -> None:
 def test_a_reserved_abbreviation_code_is_refused() -> None:
     """Codes past the table are reserved. Falling off the end of the prefix list
     must not be an IndexError, and must not be a bare path either."""
-    payload = bytes([0xFE]) + b"almagest.lan/s/4K7T92M8"
+    payload = bytes([0xFE]) + b"almagest.aether.lan/s/4K7T92M8"
     record = bytes([0xD1, 1, len(payload)]) + b"U" + payload
     assert ndef.parse_uri_record(ndef.wrap_tlv(record)) is None
 
@@ -175,7 +175,7 @@ def test_a_reserved_abbreviation_code_is_refused() -> None:
 def test_an_id_field_is_stepped_over() -> None:
     """The IL flag is rare but legal; mis-handling it shifts the payload by one
     byte, which turns `https://` into garbage rather than failing loudly."""
-    url = "https://almagest.lan/s/4K7T92M8"
+    url = "https://almagest.aether.lan/s/4K7T92M8"
     payload = bytes([0x04]) + url.removeprefix("https://").encode()
     record = bytes([0xD9, 1, len(payload), 2]) + b"U" + b"id" + payload
     assert ndef.parse_uri_record(ndef.wrap_tlv(record)) == url
@@ -183,7 +183,7 @@ def test_an_id_field_is_stepped_over() -> None:
 
 def test_a_long_form_payload_length_is_decoded() -> None:
     """No SR flag: a four-byte payload length."""
-    url = "https://almagest.lan/s/4K7T92M8"
+    url = "https://almagest.aether.lan/s/4K7T92M8"
     payload = bytes([0x04]) + url.removeprefix("https://").encode()
     record = bytes([0xC1, 1]) + len(payload).to_bytes(4, "big") + b"U" + payload
     assert ndef.parse_uri_record(ndef.wrap_tlv(record)) == url
@@ -192,7 +192,7 @@ def test_a_long_form_payload_length_is_decoded() -> None:
 def test_invalid_utf8_in_a_uri_is_refused() -> None:
     """A half-written tag. The UID is still in factory-locked pages, so falling
     back is a correct answer where a mojibake URL would not be."""
-    payload = bytes([0x04]) + b"almagest.lan/s/\xff\xfe"
+    payload = bytes([0x04]) + b"almagest.aether.lan/s/\xff\xfe"
     record = bytes([0xD1, 1, len(payload)]) + b"U" + payload
     assert ndef.parse_uri_record(ndef.wrap_tlv(record)) is None
 
@@ -206,7 +206,7 @@ def test_collection_stops_at_the_terminator_rather_than_reading_the_whole_tag() 
     """36 pages is 36 UART round trips. A container is polled several times a
     second, so reading only as far as the terminator is the difference between a
     responsive station and one that feels stuck."""
-    memory = pages(ndef.wrap_tlv(ndef.encode_uri_record("https://almagest.lan/s/4K7T92M8")))
+    memory = pages(ndef.wrap_tlv(ndef.encode_uri_record("https://almagest.aether.lan/s/4K7T92M8")))
     seen: list[int] = []
 
     def read_page(page: int) -> bytes | None:

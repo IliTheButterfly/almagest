@@ -13,7 +13,7 @@ loopback only:
 
 - **No TLS.** `http://127.0.0.1` is a "potentially trustworthy origin" per the
   secure-context spec, so `getUserMedia` works without a certificate. That is
-  the whole reason the kiosk points at loopback rather than at `almagest.lan`:
+  the whole reason the kiosk points at loopback rather than at `almagest.aether.lan`:
   the station gets a camera without the private CA (ADR 0001) being installed
   first. Web NFC still does not exist here — kiosk Chromium has no `NDEFReader`
   on any origin — which is exactly the gap the device bridge (ADR 0014) fills.

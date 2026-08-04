@@ -51,7 +51,7 @@ def _tag_holding(url: str) -> _Memory:
 
 
 def test_a_page_read_serves_the_three_pages_that_came_with_it() -> None:
-    memory = _tag_holding("https://almagest.lan/s/4K7T92M8")
+    memory = _tag_holding("https://almagest.aether.lan/s/4K7T92M8")
     source = _driver(memory)
 
     first = source._read_page(4)
@@ -68,7 +68,7 @@ def test_the_whole_url_comes_back_in_about_two_transactions() -> None:
     """The claim in the module docstring, pinned. A 30-character URL is 21 bytes
     of payload, so the walk to the TLV terminator crosses two blocks — nine
     single-page round trips on the PN532 path, two here."""
-    url = "https://almagest.lan/s/4K7T92M8"
+    url = "https://almagest.aether.lan/s/4K7T92M8"
     memory = _tag_holding(url)
     source = _driver(memory)
 
@@ -82,7 +82,7 @@ def test_the_cache_cannot_outlive_the_container_it_was_read_from() -> None:
     """`poll` clears it. Without that, a second container could be described by
     the first one's NDEF — a wrong short id that reads as perfectly valid, which
     is the failure this repo refuses everywhere else."""
-    source = _driver(_tag_holding("https://almagest.lan/s/4K7T92M8"))
+    source = _driver(_tag_holding("https://almagest.aether.lan/s/4K7T92M8"))
     source._read_page(4)
     assert source._blocks
 

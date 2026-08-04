@@ -84,22 +84,22 @@ describe("writing and reading back", () => {
     const reader = install();
     const session = openNfcScan({ onReading: () => undefined, readBackTimeoutMs: 5 });
 
-    await session.write("https://almagest.lan/s/4K7T92M8");
+    await session.write("https://almagest.aether.lan/s/4K7T92M8");
     expect(reader.writes[0]?.records[0]).toEqual({
       recordType: "url",
-      data: "https://almagest.lan/s/4K7T92M8",
+      data: "https://almagest.aether.lan/s/4K7T92M8",
     });
     // Blank-tags-only is the default: the real risk is a write screen left open
     // quietly overwriting a provisioned drawer, not an attacker.
     expect(reader.writes[0]?.overwrite).toBe(false);
 
     reader.refuseNonBlank = true;
-    await expect(session.write("https://almagest.lan/s/4K7T92M8")).rejects.toBeInstanceOf(
+    await expect(session.write("https://almagest.aether.lan/s/4K7T92M8")).rejects.toBeInstanceOf(
       TagNotBlankError,
     );
 
     // ...and the explicit toggle gets through.
-    await session.write("https://almagest.lan/s/4K7T92M8", { overwrite: true });
+    await session.write("https://almagest.aether.lan/s/4K7T92M8", { overwrite: true });
     expect(reader.writes[1]?.overwrite).toBe(true);
     session.close();
   });
@@ -108,7 +108,7 @@ describe("writing and reading back", () => {
     install();
     const session = openNfcScan({ onReading: () => undefined, readBackTimeoutMs: 5 });
 
-    const back = await session.write("https://almagest.lan/s/4K7T92M8");
+    const back = await session.write("https://almagest.aether.lan/s/4K7T92M8");
 
     expect(back).toEqual({ observed: false, url: null });
     session.close();
@@ -118,7 +118,7 @@ describe("writing and reading back", () => {
     const reader = install();
     const session = openNfcScan({ onReading: () => undefined, readBackTimeoutMs: 500 });
 
-    const pending = session.write("https://almagest.lan/s/4K7T92M8");
+    const pending = session.write("https://almagest.aether.lan/s/4K7T92M8");
     // The tag answered, and user memory came back empty — a half-written sticker.
     reader.present(null);
     await expect(pending).resolves.toEqual({ observed: true, url: null });
@@ -133,14 +133,14 @@ describe("writing and reading back", () => {
       readBackTimeoutMs: 500,
     });
 
-    reader.present("https://almagest.lan/s/AAAAAAAA");
-    const pending = session.write("https://almagest.lan/s/4K7T92M8");
-    reader.present("https://almagest.lan/s/4K7T92M8");
+    reader.present("https://almagest.aether.lan/s/AAAAAAAA");
+    const pending = session.write("https://almagest.aether.lan/s/4K7T92M8");
+    reader.present("https://almagest.aether.lan/s/4K7T92M8");
     await pending;
 
     // Only the first tap. The second answered the write; a walk that also saw it
     // would treat it as a fresh tap and advance past the next drawer.
-    expect(seen).toEqual(["https://almagest.lan/s/AAAAAAAA"]);
+    expect(seen).toEqual(["https://almagest.aether.lan/s/AAAAAAAA"]);
     session.close();
   });
 });

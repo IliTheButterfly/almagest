@@ -81,7 +81,7 @@ def test_a_rename_touches_nothing_physical(client: TestClient, db: Session) -> N
         LocationTag(
             location_id=drawer.id,
             tag_uid="04AABBCCDDEE80",
-            ndef_url=f"https://almagest.lan/s/{code}",
+            ndef_url=f"https://almagest.aether.lan/s/{code}",
             written_at=datetime(2026, 7, 1, tzinfo=UTC),
         )
     )

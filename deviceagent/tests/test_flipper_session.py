@@ -24,8 +24,8 @@ from agent.flipper.fake import DEFAULT_BANNER, FakeFlipperLink
 from agent.flipper.session import AntliaProtocolMismatch, FlipperRpc, FlipperTagSource
 from agent.tags import TagRead, TagSource, TagSourceError, TagWriteRefused, WritableTagSource
 
-URL = "https://almagest.lan/s/4K7T92M8"
-OTHER_URL = "https://almagest.lan/s/9ZQR31VT"
+URL = "https://almagest.aether.lan/s/4K7T92M8"
+OTHER_URL = "https://almagest.aether.lan/s/9ZQR31VT"
 
 
 def connect(link: FakeFlipperLink) -> FlipperTagSource:

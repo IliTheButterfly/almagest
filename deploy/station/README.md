@@ -10,7 +10,7 @@ cannot do" — the same four units run on a Pi or a laptop.
 
 ## Why everything is on loopback, and why that is the point
 
-ADR 0001 settles the public origin as `https://almagest.lan`, behind a private CA
+ADR 0001 settles the public origin as `https://almagest.aether.lan`, behind a private CA
 that has to be installed and trusted on every device that provisions a tag. That
 CA is a hard prerequisite for a phone. **It is not one here**, because
 `http://127.0.0.1` is already a *potentially trustworthy origin* per the
@@ -156,7 +156,7 @@ rsync -a --delete frontend/dist/ jetson:prog/almagest/frontend/dist/
 `{ALMAGEST_BASE_URL}/s/{short_id}`, and `.env.example` ships
 `http://localhost:8000` — a URL that means "this machine" to every phone that
 reads it, and therefore resolves to nothing. `almagest-station-api.service` sets
-`ALMAGEST_BASE_URL=https://almagest.lan` (ADR 0001) for exactly this reason; if
+`ALMAGEST_BASE_URL=https://almagest.aether.lan` (ADR 0001) for exactly this reason; if
 you override it, override it to the public origin and not to the station's own
 address. **A tag write is physical and no software undoes it.** The same value
 decides what `location_tags.ndef_url` records at bind time, so getting it wrong

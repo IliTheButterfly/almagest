@@ -14,7 +14,7 @@ Two layers of format, both from the NFC Forum specs:
   bytes and are skipped.
 * An **NDEF URI record**, whose payload is a one-byte abbreviation code followed
   by the rest of the URI. The code is why a tag holding
-  `https://almagest.lan/s/4K7T92M8` stores 21 bytes and not 29.
+  `https://almagest.aether.lan/s/4K7T92M8` stores 21 bytes and not 29.
 
 **Anything unexpected returns `None`.** Never a partial or guessed URL: the
 caller falls back to the UID, which is a correct answer, whereas a

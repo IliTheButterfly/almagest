@@ -88,14 +88,14 @@ Routes: `POST /api/research/{claims,results,requeue}`, `GET /api/research/status
 migration backfills parts that already have a primary datasheet to `resolved`, so
 the first worker run does not re-research several hundred answered parts.
 
-**A3. Datasheet acquisition, with validation.**
+**A3. Datasheet acquisition, with validation.** ✅ **built**
 The fetch-and-validate path from ADR 0017: PDF magic bytes, size ceiling, parses,
 **and the normalised MPN appears in the extracted text**. Lands a validated PDF as
 a `documents` row linked to the part with role `datasheet`. Refuses and records
 everything else. This is the single most important chunk in Track A — it is what
 makes a hallucinated URL harmless.
 
-**A4. The provider interface and the deterministic providers.**
+**A4. The provider interface and the deterministic providers.** ✅ **partly built** — `manual` and `url_pattern` ship; `jlcparts`, `mouser` and `websearch` still want a dump, a key and a SearxNG.
 `PLAN.md`'s Phase 5 interface, built here because research needs it.
 `ManualProvider` (priority 0), `JlcpartsProvider` (offline SQLite dump),
 manufacturer URL-pattern table, `MouserProvider` (free key, `provider_cache` with
@@ -114,7 +114,7 @@ One implementation against an OpenAI-compatible base URL using
 `cross_check.ingest` are untouched — this is the drop-in the Protocol was written
 for. Live-marked contract test.
 
-**A7. The research stage in the worker.**
+**A7. The research stage in the worker.** ✅ **built** — `app/scripts/research_datasheets.py`, twin of the extraction worker.
 Ordered provider cascade from ADR 0017, model called last and only to rank fetched
 candidates and match identity. Emits a stub part plus candidates, never a
 promotion.

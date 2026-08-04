@@ -19,6 +19,7 @@ import { AssignStock } from "../components/AssignStock";
 import { CategorySelect } from "../components/CategorySelect";
 import { PartFields } from "../components/PartFields";
 import { DocumentsPanel } from "../components/DocumentsPanel";
+import { ResearchPanel } from "../components/ResearchPanel";
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import { WhereIsIt } from "../components/WhereIsIt";
 import {
@@ -86,6 +87,9 @@ function PartDetail({ part, onSaved }: { part: PartRead; onSaved: () => void }) 
       </div>
 
       <DocumentsPanel partId={part.id} />
+      {/* Directly under the datasheet, because when there is no datasheet this
+          panel is the answer to the question the empty one just raised. */}
+      <ResearchPanel partId={part.id} />
 
       {part.is_stub && !editing && (
         <Notice kind="warn" title="This part came from a scan that resolved to nothing">

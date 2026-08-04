@@ -379,7 +379,7 @@ def test_a_tag_on_a_removed_drawer_resolves_and_says_it_is_gone(
         LocationTag(
             location_id=bin_.id,
             tag_uid="04AABBCCDDEE80",
-            ndef_url=f"https://almagest.lan/s/{code}",
+            ndef_url=f"https://almagest.aether.lan/s/{code}",
             written_at=datetime.now(UTC),
         )
     )
