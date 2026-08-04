@@ -99,10 +99,16 @@ already specified and already flags low confidence; this chunk makes the escalat
 land somewhere.
 
 **A9. Cluster manifests.**
-`almagest-llm` (Ollama Deployment, `OLLAMA_KEEP_ALIVE=5m`, explicit cpu/memory
-limits beside `nvidia.com/gpu: 1`), `almagest-embed` (always-on, <2 GB),
-`almagest-enrichment` (CronJob: worker + vLLM sidecar, exits and releases the
-device). Every name `almagest-` prefixed. No `--prune`, ever.
+`almagest-llm` — one vLLM Deployment holding `nvidia.com/gpu: 1`, sleep/wake gate
+in front, explicit cpu/memory limits. `almagest-embed` — always-on, <2 GB.
+`almagest-enrichment` — CronJob running the worker against `almagest-llm` over the
+network (no GPU request of its own; the device is already held). Every name
+`almagest-` prefixed. No `--prune`, ever.
+
+**Check before deploying:** sleep level 1 parks ~18-23 GB in host RAM
+continuously, and node memory is not readable from this namespace. Confirm real
+headroom against the `windo-builder` VM; fall back to sleep level 2 if it does not
+fit. See ADR 0016's consequences.
 
 **A10. Auto-enqueue from a capture.**
 Committing a capture's suggested MPN enqueues research. This is the chunk that
@@ -164,12 +170,14 @@ Each has a test that fails loudly, or should get one.
 
 Flagged rather than blocking. Each is cheap to revisit; none blocks A1-A4.
 
-1. **Chat GPU residency.** Assumed: Ollama with `OLLAMA_KEEP_ALIVE=5m`, so chat
-   pays ~15-30 s on the first message of a session and nothing after. The
-   alternative is a Job per message (unusable latency) or an always-resident
-   server (breaks co-tenancy). If the builder starts losing races for the device,
-   lower `keep_alive` — the failure mode is a slower first token, never a wrong
-   answer.
+1. **Holding the GPU allocation.** Measured 2026-08-04: `nvidia.com/gpu` is
+   capacity 1, exclusive, no time-slicing — so freeing VRAM does not free the
+   device. Assumed: one resident `almagest-llm` pod holds the card and uses vLLM
+   sleep mode to swap models (~1-2 s wake), and the co-tenant gets it via an
+   explicit scale-to-zero. `octans-gpu-builder` is at 0 replicas, so nothing is
+   contended today. **The clean fix is time-slicing in the device plugin**, which
+   is cluster-scoped and outside this namespace's RBAC — worth asking the admin
+   for, since it dissolves the trade instead of picking a side.
 2. **Outbound egress for research.** Assumed: the worker gets outbound HTTPS and
    an in-cluster SearxNG. If egress is not acceptable, A1-A4 still deliver the
    whole pipeline over the offline `jlcparts` dump plus Mouser, and A5 drops out.
