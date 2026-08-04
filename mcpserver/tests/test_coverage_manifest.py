@@ -13,6 +13,8 @@ The contract it enforces:
 4. Every registered tool is claimed by the manifest — no tool exists that the
    manifest does not know about.
 5. The write gate is honest: the write tools appear only when writes are on.
+6. `README.md`'s three counts — operations, tools, refusals — still match the
+   manifest, because the curation argument is made *with* those numbers.
 
 Failure messages name the operations and say what to do, because the reader is
 usually somebody — or something — who just added a route and has no idea this
@@ -22,6 +24,8 @@ package exists.
 from __future__ import annotations
 
 import asyncio
+import re
+from pathlib import Path
 from typing import Any
 
 from almagest_mcp.config import McpSettings
@@ -222,3 +226,47 @@ def test_no_two_operations_are_exposed_as_the_same_tool_by_accident() -> None:
     ]
     duplicates = sorted({tool for tool in tools if tools.count(tool) > 1})
     assert not duplicates, f"more than one operation Exposed as the same tool: {duplicates}"
+
+
+# ---------------------------------------------------------------------------
+# So do the counts in the prose
+# ---------------------------------------------------------------------------
+
+
+def test_the_readme_counts_match_the_manifest() -> None:
+    """`README.md` states three numbers, and a stale one misleads on its own.
+
+    "26 tools, and 116 deliberate refusals" out of 142 operations is the whole
+    argument for curation, so a reader who finds those numbers wrong has no reason
+    to trust the paragraph they are in. Nothing else notices: the manifest test
+    above keeps `coverage.py` honest against the schema, and the prose is outside
+    both.
+
+    Checks **every** occurrence rather than asserting the right string appears
+    somewhere. Each number is written more than once — the table, the heading, the
+    paragraph making the argument — and a first draft of this test that only looked
+    for one match passed happily on a README where the heading said 26 and the
+    table said 25. Half-updated prose is the failure mode that actually happens.
+    """
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+
+    expected = {
+        "operations": len(COVERAGE),
+        "tools": len(exposed_tools()),
+        "deliberate refusals": sum(
+            1 for disposition in COVERAGE.values() if isinstance(disposition, Excluded)
+        ),
+    }
+
+    for noun, count in expected.items():
+        written = [int(found) for found in re.findall(rf"(\d+) {noun}\b", readme)]
+        assert written, (
+            f"mcpserver/README.md never says how many {noun} there are. "
+            f"It should say {count}: that number is the curation argument."
+        )
+        wrong = sorted({found for found in written if found != count})
+        assert not wrong, (
+            f"mcpserver/README.md says {wrong} {noun}; the manifest holds {count}. "
+            f"Every mention has to move together — update the prose, and do not "
+            f"delete this test, or the argument gets made with last season's numbers."
+        )
