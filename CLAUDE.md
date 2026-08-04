@@ -2,14 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: Phase 1, backend underway
+## Status: Phase 1 nearly through, plus pieces of 2 and 4
 
-The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the source of truth for architecture and phasing, and read the relevant section before implementing anything. Repo names are settled in **[docs/NAMING.md](docs/NAMING.md)**; decisions taken since are in **[docs/adr/](docs/adr/)**.
+The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the source of truth for architecture and phasing, and read the relevant section before implementing anything. Repo names are settled in **[docs/NAMING.md](docs/NAMING.md)**; decisions taken since are in **[docs/adr/](docs/adr/README.md)**, and **an ADR wins wherever it disagrees with PLAN.md** — PLAN.md's header lists the places that happens.
+
+**Cite ADRs by slug, not by number.** Five numbers are used twice (0007, 0009, 0011, 0012, 0013) because two work streams numbered independently, and they are not being renumbered — some four hundred `ADR 00NN` citations already exist in code, and repointing a fraction of them at the wrong decision is worse than the collision. [docs/adr/README.md](docs/adr/README.md) is the index that resolves one.
 
 **Built and green** (`make check` passes: ruff, `mypy --strict`, pytest):
 
 - `backend/` scaffolding, Alembic, CI, Docker build
-- the core schema — 23 tables, append-only ledger enforced by DB triggers
+- the core schema — 49 tables now (23 at first), append-only ledger enforced by DB triggers
 - `idcodec/` — the short-ID codec and tag payload rules, standard library only
 - `services/shortid.py` (the session-taking half), `services/tree.py`, `services/parameters.py`
 - `services/search/` — the value-parser adapter and the parametric filter executor
@@ -25,20 +27,21 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   into the intake queue with its photograph attached, and `extract.ts` pairs each
   printed heading with the value under it to suggest fields — **ranked
   suggestions, never applied values**, per the never-auto-accept rule
-- `mcpserver/` — the MCP server: 25 curated tools over the HTTP API, writes gated
+- `mcpserver/` — the MCP server: 26 curated tools over the HTTP API, writes gated
   behind `ALMAGEST_MCP_ALLOW_WRITES`, and `coverage.py` + its manifest test forcing
   a disposition for **every** route so the tool surface cannot silently go stale.
-  See ADR 0012
+  See ADR 0012 (mcp)
 - `deviceagent/` — the `TagSource` protocol, the fake that replays a scripted
   session, NDEF decoding, NDEF-first/UID-fallback resolution, tag presence, the
   **station session** (PLAN.md workflow 5: identify → ready → propose → confirm →
   commit, looping while the tag stays put), the API client, and the loopback
-  WebSocket. **Three drivers, none of them ever run**: `Pn532TagSource` (UART,
-  what PLAN.md specifies, the default) and `Rc522TagSource` (SPI, added because an
-  MFRC522 was already on hand — see ADR 0013, and note PLAN.md rejects it on
-  library grounds that no longer apply since `agent/iso14443a.py` is ours and
-  unit-tested), plus a Flipper Zero over RPC (ADR 0014). All three contract tests
-  are `live`-marked. `DEVICEAGENT_READER` chooses between the two station
+  WebSocket. **Three drivers, and the two wired ones have still never run**:
+  `Pn532TagSource` (UART, what PLAN.md specifies, the default) and
+  `Rc522TagSource` (SPI, added because an MFRC522 was already on hand — see
+  ADR 0013 (rc522), and note PLAN.md rejects it on library grounds that no longer
+  apply since `agent/iso14443a.py` is ours and unit-tested), plus a Flipper Zero
+  over RPC (ADR 0014) — that third one **has** now run on a device, see below. All
+  three contract tests are `live`-marked. `DEVICEAGENT_READER` chooses between the two station
   modules — or `none`, which says this machine has no platform reader at all
   and only the bridge's USB readers matter (ADR 0014's laptop-with-a-Flipper,
   and what `deploy/station/` configures). Nothing above the driver knows which
@@ -98,11 +101,11 @@ its API, its walks, a reader that can write, **and now tags written by real
 hardware** — what it does not have is a tag written through a mounted container
 rather than one lying on a desk. Treat this list with suspicion anyway: it is
 older than the code and has now been wrong twice, `frontend/` having sat in it
-while the PWA grew to ~190 files, and the five items above having sat in it while
+while the PWA grew past 240 files, and the five items above having sat in it while
 they were built and tested. **Check before believing it** — this file is the
 first thing every agent reads, and a stale absence sends people looking for code
 that is already there. The station's **scale half is
-deferred, not pending** — see `docs/adr/0003`, which supersedes PLAN.md's
+deferred, not pending** — see [ADR 0003](docs/adr/0003-hardware-locked-and-the-scale-deferred.md), which supersedes PLAN.md's
 weight-triggered state machine: continuous PN532 polling is the trigger, and
 nothing weight-related exists (no `weighings`, no `WeightSource`, no `weight.*`
 event, and deliberately no feature flag for their absence). Workflow 5's
@@ -134,7 +137,11 @@ backend command runs through `uv run`; there is no venv to activate.
 make bootstrap        # submodules, venv, deps, .env from .env.example
 make migrate          # alembic upgrade head
 make run              # API with autoreload on :8000
-make check            # everything CI runs: lint, mypy --strict, pytest (idcodec + backend + deviceagent + mcpserver)
+make check            # ruff, mypy --strict, pytest across idcodec + backend + deviceagent
+                      #   + mcpserver + deploy/station, plus the openapi.json staleness check.
+                      #   Everything CI runs EXCEPT the frontend and the image build
+make fe-check         # the frontend gate: lint, typecheck, tests, build. Its own CI job, and
+                      #   deliberately not folded in — it is a different runtime entirely
 make help             # all targets
 
 # Backend, directly
@@ -148,7 +155,8 @@ cd backend && uv run alembic revision --autogenerate -m "description"
 make agent-check      # ruff, mypy --strict, pytest; folded into `make check`
 make agent-run        # the agent against the fake reader, no hardware needed
 cd deviceagent && uv run pytest -q
-cd deviceagent && uv run pytest -m live      # needs a real PN532; skipped by default
+cd deviceagent && uv run pytest -m live      # needs a real reader — PN532, RC522 or a
+                                             #   Flipper Zero; skipped by default
 
 # MCP server — the inventory as tools an agent can call
 make mcp-check        # ruff, mypy --strict, pytest; folded into `make check`
@@ -172,8 +180,15 @@ docker compose exec api alembic upgrade head
 docker compose exec api python -m app.scripts.seed_demo
 ```
 
-Frontend (`pnpm`) and Mensa firmware (`idf.py`) commands land with those
-components; neither directory exists yet.
+The frontend is `pnpm`, wrapped in `make fe-install` / `fe-dev` / `fe-check` /
+`fe-api` so nobody has to remember which directory it runs from. **Mensa firmware
+(`idf.py`) has no commands because there is no firmware** — the submodule holds a
+README and nothing else, and the scale it exists to drive is deferred, not
+pending (ADR 0003).
+
+The bench machine is its own deployment target — `deploy/station/`, all on
+loopback with no root, gated by `make station-check`. See
+[deploy/station/README.md](deploy/station/README.md).
 
 ## Conventions that CI enforces
 
@@ -191,7 +206,7 @@ Learn these before writing code — each has a test that fails loudly.
   deleting a route turns `make check` red until you decide** whether an agent
   should be able to call it — `Excluded` is a fine answer, and most routes are. Do
   not delete the test to get green; the whole design is that nobody has to
-  remember. See ADR 0012 and `mcpserver/README.md`.
+  remember. See [ADR 0012 (mcp)](docs/adr/0012-the-mcp-server-and-a-forced-coverage-decision.md) and `mcpserver/README.md`.
 - **Migrations must not import from `app`.** `alembic/env.py` renders custom
   types as `sa.String` so a migration never depends on application code.
 - **Every numeric `parameter_value` needs `value_min`/`value_max`**, equal for a
@@ -212,7 +227,7 @@ Master repo (**Almagest**) plus submodules, split only where coupling is genuine
 
 - `backend/`, `frontend/`, `deviceagent/` — **one repo, kept together.** All three are bound by the API contract; a route signature change touches all of them and must be one atomic commit.
 - `idcodec/` — same repo, its own distribution (`almagest-idcodec`) and its own venv. The short-ID codec and the tag payload rules, **standard library only**. Both the API and the agent depend on it by path — the API re-exports it through `app.services.shortid` and `app.services.provisioning` so existing call sites are untouched, the agent imports it directly — so the two can never fold a tag UID differently. It exists because the agent runs on a Pi 4 and used to pull the whole API runtime in for two pure functions. Nothing that needs a `Session`, `app.models` or `app.config` may go in it; `idcodec/tests/test_stdlib_only.py` fails if anything non-stdlib is imported.
-- `mcpserver/` — same repo, its own distribution (`almagest-mcp`) and its own venv. The inventory as tools an agent can call: 25 curated tools over the HTTP API, stdio transport, `.mcp.json` at the repo root wires it up. **A translation layer, not a second API** — whole units instead of `qty_milli`, a `{template: value}` mapping instead of the API's list of pairs, and nothing that imports `app.models` or opens the database. Writes are off unless `ALMAGEST_MCP_ALLOW_WRITES` is set, and go through the same `/api/stock/...` routes the PWA uses. Its own venv because the MCP SDK has no business in the API image, and it needs no submodules: the contract test reads the committed `openapi.json` and the tool tests drive a fake transport. **`almagest_mcp/coverage.py` is the map — read it before adding a tool.**
+- `mcpserver/` — same repo, its own distribution (`almagest-mcp`) and its own venv. The inventory as tools an agent can call: 26 curated tools over the HTTP API — against 142 operations, so 116 are `Excluded` on purpose — stdio transport, `.mcp.json` at the repo root wires it up. **A translation layer, not a second API** — whole units instead of `qty_milli`, a `{template: value}` mapping instead of the API's list of pairs, and nothing that imports `app.models` or opens the database. Writes are off unless `ALMAGEST_MCP_ALLOW_WRITES` is set, and go through the same `/api/stock/...` routes the PWA uses. Its own venv because the MCP SDK has no business in the API image, and it needs no submodules: the contract test reads the committed `openapi.json` and the tool tests drive a fake transport. **`almagest_mcp/coverage.py` is the map — read it before adding a tool.**
 - `mensa/` — submodule. The bench station firmware: ESP-IDF, separate toolchain.
 - `antlia/` — submodule, **public**. A Flipper Zero app that reads a container tag and types its short ID into the connected computer as a USB keyboard, so a laptop can identify a bin. Split for the same reason as `mensa/`: its own toolchain (`ufbt`, the Flipper SDK) and no coupling to the API contract — it needs no network at all. It carries a **second implementation of the short-ID codec, in C**, which is the one risk worth knowing about: `antlia/tests/vectors.h` is generated from `idcodec/` by `antlia/tools/gen_vectors.py`, so a divergence fails Antlia's CI. Change `idcodec/shortid.py` or `tagpayload.py` and you must run `make vectors` there too.
 - `circinus/` — submodule. OpenSCAD/CAD; binary-ish files that would bloat every clone forever.
@@ -228,7 +243,7 @@ These are non-obvious, load-bearing, and expensive to retrofit. Violating any of
 
 **Three-tier stock model.** `parts` (definition) → `stock_lots` (a physical package at a location) → `locations`. **Quantity lives on the lot, never on the part.** PartKeepr hung it on the part and could never support multi-location or per-batch cost. Lots are packaging-aware: a 5000-piece reel and a cut-tape strip of the same MPN in the same bin are two lots.
 
-**The ledger is append-only, enforced by DB triggers.** `stock_ledger` rejects UPDATE and DELETE via `RAISE(ABORT)`. Undo is a compensating row with `reversal_of_seq`, never a delete. Balances **must** be read from `stock_lots.qty_milli_cached` — summing the ledger in an API path is how this design dies at 200k rows. A nightly job compares cache to `SUM(delta_milli)` and records drift into `cache_state` — it **reports and does not repair**, because a scheduled rebuild erases the write-path bug it is evidence of. See [docs/adr/0013](docs/adr/0013-the-nightly-pass-repairs-staleness-and-only-reports-drift.md); the repair is an explicit `POST /api/system/caches/rebuild`.
+**The ledger is append-only, enforced by DB triggers.** `stock_ledger` rejects UPDATE and DELETE via `RAISE(ABORT)`. Undo is a compensating row with `reversal_of_seq`, never a delete. Balances **must** be read from `stock_lots.qty_milli_cached` — summing the ledger in an API path is how this design dies at 200k rows. A nightly job compares cache to `SUM(delta_milli)` and records drift into `cache_state` — it **reports and does not repair**, because a scheduled rebuild erases the write-path bug it is evidence of. See [ADR 0013 (nightly pass)](docs/adr/0013-the-nightly-pass-repairs-staleness-and-only-reports-drift.md); the repair is an explicit `POST /api/system/caches/rebuild`.
 
 **Never use `CHECK`-constraint enums, and never `sa.Enum`** (which silently emits `VARCHAR + CHECK`). SQLite cannot alter a `CHECK`, so a `CHECK` enum turns "add a new kind" into a full table rebuild. Use `sa.String` plus a Python `StrEnum` validated at the model layer. This single rule is what keeps every deferred feature purely additive.
 
@@ -272,7 +287,7 @@ Secrets go in `.env` (gitignored); `.env.example` documents every key. Machine- 
 
 Deployment target is Kubernetes. One architectural consequence matters here regardless of cluster: the datastore is SQLite on a ReadWriteOnce volume, so the API runs **exactly one replica with `strategy: Recreate`**. A `RollingUpdate` would try to attach a second pod to the same RWO volume and deadlock, and two SQLite writers is corruption. See `CLAUDE.local.md` for concrete cluster details.
 
-The manifests live in **`deploy/`** and the operational half is **[deploy/README.md](deploy/README.md)**; the *other* deployment target — the machine at the bench, all on loopback with no root — is **[deploy/station/README.md](deploy/station/README.md)**; the shape and the cluster probing behind it are in **[docs/adr/0009](docs/adr/0009-cluster-deployment-and-the-443-problem.md)**. Three things about it are easy to get wrong:
+The manifests live in **`deploy/`** and the operational half is **[deploy/README.md](deploy/README.md)**; the *other* deployment target — the machine at the bench, all on loopback with no root — is **[deploy/station/README.md](deploy/station/README.md)**; the shape and the cluster probing behind it are in **[ADR 0009 (cluster)](docs/adr/0009-cluster-deployment-and-the-443-problem.md)**. Three things about it are easy to get wrong:
 
 - **Images are built only by `.github/workflows/release.yml`.** There is no container runtime on the dev box, so there is no local build target and never should be a Makefile target pretending otherwise.
 - **`make k8s-deploy` scales the API to zero before migrating**, then applies. That downtime is deliberate — RWO does not prevent two writers, because both pods land on the same node.

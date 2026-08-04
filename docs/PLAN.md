@@ -2,13 +2,36 @@
 
 Repo names and the naming scheme are settled in [NAMING.md](NAMING.md).
 
+## How to read this document
+
+This is the **design**, written before any code existed, and it is still the
+source of truth for architecture and phasing. It is deliberately *not* rewritten
+as things get built, because a plan edited to match the code stops being able to
+tell you what the code was supposed to do. Two consequences:
+
+- **It does not describe what is built.** For that, read
+  [CLAUDE.md](../CLAUDE.md) — and check the code, because that list has been
+  wrong in both directions.
+- **Some of it was later changed**, as opposed to merely being unbuilt. Those
+  places are marked inline with a **Superseded** note, and
+  [docs/adr/](adr/README.md) is the full list. **Where an ADR disagrees with this
+  document, the ADR wins.** The ones that reach furthest into the text below:
+
+| This document says | Actually |
+|---|---|
+| The station is triggered by a weight jump, and weighs before it is READY | [ADR 0003](adr/0003-hardware-locked-and-the-scale-deferred.md) — the load cell was never bought. Nothing weight-related exists, and `CONTAINER_DETECTED`/`WEIGHED` are gone rather than stubbed |
+| One PN532 over UART; the MFRC522 is rejected | [ADR 0013 (rc522)](adr/0013-the-rc522-as-a-second-reader.md) and [ADR 0014](adr/0014-the-device-bridge-and-how-a-reader-is-found.md) — three drivers and a device bridge |
+| Put the devices on a Tailscale tailnet | [ADR 0001](adr/0001-base-url-and-tls.md) — `https://almagest.lan` behind a private CA |
+| Extraction is a stage inside the enrichment pipeline | [ADR 0005](adr/0005-extraction-runs-outside-the-api.md) — a separate worker over HTTP, amended by [ADR 0015](adr/0015-the-capture-and-where-text-is-read.md) for in-browser capture OCR |
+
 ## Context
 
 There is no system today — component storage is ad-hoc, so finding a part means opening drawers, and knowing whether a part is even owned is guesswork. The goal is a self-hosted system that answers three questions fast: *do I have this?*, *where is it?*, and *how many are left?* — plus DigiKey-style parametric search ("through-hole 20–30 µF ceramic capacitor"), instant access to datasheets, and an addressing scheme that survives adding shelves, boxes, trays and drawers indefinitely.
 
 The single biggest risk is not technical. Every abandoned DIY project in this space (and the dead PartKeepr, whose users migrated away) died because **manual data entry didn't scale**, or because a solo maintainer drowned in an over-engineered stack. So the design is deliberately boring where it can be, and every intake path is built around getting an item recorded in seconds with curation deferred.
 
-The checkout holds only `docs/` and config — no application code. This is greenfield.
+*(Written when the checkout held only `docs/` and config, with no application code
+at all. That is no longer true — see "How to read this document" above.)*
 
 ## Decisions locked
 
@@ -257,7 +280,7 @@ One endpoint, `POST /api/scan/resolve`, with ordered handlers, first match wins 
 
 ### ECIA / MH10.8.2 parser
 
-Distributor labels are a genuine shared standard (EIGP-114.2018 over ANSI MH10.8.2) used by DigiKey, Mouser, Arrow, Newark/Farnell, Avnet, TTI. No mature PyPI parser exists — this is ~150 lines in `backend/app/services/scanning/ecia.py`.
+Distributor labels are a genuine shared standard (EIGP-114.2018 over ANSI MH10.8.2) used by DigiKey, Mouser, Arrow, Newark/Farnell, Avnet, TTI. No mature PyPI parser exists — this is ~150 lines. *(Built as the `ecia-barcode/` submodule, publishable on its own; `backend/app/services/scanning/ecia.py` is now the thin adapter onto it.)*
 
 Envelope: `[)>` + RS(0x1E) + `06` + GS(0x1D), fields GS-separated, terminated RS + EOT(0x04). DI table: `P`=customer PN, `1P`=supplier PN, `30P`/`2P`=revision, `1T`=lot, `Q`=quantity, `9D`/`10D`=date code, `4L`=country, `K`/`4K`=PO, `S`=serial, `1V`=manufacturer, `33P`=bin. **Match longest DI first** — they overlap as prefixes (`1P` vs `P`).
 
@@ -319,7 +342,9 @@ Enrichment **never writes `parameter_value` directly** — it writes `parameter_
 
 **Datasheet store** is content-addressed: `data/datasheets/{sha256[0:2]}/{sha256[2:4]}/{sha256}.pdf`, git-style fanout, hash computed before write so dedup is free. External datasheet URLs rot within a few years — the local cache is not optional. `GET /api/datasheets/{sha256}` streams inline for the browser's native PDF viewer; `GET /api/parts/{id}/datasheet` redirects to the primary.
 
-**QR-to-datasheet** works via the label's existing short ID (`https://sorting.ts.net/s/4K7T92M8` → part detail → datasheet one tap). Off-LAN, `sorting.local` won't resolve over cellular — put devices on a **Tailscale tailnet** (also solves the PWA's HTTPS-secure-context requirement for camera access, with real certs and no CA distribution). Zero-dependency fallback: print the bare MPN as text under every QR so a manual manufacturer-site search always works.
+**QR-to-datasheet** works via the label's existing short ID (`https://<host>/s/4K7T92M8` → part detail → datasheet one tap). Zero-dependency fallback: print the bare MPN as text under every QR so a manual manufacturer-site search always works.
+
+> **Superseded — the hostname.** This section originally proposed a **Tailscale tailnet**, on the grounds that it fixes off-LAN resolution and supplies real certs for the PWA's secure-context requirement with no CA to distribute. [ADR 0001](adr/0001-base-url-and-tls.md) took `https://almagest.lan` with a **private CA installed on every provisioning phone** instead, and accepted the cost the tailnet would have avoided: **a tag scanned off-LAN resolves to nothing.** The secure-context requirement is unchanged and is the reason the scheme must be `https` — plain http silently removes tag writing and camera scanning from the PWA.
 
 **Extraction pipeline:** fetch → **Docling** (Apache-2.0, TableFormer; handles multi-column electronics tables far better than pdfplumber out of the box) → fall back to pdfplumber + tesseract only when extracted-chars-per-page ≈ 0, which is itself the signal to flag low confidence → LLM structured extraction against a JSON schema, sliced to the MPN's section or batching a whole variant table in one call → **MPN-decoder cross-check** → confidence score → review queue below 0.8 or on disagreement. Cost is ~$0.0005–0.001 per part batched; the whole 1000-part backfill is under $2.
 
@@ -337,11 +362,13 @@ The cluster node has an RTX 4090 (24 GB), and `nvidia.com/gpu: 1` is confirmed s
 
 **2. Datasheet extraction — the strongest case, but not for cost.** Local inference saves nothing: the API path is already budgeted at **under $2 total** for ~1000 parts at Flash tier. What it buys is **unlimited re-runs while tuning prompts** — where rate limits genuinely bite — plus overnight batch throughput. Expect a 4-bit ~30B local model to be *worse* than a frontier Flash-tier model on messy multi-column tables; the existing candidate/confidence/MPN-cross-check pipeline turns that into graceful degradation (more review-queue items) rather than bad data. Design: **local first pass, frontier API as escalation for low-confidence items.**
 
-**3. Auto-filing repo issues — deterministic health checks first, LLM optional.** Unsupervised "suggest improvements" generation produces low-signal noise that buries real items, and contradicts the rule that LLM output is never auto-accepted. The always-actionable items are *derived from data, not opinion*, and the schema already computes them: `cache_state` drift (ledger vs cached balance — a genuine correctness alert), pending `layout_suggestions`, `is_stub=1` parts older than N days, failed datasheet extractions, locations with stale `last_verified` (cycle-count debt), and `verification_mismatches` from tag provisioning. Those are SQL in a CronJob. An LLM's only marginal value is phrasing and grouping them; if used, it proposes into a review queue and a human promotes to issues. (Prerequisite: no git remote exists yet.)
+**3. Auto-filing repo issues — deterministic health checks first, LLM optional.** Unsupervised "suggest improvements" generation produces low-signal noise that buries real items, and contradicts the rule that LLM output is never auto-accepted. The always-actionable items are *derived from data, not opinion*, and the schema already computes them: `cache_state` drift (ledger vs cached balance — a genuine correctness alert), pending `layout_suggestions`, `is_stub=1` parts older than N days, failed datasheet extractions, locations with stale `last_verified` (cycle-count debt), and `verification_mismatches` from tag provisioning. Those are SQL in a CronJob. An LLM's only marginal value is phrasing and grouping them; if used, it proposes into a review queue and a human promotes to issues. *(This was written with "no git remote exists yet" as the blocking prerequisite. There is one now, and the work is on GitHub, so nothing blocks this but priority.)*
 
 **Deployment constraints.** The namespace has **no ResourceQuota**, so an unbounded model server can starve the co-tenant builder — set explicit limits. And a free GPU unit is a **race, not a reservation**: run the extraction model as a **Job/CronJob that releases the device**, and keep only the small embedding model as an always-on Deployment. Embeddings always-on, LLM on-demand, is what makes sharing the 4090 workable. Serving: vLLM for batch throughput, Ollama/llama.cpp for simplicity.
 
 ## The station — identify, weigh, count
+
+> **Superseded in its weighing half.** [ADR 0003](adr/0003-hardware-locked-and-the-scale-deferred.md) **defers the scale, and it was never bought** — no TAL221, no NAU7802. So everything below about mass, tare, differential weighing and the counting math is design, not code: there is no `weighings` table, no `WeightSource`, no `weight.*` event, and deliberately no feature flag standing in for their absence. The **identify** half is built and is what the station actually does; continuous PN532 polling is the trigger that a weight jump was meant to be. Read `deviceagent/README.md` for the state machine as built. Keep this section: the deferral is a purchasing decision, and the analysis below — especially the ~150 mg/unit floor and why differential weighing beats absolute — is what it will be built from.
 
 The station replaces most handheld scanning. A container is carried to it, set down, and **identifies itself** — because the NFC tag is on its underside and the reader antenna is under the platform, there is no scanning gesture at all. The station then weighs it, and a separate backlit tray next to it counts parts by vision.
 
@@ -505,6 +532,8 @@ Encoding `(container, index)` in the payload is rejected for the same reason hie
 - **Tag choice: NTAG213**, 144 B user memory (ample for the URL). A 25 mm sticker is a **tap (1–4 cm), not a wave**. **Avoid MIFARE Classic** despite it often being the cheapest tag sold — it is not NDEF-native, so Web NFC and plain phone reads will not work with it at all. Fudan FM11NT021 is a cheaper NTAG213-compatible but lacks `GET_VERSION`, so some tooling misidentifies it. No encryption needed — home lab, low threat.
 - **Station reader: genuine Adafruit PN532 over UART (~$40)** with `adafruit-circuitpython-pn532`, which is maintained and reads NDEF natively. MFRC522 is rejected despite costing ~$3: its Python ports are UID-focused with hand-rolled NDEF and several unmaintained forks — the $37 premium buys a maintained NDEF-native library. Avoid cheap PN532 clones (documented flaky SPI/firmware). `nfcpy` and `pyscard` remain healthy if an ACR122U is ever preferred; `libnfc` is low-activity.
 
+  > **Superseded — the MFRC522 rejection.** [ADR 0013 (rc522)](adr/0013-the-rc522-as-a-second-reader.md) adds it as a **second** reader, because the rejection above rests entirely on the quality of third-party Python ports and that argument no longer applies: `deviceagent/agent/iso14443a.py` is the ISO 14443-A layer written here and unit-tested here, so no unmaintained fork is being trusted. The PN532 remains what PLAN.md specifies and the default. [ADR 0014](adr/0014-the-device-bridge-and-how-a-reader-is-found.md) then adds a third path — a Flipper Zero over its own RPC — and a bridge, so that a laptop with no reader of its own can still write a tag.
+
 **Provisioning:** create the `locations` row (assigning `short_id`) → write the NDEF URI → **read back to verify** → print the label card. **Do not lock tags read-only by default.** With no security requirement, the real risk is accidentally overwriting a provisioned tag from a left-open write screen — mitigate in software (blank-tags-only by default, explicit overwrite toggle, 20 s auto-timeout on the write screen). `makeReadOnly()` is irreversible and would block the routine relabeling a hobby inventory needs; offer it opt-in for fixtures that never change.
 
 ## Physical layer
@@ -625,6 +654,8 @@ No stored cursor anywhere. All new tables or nullable/defaulted columns — addi
 **4. Move / transfer.** Scan source, scan destination, confirm. "Empty this bin into that one" is a separate entry point from a bin's screen. Same source and destination blocks commit. In a bulk empty, one lot failing validation commits the rest and reports just that failure.
 
 **5. Station session — the primary day-to-day loop.** `IDLE → CONTAINER_DETECTED (weight jump > ~200 mg) → IDENTIFYING (NFC poll, ~5 tries / 1.5 s) → IDENTIFIED | UNIDENTIFIED → WEIGHED (stable, tare-subtracted) → READY (name, path, short_id, ledger balance, weight-derived count) → ACTION (take N / add N / recount / pour into the counting tray) → CONFIRM → COMMIT`, looping back to ACTION while the tag and weight stay present, and returning to IDLE on removal. Removing the container before COMMIT aborts and writes nothing. `UNIDENTIFIED` (no tag, or a read failure) falls through to manual search or "provision this container now".
+
+> **Superseded — two states are gone, not stubbed.** With no scale ([ADR 0003](adr/0003-hardware-locked-and-the-scale-deferred.md)), `CONTAINER_DETECTED` has no trigger and `WEIGHED` has nothing to measure, so the built machine is `IDENTIFY → READY → PROPOSE → CONFIRM → COMMIT`, looping while the tag stays present. Continuous polling replaces the weight jump. The rest holds exactly as written, including the part that matters most: **removing the container before COMMIT aborts and writes nothing**, asserted in `deviceagent/tests/test_session_ledger.py` against real migrations. The idempotency key is minted when the container is identified, not at commit.
 
 **6. Recount / take by weight or vision.** Differential is primary in both modes. For vision, pour only the handful removed onto the tray — never re-count the whole bin — then fuse against the mass estimate and flag on `|z| > 3`.
 
