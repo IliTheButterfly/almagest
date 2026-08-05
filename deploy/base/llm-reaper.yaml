@@ -27,6 +27,16 @@
 # be parsed, it scales down anyway: the failure mode of releasing too eagerly is a
 # reload next message, and the failure mode of holding too long is somebody else's
 # work blocked with no way to see why.
+#
+# ## The one exception: a model that is still starting
+#
+# Idle-alone was wrong, and wrong in a way that made a whole feature impossible.
+# The 27B downloads ~16 GB before it binds a port, so chat *cannot* be active
+# while it starts — which meant the reaper killed it on every attempt and it could
+# never become ready at all. So a Deployment with no ready replica is treated as
+# starting and left alone. Its `startupProbe` already bounds that (an hour), which
+# is the right place for the bound: it knows what "still starting" means and this
+# script does not.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -92,10 +102,21 @@ data:
 
     for deploy in almagest-llm almagest-llm-27b; do
       current="$(kubectl get deploy "$deploy" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
-      if [ "${current:-0}" != "0" ]; then
-        echo "scaling $deploy to 0"
-        kubectl scale "deploy/$deploy" --replicas=0
+      [ "${current:-0}" = "0" ] && continue
+
+      # **A model that is not Ready yet is STARTING, not idle.** The 27B spends
+      # tens of minutes downloading ~16 GB before it binds a port, and chat cannot
+      # possibly be active during that - so reaping on idle alone killed it every
+      # single time and it could never have started at all. Leave a starting model
+      # alone; its startupProbe already bounds how long it may take.
+      ready="$(kubectl get deploy "$deploy" -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
+      if [ -z "$ready" ] || [ "$ready" = "0" ]; then
+        echo "$deploy is still starting; leaving it alone"
+        continue
       fi
+
+      echo "scaling $deploy to 0"
+      kubectl scale "deploy/$deploy" --replicas=0
     done
 ---
 apiVersion: batch/v1
