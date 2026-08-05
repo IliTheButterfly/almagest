@@ -145,3 +145,43 @@ def test_a_reply_is_stored_with_the_model_that_produced_it(
     assert assistant["content"] == "Two."
     assert assistant["model"] == "qwen3:8b"
     assert assistant["role"] == "assistant"
+
+
+# ---------------------------------------------------------------------------
+# What a failure says
+# ---------------------------------------------------------------------------
+
+
+def test_a_refused_connection_names_the_fix_not_the_stack() -> None:
+    """`URLError calling http://.../v1/chat/completions` is accurate and useless —
+    it names a URL the reader did not choose and a library they did not call.
+
+    The overwhelmingly common cause is that no model server is running, because
+    both Deployments default to zero and the reaper scales them down when chat has
+    been idle. So the message says that, and names the command."""
+    import urllib.error
+
+    message = chat_agent.explain(
+        urllib.error.URLError(ConnectionRefusedError(111, "Connection refused")),
+        "http://almagest-llm:11434",
+        "qwen3:8b",
+    )
+
+    assert "make k8s-model" in message
+    # And the raw text survives: a guess that turns out wrong must not hide the
+    # evidence that would have shown it.
+    assert "refused" in message.lower()
+
+
+def test_a_timeout_explains_the_cold_start() -> None:
+
+    message = chat_agent.explain(TimeoutError("timed out"), "http://x:1", "qwen3:8b")
+
+    assert "VRAM" in message
+    assert "try again" in message.lower()
+
+
+def test_a_missing_model_names_the_model() -> None:
+    message = chat_agent.explain(RuntimeError("HTTP 404: not found"), "http://x:1", "qwen3:70b")
+
+    assert "qwen3:70b" in message

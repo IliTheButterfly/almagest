@@ -22,7 +22,7 @@
  * the download machinery.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   chatExportUrl,
@@ -136,6 +136,29 @@ export function ChatThread({ threadId }: { threadId: number }) {
   const [streamed, setStreamed] = useState("");
   const [toolNote, setToolNote] = useState("");
   const [sendError, setSendError] = useState<unknown>(null);
+  // What to retry. Held separately from the composer so the box can clear on send
+  // — a message that failed is already *in* the thread, so re-typing it would
+  // duplicate the question rather than answer it. Retrying asks the model again
+  // about the turn that is already there.
+  const [retryText, setRetryText] = useState<string | null>(null);
+  // Seconds since the send. Drives both the "still working" copy and the prompt
+  // below, because "it has been a while" is the only thing we can honestly say —
+  // the server does not report progress and a fake percentage would be a lie.
+  const [waited, setWaited] = useState(0);
+
+  // A once-a-second tick, only while a send is in flight. Cleared on unmount and
+  // whenever `sending` goes false, so a thread left open does not hold a timer.
+  useEffect(() => {
+    if (!sending) {
+      setWaited(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      setWaited(Math.round((Date.now() - started) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [sending]);
 
   if (thread.error !== null) {
     return <ErrorBanner error={thread.error} fallback="That conversation could not be loaded." />;
@@ -146,8 +169,8 @@ export function ChatThread({ threadId }: { threadId: number }) {
 
   const detail = thread.data;
 
-  async function send() {
-    const text = draft.trim();
+  async function send(retryOf?: string) {
+    const text = retryOf ?? draft.trim();
     if (text === "") return;
     setSending(true);
     setSendError(null);
@@ -170,6 +193,9 @@ export function ChatThread({ threadId }: { threadId: number }) {
         }
       }
       setSendError(failed);
+      // Only offer a retry when the model failed. A message that got an answer has
+      // nothing to retry, and offering it anyway invites asking twice.
+      setRetryText(failed === null ? null : text);
       thread.reload();
     } catch (error) {
       setSendError(error);
@@ -206,7 +232,47 @@ export function ChatThread({ threadId }: { threadId: number }) {
         <Turn key={message.id} message={message} />
       ))}
 
-      {(streamed !== "" || (sending && toolNote !== "")) && (
+      {sending && streamed === "" && (
+        <div className="card" style={{ maxWidth: "min(100%, 34rem)", marginInlineEnd: "auto" }}>
+          <div className="row" style={{ gap: "0.5rem", alignItems: "baseline" }}>
+            <span className="badge">assistant</span>
+            <span style={{ fontSize: "0.85em", opacity: 0.8 }}>
+              {toolNote !== "" ? toolNote : "thinking"}
+              {/* Three dots that actually move. A static "thinking…" is
+                  indistinguishable from a hung request, which is precisely the
+                  thing somebody is trying to work out while they stare at it. */}
+              <span className="chat-ellipsis" aria-hidden="true">
+                <i>.</i>
+                <i>.</i>
+                <i>.</i>
+              </span>
+            </span>
+            {waited >= 5 && (
+              <span style={{ fontSize: "0.8em", opacity: 0.6 }}>{waited}s</span>
+            )}
+          </div>
+
+          {/* The honest explanation, offered only once it is actually slow. The
+              first message after an idle period pays for weights loading into
+              VRAM, and a smaller model pays much less of it. */}
+          {waited >= 20 && (
+            <p style={{ margin: 0, fontSize: "0.85em" }}>
+              This is taking a while — the model is probably loading into VRAM.
+              {modelId !== "qwen3-4b" && " A smaller model starts faster:"}
+              {modelId !== "qwen3-4b" && (
+                <>
+                  {" "}
+                  <button type="button" onClick={() => setModelId("qwen3-4b")}>
+                    use Qwen3 4B next time
+                  </button>
+                </>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
+      {streamed !== "" && (
         <div className="card" style={{ maxWidth: "min(100%, 34rem)", marginInlineEnd: "auto" }}>
           <div className="row" style={{ gap: "0.5rem", alignItems: "baseline" }}>
             <span className="badge">assistant</span>
@@ -224,11 +290,30 @@ export function ChatThread({ threadId }: { threadId: number }) {
       )}
 
       {sendError !== null && (
-        <ErrorBanner error={sendError} fallback="That message could not be sent." />
+        <div className="stack">
+          <ErrorBanner
+            error={sendError}
+            fallback="The model could not be reached, so your message has no answer yet."
+          />
+          {retryText !== null && (
+            <button
+              type="button"
+              className="wide"
+              disabled={sending}
+              onClick={() => void send(retryText)}
+            >
+              {sending ? "Trying again…" : "Try again"}
+            </button>
+          )}
+        </div>
       )}
 
       <div className="card stack">
-        <label className="field">
+        {/* `flex: 0 0 auto`. `.field` is `flex: 1 1 8rem`, which is right in a
+            row of fields and wrong here: inside the composer's flex *column* it
+            grows vertically and leaves a dead band between the picker and the
+            box. */}
+        <label className="field" style={{ flex: "0 0 auto" }}>
           <span>Model</span>
           <select value={modelId} onChange={(event) => setModelId(event.target.value)}>
             <option value="">Whatever is loaded (default)</option>
@@ -259,7 +344,10 @@ export function ChatThread({ threadId }: { threadId: number }) {
           type="button"
           className="primary wide tall"
           disabled={sending || draft.trim() === ""}
-          onClick={send}
+          // Wrapped, not passed directly: `send` now takes an optional retry
+          // string, and a bare handler would hand it the MouseEvent as the
+          // message text.
+          onClick={() => void send()}
         >
           {sending ? "Sending…" : "Send"}
         </button>

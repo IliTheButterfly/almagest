@@ -13,17 +13,27 @@ Three sizes, because the jobs genuinely differ:
 * **Everything in between** wants a middle rung, or people pick the big one for
   everything and wait a minute for "what is a 0603".
 
-## Two servers, and the reason is the card, not taste
+## Two servers, and what `requires_swap` actually means
 
-`nvidia.com/gpu` on this node is capacity 1, integral and exclusive (measured, ADR
-0016). One **server** may hold it at a time — but Ollama can hold several
-*models* and swap between them on demand, so the small and medium rungs share one
-deployment and switching between them costs a reload, not a rollout.
+Ollama holds several *models* and swaps between them on demand, so the small and
+medium rungs share one deployment: switching between them costs a weight reload,
+not a rollout. The 27B needs its own server — vLLM, for AWQ-Marlin and an fp8 KV
+cache, which are what make a 27B fit in 24 GB at all.
 
-Only the 27B needs its own server (vLLM, for AWQ-Marlin and an fp8 KV cache — the
-things that make a 27B fit in 24 GB at all). So switching *to* it is a genuine
-scale-down/scale-up, which is why `requires_swap` is on the row and why the UI
-says so before you pick it.
+`requires_swap` therefore says **"this one needs a GPU that no other Almagest
+model server is holding"**, not "this model is unusual". Observed directly
+(2026-08-05): with `almagest-llm` up, scaling `almagest-llm-27b` to 1 leaves it
+`Pending` with `Insufficient nvidia.com/gpu`; scaling Ollama to 0 starts it
+immediately.
+
+**What is *not* established is a node-wide fact.** An earlier note here claimed
+`nvidia.com/gpu` is "capacity 1, integral and exclusive". That overstated a
+measurement which could only show availability *at that instant* — this namespace
+cannot read nodes (RBAC), other namespaces on this machine run GPU work of their
+own, and the probe may simply have landed while one of them held a device. So a
+`Pending` here means "no GPU free for us right now", and the cause may be another
+namespace rather than our own Ollama. `make k8s-model` frees ours first because
+that is the half we control.
 
 ## `available` is not knowable from here
 
@@ -98,7 +108,8 @@ CATALOG: tuple[ModelChoice, ...] = (
             "Part picking, substitutions and design discussion — anywhere deciding "
             "*when to look something up* matters more than raw speed."
         ),
-        # Its own server, and the card is exclusive.
+        # Its own server, so it needs a GPU no other Almagest model server holds.
+        # Not a property of the model — see the module docstring.
         requires_swap=True,
     ),
 )

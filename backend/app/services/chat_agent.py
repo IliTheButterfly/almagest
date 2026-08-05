@@ -88,6 +88,42 @@ class ModelUnavailable(RuntimeError):
     """The endpoint could not be reached. Distinct from having no model configured."""
 
 
+def explain(error: Exception, base_url: str, model_name: str) -> str:
+    """A transport failure, said in terms of what to do about it.
+
+    `URLError calling http://almagest-llm:11434/v1/chat/completions` is accurate and
+    useless: it names a URL the reader did not choose and a library they did not
+    call. The overwhelmingly common cause here is that **no model server is
+    running** — both Deployments default to zero and a reaper scales them down
+    after fifteen idle minutes — so the message should say that and name the
+    command that fixes it.
+
+    The raw text is kept on the end rather than replaced. A guess about the cause
+    that turns out wrong must not hide the evidence that would have shown it.
+    """
+    raw = str(error)
+    detail = f" ({raw})" if raw else ""
+
+    if "refused" in raw.lower() or "Name or service not known" in raw or "nodename" in raw.lower():
+        return (
+            f"No model server is answering at {base_url}. Almagest releases the GPU "
+            f"when chat has been idle, so this usually means it needs starting: "
+            f"`make k8s-model M=8b` (or `M=27b`)." + detail
+        )
+    if "timed out" in raw.lower() or "timeout" in raw.lower():
+        return (
+            f"The model at {base_url} did not answer in time. The first message "
+            f"after an idle period loads weights into VRAM and can take a minute — "
+            f"try again." + detail
+        )
+    if "404" in raw or "not found" in raw.lower():
+        return (
+            f"The server at {base_url} does not have a model called "
+            f"'{model_name}'. Pull it, or pick a different one." + detail
+        )
+    return f"The model at {base_url} could not be reached.{detail}"
+
+
 @dataclass(frozen=True)
 class Reply:
     text: str
@@ -143,9 +179,11 @@ class OpenAICompatChatModel:
                 body: Any = json.loads(response.read() or b"{}")
         except urllib.error.HTTPError as error:
             detail = error.read()[:300].decode("utf-8", "replace")
-            raise ModelUnavailable(f"HTTP {error.code} from {url}: {detail}") from error
+            raise ModelUnavailable(
+                explain(RuntimeError(f"HTTP {error.code}: {detail}"), self.base_url, self.model)
+            ) from error
         except (urllib.error.URLError, OSError, ValueError) as error:
-            raise ModelUnavailable(f"{type(error).__name__} calling {url}: {error}") from error
+            raise ModelUnavailable(explain(error, self.base_url, self.model)) from error
 
         try:
             message: dict[str, Any] = body["choices"][0]["message"]
@@ -194,7 +232,7 @@ class OpenAICompatChatModel:
                     if text:
                         yield str(text)
         except (urllib.error.URLError, OSError, ValueError) as error:
-            raise ModelUnavailable(f"{type(error).__name__} streaming from {url}") from error
+            raise ModelUnavailable(explain(error, self.base_url, self.model)) from error
 
 
 @dataclass

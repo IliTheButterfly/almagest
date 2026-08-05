@@ -8,10 +8,15 @@
 #
 # ## Why this exists next to `almagest-llm` rather than replacing it
 #
-# `nvidia.com/gpu` on this node is capacity 1, integral and exclusive (measured —
-# see ADR 0016). **Only one of these can hold the card at a time.** So "multiple
-# models" is not several servers running at once; it is several Deployments that
-# each know how to hold the card, of which at most one is scaled up.
+# Observed 2026-08-05: with `almagest-llm` up, this sits `Pending` with
+# `Insufficient nvidia.com/gpu`, and starts the moment Ollama is scaled to zero.
+# So at most one Almagest model server gets a GPU at a time.
+#
+# That is **not** established as a node-wide "capacity 1" fact, and an earlier
+# version of this comment said it was. This namespace cannot read nodes, and other
+# namespaces on this machine run their own GPU work — so a `Pending` here means
+# "no GPU free for us right now", which may be somebody else's doing rather than
+# ours. What we control is our own half, which is what `make k8s-model` frees.
 #
 #   kubectl -n ili scale deploy/almagest-llm       --replicas=0   # release Ollama
 #   kubectl -n ili scale deploy/almagest-llm-27b   --replicas=1   # take the card
