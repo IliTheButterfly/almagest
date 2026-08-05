@@ -19,10 +19,13 @@
  * - `/containers/new`, reached from a container *type* ("create containers from
  *   this"), which knows the type and has to ask where they go.
  *
- * Neither form invents a parent for `instantiate`: slots have to hang off
- * something, and the API has no route that stamps a type at the top of the tree.
- * A plain container is the one thing that can be created with no parent at all,
- * which is why a fresh, empty install can be started from either caller.
+ * Both forms treat the top of the tree as a destination like any other. That was
+ * not true at first — `instantiate` only existed under a parent, so the only
+ * thing creatable at the root was a plain container with no slots, and anyone
+ * whose first container was a room to draw or a cabinet with drawers had nowhere
+ * to put it. `POST /api/locations/instantiate` is the other half of the fix; the
+ * UI having explained the hole in three separate notices was the sign it was a
+ * missing route rather than a missing sentence.
  */
 
 import { useState } from "react";
@@ -68,10 +71,10 @@ export function StampFromType({
   const effectivePattern = pattern.trim() === "" ? (type?.display_name ?? "") : pattern.trim();
   const patternIssue = namingProblem(effectivePattern);
   const names = previewNames(effectivePattern, validCount ? parsedCount : 1);
-  const ready = type !== null && parentId !== null && validCount && patternIssue === null;
+  const ready = type !== null && validCount && patternIssue === null;
 
   async function save(): Promise<void> {
-    if (!ready || parentId === null || type === null) {
+    if (!ready || type === null) {
       return;
     }
     setBusy(true);
@@ -203,9 +206,9 @@ export function StampFromType({
       </p>
 
       {parentId === null && (
-        <Notice kind="info" title="Pick where they go first">
-          Stamping a type materialises its slots, and slots have to hang off something. To create
-          the outermost container, switch to "One plain container" above.
+        <Notice kind="info" title="These go at the top of the tree">
+          Nothing holds them — they are the room, bench or wall everything else hangs off. Their own
+          slots are materialised as usual.
         </Notice>
       )}
 
@@ -345,10 +348,8 @@ export function CreatedContainers({ created }: { created: readonly LocationRead[
  * "Add containers in here", for a parent that is already decided — the panel the
  * edit mode opens.
  *
- * `parentId === null` is the top of the tree, and it is not a special case so
- * much as a fact about the API: `instantiate` needs somewhere to hang slots, so
- * the plain form is the only one offered there. Everything else is identical at
- * every depth, which is the point.
+ * `parentId === null` is the top of the tree, and both forms work there:
+ * everything is identical at every depth, which is the point.
  */
 export function AddContainersPanel({
   types,
@@ -363,7 +364,7 @@ export function AddContainersPanel({
   initialTypeId?: number | null;
   onCreated: () => void;
 }) {
-  const stampable = parentId !== null && types.length > 0;
+  const stampable = types.length > 0;
   const [mode, setMode] = useState<"stamp" | "plain">(stampable ? "stamp" : "plain");
   const [created, setCreated] = useState<readonly LocationRead[]>([]);
 
@@ -392,12 +393,6 @@ export function AddContainersPanel({
           One plain container
         </button>
       </div>
-      {parentId === null && (
-        <p className="muted-note" style={{ margin: 0 }}>
-          Stamping a type materialises its slots, and slots have to hang off something — so at the
-          top of the tree the plain form is the only one that can do anything.
-        </p>
-      )}
 
       {mode === "stamp" ? (
         <StampFromType

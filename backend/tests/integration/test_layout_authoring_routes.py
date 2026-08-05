@@ -207,6 +207,68 @@ def test_instantiate_creates_independent_copies(client: TestClient) -> None:
     assert {s["slot_label"] for s in unaffected["slots"]} == {"A1", "A2"}
 
 
+def test_instantiate_at_the_top_of_the_tree_needs_no_parent(client: TestClient) -> None:
+    """The first container in an empty install has nowhere to hang off.
+
+    `POST /api/locations/instantiate` is the parentless twin, and the point of it
+    is that the *layout* still materialises: a room to draw or a cabinet with
+    drawers is exactly what somebody creates first, and before this route the only
+    thing possible at the root was a plain container with no slots.
+    """
+    cabinet_type = _create_type(client, "top-level-cabinet", grid_rows=1, grid_cols=2)
+
+    response = client.post(
+        "/api/locations/instantiate",
+        json={"container_type_id": cabinet_type["id"], "count": 1, "naming_pattern": "Workshop"},
+    )
+    assert response.status_code == 201, response.text
+    created = response.json()["locations"][0]
+    assert created["parent_id"] is None
+    assert created["depth"] == 0
+    assert created["label_path"] == "Workshop"
+
+    layout = client.get(f"/api/locations/{created['id']}/layout").json()
+    assert {s["slot_label"] for s in layout["slots"]} == {"A1", "A2"}
+
+    # And it is a root the tree read agrees is a root.
+    tree = client.get("/api/locations/tree").json()
+    assert any(node["id"] == created["id"] and node["parent_id"] is None for node in tree["nodes"])
+
+
+def test_instantiate_at_the_top_replays_on_the_same_client_op_id(client: TestClient) -> None:
+    """Same guard as the parented route: it writes a whole subtree per instance,
+    so a retried request must not stamp a second cabinet."""
+    cabinet_type = _create_type(client, "top-level-idem", grid_rows=1, grid_cols=1)
+    body = {
+        "container_type_id": cabinet_type["id"],
+        "count": 1,
+        "naming_pattern": "Bench",
+        "client_op_id": "top-level-once",
+    }
+
+    first = client.post("/api/locations/instantiate", json=body)
+    second = client.post("/api/locations/instantiate", json=body)
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert second.json()["replayed"] is True
+    assert first.json()["locations"][0]["id"] == second.json()["locations"][0]["id"]
+    roots = [
+        node
+        for node in client.get("/api/locations/tree").json()["nodes"]
+        if node["parent_id"] is None and node["name"] == "Bench"
+    ]
+    assert len(roots) == 1
+
+
+def test_instantiate_at_the_top_still_validates_the_type(client: TestClient) -> None:
+    response = client.post(
+        "/api/locations/instantiate",
+        json={"container_type_id": 999_999, "count": 1, "naming_pattern": "Nope"},
+    )
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"]["reason"] == "unknown_container_type"
+
+
 def test_instantiate_refuses_a_pitch_mismatch(client: TestClient) -> None:
     plate_type = _create_type(
         client,

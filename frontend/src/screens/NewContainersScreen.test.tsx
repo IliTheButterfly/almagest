@@ -155,7 +155,11 @@ function stubApi(
       if (url.pathname === "/api/locations/tree" && request.method === "GET") {
         return json({ nodes: options.nodes ?? [node()] });
       }
-      if (url.pathname === "/api/locations/1/instantiate" && request.method === "POST") {
+      if (
+        (url.pathname === "/api/locations/1/instantiate" ||
+          url.pathname === "/api/locations/instantiate") &&
+        request.method === "POST"
+      ) {
         if (options.instantiate !== undefined) {
           return json(options.instantiate.body, options.instantiate.status);
         }
@@ -327,20 +331,28 @@ describe("stamping containers from a type", () => {
     expect(screen.getByText(/own copy of the layout/)).toBeTruthy();
   });
 
-  it("will not stamp a type with nowhere to put it", async () => {
-    stubApi();
+  /**
+   * The empty-install case, which used to be a dead end: with no parent chosen
+   * the form refused to submit and told you to go and create a plain container
+   * instead, so the first container in a fresh database could never be a typed
+   * one — a room to draw or a cabinet with drawers had nowhere to go.
+   */
+  it("stamps at the top of the tree when nothing holds them", async () => {
+    stubApi({ nodes: [] });
     renderScreen("?type=7");
     await screen.findByLabelText("Which type");
 
-    expect(screen.getByText("Pick where they go first")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Create/ }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("These go at the top of the tree")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create 1 container(s)" }));
+
+    await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
+    const post = calls.find((call) => call.method === "POST");
+    // The parentless twin of the route above — a URL cannot carry an absent id.
+    expect(post?.url).toBe("/api/locations/instantiate");
+    expect(post?.body).toMatchObject({ container_type_id: 7, count: 1 });
   });
 });
 
-/**
- * The other half, and the reason it is here: `instantiate` needs a parent, so on
- * a fresh install there would otherwise be nowhere to stamp *into*.
- */
 describe("a plain container", () => {
   it("creates a top-level one with no parent at all", async () => {
     stubApi({ nodes: [] });
