@@ -1245,6 +1245,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/locations/instantiate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Instantiate Containers At Top
+         * @description Bulk-create `count` instances of a container type at the **top of the tree**.
+         *
+         *     The first container in an empty install has nowhere to hang off, and it is
+         *     the one most likely to be worth a layout: a room to draw, a cabinet with
+         *     drawers, a wall of bins. Without this the only thing creatable at the root is
+         *     a plain container with no slots, so the way to get a typed one was to make a
+         *     throwaway parent, stamp inside it, and then be unable to move the result out
+         *     — which is why this exists rather than a note in the UI explaining the hole.
+         *
+         *     Everything else — layout materialisation, naming, tag granularity,
+         *     idempotency — is identical to the parented route.
+         */
+        post: operations["instantiate_containers_at_top"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/locations/suggest": {
         parameters: {
             query?: never;
@@ -11197,6 +11227,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LocationCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    instantiate_containers_at_top: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstantiateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstantiateResponse"];
                 };
             };
             /** @description Validation Error */

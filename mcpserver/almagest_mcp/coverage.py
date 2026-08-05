@@ -376,6 +376,7 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         # -- the storage tree, authored ---------------------------------------
         "create_location": Excluded(Reason.AUTHORING, _LOCATION_AUTHORING),
         "instantiate_containers": Excluded(Reason.AUTHORING, _LOCATION_AUTHORING),
+        "instantiate_containers_at_top": Excluded(Reason.AUTHORING, _LOCATION_AUTHORING),
         "read_location_layout": Excluded(Reason.AUTHORING, _LOCATION_AUTHORING),
         "reapply_layout": Excluded(Reason.AUTHORING, _LOCATION_AUTHORING),
         "set_location_child_view": Excluded(Reason.AUTHORING, _LOCATION_AUTHORING),
