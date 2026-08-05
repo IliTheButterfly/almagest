@@ -75,13 +75,23 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Free text to match."},
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Free text to match. Leave empty to list everything — "
+                            "'what do I have in stock' has no search term."
+                        ),
+                    },
                     "in_stock_only": {
                         "type": "boolean",
                         "description": "Only parts with quantity above zero.",
                     },
                 },
-                "required": ["query"],
+                # Nothing is required. "What do we have in stock" is a legitimate
+                # question with no search term, and a required `query` made the
+                # model send "" and then give up when the tool refused it — the
+                # model was right and the schema was wrong.
+                "required": [],
             },
         },
     },
@@ -105,12 +115,12 @@ TOOLS: list[dict[str, Any]] = [
 
 def _search_parts(session: Session, args: dict[str, Any]) -> dict[str, Any]:
     text = str(args.get("query") or "").strip()
-    if not text:
-        return {"error": "query is required"}
     parts = query_builder.execute(
         session,
         query_builder.SearchQuery(
-            text=text,
+            # None, not "": the executor skips FTS entirely without a term and
+            # orders by stock, which is exactly the "what do I have" answer.
+            text=text or None,
             in_stock_only=bool(args.get("in_stock_only", False)),
             limit=MAX_ROWS + 1,
         ),
