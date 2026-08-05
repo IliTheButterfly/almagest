@@ -15,8 +15,9 @@
  * there is one place that knows what `instantiate` needs.
  *
  * The two ways in are the two the API genuinely has — stamp a type's layout into
- * new rows, or create one plain container with no slots and no parent — and the
- * second is why a fresh, empty install can be started from here at all.
+ * new rows, or create one plain container with no slots — and either can land at
+ * the top of the tree, which is what makes this usable on a fresh, empty install
+ * whose first container is a cabinet rather than a bare box.
  */
 
 import { useMemo, useState } from "react";
@@ -136,7 +137,9 @@ function AddContainers({
             }
           >
             <option value="">
-              {mode === "stamp" ? "— pick where they go —" : "Nowhere — a new top-level container"}
+              {mode === "stamp"
+                ? "Nowhere — new top-level containers"
+                : "Nowhere — a new top-level container"}
             </option>
             {tree.nodes.map((node) => (
               <option key={node.id} value={String(node.id)}>
@@ -152,10 +155,11 @@ function AddContainers({
             is written on its label or its tag.
           </p>
         )}
-        {mode === "plain" && parentId === null && (
+        {parentId === null && (
           <p className="muted-note" style={{ margin: 0 }}>
             A top-level container is the room, bench or wall everything else hangs off. If storage
-            is empty, this is where to start.
+            is empty, this is where to start — and it can be a type as readily as a plain box, since
+            the first container is the one most likely to have drawers or a floor to draw.
           </p>
         )}
       </div>

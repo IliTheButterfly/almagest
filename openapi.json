@@ -18927,6 +18927,48 @@
         ]
       }
     },
+    "/api/locations/instantiate": {
+      "post": {
+        "description": "Bulk-create `count` instances of a container type at the **top of the tree**.\n\nThe first container in an empty install has nowhere to hang off, and it is\nthe one most likely to be worth a layout: a room to draw, a cabinet with\ndrawers, a wall of bins. Without this the only thing creatable at the root is\na plain container with no slots, so the way to get a typed one was to make a\nthrowaway parent, stamp inside it, and then be unable to move the result out\n\u2014 which is why this exists rather than a note in the UI explaining the hole.\n\nEverything else \u2014 layout materialisation, naming, tag granularity,\nidempotency \u2014 is identical to the parented route.",
+        "operationId": "instantiate_containers_at_top",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstantiateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstantiateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Instantiate Containers At Top",
+        "tags": [
+          "locations"
+        ]
+      }
+    },
     "/api/locations/suggest": {
       "post": {
         "description": "Propose where a new lot of a part should go. Workflow 1's ASSIGN step.\n\nIdempotency-guarded because this is not a pure read: one rung of the ladder\n*materialises* an empty grid cell, so a retried suggestion would otherwise\nleave a second empty cell behind every time the wifi dropped.\n\nNothing here touches the ledger. Suggesting a destination and putting stock\nin it are separate steps, and only `/api/stock/receive` does the second.",

@@ -1590,21 +1590,19 @@ def restore_location(location_id: RowId, db: Session = Depends(get_db)) -> Locat
     )
 
 
-@router.post(
-    "/{location_id}/instantiate",
-    response_model=InstantiateResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def instantiate_containers(
-    location_id: RowId, request: InstantiateRequest, db: Session = Depends(get_db)
+def _instantiate(
+    db: Session,
+    parent: Location | None,
+    request: InstantiateRequest,
+    *,
+    endpoint: str,
 ) -> InstantiateResponse:
-    """Bulk-create `count` instances of a container type under this location.
+    """The body both instantiate routes share, parameterised by destination.
 
-    Each instance materialises the type's *current* layout into its own child
-    `locations` — never a live link back to the type, which is what keeps
-    editing the type afterwards from touching anything created here.
+    `parent is None` is the top of the tree. It is a separate *route* rather than
+    a nullable path parameter because a URL cannot carry an absent id, and one
+    body means the two destinations can never drift in what they accept.
     """
-    parent = _require_live_parent(db, location_id, label="location")
     container_type = db.get(ContainerType, request.container_type_id)
     if container_type is None:
         raise HTTPException(
@@ -1634,11 +1632,52 @@ def instantiate_containers(
         db,
         client_op_id=request.client_op_id,
         device_id=request.device_id,
-        endpoint="POST /api/locations/{id}/instantiate",
+        endpoint=endpoint,
         payload=request,
         response_model=InstantiateResponse,
         work=work,
     )
+
+
+@router.post(
+    "/instantiate",
+    response_model=InstantiateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def instantiate_containers_at_top(
+    request: InstantiateRequest, db: Session = Depends(get_db)
+) -> InstantiateResponse:
+    """Bulk-create `count` instances of a container type at the **top of the tree**.
+
+    The first container in an empty install has nowhere to hang off, and it is
+    the one most likely to be worth a layout: a room to draw, a cabinet with
+    drawers, a wall of bins. Without this the only thing creatable at the root is
+    a plain container with no slots, so the way to get a typed one was to make a
+    throwaway parent, stamp inside it, and then be unable to move the result out
+    — which is why this exists rather than a note in the UI explaining the hole.
+
+    Everything else — layout materialisation, naming, tag granularity,
+    idempotency — is identical to the parented route.
+    """
+    return _instantiate(db, None, request, endpoint="POST /api/locations/instantiate")
+
+
+@router.post(
+    "/{location_id}/instantiate",
+    response_model=InstantiateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def instantiate_containers(
+    location_id: RowId, request: InstantiateRequest, db: Session = Depends(get_db)
+) -> InstantiateResponse:
+    """Bulk-create `count` instances of a container type under this location.
+
+    Each instance materialises the type's *current* layout into its own child
+    `locations` — never a live link back to the type, which is what keeps
+    editing the type afterwards from touching anything created here.
+    """
+    parent = _require_live_parent(db, location_id, label="location")
+    return _instantiate(db, parent, request, endpoint="POST /api/locations/{id}/instantiate")
 
 
 @router.post("/{location_id}/reapply-layout", response_model=ReapplyLayoutResponse)

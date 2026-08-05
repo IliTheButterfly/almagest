@@ -652,7 +652,7 @@ def _reassign_location_sort_order(rows: Sequence[Location]) -> None:
 
 def instantiate(
     session: Session,
-    parent: Location,
+    parent: Location | None,
     container_type: ContainerType,
     *,
     count: int,
@@ -663,18 +663,27 @@ def instantiate(
     materialising the type's *current* effective layout into its own child
     `locations` rows.
 
+    `parent is None` is the top of the tree, and it is a legitimate destination
+    rather than a missing argument: in an empty install the *first* container has
+    nowhere to hang off by definition, and it is as likely to be a cabinet or a
+    drawn room — something with a layout worth materialising — as a bare box.
+    Only the grid check is parent-relative, so there is nothing else to skip.
+
     Nothing here links back to `container_type` afterwards — editing the type
     later touches none of what this call just built.
     """
-    parent_type = (
-        session.get(ContainerType, parent.container_type_id) if parent.container_type_id else None
-    )
-    incompatibility = grid_incompatibility(parent_type, container_type)
-    if incompatibility is not None:
-        raise LayoutError(
-            f"{container_type.slug!r} cannot sit in {parent.name!r}'s grid: {incompatibility}",
-            reason=incompatibility,
+    if parent is not None:
+        parent_type = (
+            session.get(ContainerType, parent.container_type_id)
+            if parent.container_type_id
+            else None
         )
+        incompatibility = grid_incompatibility(parent_type, container_type)
+        if incompatibility is not None:
+            raise LayoutError(
+                f"{container_type.slug!r} cannot sit in {parent.name!r}'s grid: {incompatibility}",
+                reason=incompatibility,
+            )
 
     slots = effective_slots_for_type(session, container_type)
     ordered_slots = compute_sort_order(slots)
@@ -700,7 +709,11 @@ def instantiate(
         else:
             name = naming_pattern
 
-        instance = Location(name=name, parent_id=parent.id, container_type_id=container_type.id)
+        instance = Location(
+            name=name,
+            parent_id=parent.id if parent is not None else None,
+            container_type_id=container_type.id,
+        )
         session.add(instance)
         session.flush()
         # The cabinet itself is always tagged — PLAN.md's baseline is "tag the

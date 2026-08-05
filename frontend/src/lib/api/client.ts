@@ -1289,6 +1289,11 @@ export async function putSlotTemplate(
  * "Give me N of these, in here" — the step that turns a type into containers you
  * can put parts in.
  *
+ * `locationId === null` is the top of the tree, and it is a real destination: the
+ * first container in an empty install has no parent by definition, and it is the
+ * one most likely to want a layout. It reaches a different route because a URL
+ * cannot carry an absent id, which is the whole of the difference.
+ *
  * Each instance materialises the type's layout into its **own** child locations
  * and keeps no live link back to the type, so editing the type afterwards touches
  * none of what this created. Idempotency-guarded because it writes a whole
@@ -1302,13 +1307,16 @@ export async function putSlotTemplate(
  * 50 mm plate.
  */
 export async function instantiateContainers(
-  locationId: number,
+  locationId: number | null,
   request: InstantiateRequest,
 ): Promise<InstantiateResponse> {
-  const { data, error, response } = await api.POST("/api/locations/{location_id}/instantiate", {
-    params: { path: { location_id: locationId } },
-    body: request,
-  });
+  const { data, error, response } =
+    locationId === null
+      ? await api.POST("/api/locations/instantiate", { body: request })
+      : await api.POST("/api/locations/{location_id}/instantiate", {
+          params: { path: { location_id: locationId } },
+          body: request,
+        });
   if (error !== undefined) {
     fail("could not create those containers", error, response);
   }
