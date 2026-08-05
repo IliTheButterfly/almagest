@@ -81,9 +81,17 @@ class DefinedPart:
 
 @dataclass(frozen=True)
 class ContainerOption:
-    """One place this part could go, and why."""
+    """One place this part could go, and why.
 
-    location_id: int
+    `location_id` is None for a **proposed new container** — "make a Gridfinity
+    1x1 in the second drawer" is a legitimate answer to "where does this go", and
+    an option list that could only name places that already exist would force the
+    person out to another screen exactly when they are deciding. Creating it is
+    still reversible authoring, and it still only happens if this option is the one
+    chosen (ADR 0018).
+    """
+
+    location_id: int | None
     label_path: str
     score: float
     #: Said in words, because the review exists for a person to agree or disagree
@@ -270,6 +278,21 @@ def rank_containers(
                 label_path=path,
                 score=score,
                 why="; ".join(why),
+            )
+        )
+
+    # A proposal to make somewhere new, offered when nothing existing is a good
+    # match. Ranked *below* every real container on purpose: an existing drawer
+    # that already holds this part is nearly always the right answer, and offering
+    # "create a new one" above it is how a catalogue grows a second home for
+    # everything.
+    if not any(option.score >= 10.0 for option in options):
+        options.append(
+            ContainerOption(
+                location_id=None,
+                label_path="(new container)",
+                score=-1.0,
+                why="nothing existing matches — a new container can be created here",
             )
         )
 

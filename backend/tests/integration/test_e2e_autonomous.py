@@ -344,6 +344,27 @@ def test_answering_the_review_files_the_part_and_closes_the_loop(
     assert "matches your note" in chosen.why
 
 
+def test_making_a_new_container_is_one_of_the_offered_options(db: Session) -> None:
+    """ "Where does this go" must be answerable when the answer is "somewhere new".
+
+    An option list that could only name containers that already exist would push
+    the person out to another screen at exactly the moment they are deciding — so
+    the proposal to create one is in the same list. It ranks **below** every real
+    container deliberately: offering "make a new one" above a drawer that already
+    holds this part is how a catalogue grows a second home for everything.
+    """
+    part = make_part(db, "Cap", mpn=MPN)
+    make_location(db, "Attic overflow bin")
+    db.commit()
+
+    options = pipeline.review_for(db, part=part).options
+
+    new_container = [option for option in options if option.location_id is None]
+    assert len(new_container) == 1
+    assert new_container[0] is options[-1]
+    assert "new container" in new_container[0].why
+
+
 def client_free_of_lots(db: Session, *, part_id: int) -> bool:
     from sqlalchemy import select
 
