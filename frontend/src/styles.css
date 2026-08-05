@@ -2913,3 +2913,37 @@ button.tall {
 @media (prefers-reduced-motion: reduce) {
   .chat-ellipsis i { animation: none; opacity: 0.6; }
 }
+
+
+/*
+ * The model-loading bar.
+ *
+ * **Indeterminate on purpose.** Nothing downstream reports progress: a
+ * Deployment is 0 or 1 ready replicas, and vLLM's phases (download, load,
+ * compile) are not exposed. A bar that filled at a made-up rate would be a lie
+ * told smoothly, and the first time it sat at 90% for two minutes nobody would
+ * trust it again. This one says "working", and the elapsed seconds beside it
+ * carry the only honest number we have.
+ */
+.loading-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  overflow: hidden;
+}
+.loading-bar > i {
+  display: block;
+  height: 100%;
+  width: 35%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: loading-sweep 1.4s ease-in-out infinite;
+}
+@keyframes loading-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Still visibly "busy", without the movement. */
+  .loading-bar > i { animation: none; width: 100%; opacity: 0.5; }
+}

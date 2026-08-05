@@ -139,6 +139,11 @@ export function ChatThread({ threadId }: { threadId: number }) {
   // Whether the last turn failed and can be re-run. Not the text: a retry sends
   // no content at all, because the question is already in the thread.
   const [canRetry, setCanRetry] = useState(false);
+  // Set when the server says it is starting a model. Drives the loading bar and
+  // the poll that retries by itself — being told to press a button every fifteen
+  // seconds is not a loading experience.
+  const [starting, setStarting] = useState(false);
+  const [startingFor, setStartingFor] = useState(0);
   // Seconds since the send. Drives both the "still working" copy and the prompt
   // below, because "it has been a while" is the only thing we can honestly say —
   // the server does not report progress and a fake percentage would be a lie.
@@ -162,6 +167,42 @@ export function ChatThread({ threadId }: { threadId: number }) {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [sending]);
+
+  // While a model is starting: count up, poll for it, and retry once it answers.
+  // The alternative — leaving a Try again button and walking away — makes the
+  // person the polling loop.
+  useEffect(() => {
+    if (!starting) {
+      setStartingFor(0);
+      return;
+    }
+    const began = Date.now();
+    let cancelled = false;
+    const tick = window.setInterval(() => {
+      setStartingFor(Math.round((Date.now() - began) / 1000));
+    }, 1000);
+    const poll = window.setInterval(() => {
+      void listChatModels()
+        .then((list) => {
+          if (cancelled) return;
+          const up = (list.models ?? []).some((choice) =>
+            modelId === "" ? choice.id === list.default_id : choice.id === modelId && choice.reachable,
+          );
+          if (up) {
+            setStarting(false);
+            void send(true);
+          }
+        })
+        .catch(() => undefined);
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(tick);
+      window.clearInterval(poll);
+    };
+    // `send` is stable enough for this: it reads current state through setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [starting, modelId]);
 
   if (thread.error !== null) {
     return <ErrorBanner error={thread.error} fallback="That conversation could not be loaded." />;
@@ -203,6 +244,9 @@ export function ChatThread({ threadId }: { threadId: number }) {
       // away every message the server had carefully written ("… is starting now,
       // press Try again shortly") and replaced it with a generic sentence.
       setSendError(failed === null ? null : new Error(failed));
+      // "is starting now" is the server's own phrasing in `_wake`; matching on it
+      // keeps the two ends in step without inventing a second error taxonomy.
+      setStarting(failed !== null && /starting now/i.test(failed));
       // Whether a retry is *available*, not what to re-send — there is nothing to
       // re-send. A turn that got an answer has nothing to retry.
       setCanRetry(failed !== null);
@@ -305,6 +349,17 @@ export function ChatThread({ threadId }: { threadId: number }) {
             error={sendError}
             fallback="The model could not be reached, so your message has no answer yet."
           />
+          {starting && (
+            <div className="stack" style={{ gap: "0.35rem" }}>
+              <div className="loading-bar" aria-hidden="true">
+                <i />
+              </div>
+              <p style={{ margin: 0, fontSize: "0.85em", opacity: 0.8 }}>
+                Loading the model — {startingFor}s. This page is watching for it and
+                will answer on its own.
+              </p>
+            </div>
+          )}
           {canRetry && (
             <button
               type="button"
