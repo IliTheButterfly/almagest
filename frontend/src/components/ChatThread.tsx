@@ -136,11 +136,9 @@ export function ChatThread({ threadId }: { threadId: number }) {
   const [streamed, setStreamed] = useState("");
   const [toolNote, setToolNote] = useState("");
   const [sendError, setSendError] = useState<unknown>(null);
-  // What to retry. Held separately from the composer so the box can clear on send
-  // — a message that failed is already *in* the thread, so re-typing it would
-  // duplicate the question rather than answer it. Retrying asks the model again
-  // about the turn that is already there.
-  const [retryText, setRetryText] = useState<string | null>(null);
+  // Whether the last turn failed and can be re-run. Not the text: a retry sends
+  // no content at all, because the question is already in the thread.
+  const [canRetry, setCanRetry] = useState(false);
   // Seconds since the send. Drives both the "still working" copy and the prompt
   // below, because "it has been a while" is the only thing we can honestly say —
   // the server does not report progress and a fake percentage would be a lie.
@@ -169,9 +167,11 @@ export function ChatThread({ threadId }: { threadId: number }) {
 
   const detail = thread.data;
 
-  async function send(retryOf?: string) {
-    const text = retryOf ?? draft.trim();
-    if (text === "") return;
+  async function send(retry = false) {
+    // `null` on a retry: the question is already in the thread, and re-sending
+    // the text would append a second copy of it.
+    const text = retry ? null : draft.trim();
+    if (text !== null && text === "") return;
     setSending(true);
     setSendError(null);
     try {
@@ -193,9 +193,9 @@ export function ChatThread({ threadId }: { threadId: number }) {
         }
       }
       setSendError(failed);
-      // Only offer a retry when the model failed. A message that got an answer has
-      // nothing to retry, and offering it anyway invites asking twice.
-      setRetryText(failed === null ? null : text);
+      // Whether a retry is *available*, not what to re-send — there is nothing to
+      // re-send. A turn that got an answer has nothing to retry.
+      setCanRetry(failed !== null);
       thread.reload();
     } catch (error) {
       setSendError(error);
@@ -295,12 +295,12 @@ export function ChatThread({ threadId }: { threadId: number }) {
             error={sendError}
             fallback="The model could not be reached, so your message has no answer yet."
           />
-          {retryText !== null && (
+          {canRetry && (
             <button
               type="button"
               className="wide"
               disabled={sending}
-              onClick={() => void send(retryText)}
+              onClick={() => void send(true)}
             >
               {sending ? "Trying again…" : "Try again"}
             </button>
@@ -365,7 +365,7 @@ export function ChatThread({ threadId }: { threadId: number }) {
           // Wrapped, not passed directly: `send` now takes an optional retry
           // string, and a bare handler would hand it the MouseEvent as the
           // message text.
-          onClick={() => void send()}
+          onClick={() => void send(false)}
         >
           {sending ? "Sending…" : "Send"}
         </button>

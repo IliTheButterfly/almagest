@@ -292,7 +292,17 @@ def list_chat_models() -> list[ModelChoiceRead]:
 
 
 class SendRequest(BaseModel):
-    content: MessageText
+    """A turn to answer — or, with no `content`, a retry of the last one.
+
+    **A retry is not a second question.** The user's turn is stored before the
+    model is called, so when the model fails the question is already in the
+    thread; posting it again would append a duplicate and leave the transcript
+    saying somebody asked twice. Omitting `content` re-runs the pipeline against
+    the transcript as it stands.
+    """
+
+    #: Absent means retry: answer the last user turn again without appending.
+    content: MessageText | None = None
     #: Which model answers. Unknown or absent falls back to the default rather
     #: than refusing — a stale id from a bookmarked UI should not cost somebody
     #: their question.
@@ -322,12 +332,27 @@ def send_chat_message(
     wrote. The reply can be retried; the typing cannot.
     """
     thread = _require_thread(db, thread_id)
-    try:
-        user_turn = chat.append_message(
-            db, thread=thread, role=ChatRole.USER, content=request.content
-        )
-    except ChatError as error:
-        raise _refuse(error) from error
+    if request.content is None:
+        # Retry: answer what is already there. Refused when the last turn is not a
+        # question, because "try again" has no meaning without one — and silently
+        # regenerating over an existing answer would rewrite history.
+        existing = chat.messages(db, thread_id=thread.id)
+        if not existing or existing[-1].role != ChatRole.USER:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "reason": "nothing_to_retry",
+                    "message": "there is no unanswered message in this thread to retry",
+                },
+            )
+        user_turn = existing[-1]
+    else:
+        try:
+            user_turn = chat.append_message(
+                db, thread=thread, role=ChatRole.USER, content=request.content
+            )
+        except ChatError as error:
+            raise _refuse(error) from error
     user_read = _message_read(user_turn)
     db.commit()
 
@@ -384,10 +409,22 @@ def stream_chat_message(
     the feature not working. See ADR 0009 for what fronts this cluster.
     """
     thread = _require_thread(db, thread_id)
-    try:
-        chat.append_message(db, thread=thread, role=ChatRole.USER, content=request.content)
-    except ChatError as error:
-        raise _refuse(error) from error
+    if request.content is None:
+        # Retry — see `SendRequest`. Nothing is appended.
+        existing = chat.messages(db, thread_id=thread.id)
+        if not existing or existing[-1].role != ChatRole.USER:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "reason": "nothing_to_retry",
+                    "message": "there is no unanswered message in this thread to retry",
+                },
+            )
+    else:
+        try:
+            chat.append_message(db, thread=thread, role=ChatRole.USER, content=request.content)
+        except ChatError as error:
+            raise _refuse(error) from error
     db.commit()
 
     settings = get_settings()

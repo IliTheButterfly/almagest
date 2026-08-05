@@ -14781,12 +14781,20 @@
         "type": "object"
       },
       "SendRequest": {
+        "description": "A turn to answer \u2014 or, with no `content`, a retry of the last one.\n\n**A retry is not a second question.** The user's turn is stored before the\nmodel is called, so when the model fails the question is already in the\nthread; posting it again would append a duplicate and leave the transcript\nsaying somebody asked twice. Omitting `content` re-runs the pipeline against\nthe transcript as it stands.",
         "properties": {
           "content": {
-            "maxLength": 200000,
-            "minLength": 1,
-            "title": "Content",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 200000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content"
           },
           "model": {
             "anyOf": [
@@ -14801,9 +14809,6 @@
             "title": "Model"
           }
         },
-        "required": [
-          "content"
-        ],
         "title": "SendRequest",
         "type": "object"
       },

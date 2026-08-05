@@ -31,7 +31,15 @@ export type ChatFrame =
  */
 export async function* streamChat(
   threadId: number,
-  content: string,
+  /**
+   * The turn to send, or `null` to **retry**.
+   *
+   * A retry is not a second question. The user's turn is stored before the model
+   * is called, so when the model fails the question is already in the thread —
+   * sending it again would append a duplicate and leave the transcript saying
+   * somebody asked twice. `null` re-runs the pipeline against what is there.
+   */
+  content: string | null,
   model?: string,
 ): AsyncGenerator<ChatFrame> {
   const response = await fetch(`/api/chat/threads/${threadId}/stream`, {
