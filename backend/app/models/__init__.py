@@ -26,6 +26,7 @@ from app.models.catalog import (
     Tag,
     Unit,
 )
+from app.models.chat import ChatMessage, ChatThread, ChatWriteup, ChatWriteupPost
 from app.models.documents import Document, DocumentLink
 from app.models.enrichment import ParameterValueCandidate
 from app.models.identity import ObjectId
@@ -67,6 +68,10 @@ __all__ = [
     "CacheState",
     "Capture",
     "CaptureRegion",
+    "ChatMessage",
+    "ChatThread",
+    "ChatWriteup",
+    "ChatWriteupPost",
     "ClientOperation",
     "ContainerType",
     "ContainerTypePhysical",

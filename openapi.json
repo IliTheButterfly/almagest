@@ -2359,6 +2359,26 @@
         "title": "CategoryNode",
         "type": "object"
       },
+      "ChatKind": {
+        "description": "Which history list a `chat_threads` row belongs to (ADR 0018).\n\nTwo surfaces with different lifetimes: a disposable one for inventory questions\nand a durable one bound to a project. They differ in the UI and in retention,\nnot in shape, so this is a column rather than a second table \u2014 and being a\nplain `sa.String` with no `CHECK`, a third kind (a thread hanging off a part,\noff a build) stays a one-line change.",
+        "enum": [
+          "search",
+          "project"
+        ],
+        "title": "ChatKind",
+        "type": "string"
+      },
+      "ChatRole": {
+        "description": "Who said one turn.\n\n`SYSTEM` is stored rather than reconstructed at send time, because a prompt\nthat changes between the turn that was taken and the transcript that is read\nmakes the transcript unable to explain the answer \u2014 which is the one job a\ntranscript has.",
+        "enum": [
+          "system",
+          "user",
+          "assistant",
+          "tool"
+        ],
+        "title": "ChatRole",
+        "type": "string"
+      },
       "CheckRequest": {
         "properties": {
           "carries_ndef": {
@@ -7370,6 +7390,105 @@
           "has_drift"
         ],
         "title": "MaintenanceRun",
+        "type": "object"
+      },
+      "MessageCreate": {
+        "properties": {
+          "content": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ChatRole",
+            "default": "user"
+          },
+          "tool_calls_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls Json"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "MessageCreate",
+        "type": "object"
+      },
+      "MessageRead": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ChatRole"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "tool_calls_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Calls Json"
+          }
+        },
+        "required": [
+          "id",
+          "seq",
+          "role",
+          "content",
+          "tool_calls_json",
+          "model",
+          "created_at"
+        ],
+        "title": "MessageRead",
         "type": "object"
       },
       "MismatchRead": {
@@ -16178,6 +16297,139 @@
         "title": "TemplateFacets",
         "type": "object"
       },
+      "ThreadArchive": {
+        "properties": {
+          "archived": {
+            "default": true,
+            "title": "Archived",
+            "type": "boolean"
+          }
+        },
+        "title": "ThreadArchive",
+        "type": "object"
+      },
+      "ThreadCreate": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ChatKind"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ThreadCreate",
+        "type": "object"
+      },
+      "ThreadDetail": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/MessageRead"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/ThreadRead"
+          }
+        },
+        "required": [
+          "thread",
+          "messages"
+        ],
+        "title": "ThreadDetail",
+        "type": "object"
+      },
+      "ThreadRead": {
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChatKind"
+          },
+          "message_count": {
+            "default": 0,
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "project_id",
+          "title",
+          "archived_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ThreadRead",
+        "type": "object"
+      },
       "UnbindRequest": {
         "properties": {
           "client_op_id": {
@@ -16709,6 +16961,134 @@
           "verified"
         ],
         "title": "WriteResultResponse",
+        "type": "object"
+      },
+      "WriteupCreate": {
+        "description": "Create a writeup, and optionally post it in the same call.\n\nPosting is a separate *act* in the service (`create_writeup` then\n`post_writeup`) but one *request* here, because \"make a writeup and send it to\nthe Nixie clock project\" is one intention and splitting it across two\nround-trips invites the second one failing and leaving an orphan.",
+        "properties": {
+          "body_md": {
+            "maxLength": 500000,
+            "minLength": 1,
+            "title": "Body Md",
+            "type": "string"
+          },
+          "origin_thread_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Thread Id"
+          },
+          "post_to_new_project_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Post To New Project Id"
+          },
+          "post_to_thread_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Post To Thread Id"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "body_md"
+        ],
+        "title": "WriteupCreate",
+        "type": "object"
+      },
+      "WriteupRead": {
+        "properties": {
+          "body_md": {
+            "title": "Body Md",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "origin_thread_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Thread Id"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body_md",
+          "origin_thread_id",
+          "project_id",
+          "created_at"
+        ],
+        "title": "WriteupRead",
         "type": "object"
       }
     }
@@ -17566,6 +17946,422 @@
         "summary": "Append Capture Regions",
         "tags": [
           "captures"
+        ]
+      }
+    },
+    "/api/chat/threads": {
+      "get": {
+        "description": "One history list. `kind` is required rather than defaulted, deliberately:\nthe whole point of two surfaces is that a caller says which one it means, and a\ndefault would quietly mix a project's threads into the search list.",
+        "operationId": "list_chat_threads",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ChatKind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ThreadRead"
+                  },
+                  "title": "Response List Chat Threads",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Chat Threads",
+        "tags": [
+          "chat"
+        ]
+      },
+      "post": {
+        "operationId": "create_chat_thread",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Chat Thread",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/threads/{thread_id}": {
+      "get": {
+        "operationId": "read_chat_thread",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Thread Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Chat Thread",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/threads/{thread_id}/archive": {
+      "post": {
+        "operationId": "archive_chat_thread",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Thread Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ThreadArchive"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Chat Thread",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/threads/{thread_id}/export": {
+      "get": {
+        "description": "The transcript, for pasting into another model.\n\nThat is the point of export and it shapes the format: a local 8B is not the\nright tool for every question, and the way out has to be one copy rather than a\nre-explanation. `md` carries a front-matter header; `json` round-trips roles and\ntool calls intact.",
+        "operationId": "export_chat_thread",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Thread Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "md",
+              "pattern": "^(md|json)$",
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Chat Thread",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/threads/{thread_id}/messages": {
+      "post": {
+        "description": "Add one turn.\n\nThere is no route that *updates* a message, and that absence is the enforcement\nof ADR 0018's append-only rule: a transcript whose history no longer matches\nwhat the model was shown cannot explain the answer it gave.",
+        "operationId": "append_chat_message",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Thread Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Append Chat Message",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/writeups": {
+      "post": {
+        "description": "Create a writeup, and post it where asked.\n\nThe two destinations are mutually exclusive and both optional: a writeup that\nis created and posted nowhere is a legitimate draft.",
+        "operationId": "create_chat_writeup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteupCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteupRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Chat Writeup",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/writeups/{writeup_id}/export": {
+      "get": {
+        "operationId": "export_chat_writeup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "writeup_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Writeup Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Chat Writeup",
+        "tags": [
+          "chat"
         ]
       }
     },

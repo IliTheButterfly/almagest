@@ -17,6 +17,7 @@ from fastapi.routing import APIRoute
 from app import __version__
 from app.api.routes import (
     captures,
+    chat,
     container_types,
     documents,
     enrichment,
@@ -129,6 +130,10 @@ def create_app() -> FastAPI:
     # worker imports the other. Nothing included here fetches a URL.
     app.include_router(research.router)
     app.include_router(research.parts_router)
+    # Chat threads, turns, writeups and export (ADR 0018). Storage only — no model
+    # runs in this process and no agent loop lives here: an agent whose tools call
+    # back into this single-replica SQLite writer, from inside it, is a deadlock.
+    app.include_router(chat.router)
     app.include_router(container_types.router)
     # `/api/container-types/{id}/documents` — a type's own photo — rides a second
     # router with the same prefix, in `documents` for the same reason

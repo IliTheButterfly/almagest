@@ -112,6 +112,11 @@ export type DatasheetSnippetSegment = Schemas["DatasheetSnippetSegment"];
 export type DocumentRead = Schemas["DocumentRead"];
 export type DocumentLinkRead = Schemas["DocumentLinkRead"];
 export type DocumentLinkList = Schemas["DocumentLinkList"];
+export type ChatThreadRead = Schemas["ThreadRead"];
+export type ChatThreadDetail = Schemas["ThreadDetail"];
+export type ChatMessageRead = Schemas["MessageRead"];
+export type ChatKind = Schemas["ChatKind"];
+export type ChatWriteupRead = Schemas["WriteupRead"];
 export type PartResearchRead = Schemas["PartResearchRead"];
 export type ResearchCandidateRead = Schemas["ResearchCandidateRead"];
 export type ResearchState = Schemas["ResearchState"];
@@ -750,6 +755,83 @@ export async function updatePart(partId: number, request: PartUpdate): Promise<P
     fail("could not save that part", error, response);
   }
   return data;
+}
+
+// -------------------------------------------------------------------- chat --
+
+/** One history list. `kind` is required — see the route: a default would quietly
+ * mix a project's threads into the search list. */
+export async function listChatThreads(
+  kind: ChatKind,
+  projectId?: number,
+): Promise<ChatThreadRead[]> {
+  const { data, error, response } = await api.GET("/api/chat/threads", {
+    params: { query: { kind, project_id: projectId ?? null } },
+  });
+  if (error !== undefined) {
+    fail("could not load the conversations", error, response);
+  }
+  return data;
+}
+
+export async function createChatThread(
+  kind: ChatKind,
+  projectId?: number,
+): Promise<ChatThreadDetail> {
+  const { data, error, response } = await api.POST("/api/chat/threads", {
+    body: { kind, project_id: projectId ?? null },
+  });
+  if (error !== undefined) {
+    fail("could not start that conversation", error, response);
+  }
+  return data;
+}
+
+export async function getChatThread(threadId: number): Promise<ChatThreadDetail> {
+  const { data, error, response } = await api.GET("/api/chat/threads/{thread_id}", {
+    params: { path: { thread_id: threadId } },
+  });
+  if (error !== undefined) {
+    fail("could not load that conversation", error, response);
+  }
+  return data;
+}
+
+export async function appendChatMessage(
+  threadId: number,
+  content: string,
+): Promise<ChatMessageRead> {
+  const { data, error, response } = await api.POST("/api/chat/threads/{thread_id}/messages", {
+    params: { path: { thread_id: threadId } },
+    body: { role: "user", content },
+  });
+  if (error !== undefined) {
+    fail("could not send that message", error, response);
+  }
+  return data;
+}
+
+export async function archiveChatThread(
+  threadId: number,
+  archived: boolean,
+): Promise<ChatThreadRead> {
+  const { data, error, response } = await api.POST("/api/chat/threads/{thread_id}/archive", {
+    params: { path: { thread_id: threadId } },
+    body: { archived },
+  });
+  if (error !== undefined) {
+    fail("could not archive that conversation", error, response);
+  }
+  return data;
+}
+
+/**
+ * Where a transcript goes when a local 8B is not the right tool for the question.
+ * A plain link rather than a fetch: the browser's own download handling is what
+ * makes "save this and paste it into something else" one action.
+ */
+export function chatExportUrl(threadId: number, format: "md" | "json"): string {
+  return `/api/chat/threads/${threadId}/export?format=${format}`;
 }
 
 // ---------------------------------------------------------------- research --

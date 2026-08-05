@@ -369,6 +369,152 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Chat Threads
+         * @description One history list. `kind` is required rather than defaulted, deliberately:
+         *     the whole point of two surfaces is that a caller says which one it means, and a
+         *     default would quietly mix a project's threads into the search list.
+         */
+        get: operations["list_chat_threads"];
+        put?: never;
+        /** Create Chat Thread */
+        post: operations["create_chat_thread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Chat Thread */
+        get: operations["read_chat_thread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Chat Thread */
+        post: operations["archive_chat_thread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Chat Thread
+         * @description The transcript, for pasting into another model.
+         *
+         *     That is the point of export and it shapes the format: a local 8B is not the
+         *     right tool for every question, and the way out has to be one copy rather than a
+         *     re-explanation. `md` carries a front-matter header; `json` round-trips roles and
+         *     tool calls intact.
+         */
+        get: operations["export_chat_thread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Append Chat Message
+         * @description Add one turn.
+         *
+         *     There is no route that *updates* a message, and that absence is the enforcement
+         *     of ADR 0018's append-only rule: a transcript whose history no longer matches
+         *     what the model was shown cannot explain the answer it gave.
+         */
+        post: operations["append_chat_message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/writeups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Chat Writeup
+         * @description Create a writeup, and post it where asked.
+         *
+         *     The two destinations are mutually exclusive and both optional: a writeup that
+         *     is created and posted nowhere is a legitimate draft.
+         */
+        post: operations["create_chat_writeup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/writeups/{writeup_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Chat Writeup */
+        get: operations["export_chat_writeup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/container-types": {
         parameters: {
             query?: never;
@@ -4068,6 +4214,29 @@ export interface components {
             /** Slug */
             slug: string;
         };
+        /**
+         * ChatKind
+         * @description Which history list a `chat_threads` row belongs to (ADR 0018).
+         *
+         *     Two surfaces with different lifetimes: a disposable one for inventory questions
+         *     and a durable one bound to a project. They differ in the UI and in retention,
+         *     not in shape, so this is a column rather than a second table — and being a
+         *     plain `sa.String` with no `CHECK`, a third kind (a thread hanging off a part,
+         *     off a build) stays a one-line change.
+         * @enum {string}
+         */
+        ChatKind: "search" | "project";
+        /**
+         * ChatRole
+         * @description Who said one turn.
+         *
+         *     `SYSTEM` is stored rather than reconstructed at send time, because a prompt
+         *     that changes between the turn that was taken and the transcript that is read
+         *     makes the transcript unable to explain the answer — which is the one job a
+         *     transcript has.
+         * @enum {string}
+         */
+        ChatRole: "system" | "user" | "assistant" | "tool";
         /** CheckRequest */
         CheckRequest: {
             /**
@@ -5737,6 +5906,36 @@ export interface components {
             has_drift: boolean;
             /** Occupancy Rebuilt */
             occupancy_rebuilt: number;
+        };
+        /** MessageCreate */
+        MessageCreate: {
+            /** Content */
+            content: string;
+            /** Model */
+            model?: string | null;
+            /** @default user */
+            role?: components["schemas"]["ChatRole"];
+            /** Tool Calls Json */
+            tool_calls_json?: string | null;
+        };
+        /** MessageRead */
+        MessageRead: {
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Model */
+            model: string | null;
+            role: components["schemas"]["ChatRole"];
+            /** Seq */
+            seq: number;
+            /** Tool Calls Json */
+            tool_calls_json: string | null;
         };
         /**
          * MismatchRead
@@ -8740,6 +8939,55 @@ export interface components {
             /** Value Type */
             value_type: string;
         };
+        /** ThreadArchive */
+        ThreadArchive: {
+            /**
+             * Archived
+             * @default true
+             */
+            archived?: boolean;
+        };
+        /** ThreadCreate */
+        ThreadCreate: {
+            kind: components["schemas"]["ChatKind"];
+            /** Project Id */
+            project_id?: number | null;
+            /** Title */
+            title?: string | null;
+        };
+        /** ThreadDetail */
+        ThreadDetail: {
+            /** Messages */
+            messages: components["schemas"]["MessageRead"][];
+            thread: components["schemas"]["ThreadRead"];
+        };
+        /** ThreadRead */
+        ThreadRead: {
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["ChatKind"];
+            /**
+             * Message Count
+             * @default 0
+             */
+            message_count?: number;
+            /** Project Id */
+            project_id: number | null;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** UnbindRequest */
         UnbindRequest: {
             /** Client Op Id */
@@ -8957,6 +9205,47 @@ export interface components {
             tag: components["schemas"]["TagRead"];
             /** Verified */
             verified: boolean;
+        };
+        /**
+         * WriteupCreate
+         * @description Create a writeup, and optionally post it in the same call.
+         *
+         *     Posting is a separate *act* in the service (`create_writeup` then
+         *     `post_writeup`) but one *request* here, because "make a writeup and send it to
+         *     the Nixie clock project" is one intention and splitting it across two
+         *     round-trips invites the second one failing and leaving an orphan.
+         */
+        WriteupCreate: {
+            /** Body Md */
+            body_md: string;
+            /** Origin Thread Id */
+            origin_thread_id?: number | null;
+            /** Post To New Project Id */
+            post_to_new_project_id?: number | null;
+            /** Post To Thread Id */
+            post_to_thread_id?: number | null;
+            /** Project Id */
+            project_id?: number | null;
+            /** Title */
+            title: string;
+        };
+        /** WriteupRead */
+        WriteupRead: {
+            /** Body Md */
+            body_md: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Origin Thread Id */
+            origin_thread_id: number | null;
+            /** Project Id */
+            project_id: number | null;
+            /** Title */
+            title: string;
         };
     };
     responses: never;
@@ -9518,6 +9807,271 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CaptureRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chat_threads: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["ChatKind"];
+                project_id?: number | null;
+                include_archived?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_chat_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_chat_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_chat_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadArchive"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_chat_thread: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    append_chat_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_chat_writeup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteupCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WriteupRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_chat_writeup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                writeup_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

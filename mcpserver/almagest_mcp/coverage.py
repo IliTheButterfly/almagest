@@ -152,6 +152,12 @@ _RESEARCH: Final = (
     "diagnostics, not an answer about the inventory. A part's actual datasheet is "
     "already reachable through `get_part`."
 )
+_CHAT: Final = (
+    "The chat transcript store (ADR 0018). An agent driving its own transcript is "
+    "a loop: the thing writing the messages would read them back as context and "
+    "write again. The agent loop is a separate service and reaches these over HTTP; "
+    "an agent answering questions about the inventory has no business here."
+)
 _INTAKE: Final = (
     "The intake desk pass: a scan is parked by a phone at the bench and resolved "
     "later by a human deciding what the barcode actually was."
@@ -471,6 +477,15 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "requeue_research": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
         "read_research_status": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
         "read_part_research": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        # -- chat (ADR 0018) ---------------------------------------------------
+        "list_chat_threads": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "create_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "read_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "append_chat_message": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "archive_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "export_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "create_chat_writeup": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "export_chat_writeup": Excluded(Reason.MACHINE_DOOR, _CHAT),
         # -- captures ----------------------------------------------------------
         "create_capture": Excluded(Reason.MACHINE_DOOR, _CAPTURES),
         "append_capture_regions": Excluded(Reason.MACHINE_DOOR, _CAPTURES),

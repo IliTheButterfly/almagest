@@ -1203,6 +1203,41 @@ class ResearchCandidateState(StrEnum):
     REJECTED = "rejected"
 
 
+class ChatKind(StrEnum):
+    """Which history list a `chat_threads` row belongs to (ADR 0018).
+
+    Two surfaces with different lifetimes: a disposable one for inventory questions
+    and a durable one bound to a project. They differ in the UI and in retention,
+    not in shape, so this is a column rather than a second table — and being a
+    plain `sa.String` with no `CHECK`, a third kind (a thread hanging off a part,
+    off a build) stays a one-line change.
+    """
+
+    #: The fuzzy front door: "do I have something that can level-shift 3.3 V to
+    #: 5 V?". Expected to be noisy and disposable, and archived freely.
+    SEARCH = "search"
+    #: Attached to one project, and never auto-archived. Sees its BOM, its builds
+    #: and its allocations.
+    PROJECT = "project"
+
+
+class ChatRole(StrEnum):
+    """Who said one turn.
+
+    `SYSTEM` is stored rather than reconstructed at send time, because a prompt
+    that changes between the turn that was taken and the transcript that is read
+    makes the transcript unable to explain the answer — which is the one job a
+    transcript has.
+    """
+
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    #: A tool's return value, kept as its own turn so the UI can show it. A tool
+    #: call the user cannot see is a fact they cannot check.
+    TOOL = "tool"
+
+
 class ShortageKind(StrEnum):
     """What stands between one BOM line and being built.
 

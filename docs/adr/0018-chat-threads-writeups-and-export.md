@@ -112,22 +112,49 @@ the evidence.
 Export is a read of already-stored rows, so it lives in the API. No model
 involved.
 
-### Chat proposes; it does not commit
+### Chat may author; it may not keep records
 
-The chat agent's MCP surface is **the read tools plus writeup creation**.
-`ALMAGEST_MCP_ALLOW_WRITES` stays off for the chat agent's client.
+The first draft of this ADR said "chat proposes; it does not commit", with a flat
+read-only tool surface. **That line was drawn in the wrong place** — it split
+tools by *read versus write*, and the distinction that actually matters is
+**reversible authoring versus irreversible record-keeping**.
 
-- Stock movements are out. A take or a return is a physical event, and a
-  conversational interface that can silently decrement a lot makes the ledger a
-  record of what a model believed.
-- Parameter fills are out. They go to `parameter_value_candidate` and the review
-  queue, like everything else — ADR 0017's rule is not suspended because the
-  request arrived as a sentence.
-- **Substitution answers come from `suggest_parts_for_requirements` and
-  `search_parts`, never from the model's own judgement.** The MCP server's own
-  instructions already say this and the tool already enforces it: the model may
-  phrase and rank, the SQL filter decides. A plausible substitute with the wrong
-  voltage rating is a field failure.
+Creating a container is the case that shows it. It writes rows, so the flat rule
+forbade it; but a container created wrongly is empty, visible in the tree, and
+deletable — `app.models.events` already releases its identity on delete. Nothing
+is lost and nothing is silently wrong. Meanwhile "make me eight Gridfinity 1×1
+bins in the second drawer" is exactly the tedium a conversational interface should
+absorb, and refusing it on a technicality that also forbids nothing dangerous is
+the kind of rule that gets a feature disabled wholesale rather than obeyed.
+
+So the surface is:
+
+**Allowed — reversible authoring.** Creating containers and container types,
+creating a project, drafting a BOM, creating a writeup. Each produces rows a
+person can see and delete, and none of them asserts anything about the physical
+world.
+
+**Refused — irreversible record-keeping.**
+
+- **Stock movements.** The ledger is append-only and undo is a compensating row,
+  so a wrong movement is permanent history rather than a mistake. A conversational
+  interface that can decrement a lot makes the ledger a record of what a model
+  believed.
+- **Accepting parameter candidates.** They go to `parameter_value_candidate` and
+  the review queue like everything else. ADR 0017's rule is not suspended because
+  the request arrived as a sentence.
+- **Tag provisioning.** Physical, and needs a person holding the tag.
+
+**Every authoring action is confirmed before it runs.** The agent returns a
+described action; the UI renders it as a card with an explicit button, and nothing
+is written until it is pressed. That is cheap, it keeps the human the one who
+acts, and it makes the reversibility argument above a second line of defence
+rather than the only one.
+
+**Substitution answers still come from `suggest_parts_for_requirements` and
+`search_parts`, never from the model's own judgement.** Unchanged, and unaffected
+by any of the above: the model may phrase and rank, the SQL filter decides. A
+plausible substitute with the wrong voltage rating is a field failure.
 
 ## Consequences
 

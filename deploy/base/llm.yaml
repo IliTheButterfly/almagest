@@ -1,0 +1,170 @@
+# The local model server (ADR 0016).
+#
+# ## Why Ollama here, when ADR 0016 says vLLM
+#
+# The ADR's decision that matters is *how the device is held and yielded*, and
+# that is unchanged: one pod holds `nvidia.com/gpu: 1`, unloads weights when idle,
+# and yields to the co-tenant only by an explicit scale-to-zero. Measured on this
+# node, `nvidia.com/gpu` is capacity 1, integral and exclusive — no time-slicing,
+# no MPS — so **freeing VRAM does not free the device** and no serving stack can
+# change that.
+#
+# Given that, the choice between servers is about operational cost, and Ollama wins
+# on three counts that vLLM would each have made a task:
+#
+#   * it **fetches its own weights** at first use, so there is no pre-staging job,
+#     no HuggingFace token, and no `initContainer` copying 18 GB into a volume;
+#   * `OLLAMA_KEEP_ALIVE` **unloads on idle** with no external gate calling a
+#     sleep endpoint — the behaviour ADR 0016 wanted, without the machinery;
+#   * it serves `/v1/chat/completions` with `response_format`, which is the only
+#     interface `OpenAICompatExtractionProvider` knows.
+#
+# vLLM remains the right answer for a large batch backfill, where continuous
+# batching is the entire point. That is a Job, it is not this, and both speak the
+# same API — so switching is a base URL, exactly as the ADR intended.
+#
+# ## Sizing, and why the limits are not generous
+#
+# There is **no ResourceQuota in this namespace**, so an unbounded server can
+# starve the co-tenant builder and the KubeVirt VM. The memory limit is the one
+# that matters: Ollama mmaps weights from the volume, so resident host memory
+# tracks the loaded model rather than the file, and the ceiling here is set for the
+# 8B extractor plus headroom. **Raise it deliberately before loading a 30B**, and
+# check node headroom first — `get nodes` is Forbidden from this namespace, so that
+# is a question for someone who can read it, not a thing to discover by eviction.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: almagest-models
+  labels:
+    app.kubernetes.io/component: llm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-shared
+  resources:
+    requests:
+      # Sized for the models actually named below, not for the whole family:
+      # qwen3:8b at q4 is ~5 GB and an embedding model ~1 GB. Deliberately modest
+      # because `local-shared` is one node's disk shared with a 40 GB VM image and
+      # a 30 GB build workspace, and free space is not readable from here.
+      #
+      # A 30B-A3B at q4 is ~18 GB and does NOT fit this claim. Growing it is a
+      # deliberate act — see the note above about checking headroom first.
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: almagest-llm
+  labels:
+    app.kubernetes.io/component: llm
+spec:
+  # One. The device is exclusive, so a second replica could never schedule — it
+  # would sit Pending forever and look like a broken rollout rather than a
+  # misconfiguration.
+  replicas: 1
+  strategy:
+    # Recreate for the same reason the API uses it: the model volume is RWO, and a
+    # rolling update would deadlock trying to attach it to a second pod. The GPU
+    # would deadlock too, being integral and already claimed.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: almagest
+      app.kubernetes.io/component: llm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: almagest
+        app.kubernetes.io/component: llm
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.32.5
+          securityContext:
+            # As much of PodSecurity `restricted` as this image permits. The
+            # namespace only enforces `baseline`, but the API deployment complies
+            # anyway so that a future tightening of the namespace label is a no-op
+            # rather than an outage, and this should not be the pod that breaks it.
+            #
+            # `runAsNonRoot` is the one that is **not** set, and deliberately: the
+            # official Ollama image runs as root and writes its model store to
+            # `/root/.ollama`. Forcing a non-root uid makes it fail to create that
+            # directory on a freshly attached volume. Fixing it properly means a
+            # derived image with its own user, which is a container build — and
+            # there is no container runtime on the dev box, so it would have to go
+            # through the release workflow for a dependency we do not otherwise
+            # build. Recorded here rather than silently skipped.
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 11434
+          env:
+            # The idle unload. Five minutes: long enough that a conversation does
+            # not pay a reload between turns, short enough that a pod left running
+            # overnight is not sitting on VRAM. It does **not** release the k8s
+            # device claim — nothing can — so this is courtesy about memory, and
+            # the real yield is scaling this Deployment to zero.
+            - name: OLLAMA_KEEP_ALIVE
+              value: "5m"
+            # One model resident at a time. The default would happily hold two and
+            # then fail the third with an allocation error mid-request; with an
+            # exclusive 24 GB card and a mixed 8B/30B future, serialising is the
+            # honest behaviour.
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              # Explicit, because there is no ResourceQuota to catch an unbounded
+              # server. See the header: sized for an 8B, raise deliberately.
+              cpu: "4"
+              memory: 12Gi
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # No liveness probe on purpose. A long generation can starve the HTTP
+          # loop briefly, and a liveness probe that restarts the pod mid-answer
+          # would drop the weights it just spent thirty seconds loading — turning a
+          # slow request into a much slower one, repeatedly.
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: almagest-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: almagest-llm
+  labels:
+    app.kubernetes.io/component: llm
+spec:
+  # ClusterIP, and never a NodePort. This endpoint has no authentication of any
+  # kind — Ollama ships none — so the only thing keeping it private is that it is
+  # not routable off-cluster. Exposing it would put an unauthenticated model
+  # server on the LAN.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: llm
+  ports:
+    - name: http
+      port: 11434
+      targetPort: http
