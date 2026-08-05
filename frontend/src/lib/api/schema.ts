@@ -6093,6 +6093,20 @@ export interface components {
             /** Start Hint */
             start_hint: string;
         };
+        /**
+         * ModelListRead
+         * @description The catalogue, plus what the default currently resolves to.
+         *
+         *     `default_id` is the honest answer to "whatever is loaded": the id the server
+         *     *would* use if a send named no model. Null when nothing is running, which the
+         *     UI shows rather than implying a silent fallback that will fail.
+         */
+        ModelListRead: {
+            /** Default Id */
+            default_id: string | null;
+            /** Models */
+            models: components["schemas"]["ModelChoiceRead"][];
+        };
         /** MovePlanRead */
         MovePlanRead: {
             /** Rationale */
@@ -9986,7 +10000,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ModelChoiceRead"][];
+                    "application/json": components["schemas"]["ModelListRead"];
                 };
             };
         };

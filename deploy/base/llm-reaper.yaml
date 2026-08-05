@@ -160,7 +160,13 @@ spec:
               command: ["/bin/sh", "/scripts/reap.sh"]
               env:
                 - name: IDLE_MINUTES
-                  value: "15"
+                  # 45, not 15. Fifteen reaped a model *between messages* during
+                  # ordinary use — read an answer, think, type the next question,
+                  # and the GPU had already gone, so the next send failed and the
+                  # model had to reload. A release policy that fires mid-session is
+                  # one people work around by pinning the deployment up, which
+                  # protects the co-tenant far less than a longer window does.
+                  value: "45"
               resources:
                 requests: { cpu: 10m, memory: 32Mi }
                 limits: { cpu: 200m, memory: 128Mi }

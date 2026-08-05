@@ -268,8 +268,20 @@ class ModelChoiceRead(BaseModel):
     start_hint: str
 
 
-@router.get("/models", response_model=list[ModelChoiceRead])
-def list_chat_models() -> list[ModelChoiceRead]:
+class ModelListRead(BaseModel):
+    """The catalogue, plus what the default currently resolves to.
+
+    `default_id` is the honest answer to "whatever is loaded": the id the server
+    *would* use if a send named no model. Null when nothing is running, which the
+    UI shows rather than implying a silent fallback that will fail.
+    """
+
+    models: list[ModelChoiceRead]
+    default_id: str | None
+
+
+@router.get("/models", response_model=ModelListRead)
+def list_chat_models() -> ModelListRead:
     """The models somebody may pick, smallest first.
 
     Reports what is *configured*, not what is currently loadable: that depends on
@@ -277,18 +289,25 @@ def list_chat_models() -> list[ModelChoiceRead]:
     every page load. A pick that turns out to be unreachable fails at the send,
     which already says so without losing the message.
     """
-    return [
-        ModelChoiceRead(
-            id=choice.id,
-            label=choice.label,
-            size_b=choice.size_b,
-            good_for=choice.good_for,
-            requires_swap=choice.requires_swap,
-            reachable=model_catalog.probe(choice),
-            start_hint=model_catalog.start_hint(choice),
-        )
-        for choice in model_catalog.CATALOG
-    ]
+    # Probed once per model here and reused, rather than calling `first_reachable`
+    # afterwards and paying for a second round of connects.
+    reachable = {choice.id: model_catalog.probe(choice) for choice in model_catalog.CATALOG}
+    default_id = next((choice.id for choice in model_catalog.CATALOG if reachable[choice.id]), None)
+    return ModelListRead(
+        models=[
+            ModelChoiceRead(
+                id=choice.id,
+                label=choice.label,
+                size_b=choice.size_b,
+                good_for=choice.good_for,
+                requires_swap=choice.requires_swap,
+                reachable=reachable[choice.id],
+                start_hint=model_catalog.start_hint(choice),
+            )
+            for choice in model_catalog.CATALOG
+        ],
+        default_id=default_id,
+    )
 
 
 class SendRequest(BaseModel):
@@ -365,7 +384,15 @@ def send_chat_message(
         choice = model_catalog.by_id(request.model)
         model = chat_agent.build_model(choice.base_url, choice.served_name)
     else:
-        model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
+        # "Whatever is loaded" resolved by *asking*, not by trusting a fixed env
+        # var that points at a server which is usually scaled down. Falls back to
+        # the configured URL when nothing answers, so the error still names a
+        # concrete endpoint rather than nothing at all.
+        running = model_catalog.first_reachable()
+        if running is not None:
+            model = chat_agent.build_model(running.base_url, running.served_name)
+        else:
+            model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
     if model is None:
         # Not configured is not broken. See `chat_agent`'s docstring.
         return SendResponse(
@@ -450,7 +477,15 @@ def stream_chat_message(
             return StreamingResponse(not_running(), media_type="text/event-stream")
         model = chat_agent.build_model(choice.base_url, choice.served_name)
     else:
-        model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
+        # "Whatever is loaded" resolved by *asking*, not by trusting a fixed env
+        # var that points at a server which is usually scaled down. Falls back to
+        # the configured URL when nothing answers, so the error still names a
+        # concrete endpoint rather than nothing at all.
+        running = model_catalog.first_reachable()
+        if running is not None:
+            model = chat_agent.build_model(running.base_url, running.served_name)
+        else:
+            model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
 
     if model is None:
 

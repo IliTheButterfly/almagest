@@ -30,7 +30,7 @@ import {
   listChatModels,
   type ChatMessageRead,
   type ChatThreadDetail,
-  type ChatModelChoice,
+  type ChatModelList,
 } from "../lib/api/client";
 import { streamChat } from "../lib/chat/stream";
 import { useAsync } from "../lib/hooks/useAsync";
@@ -128,7 +128,7 @@ export function ChatThread({ threadId }: { threadId: number }) {
   // storing the preference too would be a second source of truth for something
   // the transcript already answers.
   const [modelId, setModelId] = useState<string>("");
-  const models = useAsync<ChatModelChoice[]>(() => listChatModels(), []);
+  const models = useAsync<ChatModelList>(() => listChatModels(), []);
   const [sending, setSending] = useState(false);
   // The answer as it arrives. Rendered as a provisional bubble and thrown away on
   // `done`, when the thread reload brings back the persisted turn — so there is
@@ -143,6 +143,11 @@ export function ChatThread({ threadId }: { threadId: number }) {
   // below, because "it has been a while" is the only thing we can honestly say —
   // the server does not report progress and a fake percentage would be a lie.
   const [waited, setWaited] = useState(0);
+  // What the server says the default resolves to right now. Read from the same
+  // response as the list, so the label cannot disagree with the options.
+  const resolvedDefault = (models.data?.models ?? []).find(
+    (choice) => choice.id === models.data?.default_id,
+  );
 
   // A once-a-second tick, only while a send is in flight. Cleared on unmount and
   // whenever `sending` goes false, so a thread left open does not hold a timer.
@@ -316,8 +321,15 @@ export function ChatThread({ threadId }: { threadId: number }) {
         <label className="field" style={{ flex: "0 0 auto" }}>
           <span>Model</span>
           <select value={modelId} onChange={(event) => setModelId(event.target.value)}>
-            <option value="">Whatever is loaded (default)</option>
-            {(models.data ?? []).map((choice) => (
+            <option value="">
+              {/* Names the model it would actually use. "Whatever is loaded" was
+                  a promise the code did not keep — it used a fixed env var
+                  pointing at a server that is usually scaled down. */}
+              {resolvedDefault === undefined
+                ? "Whatever is loaded — nothing running"
+                : `Whatever is loaded — ${resolvedDefault.label}`}
+            </option>
+            {(models.data?.models ?? []).map((choice) => (
               <option key={choice.id} value={choice.id}>
                 {choice.label}
                 {/* Whether it is *running*, not whether it exists. Both model
@@ -335,7 +347,7 @@ export function ChatThread({ threadId }: { threadId: number }) {
             has no hover. */}
         {modelId !== "" &&
           (() => {
-            const choice = (models.data ?? []).find((item) => item.id === modelId);
+            const choice = (models.data?.models ?? []).find((item) => item.id === modelId);
             if (choice === undefined) return null;
             return (
               <p style={{ margin: 0, fontSize: "0.85em", opacity: 0.8 }}>

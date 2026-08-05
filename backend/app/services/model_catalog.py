@@ -152,6 +152,12 @@ PROBE_TIMEOUT = 0.5
 def probe(choice: ModelChoice, timeout: float = PROBE_TIMEOUT) -> bool:
     """Is something listening for this model right now?
 
+    Returns False immediately when no model is configured at all
+    (`ALMAGEST_LLM_BASE_URL` empty). That is the test and bare-dev case, and
+    without the short-circuit every call paid a real connect timeout per model —
+    it turned a five-second test file into eighty-four seconds, which is the sort
+    of tax that gets a test suite skipped.
+
     A bare TCP connect rather than an HTTP request, deliberately: vLLM spends
     minutes downloading weights before it binds a port, and a pod that exists but
     is not listening is precisely the state a picker must not present as ready.
@@ -159,6 +165,11 @@ def probe(choice: ModelChoice, timeout: float = PROBE_TIMEOUT) -> bool:
     Any failure is `False`. This decides whether a control is offered, so being
     wrong in the optimistic direction is the expensive one.
     """
+    from app.config import get_settings
+
+    if not get_settings().llm_base_url:
+        return False
+
     parsed = urlparse(choice.base_url)
     host, port = parsed.hostname, parsed.port
     if host is None or port is None:
@@ -178,3 +189,21 @@ def start_hint(choice: ModelChoice) -> str:
     """
     suffix = {"qwen3-4b": "8b", "qwen3-8b": "8b", "almagest-27b": "27b"}.get(choice.id, "8b")
     return f"make k8s-model M={suffix}"
+
+
+def first_reachable() -> ModelChoice | None:
+    """Whichever catalogue model is actually answering, smallest first.
+
+    The picker's default option says "whatever is loaded", and until now that was
+    a lie: it used `ALMAGEST_LLM_BASE_URL`, a fixed env var pointing at one
+    server. With that server scaled down — which is the *normal* state, since both
+    default to zero and the reaper releases on idle — the default failed even when
+    another model was running and ready.
+
+    So the default now resolves by asking. Smallest first, because if several are
+    somehow up the cheap one is the better default.
+    """
+    for choice in CATALOG:
+        if probe(choice):
+            return choice
+    return None
