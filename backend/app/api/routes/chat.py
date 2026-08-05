@@ -42,7 +42,7 @@ from app.config import get_settings
 from app.db.session import get_db
 from app.models.chat import MAX_MESSAGE_CHARS, MAX_WRITEUP_CHARS, ChatThread, ChatWriteup
 from app.models.enums import ChatKind, ChatRole
-from app.services import chat, chat_agent, chat_stream, model_catalog
+from app.services import chat, chat_agent, chat_stream, model_catalog, model_scaler
 from app.services.chat import ChatError
 from app.services.chat_agent import ModelUnavailable
 
@@ -171,6 +171,75 @@ def _thread_read(db: Session, thread: ChatThread) -> ThreadRead:
 
 def _message_read(row: object) -> MessageRead:
     return MessageRead.model_validate(row, from_attributes=True)
+
+
+def _wake(choice: object) -> str:
+    """Ask for a down model to start, and say what is happening.
+
+    The GPU is released when chat is idle — it has to be, or Almagest holds a card
+    the rest of the machine needs. That only works if coming back is automatic, so
+    a send that finds its model down starts it rather than telling somebody to go
+    and run a command.
+
+    Returns the message to show. It does **not** wait: a 27B takes minutes to load,
+    and holding the request open would occupy a worker in a single-replica API and
+    time out in every proxy on the way. The turn is already stored, so "try again
+    shortly" is a real instruction rather than a brush-off.
+    """
+    from urllib.parse import urlparse
+
+    host = urlparse(choice.base_url).hostname or ""  # type: ignore[attr-defined]
+    label = choice.label  # type: ignore[attr-defined]
+    if model_scaler.ensure_running(host):
+        return (
+            f"{label} was not running, so it is starting now. The first start "
+            f"loads weights into VRAM and takes a few minutes for a large model — "
+            f"press Try again shortly."
+        )
+    return (
+        f"{label} is not running and could not be started from here. "
+        f"Start it with `{model_catalog.start_hint(choice)}`."  # type: ignore[arg-type]
+    )
+
+
+def _resolve_model(picked: str | None) -> tuple[chat_agent.ChatModel | None, str]:
+    """The model to answer with, or None and the reason.
+
+    Both routes go through here so they cannot drift — an earlier version had the
+    two resolving separately, and `/stream` kept reporting "no model configured"
+    for a model that was merely asleep.
+
+    A named pick routes to that model. No pick means "whatever is loaded", which is
+    resolved by **asking** rather than by trusting a fixed env var: both servers
+    default to zero and the reaper releases on idle, so the configured URL is
+    usually down even when something else is up and ready.
+
+    Either way, a model that is not running is *started* rather than merely
+    reported — see `_wake`.
+    """
+    if picked:
+        choice = model_catalog.by_id(picked)
+        if not model_catalog.probe(choice):
+            return None, _wake(choice)
+        return chat_agent.build_model(choice.base_url, choice.served_name), ""
+
+    running = model_catalog.first_reachable()
+    if running is not None:
+        return chat_agent.build_model(running.base_url, running.served_name), ""
+
+    settings = get_settings()
+    if settings.llm_base_url:
+        # Configured but nothing answered: asleep, not absent. Start it.
+        return None, _wake(model_catalog.by_id(model_catalog.DEFAULT_ID))
+
+    # Unconfigured — a dev box, or a test. Deliberately routed through
+    # `build_model` rather than returning early: that is the seam the suite
+    # substitutes, and short-circuiting past it made every chat test resolve to
+    # "no model configured" no matter what it had injected.
+    model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
+    if model is None:
+        return None, "No model is configured (set ALMAGEST_LLM_BASE_URL)."
+    return model, ""
 
 
 def _refuse(error: ChatError) -> HTTPException:
@@ -375,31 +444,9 @@ def send_chat_message(
     user_read = _message_read(user_turn)
     db.commit()
 
-    settings = get_settings()
-    # An explicit pick routes to that model's own endpoint; with none, the
-    # deployment's configured default wins. That ordering matters: the env var is
-    # what `make k8s-model` sets when the card is handed over, so it is the honest
-    # answer for "whatever is actually up right now".
-    if request.model:
-        choice = model_catalog.by_id(request.model)
-        model = chat_agent.build_model(choice.base_url, choice.served_name)
-    else:
-        # "Whatever is loaded" resolved by *asking*, not by trusting a fixed env
-        # var that points at a server which is usually scaled down. Falls back to
-        # the configured URL when nothing answers, so the error still names a
-        # concrete endpoint rather than nothing at all.
-        running = model_catalog.first_reachable()
-        if running is not None:
-            model = chat_agent.build_model(running.base_url, running.served_name)
-        else:
-            model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
+    model, unavailable = _resolve_model(request.model)
     if model is None:
-        # Not configured is not broken. See `chat_agent`'s docstring.
-        return SendResponse(
-            user=user_read,
-            assistant=None,
-            error="No model is configured (set ALMAGEST_LLM_BASE_URL).",
-        )
+        return SendResponse(user=user_read, assistant=None, error=unavailable)
 
     try:
         reply = chat_agent.respond(model, chat.messages(db, thread_id=thread.id), session=db)
@@ -454,47 +501,13 @@ def stream_chat_message(
             raise _refuse(error) from error
     db.commit()
 
-    settings = get_settings()
-    if request.model:
-        choice = model_catalog.by_id(request.model)
-        if not model_catalog.probe(choice):
-            # The same refusal as `/send`, in this route's own currency: an SSE
-            # error frame. The client renders it in place with the user's turn
-            # still in the thread.
-            def not_running() -> Iterator[str]:
-                yield chat_stream._event(
-                    "error",
-                    {
-                        "message": (
-                            f"{choice.label} is not running. Picking a model here "
-                            f"does not start it — Almagest releases the GPU when "
-                            f"idle. Start it with "
-                            f"`{model_catalog.start_hint(choice)}`, then try again."
-                        )
-                    },
-                )
-
-            return StreamingResponse(not_running(), media_type="text/event-stream")
-        model = chat_agent.build_model(choice.base_url, choice.served_name)
-    else:
-        # "Whatever is loaded" resolved by *asking*, not by trusting a fixed env
-        # var that points at a server which is usually scaled down. Falls back to
-        # the configured URL when nothing answers, so the error still names a
-        # concrete endpoint rather than nothing at all.
-        running = model_catalog.first_reachable()
-        if running is not None:
-            model = chat_agent.build_model(running.base_url, running.served_name)
-        else:
-            model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
-
+    model, unavailable = _resolve_model(request.model)
     if model is None:
 
-        def unconfigured() -> Iterator[str]:
-            yield chat_stream._event(
-                "error", {"message": "No model is configured (set ALMAGEST_LLM_BASE_URL)."}
-            )
+        def not_available() -> Iterator[str]:
+            yield chat_stream._event("error", {"message": unavailable})
 
-        return StreamingResponse(unconfigured(), media_type="text/event-stream")
+        return StreamingResponse(not_available(), media_type="text/event-stream")
 
     return StreamingResponse(
         chat_stream.stream_reply(model, db, thread, chat.messages(db, thread_id=thread.id)),
