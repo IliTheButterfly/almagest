@@ -20,11 +20,23 @@
  * backend already keeps them apart (`research_error` is null for `exhausted`); this
  * is that distinction carried through to the pixels.
  *
- * ## The panel renders for a part nobody has researched
+ * ## It renders **nothing** unless a person is actually needed
  *
- * `state: "pending"` with no candidates is the ordinary case for most of the
- * catalogue and is not an empty state to apologise for. It says the queue has this
- * part and has not got to it, which is true and useful.
+ * The pipeline is supposed to find the datasheet, check it against the part
+ * number and extract the fields without anybody watching. When that works there is
+ * nothing to say, and a panel reporting "found ✓" on every part in the catalogue is
+ * a status display nobody reads — worse, it trains the eye to skip the region where
+ * the real problems appear.
+ *
+ * So `resolved`, `pending`, `claimed` and `not_applicable` all render `null`. Only
+ * `exhausted` and `failed` produce a panel, and both of those mean the same thing
+ * to the person reading: **the automatic path is out of options, and this one wants
+ * you.**
+ *
+ * The provenance for a resolved part is not lost — `GET /api/parts/{id}/research`
+ * still has every candidate and every verdict, and it is what a follow-up
+ * disclosure would read if one is ever wanted. It is simply not worth a card on a
+ * screen where nothing is wrong.
  */
 
 import { useState } from "react";
@@ -37,7 +49,7 @@ import {
   type ResearchState,
 } from "../lib/api/client";
 import { useAsync } from "../lib/hooks/useAsync";
-import { ErrorBanner, Loading } from "./Feedback";
+import { ErrorBanner } from "./Feedback";
 
 /** How each state reads to a person, and how loudly. */
 const STATE_COPY: Record<ResearchState, { label: string; badge: string; blurb: string }> = {
@@ -97,14 +109,21 @@ export function ResearchPanel({ partId }: { partId: number }) {
   const [queueing, setQueueing] = useState(false);
   const [queueError, setQueueError] = useState<unknown>(null);
 
-  if (research.error !== null) {
-    return <ErrorBanner error={research.error} fallback="The research history could not be loaded." />;
-  }
-  if (research.data === null) {
-    return <Loading what="the research history" />;
+  // Silent on every failure of its own, too. This panel is a diagnostic aside on a
+  // screen whose subject is the part; a red banner here would report a problem with
+  // the *reporting*, which is noise on top of noise.
+  if (research.error !== null || research.data === null) {
+    return null;
   }
 
   const data = research.data;
+
+  // The whole point: nothing to say unless the automatic path ran out of options.
+  // See the module docstring — a "found ✓" card on every part is a status display
+  // that teaches the eye to skip exactly where the real problems show up.
+  if (data.state !== "exhausted" && data.state !== "failed") {
+    return null;
+  }
   const copy = STATE_COPY[data.state];
   const candidates = data.candidates;
   const tried = candidates.length;
@@ -124,11 +143,6 @@ export function ResearchPanel({ partId }: { partId: number }) {
       setQueueing(false);
     }
   }
-
-  // Offered for the two terminal states only. Re-queueing a part that is already
-  // queued or in flight does nothing useful and invites double-clicking a worker
-  // into a second lease.
-  const canRequeue = data.state === "exhausted" || data.state === "failed";
 
   return (
     <div className="card">
@@ -186,11 +200,13 @@ export function ResearchPanel({ partId }: { partId: number }) {
         <ErrorBanner error={queueError} fallback="That part could not be queued." />
       )}
 
-      {canRequeue && (
-        <button type="button" className="wide" disabled={queueing} onClick={requeue}>
-          {queueing ? "Queueing…" : "Search again"}
-        </button>
-      )}
+      {/* Always offered here: reaching this point means the state is terminal,
+          which is the only state where another search is a sensible thing to ask
+          for. The guard used to be a condition; the early return above is now the
+          same guard, said once. */}
+      <button type="button" className="wide" disabled={queueing} onClick={requeue}>
+        {queueing ? "Queueing…" : "Search again"}
+      </button>
     </div>
   );
 }

@@ -106,6 +106,40 @@ it("explains each rejection in words rather than in its stored slug", async () =
   expect(screen.queryByText("not_pdf")).toBeNull();
 });
 
+it("renders nothing at all when the pipeline did its job", async () => {
+  // The panel is an exception surface, not a status display. A "found ✓" card on
+  // every part in the catalogue trains the eye to skip the region where the real
+  // problems appear — so success is silent.
+  stubApi({
+    part_id: 1,
+    state: "resolved",
+    attempts: 1,
+    error: null,
+    candidates: [candidate({ state: "validated", reject_reason: null })],
+  });
+
+  const { container } = render(<ResearchPanel partId={1} />);
+
+  await waitFor(() => {
+    expect(calls.some((c) => c.url === "/api/parts/1/research")).toBe(true);
+  });
+  expect(container.textContent).toBe("");
+});
+
+it("renders nothing while the search is still queued or running", async () => {
+  // Neither is a state a person can act on, and a card saying "queued" on a fresh
+  // part is noise on most of the catalogue.
+  for (const state of ["pending", "claimed", "not_applicable"]) {
+    stubApi({ part_id: 1, state, attempts: 0, error: null, candidates: [] });
+    const { container } = render(<ResearchPanel partId={1} />);
+    await waitFor(() => {
+      expect(calls.some((c) => c.url === "/api/parts/1/research")).toBe(true);
+    });
+    expect(container.textContent).toBe("");
+    calls.length = 0;
+  }
+});
+
 it("does not dress `exhausted` as a failure", async () => {
   // The distinction the backend is careful to keep (`research_error` is null for
   // `exhausted`) has to survive into the pixels. A normal outcome in a warning
@@ -139,32 +173,6 @@ it("does dress `failed` as a problem, and shows what broke", async () => {
   expect(screen.getByText(/Temporary failure in name resolution/)).toBeTruthy();
 });
 
-it("treats a part nobody has researched as ordinary, not as an empty state", async () => {
-  // `pending` with no candidates is most of the catalogue. It is not something to
-  // apologise for, and it must not read as an error.
-  stubApi({ part_id: 1, state: "pending", attempts: 0, error: null, candidates: [] });
-
-  render(<ResearchPanel partId={1} />);
-
-  await waitFor(() => {
-    expect(screen.getByText("queued")).toBeTruthy();
-  });
-  expect(screen.queryByText(/sources tried/)).toBeNull();
-});
-
-it("offers another search only from a terminal state", async () => {
-  // Re-queueing something already queued or in flight does nothing useful and
-  // invites double-clicking a worker into a second lease.
-  stubApi({ part_id: 1, state: "claimed", attempts: 1, error: null, candidates: [] });
-
-  render(<ResearchPanel partId={1} />);
-
-  await waitFor(() => {
-    expect(screen.getByText("searching")).toBeTruthy();
-  });
-  expect(screen.queryByRole("button", { name: /search again/i })).toBeNull();
-});
-
 it("re-queues an exhausted part, which is the upgrade path when a provider is added", async () => {
   stubApi({
     part_id: 7,
@@ -185,9 +193,12 @@ it("re-queues an exhausted part, which is the upgrade path when a provider is ad
 });
 
 it("links a validated candidate and marks which source won", async () => {
+  // A part can be `exhausted` *and* carry a validated candidate: the document was
+  // stored, then unlinked or superseded. Rare, and the one case where a winning
+  // source still needs showing on this panel.
   stubApi({
     part_id: 1,
-    state: "resolved",
+    state: "exhausted",
     attempts: 1,
     error: null,
     candidates: [
@@ -204,11 +215,12 @@ it("links a validated candidate and marks which source won", async () => {
 
   const { container } = render(<ResearchPanel partId={1} />);
 
+  // Asserted *inside* `waitFor`: a bare `querySelector` returning null does not
+  // throw, so waitFor would accept the first empty render and pass a null through.
   await waitFor(() => {
-    expect(screen.getByText("found")).toBeTruthy();
+    expect(container.querySelector('a[href="https://murata.test/GRM188.pdf"]')).toBeTruthy();
   });
   const link = container.querySelector('a[href="https://murata.test/GRM188.pdf"]');
-  expect(link).toBeTruthy();
   // Opened in a new tab, and never as a referrer-leaking or opener-sharing link:
   // these are third-party URLs the researcher found, not ours.
   expect(link?.getAttribute("rel")).toContain("noopener");
