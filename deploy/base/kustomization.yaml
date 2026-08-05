@@ -29,6 +29,8 @@ resources:
   # The big model, off by default. The GPU is exclusive, so at most one of
   # llm.yaml and this may be scaled up at a time — see llm-vllm.yaml's header.
   - llm-vllm.yaml
+  # Gives the GPU back on idle, so nothing depends on somebody remembering.
+  - llm-reaper.yaml
 
 labels:
   - pairs:

@@ -1,0 +1,156 @@
+# Give the GPU back. Automatically, without anyone having to remember.
+#
+# ## Why this exists
+#
+# A model server holds its `nvidia.com/gpu` claim for as long as its pod exists —
+# whether or not any weights are resident. `OLLAMA_KEEP_ALIVE` frees VRAM on idle
+# and does **not** free the device, so an always-on model deployment denies the
+# card to every other namespace on this machine indefinitely. That is what
+# `CLAUDE.local.md` means by "a free unit is a race, not a reservation", and both
+# model Deployments now default to `replicas: 0` because of it.
+#
+# But defaulting to zero only helps until somebody scales one up. Somebody always
+# forgets, and a machine shared with other people's work should not depend on
+# that. So this runs every ten minutes and scales any Almagest model server back
+# to zero once chat has been idle long enough.
+#
+# ## Idle is measured from the transcript, not from the pod
+#
+# The reaper asks the API for the newest thread in each history list and compares
+# its `updated_at` to now. That is the honest signal: a thread is touched when
+# somebody sends a message, so "no thread has moved in fifteen minutes" means
+# nobody is talking to a model. Pod uptime would say nothing (it is up because
+# somebody scaled it up an hour ago) and GPU utilisation would say the wrong thing
+# (an idle-but-loaded model reads as 0% and would be reaped mid-conversation).
+#
+# **Bias is toward releasing.** If the API cannot be reached, or the answer cannot
+# be parsed, it scales down anyway: the failure mode of releasing too eagerly is a
+# reload next message, and the failure mode of holding too long is somebody else's
+# work blocked with no way to see why.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: almagest-llm-reaper
+---
+# Namespaced, and only over the two Deployments it may touch. `resourceNames` is
+# what stops this becoming a credential that can scale the co-tenants' workloads.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: almagest-llm-reaper
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "deployments"]
+    resourceNames: ["almagest-llm", "almagest-llm-27b"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: almagest-llm-reaper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: almagest-llm-reaper
+subjects:
+  - kind: ServiceAccount
+    name: almagest-llm-reaper
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: almagest-llm-reaper-script
+data:
+  reap.sh: |
+    #!/bin/sh
+    # Scale every Almagest model server to zero unless chat has been active.
+    set -u
+    IDLE_MINUTES="${IDLE_MINUTES:-15}"
+    API="${API:-http://almagest-api:8000}"
+
+    # Newest activity across both history lists. `updated_at` moves when a message
+    # is appended, so this is "when did somebody last talk to a model".
+    newest=""
+    for kind in search project; do
+      body="$(wget -qO- --timeout=10 "$API/api/chat/threads?kind=$kind&limit=1" 2>/dev/null)" || body=""
+      stamp="$(printf '%s' "$body" | sed -n 's/.*"updated_at":"\([^"]*\)".*/\1/p' | head -1)"
+      [ -n "$stamp" ] && [ "$stamp" \> "$newest" ] && newest="$stamp"
+    done
+
+    if [ -z "$newest" ]; then
+      # No threads, or the API did not answer. Release either way - see the header
+      # on why the bias points this direction.
+      echo "no recent chat activity found; releasing"
+    else
+      cutoff="$(date -u -d "-${IDLE_MINUTES} minutes" +%Y-%m-%dT%H:%M:%S 2>/dev/null)"
+      if [ -n "$cutoff" ] && [ "$newest" \> "$cutoff" ]; then
+        echo "chat active at $newest (cutoff $cutoff); leaving the GPU alone"
+        exit 0
+      fi
+      echo "idle since $newest; releasing"
+    fi
+
+    for deploy in almagest-llm almagest-llm-27b; do
+      current="$(kubectl get deploy "$deploy" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+      if [ "${current:-0}" != "0" ]; then
+        echo "scaling $deploy to 0"
+        kubectl scale "deploy/$deploy" --replicas=0
+      fi
+    done
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: almagest-llm-reaper
+  labels:
+    app.kubernetes.io/component: llm
+spec:
+  # Every ten minutes. Frequent enough that a forgotten model costs the co-tenant
+  # minutes rather than a night, and cheap enough that the check is free.
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      # One attempt. A reap that fails is retried by the next schedule ten minutes
+      # later, which is soon enough and avoids a crashlooping Job hammering the API.
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: almagest
+            app.kubernetes.io/component: llm-reaper
+        spec:
+          serviceAccountName: almagest-llm-reaper
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reap
+              # alpine/k8s rather than a distroless kubectl image: this needs a
+              # shell and wget as well as kubectl, and the official
+              # registry.k8s.io/kubectl has neither. Matched to the cluster's
+              # 1.36 server.
+              image: alpine/k8s:1.36.2
+              command: ["/bin/sh", "/scripts/reap.sh"]
+              env:
+                - name: IDLE_MINUTES
+                  value: "15"
+              resources:
+                requests: { cpu: 10m, memory: 32Mi }
+                limits: { cpu: 200m, memory: 128Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts }
+          volumes:
+            - name: scripts
+              configMap:
+                name: almagest-llm-reaper-script

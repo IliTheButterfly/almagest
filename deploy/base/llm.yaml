@@ -60,10 +60,20 @@ metadata:
   labels:
     app.kubernetes.io/component: llm
 spec:
-  # One. The device is exclusive, so a second replica could never schedule — it
-  # would sit Pending forever and look like a broken rollout rather than a
-  # misconfiguration.
-  replicas: 1
+  # **Off by default, and this is the important line in the file.**
+  #
+  # An earlier version ran this at 1 permanently, on the theory that
+  # `OLLAMA_KEEP_ALIVE` unloading VRAM was courtesy enough. It is not: the pod
+  # holds the `nvidia.com/gpu` claim whether or not any weights are resident, so a
+  # always-on model server denies the device to every other namespace on this
+  # machine for as long as it exists. That is the thing `CLAUDE.local.md` meant by
+  # "a free unit is a race, not a reservation", and running at 1 was a departure
+  # from it dressed up as a nuance.
+  #
+  # So: scale up to work (`make k8s-model M=8b`), and the reaper CronJob in
+  # llm-reaper.yaml scales back to 0 once chat has been idle. Nothing here is
+  # allowed to hold a GPU indefinitely.
+  replicas: 0
   strategy:
     # Recreate for the same reason the API uses it: the model volume is RWO, and a
     # rolling update would deadlock trying to attach it to a second pod. The GPU
@@ -106,11 +116,10 @@ spec:
             - name: http
               containerPort: 11434
           env:
-            # The idle unload. Five minutes: long enough that a conversation does
-            # not pay a reload between turns, short enough that a pod left running
-            # overnight is not sitting on VRAM. It does **not** release the k8s
-            # device claim — nothing can — so this is courtesy about memory, and
-            # the real yield is scaling this Deployment to zero.
+            # Frees VRAM after five idle minutes. Worth having, but do not mistake
+            # it for releasing the GPU: the *device claim* belongs to the pod and
+            # survives the unload. Only scaling to zero gives the card back, which
+            # is what the reaper CronJob exists to do.
             - name: OLLAMA_KEEP_ALIVE
               value: "5m"
             # One model resident at a time. The default would happily hold two and
