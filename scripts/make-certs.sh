@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 mkdir -p certs && cd certs
 
 LAN="$(ip -4 -o addr show scope global | awk 'NR==1{split($4,a,"/"); print a[1]}')"
-: "${ALMAGEST_HOST:=almagest.lan}"
+: "${ALMAGEST_HOST:=almagest.aether.lan}"
 
 if [ ! -f ca.key ]; then
   openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \

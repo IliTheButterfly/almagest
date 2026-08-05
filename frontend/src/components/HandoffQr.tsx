@@ -19,7 +19,7 @@
  * be reconstructing.
  *
  * **The phone must be on the LAN and trust the private CA** — the same
- * prerequisite the tags themselves have, since `https://almagest.lan` is what is
+ * prerequisite the tags themselves have, since `https://almagest.aether.lan` is what is
  * written to every one of them. Said out loud here, because "the QR does nothing"
  * on an untrusted phone is otherwise a mystery.
  */

@@ -51,8 +51,8 @@ def sync[T](
     return wrapper
 
 
-URL = "https://almagest.lan/s/4K7T92M8"
-OTHER_URL = "https://almagest.lan/s/9ZQR31VT"
+URL = "https://almagest.aether.lan/s/4K7T92M8"
+OTHER_URL = "https://almagest.aether.lan/s/9ZQR31VT"
 
 
 def registry_with(**sources: FakeWritableTagSource) -> tuple[DeviceRegistry, StaticBackend]:

@@ -70,7 +70,7 @@ describe("degrading visibly", () => {
   it("explains the secure-context requirement and names the right origin", () => {
     const notice = cameraNotice(detectCapabilities(plainHttp));
     expect(notice).not.toBeNull();
-    expect(notice).toContain("https://almagest.lan");
+    expect(notice).toContain("https://almagest.aether.lan");
     expect(notice).toContain("localhost");
     // The most important part: there is no permission to grant, so telling the
     // user to check their permissions would send them in circles.

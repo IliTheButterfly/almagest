@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.base import TimestampMixin, TreeMixin
-from app.models.enums import SizeClass, VolumeSource
+from app.models.enums import ResearchState, SizeClass, VolumeSource
 from app.models.types import StrEnumType, UtcDateTime, utcnow
 
 
@@ -219,6 +219,34 @@ class Part(Base, TimestampMixin):
     #: integrity to a template and an index.
     extra_specs_json: Mapped[str | None] = mapped_column(Text)
 
+    # --- the datasheet-research queue (ADR 0017)
+    #
+    # Five columns and one index rather than a queue table, for the reason
+    # `ExtractionState`'s docstring gives about its own: a state on the row it
+    # describes cannot fall out of step with itself, and a separate table would
+    # need a row per part that might ever want a datasheet plus something to keep
+    # it in step. `app.services.research` is the only module that writes these.
+    research_state: Mapped[str] = mapped_column(
+        StrEnumType(ResearchState),
+        nullable=False,
+        default=ResearchState.PENDING,
+        server_default=ResearchState.PENDING.value,
+    )
+    #: Counted when the claim is **granted**, not when a failure is reported — so a
+    #: worker that dies without reporting still burns one, which is the only way a
+    #: part that reliably kills whatever picks it up stops being re-served forever.
+    research_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    #: When the current lease started. NULL unless `research_state` is `claimed`.
+    research_claimed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    #: A worker's self-declared name. Diagnostics only — nothing branches on it.
+    research_claimed_by: Mapped[str | None] = mapped_column(String(64))
+    #: The last failure, verbatim from the worker. For a human reading a health
+    #: check. Note this is set for `failed` and **not** for `exhausted`: finding no
+    #: datasheet is not an error and must not read as one.
+    research_error: Mapped[str | None] = mapped_column(Text)
+
     __table_args__ = (
         # Two rows for the same MPN from the same manufacturer is nearly always
         # a duplicate-import bug. Partial, because both columns are nullable and
@@ -230,6 +258,11 @@ class Part(Base, TimestampMixin):
             unique=True,
             sqlite_where=mpn_norm.isnot(None),
         ),
+        # The research queue, in one index — the same shape and the same reasoning
+        # as `ix_documents_extraction_queue`. `research_attempts` sits second
+        # because the claim orders by it: fresh parts before retries, so one part
+        # nothing can find a datasheet for cannot starve a part just scanned in.
+        Index("ix_parts_research_queue", "research_state", "research_attempts", "id"),
     )
 
 

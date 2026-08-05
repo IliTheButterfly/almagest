@@ -1,5 +1,12 @@
 # ADR 0001 — Base URL is `https://almagest.lan`, served with a private CA
 
+> **Superseded in part by [ADR 0019](0019-the-hostname-moves-under-aether.md)
+> (2026-08-04): the hostname is now `almagest.aether.lan`.** Everything else in
+> this ADR stands unchanged — the `https` requirement, the private CA, the
+> portless payload, and the accepted cost that a tag scanned off-LAN resolves to
+> nothing. The text below is left as it was written; read it for the reasoning and
+> take the hostname from 0019.
+
 **Status:** accepted
 **Date:** 2026-07-27
 

@@ -30,7 +30,7 @@ class McpSettings(BaseSettings):
 
     #: The API **as reachable from wherever this server runs**. Deliberately not
     #: `ALMAGEST_BASE_URL`: that is the public origin stamped into every tag and
-    #: printed label (`https://almagest.lan`, ADR 0001) and it must stay stamped
+    #: printed label (`https://almagest.aether.lan`, ADR 0001) and it must stay stamped
     #: on physical objects whatever route this process takes to the server. Same
     #: distinction, and same reason, as `DEVICEAGENT_API_BASE_URL`.
     api_base_url: str = Field(default="http://127.0.0.1:8000", alias="ALMAGEST_MCP_API_BASE_URL")

@@ -25,6 +25,7 @@ import { BomScreen } from "./screens/BomScreen";
 import { BuildScreen } from "./screens/BuildScreen";
 import { ContainerTypeScreen } from "./screens/ContainerTypeScreen";
 import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
+import { ChatScreen } from "./screens/ChatScreen";
 import { DatasheetSearchScreen } from "./screens/DatasheetSearchScreen";
 import { CapturesScreen } from "./screens/CapturesScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
@@ -133,6 +134,7 @@ export function App() {
         <NavLink to="/scan">Scan</NavLink>
         <NavLink to="/tree">Storage</NavLink>
         <NavLink to="/intake">Intake{pending > 0 ? ` (${pending})` : ""}</NavLink>
+        <NavLink to="/chat">Ask</NavLink>
         <NavLink to="/datasheets">Datasheets</NavLink>
         {/* "Types" was jargon: the tab that lets you make your own cabinets and
             drawers read as a settings page, and was reported twice as "I still
@@ -176,6 +178,9 @@ export function App() {
             {/* Phase 4's standalone value: full-text search over every stored
                 PDF's extracted text, not part fields — a different question
                 from `/search`, not a mode of it. Not a scan target. */}
+            <Route path="/chat" element={<ChatScreen />} />
+            {/* A conversation is linkable: same screen, thread id in the URL. */}
+            <Route path="/chat/:threadId" element={<ChatScreen />} />
             <Route path="/datasheets" element={<DatasheetSearchScreen />} />
             <Route path="/tree" element={<TreeScreen />} />
             <Route path="/scan" element={<ScanScreen />} />

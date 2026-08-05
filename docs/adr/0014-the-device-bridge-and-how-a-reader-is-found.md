@@ -207,7 +207,7 @@ bridge anywhere. It must not warn, must not retry aggressively, and must not
 delay first paint. A bridge that is not running is not an error; it is Tuesday.
 
 **Mixed content and Private Network Access are a real risk and are handled, not
-assumed.** The PWA is served from `https://almagest.lan` (ADR 0001) and opens
+assumed.** The PWA is served from `https://almagest.aether.lan` (ADR 0001) and opens
 `ws://127.0.0.1:8765`. Loopback is "potentially trustworthy" per the secure-
 context spec, so this is *specified* to work, but Chrome's Private Network
 Access rollout adds a preflight for public→local subresource requests, and

@@ -103,10 +103,10 @@ spec:
   #
   # The consequence is that something outside this cluster has to answer on 443
   # and forward here, because every NFC tag and printed QR carries
-  # `https://almagest.lan/s/{short_id}` with no port in it. Note that a router
+  # `https://almagest.aether.lan/s/{short_id}` with no port in it. Note that a router
   # port-forward does NOT solve it for LAN clients: DNS hands them the node's
   # address and they connect to it directly, so the router is never in the
-  # path. It has to be a reverse proxy at whatever address `almagest.lan`
+  # path. It has to be a reverse proxy at whatever address `almagest.aether.lan`
   # resolves to. See deploy/README.md.
   type: NodePort
   selector:

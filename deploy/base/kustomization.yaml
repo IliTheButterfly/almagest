@@ -23,6 +23,9 @@ resources:
   - backup.yaml
   - maintenance.yaml
   - blob-scrub.yaml
+  # The local model server (ADR 0016). Holds the node's only GPU; see the
+  # header in llm.yaml for how it is yielded to the co-tenant.
+  - llm.yaml
 
 labels:
   - pairs:

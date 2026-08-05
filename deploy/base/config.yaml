@@ -19,17 +19,26 @@ data:
   # tag is a physical object and nothing in software can reach it — so treat
   # this as permanent from the first provisioning onward.
   #
-  # ADR 0001 settled the intended value as `https://almagest.lan`, with no port.
+  # ADR 0001 settled the intended value as `https://almagest.aether.lan`, with no port.
   # The port is here because the cluster cannot serve 443 (no ingress
   # controller, no LoadBalancer, hostPort blocked, node-port range 30000-32767 —
   # ADR 0009), and a value that resolves is better than one that is merely
   # correct on paper.
   #
   # **Do not provision tags until this loses the port**, which needs a reverse
-  # proxy on 443 at whatever address almagest.lan resolves to. Nothing has been
+  # proxy on 443 at whatever address almagest.aether.lan resolves to. Nothing has been
   # provisioned yet, so nothing is lost by waiting.
-  ALMAGEST_BASE_URL: https://almagest.lan:30443
+  ALMAGEST_BASE_URL: https://almagest.aether.lan:30443
 
   # Not ALMAGEST_LOG_LEVEL — this one key is deliberately unprefixed in
   # app/config.py.
   LOG_LEVEL: INFO
+  # The local model server (ADR 0016). In-cluster DNS, so this never leaves the
+  # node — the endpoint has no authentication of any kind and its Service is
+  # ClusterIP for exactly that reason.
+  #
+  # Unset would mean chat answers "no model is configured", which is a legitimate
+  # state and not an error: `almagest-llm` is scaled to zero whenever the GPU is
+  # yielded to the co-tenant, and chat degrades rather than breaks.
+  ALMAGEST_LLM_BASE_URL: http://almagest-llm:11434
+  ALMAGEST_LLM_MODEL: qwen3:8b

@@ -145,6 +145,19 @@ _EXTRACTION: Final = (
     "The extraction worker's queue door (ADR 0005): claim a lease, submit a "
     "result, requeue a failure. One consumer, and it is not this."
 )
+_RESEARCH: Final = (
+    "The datasheet-research worker's queue door (ADR 0017): claim a lease, submit "
+    "every candidate tried, requeue. One consumer, and it is not this. The read "
+    "rides along because what it reports is *why a provider was refused* — worker "
+    "diagnostics, not an answer about the inventory. A part's actual datasheet is "
+    "already reachable through `get_part`."
+)
+_CHAT: Final = (
+    "The chat transcript store (ADR 0018). An agent driving its own transcript is "
+    "a loop: the thing writing the messages would read them back as context and "
+    "write again. The agent loop is a separate service and reaches these over HTTP; "
+    "an agent answering questions about the inventory has no business here."
+)
 _INTAKE: Final = (
     "The intake desk pass: a scan is parked by a phone at the bench and resolved "
     "later by a human deciding what the barcode actually was."
@@ -459,6 +472,22 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "submit_extraction_result": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
         "requeue_extraction": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
         "read_extraction_status": Excluded(Reason.MACHINE_DOOR, _EXTRACTION),
+        # -- research (ADR 0017) -----------------------------------------------
+        "claim_research_work": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        "submit_research_result": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        "requeue_research": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        "read_research_status": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        "read_part_research": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        # -- chat (ADR 0018) ---------------------------------------------------
+        "list_chat_threads": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "create_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "read_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "append_chat_message": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "archive_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "export_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "create_chat_writeup": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "export_chat_writeup": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "send_chat_message": Excluded(Reason.MACHINE_DOOR, _CHAT),
         # -- captures ----------------------------------------------------------
         "create_capture": Excluded(Reason.MACHINE_DOOR, _CAPTURES),
         "append_capture_regions": Excluded(Reason.MACHINE_DOOR, _CAPTURES),

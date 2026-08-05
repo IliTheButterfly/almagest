@@ -13,7 +13,7 @@ MCP   := mcpserver
         idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check \
         mcp-sync mcp-lint mcp-typecheck mcp-test mcp-test-live mcp-check mcp-run \
         k8s-tls k8s-secrets k8s-deploy k8s-status k8s-logs k8s-shell k8s-diff \
-        k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
+        k8s-tunnel k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -233,6 +233,22 @@ k8s-deploy: ## Deploy/update the cluster (make k8s-deploy TAG=sha-... to pin)
 
 k8s-diff: ## Show what a deploy would change, without changing it
 	kubectl diff -k deploy/overlays/aether || true
+
+k8s-tunnel: ## Tunnel the deployed API (and its model) to localhost for testing
+	# The API Service is ClusterIP and the model Service deliberately so: the
+	# Ollama endpoint has NO authentication of any kind, so putting it on a
+	# NodePort would publish an unauthenticated model server to the LAN. A
+	# port-forward is the right shape - it is authenticated by your kubeconfig
+	# and it dies with the terminal.
+	#
+	#   API   -> http://127.0.0.1:8000   (docs at /docs, chat at /api/chat/...)
+	#   model -> http://127.0.0.1:11434  (only needed to poke Ollama directly)
+	@echo "API   http://127.0.0.1:8000/docs"
+	@echo "model http://127.0.0.1:11434"
+	@echo "ctrl-c to stop"
+	@kubectl -n ili port-forward svc/almagest-llm 11434:11434 & \
+	 kubectl -n ili port-forward svc/almagest-api 8000:8000; \
+	 kill %1 2>/dev/null || true
 
 k8s-status: ## Everything Almagest owns in the shared namespace
 	kubectl get all,pvc,cm,secret,ingress -n ili -l app.kubernetes.io/part-of=almagest

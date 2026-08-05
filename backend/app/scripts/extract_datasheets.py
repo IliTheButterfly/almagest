@@ -1,6 +1,6 @@
 """The extraction worker: claim, fetch, extract, submit, exit.
 
-    python -m app.scripts.extract_datasheets --base-url https://almagest.lan --once
+    python -m app.scripts.extract_datasheets --base-url https://almagest.aether.lan --once
 
 ADR 0005's other half. This process is the only thing in the repository that opens
 a PDF, and it reaches the system **over HTTP** — never through the database and

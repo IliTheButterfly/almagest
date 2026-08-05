@@ -369,6 +369,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Chat Threads
+         * @description One history list. `kind` is required rather than defaulted, deliberately:
+         *     the whole point of two surfaces is that a caller says which one it means, and a
+         *     default would quietly mix a project's threads into the search list.
+         */
+        get: operations["list_chat_threads"];
+        put?: never;
+        /** Create Chat Thread */
+        post: operations["create_chat_thread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Chat Thread */
+        get: operations["read_chat_thread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Chat Thread */
+        post: operations["archive_chat_thread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Chat Thread
+         * @description The transcript, for pasting into another model.
+         *
+         *     That is the point of export and it shapes the format: a local 8B is not the
+         *     right tool for every question, and the way out has to be one copy rather than a
+         *     re-explanation. `md` carries a front-matter header; `json` round-trips roles and
+         *     tool calls intact.
+         */
+        get: operations["export_chat_thread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Append Chat Message
+         * @description Add one turn.
+         *
+         *     There is no route that *updates* a message, and that absence is the enforcement
+         *     of ADR 0018's append-only rule: a transcript whose history no longer matches
+         *     what the model was shown cannot explain the answer it gave.
+         */
+        post: operations["append_chat_message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/threads/{thread_id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Chat Message
+         * @description Append a user turn and answer it (ADR 0018, and `app.services.chat_agent`).
+         *
+         *     The user's turn is committed **before** the model is called. That ordering is
+         *     the whole point: a model that times out, a GPU that is loading weights, or a
+         *     server that is scaled to zero must not cost somebody the message they just
+         *     wrote. The reply can be retried; the typing cannot.
+         */
+        post: operations["send_chat_message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/writeups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Chat Writeup
+         * @description Create a writeup, and post it where asked.
+         *
+         *     The two destinations are mutually exclusive and both optional: a writeup that
+         *     is created and posted nowhere is a legitimate draft.
+         */
+        post: operations["create_chat_writeup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/chat/writeups/{writeup_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Chat Writeup */
+        get: operations["export_chat_writeup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/container-types": {
         parameters: {
             query?: never;
@@ -2211,6 +2382,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/parts/{part_id}/research": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Part Research
+         * @description One part's research standing and every candidate tried for it.
+         *
+         *     Answers 200 for a part nobody has researched, with `state: pending` and an empty
+         *     candidate list — the same shape and the same reasoning as
+         *     `GET /api/documents/{sha256}/text` answering 200 for a document with no text. A
+         *     part that has not been researched is not an error; only the datasheet waits.
+         */
+        get: operations["read_part_research"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects": {
         parameters: {
             query?: never;
@@ -2551,6 +2747,102 @@ export interface paths {
          *     existing route — see `SuggestionLineRead`.
          */
         post: operations["suggest_parts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/claims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim Research Work
+         * @description Lease up to `limit` parts that want a datasheet.
+         *
+         *     A POST despite reading like a query, because it **writes**: it takes a lease and
+         *     burns an attempt. A GET that mutated the queue would be retried by every proxy
+         *     and prefetched by every crawler.
+         *
+         *     An empty `claims` list is the ordinary answer and not an error — it means the
+         *     queue is drained, which is where a healthy install spends most of its life.
+         */
+        post: operations["claim_research_work"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/requeue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requeue Research
+         * @description Offer a part to the queue again, from zero attempts.
+         *
+         *     Two uses, one operation: retry a `failed` part once its cause is fixed, and
+         *     **re-research an `exhausted` one now that a new provider exists**. The second is
+         *     ADR 0017's upgrade path and needs no new machinery because it is this.
+         */
+        post: operations["requeue_research"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Research Result
+         * @description Record one run's outcome — the candidates it tried, or a failure.
+         *
+         *     Note `candidates: []` and `error` are **different submissions**. An empty list
+         *     says the cascade ran and proposed nothing, which settles the part `exhausted`;
+         *     an error says the run broke, which leaves it claimable until attempts run out.
+         *     Collapsing them would make a dead network indistinguishable from an obscure part.
+         */
+        post: operations["submit_research_result"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/research/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Research Status
+         * @description Queue depth. One grouped count over an indexed column, cheap enough to poll.
+         */
+        get: operations["read_research_status"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3779,6 +4071,32 @@ export interface components {
             score: number;
         };
         /**
+         * CandidateSubmission
+         * @description One tried URL and its verdict.
+         *
+         *     `state` is the worker's finding about *this URL*, which it is entitled to
+         *     report — unlike the part's overall state, which is derived. The distinction is
+         *     that the worker fetched this URL and nothing else knows what came back.
+         */
+        CandidateSubmission: {
+            /** Document Sha256 */
+            document_sha256?: string | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Rank
+             * @default 0
+             */
+            rank?: number;
+            /** Reject Reason */
+            reject_reason?: string | null;
+            /** Source */
+            source: string;
+            state: components["schemas"]["ResearchCandidateState"];
+            /** Url */
+            url: string;
+        };
+        /**
          * CapacityModel
          * @description Selects a Python capacity strategy class.
          *
@@ -3951,6 +4269,29 @@ export interface components {
             /** Slug */
             slug: string;
         };
+        /**
+         * ChatKind
+         * @description Which history list a `chat_threads` row belongs to (ADR 0018).
+         *
+         *     Two surfaces with different lifetimes: a disposable one for inventory questions
+         *     and a durable one bound to a project. They differ in the UI and in retention,
+         *     not in shape, so this is a column rather than a second table — and being a
+         *     plain `sa.String` with no `CHECK`, a third kind (a thread hanging off a part,
+         *     off a build) stays a one-line change.
+         * @enum {string}
+         */
+        ChatKind: "search" | "project";
+        /**
+         * ChatRole
+         * @description Who said one turn.
+         *
+         *     `SYSTEM` is stored rather than reconstructed at send time, because a prompt
+         *     that changes between the turn that was taken and the transcript that is read
+         *     makes the transcript unable to explain the answer — which is the one job a
+         *     transcript has.
+         * @enum {string}
+         */
+        ChatRole: "system" | "user" | "assistant" | "tool";
         /** CheckRequest */
         CheckRequest: {
             /**
@@ -5621,6 +5962,36 @@ export interface components {
             /** Occupancy Rebuilt */
             occupancy_rebuilt: number;
         };
+        /** MessageCreate */
+        MessageCreate: {
+            /** Content */
+            content: string;
+            /** Model */
+            model?: string | null;
+            /** @default user */
+            role?: components["schemas"]["ChatRole"];
+            /** Tool Calls Json */
+            tool_calls_json?: string | null;
+        };
+        /** MessageRead */
+        MessageRead: {
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Model */
+            model: string | null;
+            role: components["schemas"]["ChatRole"];
+            /** Seq */
+            seq: number;
+            /** Tool Calls Json */
+            tool_calls_json: string | null;
+        };
         /**
          * MismatchRead
          * @description A tag found somewhere it should not be. **Never auto-fixed.**
@@ -6414,6 +6785,21 @@ export interface components {
             volume_source: string | null;
             /** Width Mm */
             width_mm: number | null;
+        };
+        /**
+         * PartResearchRead
+         * @description One part's research standing, and what was tried.
+         */
+        PartResearchRead: {
+            /** Attempts */
+            attempts: number;
+            /** Candidates */
+            candidates: components["schemas"]["ResearchCandidateRead"][];
+            /** Error */
+            error: string | null;
+            /** Part Id */
+            part_id: number;
+            state: components["schemas"]["ResearchState"];
         };
         /** PartSummary */
         PartSummary: {
@@ -7417,6 +7803,163 @@ export interface components {
             /** Template */
             template?: string | null;
         };
+        /** ResearchCandidateRead */
+        ResearchCandidateRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Document Sha256 */
+            document_sha256: string | null;
+            /** Note */
+            note: string | null;
+            /** Rank */
+            rank: number;
+            /** Reject Reason */
+            reject_reason: string | null;
+            /** Source */
+            source: string;
+            state: components["schemas"]["ResearchCandidateState"];
+            /** Url */
+            url: string;
+        };
+        /**
+         * ResearchCandidateState
+         * @description What became of one proposed datasheet URL.
+         *
+         *     ADR 0017's rule is that the researcher proposes and never asserts: every URL —
+         *     whoever proposed it, a distributor API or the model itself — is fetched and
+         *     checked before it is believed. This enum is that check's verdict, and the rows
+         *     carrying it are kept rather than discarded so a person can see *what was tried*
+         *     when a part comes back `EXHAUSTED`.
+         *
+         *     Keeping rejections is the difference between "no datasheet found" and "four
+         *     were found and all four were the wrong part", which are different problems with
+         *     different fixes.
+         * @enum {string}
+         */
+        ResearchCandidateState: "proposed" | "validated" | "rejected";
+        /**
+         * ResearchClaim
+         * @description One leased part, with everything the worker needs to research it.
+         *
+         *     The MPN and manufacturer are sent rather than looked up by the worker, so a run
+         *     needs exactly one API call before it starts working. `mpn_norm` is included
+         *     beside `mpn` because it is what validation compares against — the worker must
+         *     not re-derive it and risk normalising differently from the catalogue.
+         */
+        ResearchClaim: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Lease Expires At
+             * Format: date-time
+             */
+            lease_expires_at: string;
+            /** Manufacturer */
+            manufacturer: string | null;
+            /** Mpn */
+            mpn: string | null;
+            /** Mpn Norm */
+            mpn_norm: string | null;
+            /** Name */
+            name: string;
+            /** Part Id */
+            part_id: number;
+        };
+        /** ResearchClaimBatch */
+        ResearchClaimBatch: {
+            /** Claims */
+            claims: components["schemas"]["ResearchClaim"][];
+            /** Worker Id */
+            worker_id: string;
+        };
+        /** ResearchClaimRequest */
+        ResearchClaimRequest: {
+            /**
+             * Limit
+             * @default 1
+             */
+            limit?: number;
+            /** Worker Id */
+            worker_id: string;
+        };
+        /** ResearchQueueStatus */
+        ResearchQueueStatus: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Exhausted */
+            exhausted: number;
+            /** Failed */
+            failed: number;
+            /** Lease Seconds */
+            lease_seconds: number;
+            /** Max Attempts */
+            max_attempts: number;
+            /** Pending */
+            pending: number;
+        };
+        /** ResearchRequeueRequest */
+        ResearchRequeueRequest: {
+            /** Part Id */
+            part_id: number;
+        };
+        /**
+         * ResearchResultRequest
+         * @description A completed run: every candidate tried, or an error.
+         *
+         *     Exactly one of `candidates` and `error`, enforced at the route rather than by a
+         *     validator so the refusal carries the same `{reason, message}` shape as every
+         *     other refusal in this module.
+         */
+        ResearchResultRequest: {
+            /** Candidates */
+            candidates?: components["schemas"]["CandidateSubmission"][] | null;
+            /** Error */
+            error?: string | null;
+            /** Part Id */
+            part_id: number;
+        };
+        /** ResearchResultResponse */
+        ResearchResultResponse: {
+            part: components["schemas"]["PartResearchRead"];
+        };
+        /**
+         * ResearchState
+         * @description Where one `parts` row stands in the datasheet-research queue (ADR 0017).
+         *
+         *     Deliberately the same shape as `ExtractionState`, for the reason that enum's
+         *     docstring gives: **the queue is this column plus an index, not a table.** A
+         *     queue table would need a row inserted for every part that might ever want a
+         *     datasheet, kept in step with `parts` by something, and swept when it fell
+         *     behind. A state on the row it describes cannot fall out of step with itself.
+         *
+         *     The subject differs, though, and that is worth being explicit about. Extraction
+         *     is about a *document* that has no text; research is about a *part* that has no
+         *     document. So this column lives on `parts`, and the two queues chain: research
+         *     resolves by storing and linking a PDF, which arrives in `documents` as
+         *     `extraction_state = PENDING` and is picked up by the extraction worker with no
+         *     coupling between the two workers at all.
+         *
+         *     ## `EXHAUSTED` is the member that earns this enum its keep
+         *
+         *     ADR 0017 requires that "we looked and found nothing" be distinguishable from
+         *     "nobody has looked yet". Without a distinct member those collapse: leaving a
+         *     fruitless part `PENDING` makes the queue re-research it forever and makes the
+         *     pending count a lie, and calling it `FAILED` says something went wrong when
+         *     nothing did — a genuinely obscure part with no datasheet on the open web is a
+         *     normal outcome, not an error, and it must not show up in a health check that
+         *     exists to surface real breakage.
+         *
+         *     The practical difference: `FAILED` is a bug report, `EXHAUSTED` is a shrug. Both
+         *     are terminal until requeued, and requeue is how a part gets another look once a
+         *     new provider is added.
+         * @enum {string}
+         */
+        ResearchState: "not_applicable" | "pending" | "claimed" | "resolved" | "exhausted" | "failed";
         /**
          * ResolveRequest
          * @description Mark an entry dealt with, optionally naming what it became.
@@ -7887,6 +8430,21 @@ export interface components {
             results: components["schemas"]["PartSummary"][];
             /** Total */
             total: number;
+        };
+        /** SendRequest */
+        SendRequest: {
+            /** Content */
+            content: string;
+        };
+        /**
+         * SendResponse
+         * @description Both turns, so the client renders the exchange from one round trip.
+         */
+        SendResponse: {
+            assistant: components["schemas"]["MessageRead"] | null;
+            /** Error */
+            error?: string | null;
+            user: components["schemas"]["MessageRead"];
         };
         /** SessionRead */
         SessionRead: {
@@ -8451,6 +9009,55 @@ export interface components {
             /** Value Type */
             value_type: string;
         };
+        /** ThreadArchive */
+        ThreadArchive: {
+            /**
+             * Archived
+             * @default true
+             */
+            archived?: boolean;
+        };
+        /** ThreadCreate */
+        ThreadCreate: {
+            kind: components["schemas"]["ChatKind"];
+            /** Project Id */
+            project_id?: number | null;
+            /** Title */
+            title?: string | null;
+        };
+        /** ThreadDetail */
+        ThreadDetail: {
+            /** Messages */
+            messages: components["schemas"]["MessageRead"][];
+            thread: components["schemas"]["ThreadRead"];
+        };
+        /** ThreadRead */
+        ThreadRead: {
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["ChatKind"];
+            /**
+             * Message Count
+             * @default 0
+             */
+            message_count?: number;
+            /** Project Id */
+            project_id: number | null;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** UnbindRequest */
         UnbindRequest: {
             /** Client Op Id */
@@ -8668,6 +9275,47 @@ export interface components {
             tag: components["schemas"]["TagRead"];
             /** Verified */
             verified: boolean;
+        };
+        /**
+         * WriteupCreate
+         * @description Create a writeup, and optionally post it in the same call.
+         *
+         *     Posting is a separate *act* in the service (`create_writeup` then
+         *     `post_writeup`) but one *request* here, because "make a writeup and send it to
+         *     the Nixie clock project" is one intention and splitting it across two
+         *     round-trips invites the second one failing and leaving an orphan.
+         */
+        WriteupCreate: {
+            /** Body Md */
+            body_md: string;
+            /** Origin Thread Id */
+            origin_thread_id?: number | null;
+            /** Post To New Project Id */
+            post_to_new_project_id?: number | null;
+            /** Post To Thread Id */
+            post_to_thread_id?: number | null;
+            /** Project Id */
+            project_id?: number | null;
+            /** Title */
+            title: string;
+        };
+        /** WriteupRead */
+        WriteupRead: {
+            /** Body Md */
+            body_md: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Origin Thread Id */
+            origin_thread_id: number | null;
+            /** Project Id */
+            project_id: number | null;
+            /** Title */
+            title: string;
         };
     };
     responses: never;
@@ -9229,6 +9877,306 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CaptureRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chat_threads: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["ChatKind"];
+                project_id?: number | null;
+                include_archived?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_chat_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_chat_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_chat_thread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadArchive"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_chat_thread: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    append_chat_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_chat_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_chat_writeup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteupCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WriteupRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_chat_writeup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                writeup_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -12072,6 +13020,37 @@ export interface operations {
             };
         };
     };
+    read_part_research: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResearchRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_projects: {
         parameters: {
             query?: {
@@ -12583,6 +13562,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_research_work: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchClaimBatch"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    requeue_research: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchRequeueRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_research_result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchResultRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_research_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchQueueStatus"];
                 };
             };
         };

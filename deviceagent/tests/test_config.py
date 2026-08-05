@@ -39,7 +39,7 @@ def test_loopback_addresses_are_accepted(host: str) -> None:
     assert AgentSettings(ws_host=host).ws_host == host
 
 
-@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "::", "almagest.lan", ""])
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "::", "almagest.aether.lan", ""])
 def test_a_non_loopback_bind_is_refused_at_startup(host: str) -> None:
     """Refused rather than documented, because the failure of the other choice is
     silent: bound wider, this unauthenticated socket narrates every container
@@ -66,7 +66,7 @@ def test_the_command_debounce_is_plan_mds_four_hundred_milliseconds() -> None:
 
 
 def test_the_api_url_defaults_to_the_dev_loop_not_the_tag_origin() -> None:
-    """`ALMAGEST_BASE_URL` (`https://almagest.lan`, ADR 0001) is the public origin
+    """`ALMAGEST_BASE_URL` (`https://almagest.aether.lan`, ADR 0001) is the public origin
     stamped into every tag and label. This one is the agent's route to the API, and
     conflating them would make a hostname change rewrite physical objects."""
     assert default("api_base_url") == "http://127.0.0.1:8000"
@@ -74,14 +74,16 @@ def test_the_api_url_defaults_to_the_dev_loop_not_the_tag_origin() -> None:
 
 @pytest.mark.parametrize(
     "url",
-    ["http://127.0.0.1:8000", "https://almagest.lan", "https://host.lan/almagest"],
+    ["http://127.0.0.1:8000", "https://almagest.aether.lan", "https://host.lan/almagest"],
 )
 def test_an_http_origin_is_accepted_path_prefix_included(url: str) -> None:
     """A reverse proxy may well mount the API under a path."""
     assert AgentSettings(api_base_url=url).api_base_url == url
 
 
-@pytest.mark.parametrize("url", ["almagest.lan", "file:///etc/passwd", "ftp://host", "", "http://"])
+@pytest.mark.parametrize(
+    "url", ["almagest.aether.lan", "file:///etc/passwd", "ftp://host", "", "http://"]
+)
 def test_a_url_that_is_not_an_http_origin_is_refused_at_startup(url: str) -> None:
     """Checked at config time because the alternative is an `unknown url type` deep
     inside `urllib` on the first placement, at a bench, with a drawer in your hand —

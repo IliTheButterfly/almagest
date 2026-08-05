@@ -19,13 +19,13 @@ expensive to undo.
 So a bare "ADR 0013" is ambiguous, and this index is how you resolve one. In a
 *new* citation, name the slug — `ADR 0013 (rc522)`, or the path
 `docs/adr/0013-the-rc522-as-a-second-reader.md` — never the number alone. The
-next free number is **0016**.
+next free number is **0020**.
 
 ## The records
 
 | # | Title | What it settles |
 |---|---|---|
-| [0001](0001-base-url-and-tls.md) | Base URL is `https://almagest.lan`, served with a private CA | The origin is written physically into every tag and QR, so it must be settled before provisioning. `https` is not optional: Web NFC and `getUserMedia` need a secure context |
+| [0001](0001-base-url-and-tls.md) | Base URL and TLS — **hostname superseded by [0019](0019-the-hostname-moves-under-aether.md)** | The origin is written physically into every tag and QR, so it must be settled before provisioning. `https` is not optional: Web NFC and `getUserMedia` need a secure context |
 | [0002](0002-recursive-container-types.md) | Container types are recursive; Gridfinity is the reference case | A container kind is a row, not a migration |
 | [0003](0003-hardware-locked-and-the-scale-deferred.md) | Locked hardware, and the scale deferred | The load cell and NAU7802 are **not bought**. Supersedes PLAN.md's weight-triggered station machine: PN532 polling is the trigger, and `CONTAINER_DETECTED`/`WEIGHED` are gone rather than stubbed |
 | [0004](0004-staged-parts-and-project-iterations.md) | Staged parts live at a project location; iterations are builds | Build one, revise, build again, reuse parts from the last iteration |
@@ -45,6 +45,10 @@ next free number is **0016**.
 | [0013](0013-the-rc522-as-a-second-reader.md) | The RC522 as a second reader, and what that costs | Supersedes PLAN.md's rejection of the MFRC522, which rested on library quality that no longer applies now that `agent/iso14443a.py` is ours and unit-tested |
 | [0014](0014-the-device-bridge-and-how-a-reader-is-found.md) | The device bridge, and how a reader is found | Extends 0012 (tags/readers) with the half it left as a gap; takes a narrow position on 0003's no-feature-flag rule |
 | [0015](0015-the-capture-and-where-text-is-read.md) | The capture, and where text gets read | Amends 0005 without replacing it — the split still holds for every PDF |
+| [0016](0016-local-models-and-where-they-run.md) | Local models, which ones, and where they run | `nvidia.com/gpu` is capacity 1 and exclusive on this node (measured), so freeing VRAM does not free the device. One pod holds it and sleeps; yielding is an explicit scale-to-zero. Departs from `CLAUDE.local.md`'s Job-that-releases rule and says why |
+| [0017](0017-the-researcher-proposes-and-never-asserts.md) | The researcher proposes and never asserts a URL | Every proposed URL is fetched and validated — magic bytes, it parses, and the normalised MPN is in the text — before it becomes a document. Deterministic sources before any model |
+| [0018](0018-chat-threads-writeups-and-export.md) | Two chat surfaces, writeups, and export | Separate histories per kind; the agent loop lives outside the API because its tools call back into the single SQLite writer; chat proposes and never commits |
+| [0019](0019-the-hostname-moves-under-aether.md) | The hostname moves to `almagest.aether.lan` | Supersedes 0001's hostname and nothing else. Recomputes the QR budget: 38 bytes leaves 4 bytes of headroom at version 3, so anything added to the payload pushes it to version 4 |
 
 ## Where these override PLAN.md
 
@@ -55,6 +59,6 @@ that is merely unbuilt:
 |---|---|
 | The station is triggered by a weight jump, and weighs before it is READY | 0003 — no scale exists; PN532 polling is the trigger |
 | One PN532 over UART, and the MFRC522 is rejected | 0013 (rc522) and 0014 — three drivers and a bridge |
-| Put the devices on a Tailscale tailnet | 0001 — `https://almagest.lan` with a private CA |
+| Put the devices on a Tailscale tailnet | 0001 — `https://almagest.aether.lan` with a private CA |
 | Extraction is a stage inside the pipeline | 0005 — a separate worker over HTTP, amended by 0015 for capture OCR |
 | Ingress class and hostname are open questions | 0009 (cluster) — probed and settled |

@@ -31,7 +31,7 @@ import type { LocationRead } from "../lib/api/client";
 import { TAG_DEBOUNCE_MS } from "../lib/scan/nfc";
 import { simulatedTagSource, type SimulatedTag } from "../lib/tags/simulated";
 
-const BASE = "https://almagest.lan";
+const BASE = "https://almagest.aether.lan";
 const CABINET = { id: 10, name: "Cabinet A" } as unknown as LocationRead;
 
 interface Slot {

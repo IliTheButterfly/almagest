@@ -86,7 +86,7 @@ class AgentSettings(BaseSettings):
 
     #: The API **as reachable from the Pi**. Deliberately not `ALMAGEST_BASE_URL`:
     #: that is the public origin written into every tag and printed label
-    #: (`https://almagest.lan`, ADR 0001) and it must stay stamped on physical
+    #: (`https://almagest.aether.lan`, ADR 0001) and it must stay stamped on physical
     #: objects whatever route this daemon takes to the server. The default is the
     #: dev loop's `make run`, because there is no correct default for a Pi.
     api_base_url: str = Field(default="http://127.0.0.1:8000", alias="DEVICEAGENT_API_BASE_URL")
@@ -135,14 +135,16 @@ class AgentSettings(BaseSettings):
     #: The origin the PWA is served from, allowed through the WebSocket
     #: handshake's CORS and Private Network Access checks.
     #:
-    #: **Why this exists at all.** The PWA is on `https://almagest.lan` (ADR
+    #: **Why this exists at all.** The PWA is on `https://almagest.aether.lan` (ADR
     #: 0001) and opens `ws://127.0.0.1:8765`. Loopback is "potentially
     #: trustworthy" per the secure-context spec so this is *specified* to work,
     #: but Chrome's Private Network Access rollout adds a preflight for
     #: public→local requests and browsers have differed here before. Answering
     #: explicitly is cheap; discovering the default was wrong means a bridge that
     #: is running, reachable by curl, and invisible to the page.
-    allowed_origin: str = Field(default="https://almagest.lan", alias="DEVICEAGENT_ALLOWED_ORIGIN")
+    allowed_origin: str = Field(
+        default="https://almagest.aether.lan", alias="DEVICEAGENT_ALLOWED_ORIGIN"
+    )
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 

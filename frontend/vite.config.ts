@@ -22,7 +22,7 @@ import { defineConfig, type Plugin } from "vitest/config";
  * when scanning" symptom: there is nothing to indicate, because the camera cannot be
  * asked for.
  *
- * ADR 0001 settled that production is `https://almagest.lan` behind a **private CA
+ * ADR 0001 settled that production is `https://almagest.aether.lan` behind a **private CA
  * installed on every phone**, because `.lan` cannot obtain a publicly-trusted
  * certificate. The same CA serves development.
  *

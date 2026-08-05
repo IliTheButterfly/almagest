@@ -60,7 +60,7 @@ describe("with neither a camera nor NFC", () => {
 
     expect(screen.getByText(/No camera here/)).toBeTruthy();
     // Both notices name it — the camera's and the NFC one.
-    expect(screen.getAllByText(/https:\/\/almagest\.lan/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/https:\/\/almagest\.aether\.lan/).length).toBeGreaterThan(0);
   });
 
   it("still offers the manual path, so the app is fully usable", () => {

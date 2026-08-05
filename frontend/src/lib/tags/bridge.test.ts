@@ -19,7 +19,7 @@ import {
 } from "./bridge";
 import { combineSources, type TagPresentation } from "./source";
 
-const URL_4K7T = "https://almagest.lan/s/4K7T92M8";
+const URL_4K7T = "https://almagest.aether.lan/s/4K7T92M8";
 
 /** A `WebSocket` that records what was sent and lets a test push frames back. */
 class FakeSocket {

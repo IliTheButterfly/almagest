@@ -166,7 +166,7 @@ def test_hello_does_not_enumerate_which_devices_exist() -> None:
 def test_identified_carries_both_carriers_verbatim() -> None:
     """The PWA posts both to `/api/location-tags/resolve`, and only the server,
     seeing both, can report that a tag's payload and its binding disagree."""
-    url = "https://almagest.lan/s/4K7T92M8"
+    url = "https://almagest.aether.lan/s/4K7T92M8"
     event = events.tag_identified(identify(TagRead(uid="04:1A:2B", ndef_url=url)))
     assert event.data == {
         "short_id": "4K7T92M8",

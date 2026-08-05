@@ -100,10 +100,10 @@ def test_the_mpn_key_of_pure_decoration_is_empty() -> None:
 def test_the_tag_url_is_unwrapped_to_the_code_inside_it() -> None:
     """`{base_url}/s/{short_id}` is what is physically written to every tag and
     QR, so this is the *normal* case, not an edge one."""
-    assert codes.short_id_candidate("https://almagest.lan/s/4K7T-92M8") == "4K7T-92M8"
+    assert codes.short_id_candidate("https://almagest.aether.lan/s/4K7T-92M8") == "4K7T-92M8"
     assert codes.short_id_candidate("HTTPS://ALMAGEST.LAN/S/4K7T92M8") == "4K7T92M8"
-    assert codes.short_id_candidate("https://almagest.lan/s/4K7T92M8?utm=nfc") == "4K7T92M8"
-    assert codes.short_id_candidate("https://almagest.lan/s/4K7T92M8/") == "4K7T92M8"
+    assert codes.short_id_candidate("https://almagest.aether.lan/s/4K7T92M8?utm=nfc") == "4K7T92M8"
+    assert codes.short_id_candidate("https://almagest.aether.lan/s/4K7T92M8/") == "4K7T92M8"
 
 
 def test_the_host_in_a_tag_url_is_deliberately_ignored() -> None:
@@ -189,7 +189,7 @@ def test_the_quantity_becomes_milli_units() -> None:
         "PARTS123",  # `P` is a real DI (customer part number)
         "SN12345678",  # `S` is a real DI (serial)
         "4006381333931",  # an EAN-13
-        "https://almagest.lan/s/4K7T92M8",
+        "https://almagest.aether.lan/s/4K7T92M8",
         "LM358N",
         "",
     ],

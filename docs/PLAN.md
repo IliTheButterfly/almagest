@@ -21,7 +21,7 @@ tell you what the code was supposed to do. Two consequences:
 |---|---|
 | The station is triggered by a weight jump, and weighs before it is READY | [ADR 0003](adr/0003-hardware-locked-and-the-scale-deferred.md) — the load cell was never bought. Nothing weight-related exists, and `CONTAINER_DETECTED`/`WEIGHED` are gone rather than stubbed |
 | One PN532 over UART; the MFRC522 is rejected | [ADR 0013 (rc522)](adr/0013-the-rc522-as-a-second-reader.md) and [ADR 0014](adr/0014-the-device-bridge-and-how-a-reader-is-found.md) — three drivers and a device bridge |
-| Put the devices on a Tailscale tailnet | [ADR 0001](adr/0001-base-url-and-tls.md) — `https://almagest.lan` behind a private CA |
+| Put the devices on a Tailscale tailnet | [ADR 0001](adr/0001-base-url-and-tls.md) — `https://almagest.aether.lan` behind a private CA |
 | Extraction is a stage inside the enrichment pipeline | [ADR 0005](adr/0005-extraction-runs-outside-the-api.md) — a separate worker over HTTP, amended by [ADR 0015](adr/0015-the-capture-and-where-text-is-read.md) for in-browser capture OCR |
 
 ## Context
@@ -344,7 +344,7 @@ Enrichment **never writes `parameter_value` directly** — it writes `parameter_
 
 **QR-to-datasheet** works via the label's existing short ID (`https://<host>/s/4K7T92M8` → part detail → datasheet one tap). Zero-dependency fallback: print the bare MPN as text under every QR so a manual manufacturer-site search always works.
 
-> **Superseded — the hostname.** This section originally proposed a **Tailscale tailnet**, on the grounds that it fixes off-LAN resolution and supplies real certs for the PWA's secure-context requirement with no CA to distribute. [ADR 0001](adr/0001-base-url-and-tls.md) took `https://almagest.lan` with a **private CA installed on every provisioning phone** instead, and accepted the cost the tailnet would have avoided: **a tag scanned off-LAN resolves to nothing.** The secure-context requirement is unchanged and is the reason the scheme must be `https` — plain http silently removes tag writing and camera scanning from the PWA.
+> **Superseded — the hostname.** This section originally proposed a **Tailscale tailnet**, on the grounds that it fixes off-LAN resolution and supplies real certs for the PWA's secure-context requirement with no CA to distribute. [ADR 0001](adr/0001-base-url-and-tls.md) took `https://almagest.aether.lan` with a **private CA installed on every provisioning phone** instead, and accepted the cost the tailnet would have avoided: **a tag scanned off-LAN resolves to nothing.** The secure-context requirement is unchanged and is the reason the scheme must be `https` — plain http silently removes tag writing and camera scanning from the PWA.
 
 **Extraction pipeline:** fetch → **Docling** (Apache-2.0, TableFormer; handles multi-column electronics tables far better than pdfplumber out of the box) → fall back to pdfplumber + tesseract only when extracted-chars-per-page ≈ 0, which is itself the signal to flag low confidence → LLM structured extraction against a JSON schema, sliced to the MPN's section or batching a whole variant table in one call → **MPN-decoder cross-check** → confidence score → review queue below 0.8 or on disagreement. Cost is ~$0.0005–0.001 per part batched; the whole 1000-part backfill is under $2.
 

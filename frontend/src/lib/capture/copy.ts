@@ -3,7 +3,7 @@
  *
  * `navigator.clipboard` is gated behind a secure context — the same gate that
  * removes `getUserMedia` and `NDEFReader` over plain HTTP, and the reason ADR
- * 0001 settled on `https://almagest.lan` behind a private CA. On the surfaces
+ * 0001 settled on `https://almagest.aether.lan` behind a private CA. On the surfaces
  * this feature is used from that gate is normally satisfied, since a capture
  * needs a camera and a camera needs the same secure context.
  *

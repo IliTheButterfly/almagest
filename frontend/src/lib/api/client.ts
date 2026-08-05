@@ -112,6 +112,14 @@ export type DatasheetSnippetSegment = Schemas["DatasheetSnippetSegment"];
 export type DocumentRead = Schemas["DocumentRead"];
 export type DocumentLinkRead = Schemas["DocumentLinkRead"];
 export type DocumentLinkList = Schemas["DocumentLinkList"];
+export type ChatThreadRead = Schemas["ThreadRead"];
+export type ChatThreadDetail = Schemas["ThreadDetail"];
+export type ChatMessageRead = Schemas["MessageRead"];
+export type ChatKind = Schemas["ChatKind"];
+export type ChatWriteupRead = Schemas["WriteupRead"];
+export type PartResearchRead = Schemas["PartResearchRead"];
+export type ResearchCandidateRead = Schemas["ResearchCandidateRead"];
+export type ResearchState = Schemas["ResearchState"];
 export type DocumentUploadResult = Schemas["DocumentUploadResult"];
 export type DocumentAttachRequest = Schemas["DocumentAttachRequest"];
 export type DocumentAttachResult = Schemas["DocumentAttachResult"];
@@ -747,6 +755,142 @@ export async function updatePart(partId: number, request: PartUpdate): Promise<P
     fail("could not save that part", error, response);
   }
   return data;
+}
+
+// -------------------------------------------------------------------- chat --
+
+/** One history list. `kind` is required — see the route: a default would quietly
+ * mix a project's threads into the search list. */
+export async function listChatThreads(
+  kind: ChatKind,
+  projectId?: number,
+): Promise<ChatThreadRead[]> {
+  const { data, error, response } = await api.GET("/api/chat/threads", {
+    params: { query: { kind, project_id: projectId ?? null } },
+  });
+  if (error !== undefined) {
+    fail("could not load the conversations", error, response);
+  }
+  return data;
+}
+
+export async function createChatThread(
+  kind: ChatKind,
+  projectId?: number,
+): Promise<ChatThreadDetail> {
+  const { data, error, response } = await api.POST("/api/chat/threads", {
+    body: { kind, project_id: projectId ?? null },
+  });
+  if (error !== undefined) {
+    fail("could not start that conversation", error, response);
+  }
+  return data;
+}
+
+export async function getChatThread(threadId: number): Promise<ChatThreadDetail> {
+  const { data, error, response } = await api.GET("/api/chat/threads/{thread_id}", {
+    params: { path: { thread_id: threadId } },
+  });
+  if (error !== undefined) {
+    fail("could not load that conversation", error, response);
+  }
+  return data;
+}
+
+/**
+ * Send a turn and get the answer back in one round trip.
+ *
+ * The user's turn is stored server-side **before** the model is called, so a
+ * timeout or an unloaded GPU costs the reply and never the typing. `error` is set
+ * with the user turn still present when the model could not be reached.
+ */
+export async function sendChatMessage(
+  threadId: number,
+  content: string,
+): Promise<Schemas["SendResponse"]> {
+  const { data, error, response } = await api.POST("/api/chat/threads/{thread_id}/send", {
+    params: { path: { thread_id: threadId } },
+    body: { content },
+  });
+  if (error !== undefined) {
+    fail("could not send that message", error, response);
+  }
+  return data;
+}
+
+export async function appendChatMessage(
+  threadId: number,
+  content: string,
+): Promise<ChatMessageRead> {
+  const { data, error, response } = await api.POST("/api/chat/threads/{thread_id}/messages", {
+    params: { path: { thread_id: threadId } },
+    body: { role: "user", content },
+  });
+  if (error !== undefined) {
+    fail("could not send that message", error, response);
+  }
+  return data;
+}
+
+export async function archiveChatThread(
+  threadId: number,
+  archived: boolean,
+): Promise<ChatThreadRead> {
+  const { data, error, response } = await api.POST("/api/chat/threads/{thread_id}/archive", {
+    params: { path: { thread_id: threadId } },
+    body: { archived },
+  });
+  if (error !== undefined) {
+    fail("could not archive that conversation", error, response);
+  }
+  return data;
+}
+
+/**
+ * Where a transcript goes when a local 8B is not the right tool for the question.
+ * A plain link rather than a fetch: the browser's own download handling is what
+ * makes "save this and paste it into something else" one action.
+ */
+export function chatExportUrl(threadId: number, format: "md" | "json"): string {
+  return `/api/chat/threads/${threadId}/export?format=${format}`;
+}
+
+// ---------------------------------------------------------------- research --
+
+/**
+ * What the datasheet researcher tried for this part, and how each attempt went.
+ *
+ * Answers 200 for a part nobody has researched — `state: "pending"` with an empty
+ * candidate list — the same shape as the document text read, and for the same
+ * reason: not having been researched is not an error, and a 404 is what a client
+ * renders as one.
+ */
+export async function getPartResearch(partId: number): Promise<PartResearchRead> {
+  const { data, error, response } = await api.GET("/api/parts/{part_id}/research", {
+    params: { path: { part_id: partId } },
+  });
+  if (error !== undefined) {
+    fail("could not load the research history", error, response);
+  }
+  return data;
+}
+
+/**
+ * Put a part back in the research queue with its attempts reset.
+ *
+ * Two uses, one call: retry a `failed` part once its cause is fixed, and
+ * **re-research an `exhausted` one now that a provider has been added**. The
+ * second is the reason this is on the screen at all — provider coverage grows, and
+ * the parts that grew it are exactly the ones worth another look.
+ */
+export async function requeueResearch(partId: number): Promise<PartResearchRead> {
+  const { data, error, response } = await api.POST("/api/research/requeue", {
+    body: { part_id: partId },
+  });
+  if (error !== undefined) {
+    fail("could not queue that part for research", error, response);
+  }
+  return data.part;
 }
 
 // --------------------------------------------------------------- documents --

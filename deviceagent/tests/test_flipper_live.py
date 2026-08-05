@@ -56,13 +56,13 @@ NAME_HINT = "Flipper"
 #: `LIVETEST` is not a valid short id — `L` is not even in the Crockford alphabet
 #: — which is deliberate twice over: a real drawer can never answer to it, *and*
 #: it exercises the refusal below.
-TEST_URI = "https://almagest.lan/s/LIVETEST"
+TEST_URI = "https://almagest.aether.lan/s/LIVETEST"
 
 #: The same idea with a check symbol that actually verifies, computed once by
 #: `idcodec` (`VETESTV` + `ALPHABET[check_value("VETESTV")]`). Still not bound to
 #: anything, so resolving it 404s; but `identify` will trust it, which is the
 #: only way to prove the NDEF path end to end.
-VALID_TEST_URI = "https://almagest.lan/s/VETESTVP"
+VALID_TEST_URI = "https://almagest.aether.lan/s/VETESTVP"
 
 
 def _nodes() -> list[str]:
@@ -346,7 +346,7 @@ def test_a_tag_that_already_has_a_uri_is_not_overwritten_by_accident(
     if read is None or not read.ndef_url:
         pytest.skip("need a tag that already carries a URI")
     with pytest.raises(TagWriteRefused) as refused:
-        reader.write_uri("https://almagest.lan/s/OTHER001")
+        reader.write_uri("https://almagest.aether.lan/s/OTHER001")
     assert refused.value.reason == "not_blank"
 
 

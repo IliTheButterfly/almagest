@@ -3,7 +3,7 @@
  * context, and the honest explanation for each when it is missing.
  *
  * ADR 0001 is the constraint. `getUserMedia` and `NDEFReader` exist on
- * `localhost` in development and on `https://almagest.lan` in production, and are
+ * `localhost` in development and on `https://almagest.aether.lan` in production, and are
  * **simply absent** over plain HTTP — no error, no permission prompt, the API is
  * just not there. That includes `http://<lan-ip>:5173`, which is the obvious way
  * to open the dev server on a phone and the one that silently has no camera.
@@ -58,7 +58,7 @@ export function cameraNotice(capabilities: BrowserCapabilities): string | null {
     return (
       "This page is not a secure context, so the browser does not expose the " +
       "camera at all — there is no permission to grant. Open the app at " +
-      "https://almagest.lan (or at http://localhost during development); an " +
+      "https://almagest.aether.lan (or at http://localhost during development); an " +
       "http:// address on the LAN will never have a camera. Type the code or " +
       "part number below — that works everywhere, right now. If you scan the " +
       "QR with your phone's own camera app instead of opening this page, it will " +
@@ -79,7 +79,7 @@ export function nfcNotice(capabilities: BrowserCapabilities): string | null {
   }
   if (!capabilities.secureContext) {
     return (
-      "Web NFC needs a secure context. Open the app at https://almagest.lan on " +
+      "Web NFC needs a secure context. Open the app at https://almagest.aether.lan on " +
       "Chrome for Android; over http:// the API does not exist."
     );
   }

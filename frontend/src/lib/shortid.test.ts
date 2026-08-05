@@ -68,11 +68,11 @@ describe("rendering", () => {
 
 describe("pulling the code out of a tag payload", () => {
   it("reads the /s/ URL that both the NDEF record and the QR carry", () => {
-    expect(shortIdFromPayload("https://almagest.lan/s/4K7T92M8")).toBe("4K7T92M8");
+    expect(shortIdFromPayload("https://almagest.aether.lan/s/4K7T92M8")).toBe("4K7T92M8");
   });
 
   it("ignores a query string or fragment", () => {
-    expect(shortIdFromPayload("https://almagest.lan/s/4K7T92M8?from=tag")).toBe("4K7T92M8");
+    expect(shortIdFromPayload("https://almagest.aether.lan/s/4K7T92M8?from=tag")).toBe("4K7T92M8");
   });
 
   it("passes a vendor payload straight through to the resolver chain", () => {

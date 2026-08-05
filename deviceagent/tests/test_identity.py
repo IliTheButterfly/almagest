@@ -19,7 +19,7 @@ from agent.tags import TagRead
 def test_ndef_wins_when_both_carriers_read() -> None:
     code = shortid.generate()
     identity = identify(
-        TagRead(uid="04:1a:2b:3c:4d:5e:6f", ndef_url=f"https://almagest.lan/s/{code}")
+        TagRead(uid="04:1a:2b:3c:4d:5e:6f", ndef_url=f"https://almagest.aether.lan/s/{code}")
     )
     assert identity.via == VIA_NDEF
     assert identity.short_id == code
@@ -90,7 +90,7 @@ def test_sameness_is_keyed_on_the_uid_and_meaning_on_the_ndef() -> None:
     one poll reads both carriers, the next reads only the UID, and the station must
     see one tag."""
     code = shortid.generate()
-    both = identify(TagRead(uid="041A2B3C4D5E6F", ndef_url=f"https://almagest.lan/s/{code}"))
+    both = identify(TagRead(uid="041A2B3C4D5E6F", ndef_url=f"https://almagest.aether.lan/s/{code}"))
     uid_only = identify(TagRead(uid="04:1a:2b:3c:4d:5e:6f", ndef_url=None))
     assert both.key == uid_only.key == "041A2B3C4D5E6F"
     assert both.short_id == code and uid_only.short_id is None

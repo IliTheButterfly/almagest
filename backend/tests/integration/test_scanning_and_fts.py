@@ -189,25 +189,69 @@ def test_delete_trigger_removes_the_index_row(db: Session) -> None:
     assert db.execute(text("SELECT COUNT(*) FROM part_fts")).scalar_one() == 0
 
 
+#: The revision immediately **before** `dcfe797424e9, scanning tables and full-text
+#: search`. Named rather than reached with a relative `-1`, and that is the whole
+#: point of this constant — see the test below.
+_BEFORE_PART_FTS = "b8c9d4009bdd"
+
+
 def test_migration_backfills_parts_that_already_existed(
     db: Session, database_url: str, alembic_config: Config
 ) -> None:
-    """The index has to arrive populated. Rolling the migration back, adding a
-    part while neither the table nor its triggers exist, and rolling forward
-    again is the only way to reproduce what happens on a real database that has
-    been in use — and it exercises the downgrade path at the same time.
+    """The index has to arrive populated. Rolling back to before `part_fts` existed,
+    adding a part while neither the table nor its triggers are there, and rolling
+    forward again is the only way to reproduce what happens on a real database that
+    has been in use — and it exercises the downgrade path at the same time.
+
+    ## This test used to say `-1` and was therefore vacuous
+
+    `-1` is relative to **head**, so it only ever removed the newest migration. That
+    was the FTS migration on the day this was written and has not been since; some
+    twenty-five migrations later, `-1` was rolling back something unrelated,
+    `part_fts` was never dropped, and the part below was indexed by the **live
+    triggers** on the way in. The assertions then passed without the backfill having
+    run at all — the one thing the test exists to prove.
+
+    It surfaced when a migration finally touched `parts` itself: the ORM insert
+    started writing a column the rolled-back schema did not have. That is why the
+    part is now inserted with **raw SQL**. At `_BEFORE_PART_FTS` the ORM's `Part`
+    knows about twenty-five migrations' worth of columns that do not exist yet, so
+    any ORM write here is guaranteed to break again the next time a column is added
+    — the fragility was never about which migration was last.
     """
+    # The `db` fixture is what runs the migrations up to head; closing it first frees
+    # the connection the downgrade needs.
     db.close()
-    command.downgrade(alembic_config, "-1")
+    command.downgrade(alembic_config, _BEFORE_PART_FTS)
 
     engine = reset_engine_for_testing(database_url)
-    session = get_session_factory()()
-    try:
-        part = make_part(session, name="acquired before the index existed", mpn="1N4148")
-        part_id = part.id
-        session.commit()
-    finally:
-        session.close()
+    with engine.begin() as connection:
+        # Sanity: the whole test is meaningless if the index is still there. Asserted
+        # rather than assumed, because that is exactly the failure that hid here for
+        # twenty-five migrations.
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM sqlite_master WHERE name = 'part_fts'")
+            ).scalar_one()
+            == 0
+        )
+        kind_id = connection.execute(
+            text("SELECT id FROM part_kinds WHERE slug = 'component'")
+        ).scalar_one()
+        # Raw SQL, and only columns that exist at this revision. See the docstring.
+        part_id = connection.execute(
+            text(
+                "INSERT INTO parts (name, part_kind_id, mpn, mpn_norm, created_at, updated_at) "
+                "VALUES (:name, :kind, :mpn, :mpn_norm, :now, :now) RETURNING id"
+            ),
+            {
+                "name": "acquired before the index existed",
+                "kind": kind_id,
+                "mpn": "1N4148",
+                "mpn_norm": "1n4148",
+                "now": "2026-01-01T00:00:00.000000Z",
+            },
+        ).scalar_one()
     engine.dispose()
 
     command.upgrade(alembic_config, "head")

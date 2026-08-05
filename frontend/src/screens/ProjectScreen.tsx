@@ -17,6 +17,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
+import { ChatList } from "./ChatScreen";
 import { OpenTargetButton } from "../components/OpenTargetButton";
 import { PathBar } from "../components/PathBar";
 import {
@@ -166,6 +167,20 @@ function ProjectDetail({
             ))}
           </ul>
         )}
+      </div>
+
+      {/* This project's own conversations, with their own history list (ADR 0018).
+          Separate from the search chat deliberately: that list fills with
+          throwaway lookups, and a project thread somebody returns to for months
+          would be unfindable inside it within a week. */}
+      <div className="card stack">
+        <h2 style={{ margin: 0 }}>Conversations</h2>
+        <ChatList
+          kind="project"
+          basePath={`/projects/${project.id}`}
+          projectId={project.id}
+          emptyBlurb="Nothing yet. Talk through the design, and send a writeup here when you want it kept."
+        />
       </div>
     </div>
   );

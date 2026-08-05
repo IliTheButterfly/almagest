@@ -1121,6 +1121,123 @@ class ExtractionState(StrEnum):
     FAILED = "failed"
 
 
+class ResearchState(StrEnum):
+    """Where one `parts` row stands in the datasheet-research queue (ADR 0017).
+
+    Deliberately the same shape as `ExtractionState`, for the reason that enum's
+    docstring gives: **the queue is this column plus an index, not a table.** A
+    queue table would need a row inserted for every part that might ever want a
+    datasheet, kept in step with `parts` by something, and swept when it fell
+    behind. A state on the row it describes cannot fall out of step with itself.
+
+    The subject differs, though, and that is worth being explicit about. Extraction
+    is about a *document* that has no text; research is about a *part* that has no
+    document. So this column lives on `parts`, and the two queues chain: research
+    resolves by storing and linking a PDF, which arrives in `documents` as
+    `extraction_state = PENDING` and is picked up by the extraction worker with no
+    coupling between the two workers at all.
+
+    ## `EXHAUSTED` is the member that earns this enum its keep
+
+    ADR 0017 requires that "we looked and found nothing" be distinguishable from
+    "nobody has looked yet". Without a distinct member those collapse: leaving a
+    fruitless part `PENDING` makes the queue re-research it forever and makes the
+    pending count a lie, and calling it `FAILED` says something went wrong when
+    nothing did — a genuinely obscure part with no datasheet on the open web is a
+    normal outcome, not an error, and it must not show up in a health check that
+    exists to surface real breakage.
+
+    The practical difference: `FAILED` is a bug report, `EXHAUSTED` is a shrug. Both
+    are terminal until requeued, and requeue is how a part gets another look once a
+    new provider is added.
+    """
+
+    #: This part is not the kind of thing that has a datasheet — a custom bracket,
+    #: a length of wire, a mechanical fastener. Set explicitly, never inferred, and
+    #: kept out of the queue depth for the same reason `ExtractionState` keeps
+    #: photographs out of it: a queue whose depth is not the depth of the work is a
+    #: queue nobody trusts.
+    NOT_APPLICABLE = "not_applicable"
+    #: Wants a datasheet and nobody has looked. The default for a part with an MPN
+    #: and no primary datasheet link.
+    PENDING = "pending"
+    #: A worker holds a lease — see `app.services.research.LEASE_SECONDS`. A lease,
+    #: not a lock: it expires on its own, so a worker may be killed mid-run without
+    #: anybody having to notice.
+    CLAIMED = "claimed"
+    #: A datasheet was found, fetched, **validated** and linked. Says nothing about
+    #: whether its parameters have been extracted yet — that is the extraction
+    #: queue's business, and the part is deliberately not held here waiting for it.
+    RESOLVED = "resolved"
+    #: Every source was tried and nothing survived validation. Not an error. See the
+    #: class docstring — this is the member ADR 0017 asks for.
+    EXHAUSTED = "exhausted"
+    #: Attempts ran out, or the run itself broke. **Terminal until requeued**, and
+    #: the one of the two terminal states that belongs in a health check.
+    FAILED = "failed"
+
+
+class ResearchCandidateState(StrEnum):
+    """What became of one proposed datasheet URL.
+
+    ADR 0017's rule is that the researcher proposes and never asserts: every URL —
+    whoever proposed it, a distributor API or the model itself — is fetched and
+    checked before it is believed. This enum is that check's verdict, and the rows
+    carrying it are kept rather than discarded so a person can see *what was tried*
+    when a part comes back `EXHAUSTED`.
+
+    Keeping rejections is the difference between "no datasheet found" and "four
+    were found and all four were the wrong part", which are different problems with
+    different fixes.
+    """
+
+    #: Proposed by a provider and not yet fetched. Transient within a run; a row
+    #: left here means the worker died mid-validation.
+    PROPOSED = "proposed"
+    #: Fetched, and it is a PDF that parses and whose text contains the part
+    #: number. Stored in the blob store; `document_sha256` says which blob.
+    VALIDATED = "validated"
+    #: Fetched and refused. `reject_reason` says why — and the reason is recorded
+    #: verbatim rather than collapsed to a boolean, because "not a PDF" and "a PDF
+    #: for a different part" point at different bugs in different providers.
+    REJECTED = "rejected"
+
+
+class ChatKind(StrEnum):
+    """Which history list a `chat_threads` row belongs to (ADR 0018).
+
+    Two surfaces with different lifetimes: a disposable one for inventory questions
+    and a durable one bound to a project. They differ in the UI and in retention,
+    not in shape, so this is a column rather than a second table — and being a
+    plain `sa.String` with no `CHECK`, a third kind (a thread hanging off a part,
+    off a build) stays a one-line change.
+    """
+
+    #: The fuzzy front door: "do I have something that can level-shift 3.3 V to
+    #: 5 V?". Expected to be noisy and disposable, and archived freely.
+    SEARCH = "search"
+    #: Attached to one project, and never auto-archived. Sees its BOM, its builds
+    #: and its allocations.
+    PROJECT = "project"
+
+
+class ChatRole(StrEnum):
+    """Who said one turn.
+
+    `SYSTEM` is stored rather than reconstructed at send time, because a prompt
+    that changes between the turn that was taken and the transcript that is read
+    makes the transcript unable to explain the answer — which is the one job a
+    transcript has.
+    """
+
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    #: A tool's return value, kept as its own turn so the UI can show it. A tool
+    #: call the user cannot see is a fact they cannot check.
+    TOOL = "tool"
+
+
 class ShortageKind(StrEnum):
     """What stands between one BOM line and being built.
 

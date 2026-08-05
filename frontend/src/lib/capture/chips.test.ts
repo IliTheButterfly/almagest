@@ -109,7 +109,7 @@ describe("a barcode region", () => {
 
   it("leads with somewhere to go when the payload is one of our own short IDs", () => {
     const chips = chipsForRegion(
-      barcode("https://almagest.lan/s/4K7T92M8", "QRCode"),
+      barcode("https://almagest.aether.lan/s/4K7T92M8", "QRCode"),
       0,
       resolved({
         status: "resolved",
@@ -130,7 +130,7 @@ describe("a barcode region", () => {
 
   it("says so when the container it points at was removed", () => {
     const chips = chipsForRegion(
-      barcode("https://almagest.lan/s/4K7T92M8", "QRCode"),
+      barcode("https://almagest.aether.lan/s/4K7T92M8", "QRCode"),
       0,
       resolved({
         status: "resolved",
