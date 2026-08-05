@@ -235,10 +235,19 @@ k8s-diff: ## Show what a deploy would change, without changing it
 	kubectl diff -k deploy/overlays/aether || true
 
 k8s-model: ## Switch the GPU between models: make k8s-model M=8b|27b|off
-	# `nvidia.com/gpu` on this node is capacity 1, integral and exclusive, so at
-	# most ONE model server may hold the card. This scales the others to zero
-	# first and waits, rather than leaving a second Deployment Pending forever
-	# and looking like a broken rollout.
+	# Observed: only one Almagest model server gets a GPU at a time, so this
+	# scales the others to zero first and waits, rather than leaving a second
+	# Deployment Pending forever and looking like a broken rollout.
+	#
+	# That is NOT a node-wide "capacity 1" fact, which an earlier version of this
+	# comment claimed on the strength of a probe taken at one instant. This
+	# namespace cannot read nodes, and other namespaces here run their own GPU
+	# work — so a Pending means "no GPU free for us right now", and the cause may
+	# not be us.
+	#
+	# You usually do not need this any more: sending a message starts the model
+	# it needs (app/services/model_scaler.py). Reach for it to force a specific
+	# model, or to hand the card back with M=off.
 	@test -n "$(M)" || { echo 'usage: make k8s-model M=8b|27b|off'; exit 1; }
 	@kubectl -n ili scale deploy/almagest-llm --replicas=0
 	@kubectl -n ili scale deploy/almagest-llm-27b --replicas=0
