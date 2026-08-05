@@ -102,6 +102,24 @@ def test_a_truncated_result_says_so(db: Session, monkeypatch) -> None:
     assert "narrow" in out["truncated"]
 
 
+def test_an_empty_query_lists_stock_rather_than_refusing(db: Session) -> None:
+    """Found on the deployed model, not in a unit test.
+
+    Asked "what parts do we have in stock", the 8B correctly called `search_parts`
+    with `query: ""` — there is no search term in that question. The tool required
+    one, refused, and the model then produced nothing at all. **The model was right
+    and the schema was wrong**, so nothing is required now and an empty query means
+    "list what there is".
+    """
+    make_part(db, "22uF 16V ceramic, 0805", mpn="DEMO-CAP-22U")
+    db.flush()
+
+    out = json.loads(chat_tools.call(db, "search_parts", '{"query": "", "in_stock_only": false}'))
+
+    assert "error" not in out
+    assert any(row["mpn"] == "DEMO-CAP-22U" for row in out["results"])
+
+
 def test_an_empty_search_is_not_reported_as_an_empty_room(db: Session) -> None:
     """The tool description carries the distinction the MCP server also makes:
     nothing *recorded* as matching is not nothing in the room."""
