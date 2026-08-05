@@ -28,10 +28,12 @@ records that decision explicitly rather than leaving it to be inferred.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
@@ -40,7 +42,7 @@ from app.config import get_settings
 from app.db.session import get_db
 from app.models.chat import MAX_MESSAGE_CHARS, MAX_WRITEUP_CHARS, ChatThread, ChatWriteup
 from app.models.enums import ChatKind, ChatRole
-from app.services import chat, chat_agent
+from app.services import chat, chat_agent, chat_stream, model_catalog
 from app.services.chat import ChatError
 from app.services.chat_agent import ModelUnavailable
 
@@ -249,8 +251,43 @@ def append_chat_message(
     return read
 
 
+class ModelChoiceRead(BaseModel):
+    id: str
+    label: str
+    size_b: int
+    good_for: str
+    #: True when picking this hands the GPU from one server to another — minutes,
+    #: not seconds. Surfaced so the choice is informed rather than surprising.
+    requires_swap: bool
+
+
+@router.get("/models", response_model=list[ModelChoiceRead])
+def list_chat_models() -> list[ModelChoiceRead]:
+    """The models somebody may pick, smallest first.
+
+    Reports what is *configured*, not what is currently loadable: that depends on
+    which deployment holds the card, and asking would be a cluster round trip on
+    every page load. A pick that turns out to be unreachable fails at the send,
+    which already says so without losing the message.
+    """
+    return [
+        ModelChoiceRead(
+            id=choice.id,
+            label=choice.label,
+            size_b=choice.size_b,
+            good_for=choice.good_for,
+            requires_swap=choice.requires_swap,
+        )
+        for choice in model_catalog.CATALOG
+    ]
+
+
 class SendRequest(BaseModel):
     content: MessageText
+    #: Which model answers. Unknown or absent falls back to the default rather
+    #: than refusing — a stale id from a bookmarked UI should not cost somebody
+    #: their question.
+    model: str | None = Field(default=None, max_length=64)
 
 
 class SendResponse(BaseModel):
@@ -286,7 +323,15 @@ def send_chat_message(
     db.commit()
 
     settings = get_settings()
-    model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
+    # An explicit pick routes to that model's own endpoint; with none, the
+    # deployment's configured default wins. That ordering matters: the env var is
+    # what `make k8s-model` sets when the card is handed over, so it is the honest
+    # answer for "whatever is actually up right now".
+    if request.model:
+        choice = model_catalog.by_id(request.model)
+        model = chat_agent.build_model(choice.base_url, choice.served_name)
+    else:
+        model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
     if model is None:
         # Not configured is not broken. See `chat_agent`'s docstring.
         return SendResponse(
@@ -296,7 +341,7 @@ def send_chat_message(
         )
 
     try:
-        reply = chat_agent.respond(model, chat.messages(db, thread_id=thread.id))
+        reply = chat_agent.respond(model, chat.messages(db, thread_id=thread.id), session=db)
     except ModelUnavailable as error:
         return SendResponse(user=user_read, assistant=None, error=str(error))
 
@@ -306,10 +351,57 @@ def send_chat_message(
         role=ChatRole.ASSISTANT,
         content=reply.text,
         model=reply.model,
+        # Stored so the UI can show what the answer was built from. A tool call
+        # the user cannot see is a fact they cannot check.
+        tool_calls_json=reply.tool_calls_json,
     )
     response = SendResponse(user=user_read, assistant=_message_read(assistant_turn))
     db.commit()
     return response
+
+
+@router.post("/threads/{thread_id}/stream")
+def stream_chat_message(
+    thread_id: RowId, request: SendRequest, db: Session = Depends(get_db)
+) -> StreamingResponse:
+    """Append a user turn and stream the answer as it is generated.
+
+    Server-sent events: `tool` frames while it looks things up, then `token`
+    frames, then one `done` or `error`. The user's turn is committed before any of
+    it, so a connection that drops mid-stream costs the reply and never the typing.
+
+    `X-Accel-Buffering: no` because a buffering reverse proxy in front of this
+    would hold the whole body and deliver it at once — which looks exactly like
+    the feature not working. See ADR 0009 for what fronts this cluster.
+    """
+    thread = _require_thread(db, thread_id)
+    try:
+        chat.append_message(db, thread=thread, role=ChatRole.USER, content=request.content)
+    except ChatError as error:
+        raise _refuse(error) from error
+    db.commit()
+
+    settings = get_settings()
+    if request.model:
+        choice = model_catalog.by_id(request.model)
+        model = chat_agent.build_model(choice.base_url, choice.served_name)
+    else:
+        model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
+
+    if model is None:
+
+        def unconfigured() -> Iterator[str]:
+            yield chat_stream._event(
+                "error", {"message": "No model is configured (set ALMAGEST_LLM_BASE_URL)."}
+            )
+
+        return StreamingResponse(unconfigured(), media_type="text/event-stream")
+
+    return StreamingResponse(
+        chat_stream.stream_reply(model, db, thread, chat.messages(db, thread_id=thread.id)),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/threads/{thread_id}/archive", response_model=ThreadRead)

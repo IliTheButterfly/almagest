@@ -26,6 +26,9 @@ resources:
   # The local model server (ADR 0016). Holds the node's only GPU; see the
   # header in llm.yaml for how it is yielded to the co-tenant.
   - llm.yaml
+  # The big model, off by default. The GPU is exclusive, so at most one of
+  # llm.yaml and this may be scaled up at a time — see llm-vllm.yaml's header.
+  - llm-vllm.yaml
 
 labels:
   - pairs:

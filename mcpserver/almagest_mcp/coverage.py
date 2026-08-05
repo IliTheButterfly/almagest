@@ -488,6 +488,8 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "create_chat_writeup": Excluded(Reason.MACHINE_DOOR, _CHAT),
         "export_chat_writeup": Excluded(Reason.MACHINE_DOOR, _CHAT),
         "send_chat_message": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "list_chat_models": Excluded(Reason.MACHINE_DOOR, _CHAT),
+        "stream_chat_message": Excluded(Reason.MACHINE_DOOR, _CHAT),
         # -- captures ----------------------------------------------------------
         "create_capture": Excluded(Reason.MACHINE_DOOR, _CAPTURES),
         "append_capture_regions": Excluded(Reason.MACHINE_DOOR, _CAPTURES),
