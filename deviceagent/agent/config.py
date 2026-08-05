@@ -142,7 +142,9 @@ class AgentSettings(BaseSettings):
     #: public→local requests and browsers have differed here before. Answering
     #: explicitly is cheap; discovering the default was wrong means a bridge that
     #: is running, reachable by curl, and invisible to the page.
-    allowed_origin: str = Field(default="https://almagest.aether.lan", alias="DEVICEAGENT_ALLOWED_ORIGIN")
+    allowed_origin: str = Field(
+        default="https://almagest.aether.lan", alias="DEVICEAGENT_ALLOWED_ORIGIN"
+    )
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 

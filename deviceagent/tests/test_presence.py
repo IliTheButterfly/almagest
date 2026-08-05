@@ -259,7 +259,9 @@ def test_a_swap_tears_the_old_session_down_before_announcing_the_new_one(
     """Two containers, no gap. A client that saw only the second `tag.identified`
     could reasonably apply input the user entered against the first."""
     presence.observe(TAG_A)
-    emitted = presence.observe(TagRead(uid=UID_C, ndef_url=f"https://almagest.aether.lan/s/{CODE_B}"))
+    emitted = presence.observe(
+        TagRead(uid=UID_C, ndef_url=f"https://almagest.aether.lan/s/{CODE_B}")
+    )
     assert [event.type for event in emitted] == [events.TAG_REMOVED, events.TAG_IDENTIFIED]
     assert emitted[0].data["missed_polls"] == 0
 

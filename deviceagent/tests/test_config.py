@@ -81,7 +81,9 @@ def test_an_http_origin_is_accepted_path_prefix_included(url: str) -> None:
     assert AgentSettings(api_base_url=url).api_base_url == url
 
 
-@pytest.mark.parametrize("url", ["almagest.aether.lan", "file:///etc/passwd", "ftp://host", "", "http://"])
+@pytest.mark.parametrize(
+    "url", ["almagest.aether.lan", "file:///etc/passwd", "ftp://host", "", "http://"]
+)
 def test_a_url_that_is_not_an_http_origin_is_refused_at_startup(url: str) -> None:
     """Checked at config time because the alternative is an `unknown url type` deep
     inside `urllib` on the first placement, at a bench, with a drawer in your hand —
