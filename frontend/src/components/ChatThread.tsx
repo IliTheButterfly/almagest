@@ -197,7 +197,12 @@ export function ChatThread({ threadId }: { threadId: number }) {
           failed = frame.message;
         }
       }
-      setSendError(failed);
+      // Wrapped in an Error, not set as a bare string. `describeError` only
+      // extracts a message from an Error instance or an ApiError problem — a
+      // plain string falls straight through to the fallback, which silently threw
+      // away every message the server had carefully written ("… is starting now,
+      // press Try again shortly") and replaced it with a generic sentence.
+      setSendError(failed === null ? null : new Error(failed));
       // Whether a retry is *available*, not what to re-send — there is nothing to
       // re-send. A turn that got an answer has nothing to retry.
       setCanRetry(failed !== null);
