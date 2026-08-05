@@ -36,6 +36,56 @@ import { streamChat } from "../lib/chat/stream";
 import { useAsync } from "../lib/hooks/useAsync";
 import { ErrorBanner, Loading } from "./Feedback";
 
+/**
+ * What the model looked up, as a sentence.
+ *
+ * The stored value is JSON whose `arguments` is itself a JSON *string* — that is
+ * the OpenAI tool-call wire shape, not a mistake — so rendering it raw gives the
+ * reader `"{\"query\": \"capacitor\"}"`, backslashes and all. Nobody checks a
+ * model's work through escaped JSON, and this panel exists precisely so they can.
+ *
+ * Falls back to the raw string if it will not parse: showing something ugly beats
+ * hiding evidence.
+ */
+function ToolCalls({ raw }: { raw: string }) {
+  let calls: { tool?: string; arguments?: string }[];
+  try {
+    calls = JSON.parse(raw) as { tool?: string; arguments?: string }[];
+  } catch {
+    return (
+      <p className="mono" style={{ margin: 0, fontSize: "0.75em", wordBreak: "break-word" }}>
+        {raw}
+      </p>
+    );
+  }
+
+  return (
+    <div style={{ fontSize: "0.8em", opacity: 0.85 }}>
+      {calls.map((call, index) => {
+        let args = call.arguments ?? "";
+        try {
+          // One level of unwrapping, then rendered as `key: value` pairs — which
+          // is what the reader wants to check: *what did it search for*.
+          const parsed = JSON.parse(args) as Record<string, unknown>;
+          args = Object.entries(parsed)
+            .map(([key, value]) => `${key}: ${String(value)}`)
+            .join(", ");
+        } catch {
+          /* leave it as it came */
+        }
+        return (
+          <p key={index} style={{ margin: 0 }}>
+            <span className="badge">{call.tool ?? "tool"}</span>{" "}
+            <span className="mono" style={{ wordBreak: "break-word" }}>
+              {args}
+            </span>
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function Turn({ message }: { message: ChatMessageRead }) {
   const mine = message.role === "user";
   return (
@@ -64,24 +114,7 @@ function Turn({ message }: { message: ChatMessageRead }) {
       {message.tool_calls_json !== null && (
         // Shown rather than tucked behind a toggle. See the module docstring: the
         // point is that the reader can check what the answer was built from.
-        <pre
-          className="mono"
-          style={{
-            margin: 0,
-            fontSize: "0.75em",
-            // **Wrapped, not scrolled.** A sideways-scrolling box inside a
-            // vertically-scrolling page is a bad gesture on a phone, and getting
-            // `overflow-x: auto` to actually constrain a <pre> takes a min-width:0
-            // on every ancestor — one missed and the whole page scrolls sideways,
-            // silently clipping the export link. Wrapping cannot fail that way.
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            maxWidth: "100%",
-            opacity: 0.85,
-          }}
-        >
-          {message.tool_calls_json}
-        </pre>
+        <ToolCalls raw={message.tool_calls_json} />
       )}
     </div>
   );
