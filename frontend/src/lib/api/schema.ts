@@ -8501,10 +8501,19 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** SendRequest */
+        /**
+         * SendRequest
+         * @description A turn to answer — or, with no `content`, a retry of the last one.
+         *
+         *     **A retry is not a second question.** The user's turn is stored before the
+         *     model is called, so when the model fails the question is already in the
+         *     thread; posting it again would append a duplicate and leave the transcript
+         *     saying somebody asked twice. Omitting `content` re-runs the pipeline against
+         *     the transcript as it stands.
+         */
         SendRequest: {
             /** Content */
-            content: string;
+            content?: string | null;
             /** Model */
             model?: string | null;
         };

@@ -185,3 +185,60 @@ def test_a_missing_model_names_the_model() -> None:
     message = chat_agent.explain(RuntimeError("HTTP 404: not found"), "http://x:1", "qwen3:70b")
 
     assert "qwen3:70b" in message
+
+
+# ---------------------------------------------------------------------------
+# Retrying
+# ---------------------------------------------------------------------------
+
+
+def test_a_retry_does_not_ask_the_question_twice(
+    client: TestClient, db: Session, monkeypatch
+) -> None:
+    """**A retry re-runs the pipeline; it is not a second question.**
+
+    The user's turn is stored before the model is called, so when the model fails
+    the question is already in the thread. An earlier version re-sent the text,
+    which appended a duplicate and left the transcript saying somebody asked twice
+    — visible to the reader, and fed back to the model as context on the next turn.
+    """
+    thread = _thread(db)
+    db.commit()
+
+    class Dead:
+        model = "dead"
+
+        def complete(self, messages: object, tools: object = None) -> dict[str, object]:
+            raise ModelUnavailable("connection refused")
+
+    def dead(*_args: object, **_kwargs: object) -> Dead:
+        return Dead()
+
+    monkeypatch.setattr(chat_agent, "build_model", dead)
+    first = client.post(f"/api/chat/threads/{thread.id}/send", json={"content": "only once"})
+    assert first.json()["assistant"] is None
+
+    # The retry: no content at all.
+    def alive(*_args: object, **_kwargs: object) -> FakeChatModel:
+        return FakeChatModel(model="qwen3:8b", reply="Answered on the second try.")
+
+    monkeypatch.setattr(chat_agent, "build_model", alive)
+    second = client.post(f"/api/chat/threads/{thread.id}/send", json={})
+
+    assert second.json()["assistant"]["content"] == "Answered on the second try."
+
+    stored = client.get(f"/api/chat/threads/{thread.id}").json()["messages"]
+    questions = [m["content"] for m in stored if m["role"] == "user"]
+    assert questions == ["only once"], stored
+
+
+def test_a_retry_with_nothing_to_retry_is_refused(client: TestClient, db: Session) -> None:
+    """ "Try again" has no meaning without an unanswered question, and silently
+    regenerating over an existing answer would rewrite history."""
+    thread = _thread(db)
+    db.commit()
+
+    response = client.post(f"/api/chat/threads/{thread.id}/send", json={})
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["reason"] == "nothing_to_retry"
