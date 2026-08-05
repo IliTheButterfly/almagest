@@ -7617,6 +7617,10 @@
             "title": "Label",
             "type": "string"
           },
+          "reachable": {
+            "title": "Reachable",
+            "type": "boolean"
+          },
           "requires_swap": {
             "title": "Requires Swap",
             "type": "boolean"
@@ -7624,6 +7628,10 @@
           "size_b": {
             "title": "Size B",
             "type": "integer"
+          },
+          "start_hint": {
+            "title": "Start Hint",
+            "type": "string"
           }
         },
         "required": [
@@ -7631,7 +7639,9 @@
           "label",
           "size_b",
           "good_for",
-          "requires_swap"
+          "requires_swap",
+          "reachable",
+          "start_hint"
         ],
         "title": "ModelChoiceRead",
         "type": "object"

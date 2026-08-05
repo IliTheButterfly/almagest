@@ -99,7 +99,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: vllm
-          image: vllm/vllm-openai:v0.20.0
+          image: vllm/vllm-openai:v0.26.0
           args:
             - --model
             - QuantTrio/Qwen3.6-27B-AWQ
@@ -132,6 +132,16 @@ spec:
             - --port
             - "8000"
           env:
+            # **Not decoration.** vLLM calls `getpass.getuser()`, which reads these
+            # before falling back to a `/etc/passwd` lookup — and uid 1000 has no
+            # passwd entry in this image, so without them it dies on
+            # `KeyError: getpwuid(): uid not found: 1000` before it reads a single
+            # argument. Dropped these when adapting the recipe on the assumption
+            # they were noise; they are the opposite.
+            - name: USER
+              value: vllm
+            - name: LOGNAME
+              value: vllm
             - name: HF_HOME
               value: /models
             - name: HF_HUB_CACHE

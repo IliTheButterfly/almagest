@@ -35,19 +35,27 @@ own, and the probe may simply have landed while one of them held a device. So a
 namespace rather than our own Ollama. `make k8s-model` frees ours first because
 that is the half we control.
 
-## `available` is not knowable from here
+## Reachability is probed, because a picker that lies is worse than no picker
 
-Whether a model is actually loadable depends on which deployment currently holds
-the card, and asking would mean a cluster round trip on every page load. So the
-catalogue reports what is *configured*, `reachable` is resolved per base URL when
-somebody asks, and a pick that turns out to be wrong fails in the one place that
-can say so usefully — the send, which already reports an unreachable model without
-losing the message.
+An earlier version listed all three unconditionally and let the send fail. That is
+how somebody picks the 27B, waits, and is told "the model could not be reached" —
+a true sentence that explains nothing, because **choosing a model in the UI does
+not start it.** Both deployments default to zero and the reaper scales them down
+on idle, so at any moment most of this list is usually not running.
+
+So `probe()` opens a socket to each base URL with a short timeout and reports what
+answered. It is a connect, not a request: a model mid-download has a pod but no
+listener, which is exactly the state worth distinguishing from "running".
+
+The cost is a few hundred milliseconds on the models list. Worth it — the
+alternative is a control that offers choices which silently do not work.
 """
 
 from __future__ import annotations
 
+import socket
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 #: The Ollama deployment. Holds several models and swaps between them; a switch
 #: within this base URL costs a weight reload, not a rollout.
@@ -133,3 +141,40 @@ def by_id(model_id: str | None) -> ModelChoice:
         if choice.id == DEFAULT_ID:
             return choice
     return CATALOG[0]
+
+
+#: How long to wait for a model server to accept a connection. Short: this runs
+#: per model on a UI list, and a server that cannot complete a TCP handshake in
+#: half a second on the same cluster network is not one that will answer a chat.
+PROBE_TIMEOUT = 0.5
+
+
+def probe(choice: ModelChoice, timeout: float = PROBE_TIMEOUT) -> bool:
+    """Is something listening for this model right now?
+
+    A bare TCP connect rather than an HTTP request, deliberately: vLLM spends
+    minutes downloading weights before it binds a port, and a pod that exists but
+    is not listening is precisely the state a picker must not present as ready.
+
+    Any failure is `False`. This decides whether a control is offered, so being
+    wrong in the optimistic direction is the expensive one.
+    """
+    parsed = urlparse(choice.base_url)
+    host, port = parsed.hostname, parsed.port
+    if host is None or port is None:
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def start_hint(choice: ModelChoice) -> str:
+    """The command that makes this model available, named for *this* model.
+
+    Generic advice ("start a model server") is what turns a specific failure into
+    a shrug. The person picked the 27B; the answer they need mentions the 27B.
+    """
+    suffix = {"qwen3-4b": "8b", "qwen3-8b": "8b", "almagest-27b": "27b"}.get(choice.id, "8b")
+    return f"make k8s-model M={suffix}"

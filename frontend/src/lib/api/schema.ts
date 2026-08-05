@@ -525,6 +525,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/threads/{thread_id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stream Chat Message
+         * @description Append a user turn and stream the answer as it is generated.
+         *
+         *     Server-sent events: `tool` frames while it looks things up, then `token`
+         *     frames, then one `done` or `error`. The user's turn is committed before any of
+         *     it, so a connection that drops mid-stream costs the reply and never the typing.
+         *
+         *     `X-Accel-Buffering: no` because a buffering reverse proxy in front of this
+         *     would hold the whole body and deliver it at once — which looks exactly like
+         *     the feature not working. See ADR 0009 for what fronts this cluster.
+         */
+        post: operations["stream_chat_message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/writeups": {
         parameters: {
             query?: never;
@@ -6056,10 +6084,14 @@ export interface components {
             id: string;
             /** Label */
             label: string;
+            /** Reachable */
+            reachable: boolean;
             /** Requires Swap */
             requires_swap: boolean;
             /** Size B */
             size_b: number;
+            /** Start Hint */
+            start_hint: string;
         };
         /** MovePlanRead */
         MovePlanRead: {
@@ -10173,6 +10205,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SendResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_chat_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
