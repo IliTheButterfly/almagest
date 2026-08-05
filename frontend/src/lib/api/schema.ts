@@ -475,6 +475,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/threads/{thread_id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send Chat Message
+         * @description Append a user turn and answer it (ADR 0018, and `app.services.chat_agent`).
+         *
+         *     The user's turn is committed **before** the model is called. That ordering is
+         *     the whole point: a model that times out, a GPU that is loading weights, or a
+         *     server that is scaled to zero must not cost somebody the message they just
+         *     wrote. The reply can be retried; the typing cannot.
+         */
+        post: operations["send_chat_message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/writeups": {
         parameters: {
             query?: never;
@@ -8406,6 +8431,21 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** SendRequest */
+        SendRequest: {
+            /** Content */
+            content: string;
+        };
+        /**
+         * SendResponse
+         * @description Both turns, so the client renders the exchange from one round trip.
+         */
+        SendResponse: {
+            assistant: components["schemas"]["MessageRead"] | null;
+            /** Error */
+            error?: string | null;
+            user: components["schemas"]["MessageRead"];
+        };
         /** SessionRead */
         SessionRead: {
             /** Bound Count */
@@ -10038,6 +10078,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    send_chat_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thread_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResponse"];
                 };
             };
             /** @description Validation Error */

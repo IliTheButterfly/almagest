@@ -25,7 +25,7 @@
 import { useState } from "react";
 
 import {
-  appendChatMessage,
+  sendChatMessage,
   chatExportUrl,
   getChatThread,
   type ChatMessageRead,
@@ -106,7 +106,11 @@ export function ChatThread({ threadId }: { threadId: number }) {
     setSending(true);
     setSendError(null);
     try {
-      await appendChatMessage(threadId, text);
+      const sent = await sendChatMessage(threadId, text);
+      // A model that could not be reached is reported in place rather than
+      // thrown: the turn was stored, so this is "no answer yet", not "your
+      // message is gone".
+      setSendError(sent.error ?? null);
       // Cleared only after the append succeeds. Clearing optimistically loses what
       // the person typed when the request fails, which is the worst moment to lose
       // it — they have just written the thing they most wanted to say.

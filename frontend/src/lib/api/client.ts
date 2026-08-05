@@ -797,6 +797,27 @@ export async function getChatThread(threadId: number): Promise<ChatThreadDetail>
   return data;
 }
 
+/**
+ * Send a turn and get the answer back in one round trip.
+ *
+ * The user's turn is stored server-side **before** the model is called, so a
+ * timeout or an unloaded GPU costs the reply and never the typing. `error` is set
+ * with the user turn still present when the model could not be reached.
+ */
+export async function sendChatMessage(
+  threadId: number,
+  content: string,
+): Promise<Schemas["SendResponse"]> {
+  const { data, error, response } = await api.POST("/api/chat/threads/{thread_id}/send", {
+    params: { path: { thread_id: threadId } },
+    body: { content },
+  });
+  if (error !== undefined) {
+    fail("could not send that message", error, response);
+  }
+  return data;
+}
+
 export async function appendChatMessage(
   threadId: number,
   content: string,

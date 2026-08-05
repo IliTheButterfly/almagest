@@ -14737,6 +14737,56 @@
         "title": "SearchResponse",
         "type": "object"
       },
+      "SendRequest": {
+        "properties": {
+          "content": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "SendRequest",
+        "type": "object"
+      },
+      "SendResponse": {
+        "description": "Both turns, so the client renders the exchange from one round trip.",
+        "properties": {
+          "assistant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "user": {
+            "$ref": "#/components/schemas/MessageRead"
+          }
+        },
+        "required": [
+          "user",
+          "assistant"
+        ],
+        "title": "SendResponse",
+        "type": "object"
+      },
       "SessionRead": {
         "properties": {
           "bound_count": {
@@ -18276,6 +18326,61 @@
           }
         },
         "summary": "Append Chat Message",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/threads/{thread_id}/send": {
+      "post": {
+        "description": "Append a user turn and answer it (ADR 0018, and `app.services.chat_agent`).\n\nThe user's turn is committed **before** the model is called. That ordering is\nthe whole point: a model that times out, a GPU that is loading weights, or a\nserver that is scaled to zero must not cost somebody the message they just\nwrote. The reply can be retried; the typing cannot.",
+        "operationId": "send_chat_message",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Thread Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Send Chat Message",
         "tags": [
           "chat"
         ]

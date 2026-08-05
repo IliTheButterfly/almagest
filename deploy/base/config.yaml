@@ -33,3 +33,12 @@ data:
   # Not ALMAGEST_LOG_LEVEL — this one key is deliberately unprefixed in
   # app/config.py.
   LOG_LEVEL: INFO
+  # The local model server (ADR 0016). In-cluster DNS, so this never leaves the
+  # node — the endpoint has no authentication of any kind and its Service is
+  # ClusterIP for exactly that reason.
+  #
+  # Unset would mean chat answers "no model is configured", which is a legitimate
+  # state and not an error: `almagest-llm` is scaled to zero whenever the GPU is
+  # yielded to the co-tenant, and chat degrades rather than breaks.
+  ALMAGEST_LLM_BASE_URL: http://almagest-llm:11434
+  ALMAGEST_LLM_MODEL: qwen3:8b

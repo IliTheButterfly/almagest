@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     #: every tag — see docs/NAMING.md.
     base_url: str = Field(default="http://localhost:8000", alias="ALMAGEST_BASE_URL")
 
+    #: The OpenAI-compatible model endpoint (ADR 0016). In the cluster this is the
+    #: `almagest-llm` Service; locally it is a port-forward to the same thing. Empty
+    #: means **no model is configured**, and chat says so plainly rather than
+    #: failing — the same graceful degradation ADR 0005 gives extraction.
+    llm_base_url: str = Field(default="", alias="ALMAGEST_LLM_BASE_URL")
+    #: Which model to ask for. Must already be pulled on the server.
+    llm_model: str = Field(default="qwen3:8b", alias="ALMAGEST_LLM_MODEL")
+
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     @field_validator("base_url")

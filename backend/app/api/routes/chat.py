@@ -1,10 +1,17 @@
 """`/api/chat` — threads, turns, writeups and export (ADR 0018).
 
-Storage and retrieval. **No model runs here and no agent loop lives here**, for
-the reason ADR 0018 gives: an agent whose tools call back into a single-replica
-SQLite writer, from inside that writer's own process, is a self-deadlock. What the
-API owns is the transcript; what decides an assistant turn is somebody else's job,
-and it reaches these routes over HTTP like any other client.
+Storage, retrieval — and, for now, one outbound call to a model.
+
+ADR 0018 puts the agent loop in a separate service, and its reason is **tool
+re-entry**: an agent whose tools call back into a single-replica SQLite writer,
+from inside that writer's own process, is a self-deadlock. `POST /send` has no
+tools. It reads the transcript, makes one outbound HTTP call, and appends the
+reply, so the hazard the ADR describes is unreachable and shipping it here is
+honest rather than a shortcut.
+
+**The first tool call is the event that moves this out.** `chat_agent.ChatModel`
+is a Protocol and `respond()` takes a transcript and returns text, so the move is
+a transport change and nothing else. See `app.services.chat_agent`.
 
 ## Two history lists, one table
 
@@ -29,11 +36,13 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy.orm import Session
 
 from app.api.limits import RowId
+from app.config import get_settings
 from app.db.session import get_db
 from app.models.chat import MAX_MESSAGE_CHARS, MAX_WRITEUP_CHARS, ChatThread, ChatWriteup
 from app.models.enums import ChatKind, ChatRole
-from app.services import chat
+from app.services import chat, chat_agent
 from app.services.chat import ChatError
+from app.services.chat_agent import ModelUnavailable
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -238,6 +247,69 @@ def append_chat_message(
     read = _message_read(message)
     db.commit()
     return read
+
+
+class SendRequest(BaseModel):
+    content: MessageText
+
+
+class SendResponse(BaseModel):
+    """Both turns, so the client renders the exchange from one round trip."""
+
+    user: MessageRead
+    assistant: MessageRead | None
+    #: Set when the model could not be reached. The user's turn is **still
+    #: stored** — losing what somebody typed because the GPU was busy is the
+    #: worst possible response to the GPU being busy.
+    error: str | None = None
+
+
+@router.post("/threads/{thread_id}/send", response_model=SendResponse)
+def send_chat_message(
+    thread_id: RowId, request: SendRequest, db: Session = Depends(get_db)
+) -> SendResponse:
+    """Append a user turn and answer it (ADR 0018, and `app.services.chat_agent`).
+
+    The user's turn is committed **before** the model is called. That ordering is
+    the whole point: a model that times out, a GPU that is loading weights, or a
+    server that is scaled to zero must not cost somebody the message they just
+    wrote. The reply can be retried; the typing cannot.
+    """
+    thread = _require_thread(db, thread_id)
+    try:
+        user_turn = chat.append_message(
+            db, thread=thread, role=ChatRole.USER, content=request.content
+        )
+    except ChatError as error:
+        raise _refuse(error) from error
+    user_read = _message_read(user_turn)
+    db.commit()
+
+    settings = get_settings()
+    model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)
+    if model is None:
+        # Not configured is not broken. See `chat_agent`'s docstring.
+        return SendResponse(
+            user=user_read,
+            assistant=None,
+            error="No model is configured (set ALMAGEST_LLM_BASE_URL).",
+        )
+
+    try:
+        reply = chat_agent.respond(model, chat.messages(db, thread_id=thread.id))
+    except ModelUnavailable as error:
+        return SendResponse(user=user_read, assistant=None, error=str(error))
+
+    assistant_turn = chat.append_message(
+        db,
+        thread=thread,
+        role=ChatRole.ASSISTANT,
+        content=reply.text,
+        model=reply.model,
+    )
+    response = SendResponse(user=user_read, assistant=_message_read(assistant_turn))
+    db.commit()
+    return response
 
 
 @router.post("/threads/{thread_id}/archive", response_model=ThreadRead)
