@@ -292,6 +292,58 @@ def test_a_note_re_ranks_the_options_and_says_that_it_did(db: Session) -> None:
     assert "matches your note" in noted.options[0].why
 
 
+def test_answering_the_review_files_the_part_and_closes_the_loop(
+    client: TestClient, db: Session
+) -> None:
+    """The step after the review, and the end of the autonomous flow.
+
+    A person picks one of the ranked options; that choice — and only that choice —
+    puts stock in a container. Asserted through the real `/api/stock/receive` route
+    rather than by writing a lot directly, because the ledger is append-only and
+    the route is what writes the movement row that makes the balance explicable.
+
+    This is what makes the flow *end to end* rather than ending at a suggestion:
+    before this call the part exists and is described and is nowhere; after it, the
+    system can answer "where is it?".
+    """
+    part = make_part(db, "Cap", mpn=MPN)
+    make_location(db, "Attic overflow bin")
+    smd = make_location(db, "SMD drawer A")
+    db.commit()
+
+    review = pipeline.review_for(db, part=part, notes="SMD drawers")
+    chosen = review.options[0]
+    assert chosen.location_id == smd.id
+
+    received = client.post(
+        "/api/stock/receive",
+        json={
+            "part_id": part.id,
+            "location_id": chosen.location_id,
+            "qty_milli": 100_000,
+            # The ledger is append-only, so a retried receive must not become a
+            # second movement. The idempotency key is what makes the phone at the
+            # bench safe to double-tap.
+            "client_op_id": "e2e-receive-1",
+            "device_id": "e2e",
+        },
+    )
+    assert received.status_code in (200, 201), received.text
+
+    # Asserted through search rather than through the part read: the part read is
+    # the *definition*, and quantity lives on a lot at a location, never on the
+    # part. Search is the surface that joins the two, so it is the one that can
+    # answer "where is it?" — which is the question this whole flow exists to make
+    # answerable.
+    found = client.post("/api/search/parts", json={"q": MPN, "limit": 5}).json()
+    row = next(r for r in found["results"] if r["id"] == part.id)
+    assert smd.id in [location["location_id"] for location in row["locations"]], row
+
+    # And the note that steered the choice is still the reason it was offered —
+    # the review is auditable after the fact, not just at the moment of clicking.
+    assert "matches your note" in chosen.why
+
+
 def client_free_of_lots(db: Session, *, part_id: int) -> bool:
     from sqlalchemy import select
 
