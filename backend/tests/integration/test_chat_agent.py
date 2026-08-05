@@ -108,7 +108,7 @@ def test_the_users_turn_survives_an_unreachable_model(
     class Dead:
         model = "dead"
 
-        def complete(self, messages: object) -> str:
+        def complete(self, messages: object, tools: object = None) -> dict[str, object]:
             raise ModelUnavailable("connection refused")
 
     def dead(*_args: object, **_kwargs: object) -> Dead:

@@ -7,17 +7,17 @@ ADR 0018 puts the agent loop in a separate service, and its reason is specific:
 that writer's own process, is a self-deadlock.* The hazard is **tool re-entry**,
 not the loop.
 
-This first iteration has **no tools**. It reads a transcript, calls a model, and
-appends the reply — one outbound HTTP call, nothing re-entering the API. The
-deadlock ADR 0018 describes is unreachable here, so shipping it in-process is
-honest rather than a shortcut, and it is what makes chat testable against a real
-local model today.
+Its tools (`app.services.chat_tools`) run **against the session the request
+already holds** — ordinary reads, no second request, no second connection from the
+same bounded pool. The re-entry is therefore still absent and the deadlock still
+unreachable.
 
-**The moment a tool is added, this must move.** That is not a vague intention: the
-first tool call is the exact event that makes the ADR's argument apply, and the
-seam is already right — `ChatModel` is a Protocol, and `respond()` takes the
-transcript and returns text, so relocating it behind HTTP changes callers and
-nothing else.
+An earlier draft of this docstring said "the moment a tool is added, this must
+move". That was wrong, and the distinction it missed is the one above: **HTTP
+re-entry deadlocks; an in-process read does not.** What *would* force the move is
+a tool that has to travel over HTTP — reusing `mcpserver`'s curated surface, or
+anything reaching another service. See `chat_tools` for why that duplication is
+accepted meanwhile, and which side wins when the two disagree.
 
 ## The model is optional, and its absence is not an error
 
@@ -43,12 +43,13 @@ import logging
 import re
 import urllib.error
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.models.chat import ChatMessage
 from app.models.enums import ChatRole
+from app.services import chat_tools
 
 log = logging.getLogger("almagest.chat")
 
@@ -67,10 +68,15 @@ SYSTEM_PROMPT = (
     "inventory. You help with what parts exist, where they are, and what would "
     "substitute for what.\n"
     "\n"
-    "You do not yet have tools, so you cannot look anything up. Say so plainly "
-    "when a question needs the actual inventory — do not invent stock levels, "
-    "locations, part numbers or quantities. A confident wrong answer about what is "
-    "in a drawer is worse than 'I cannot see the inventory from here'.\n"
+    "You have tools that read the real inventory. **Use them** rather than "
+    "answering from memory whenever a question is about what exists, how many there "
+    "are, or where something is — you cannot know those without looking.\n"
+    "\n"
+    "Report only what a tool returned. Never invent a stock level, a location, a "
+    "part number or a quantity, and never round a tool's number to a nicer one. If "
+    "a search comes back empty, say nothing is *recorded* as matching — which is "
+    "not the same as nothing being in the room, because a part whose details were "
+    "never filled in cannot match.\n"
     "\n"
     "Be brief. /no_think"
 )
@@ -86,6 +92,9 @@ class ModelUnavailable(RuntimeError):
 class Reply:
     text: str
     model: str
+    #: What the model looked up, stored so the UI can **show** it. A tool call the
+    #: user cannot see is a fact they cannot check.
+    tool_calls_json: str | None = None
 
 
 class ChatModel(Protocol):
@@ -93,7 +102,13 @@ class ChatModel(Protocol):
 
     model: str
 
-    def complete(self, messages: Sequence[dict[str, str]]) -> str: ...
+    def complete(
+        self, messages: Sequence[dict[str, Any]], tools: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]: ...
+
+    def stream(self, messages: Sequence[dict[str, Any]]) -> Iterator[str]:
+        """Yield the answer's text deltas. No tools: see `chat_stream`."""
+        ...
 
 
 @dataclass
@@ -104,7 +119,9 @@ class OpenAICompatChatModel:
     model: str
     timeout: float = DEFAULT_TIMEOUT
 
-    def complete(self, messages: Sequence[dict[str, str]]) -> str:
+    def complete(
+        self, messages: Sequence[dict[str, Any]], tools: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": list(messages),
@@ -112,6 +129,8 @@ class OpenAICompatChatModel:
             # greedy chat model repeats itself into a loop on follow-ups.
             "temperature": 0.3,
         }
+        if tools:
+            payload["tools"] = tools
         url = self.base_url.rstrip("/") + "/v1/chat/completions"
         request = urllib.request.Request(
             url,
@@ -129,24 +148,87 @@ class OpenAICompatChatModel:
             raise ModelUnavailable(f"{type(error).__name__} calling {url}: {error}") from error
 
         try:
-            return str(body["choices"][0]["message"]["content"])
+            message: dict[str, Any] = body["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as error:
             raise ModelUnavailable(f"no completion in the response from {url}") from error
+        return message
+
+    def stream(self, messages: Sequence[dict[str, Any]]) -> Iterator[str]:
+        """Text deltas from an SSE `chat.completion.chunk` stream.
+
+        Read line by line off the socket rather than buffered, which is the whole
+        point — a response held until complete would arrive as one lump and the
+        user would be back to watching a spinner.
+        """
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": list(messages),
+            "temperature": 0.3,
+            "stream": True,
+        }
+        url = self.base_url.rstrip("/") + "/v1/chat/completions"
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                for raw in response:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    body = line[5:].strip()
+                    if body == "[DONE]":
+                        return
+                    try:
+                        chunk = json.loads(body)
+                    except json.JSONDecodeError:
+                        # A partial frame is not fatal — the next line usually
+                        # completes the thought, and dying here would throw away a
+                        # reply that is most of the way there.
+                        continue
+                    delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                    text = delta.get("content")
+                    if text:
+                        yield str(text)
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            raise ModelUnavailable(f"{type(error).__name__} streaming from {url}") from error
 
 
 @dataclass
 class FakeChatModel:
-    """A scripted model, so the loop is testable with no network and no GPU."""
+    """A scripted model, so the loop is testable with no network and no GPU.
+
+    `scripted` is a queue of raw assistant messages, which is what makes the
+    *tool* path testable: the first can carry `tool_calls` and the second the
+    prose that follows, exactly as a real model's two round trips do.
+    """
 
     model: str = "fake"
     reply: str = "I cannot see the inventory from here yet."
-    seen: list[list[dict[str, str]]] | None = None
+    scripted: list[dict[str, Any]] | None = None
+    seen: list[list[dict[str, Any]]] | None = None
 
-    def complete(self, messages: Sequence[dict[str, str]]) -> str:
+    def complete(
+        self,
+        messages: Sequence[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,  # noqa: ARG002 - Protocol shape
+    ) -> dict[str, Any]:
         if self.seen is None:
             self.seen = []
         self.seen.append([dict(m) for m in messages])
-        return self.reply
+        if self.scripted:
+            return self.scripted.pop(0)
+        return {"role": "assistant", "content": self.reply}
+
+    def stream(self, messages: Sequence[dict[str, Any]]) -> Iterator[str]:
+        """The scripted reply, one word at a time — enough to prove the frames
+        arrive separately rather than as one lump."""
+        del messages
+        for index, word in enumerate(self.reply.split(" ")):
+            yield word if index == 0 else f" {word}"
 
 
 def _strip_thinking(text: str) -> str:
@@ -154,7 +236,7 @@ def _strip_thinking(text: str) -> str:
     return _THINK.sub("", text).strip()
 
 
-def to_messages(turns: Sequence[ChatMessage]) -> list[dict[str, str]]:
+def to_messages(turns: Sequence[ChatMessage]) -> list[dict[str, Any]]:
     """The transcript as the wire wants it, newest `MAX_HISTORY_TURNS` kept.
 
     Stored `system` turns are dropped and `SYSTEM_PROMPT` is prepended instead:
@@ -162,7 +244,7 @@ def to_messages(turns: Sequence[ChatMessage]) -> list[dict[str, str]]:
     make the model answer under instructions that have since changed.
     """
     recent = [turn for turn in turns if turn.role != ChatRole.SYSTEM][-MAX_HISTORY_TURNS:]
-    out: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    out: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     for turn in recent:
         # A `tool` turn has no meaning to a model that was given no tools; sending
         # it would describe capabilities this loop does not have.
@@ -171,15 +253,61 @@ def to_messages(turns: Sequence[ChatMessage]) -> list[dict[str, str]]:
     return out
 
 
-def respond(model: ChatModel, turns: Sequence[ChatMessage]) -> Reply:
-    """One assistant turn for this transcript."""
-    text = _strip_thinking(model.complete(to_messages(turns)))
+#: Tool rounds allowed in one turn. A model that keeps calling tools without
+#: answering is looping; three is enough for "search, then check a location, then
+#: answer" and short enough that a loop costs seconds rather than the whole lease.
+MAX_TOOL_ROUNDS = 3
+
+
+def respond(model: ChatModel, turns: Sequence[ChatMessage], *, session: Any = None) -> Reply:
+    """One assistant turn, running any tools the model asks for on the way.
+
+    `session` is the caller's open `Session`. With none, the model is offered no
+    tools at all — which keeps this usable where there is no database, and keeps
+    the no-tools path testable.
+    """
+    messages = to_messages(turns)
+    tools = chat_tools.TOOLS if session is not None else None
+    calls_made: list[dict[str, Any]] = []
+    message: dict[str, Any] = {}
+
+    for _ in range(MAX_TOOL_ROUNDS):
+        message = model.complete(messages, tools)
+        requested = message.get("tool_calls") or []
+        if not requested:
+            break
+        # The assistant's own tool-call turn goes back verbatim, or the model
+        # cannot match its call ids to the results that follow.
+        messages.append(message)
+        for spec in requested:
+            function = spec.get("function", {})
+            name = str(function.get("name", ""))
+            arguments = function.get("arguments", "{}")
+            calls_made.append({"tool": name, "arguments": arguments})
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": spec.get("id", ""),
+                    "name": name,
+                    "content": chat_tools.call(session, name, arguments),
+                }
+            )
+    else:
+        # Still asking for tools after the cap. Saying so beats an empty bubble,
+        # and the cap is what stops a loop costing the whole request.
+        message = {"content": "I kept looking things up without reaching an answer."}
+
+    text = _strip_thinking(str(message.get("content") or ""))
     if not text:
         # An empty completion is a real outcome — a model that emitted only a
         # think block, or hit its token ceiling mid-thought. Saying so beats
         # storing an empty bubble nobody can interpret.
         text = "(the model returned nothing — it may have run out of tokens)"
-    return Reply(text=text, model=model.model)
+    return Reply(
+        text=text,
+        model=model.model,
+        tool_calls_json=json.dumps(calls_made) if calls_made else None,
+    )
 
 
 def build_model(base_url: str, model_name: str) -> ChatModel | None:

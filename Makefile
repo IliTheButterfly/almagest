@@ -13,7 +13,7 @@ MCP   := mcpserver
         idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check \
         mcp-sync mcp-lint mcp-typecheck mcp-test mcp-test-live mcp-check mcp-run \
         k8s-tls k8s-secrets k8s-deploy k8s-status k8s-logs k8s-shell k8s-diff \
-        k8s-tunnel k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
+        k8s-model k8s-tunnel k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -233,6 +233,28 @@ k8s-deploy: ## Deploy/update the cluster (make k8s-deploy TAG=sha-... to pin)
 
 k8s-diff: ## Show what a deploy would change, without changing it
 	kubectl diff -k deploy/overlays/aether || true
+
+k8s-model: ## Switch the GPU between models: make k8s-model M=8b|27b|off
+	# `nvidia.com/gpu` on this node is capacity 1, integral and exclusive, so at
+	# most ONE model server may hold the card. This scales the others to zero
+	# first and waits, rather than leaving a second Deployment Pending forever
+	# and looking like a broken rollout.
+	@test -n "$(M)" || { echo 'usage: make k8s-model M=8b|27b|off'; exit 1; }
+	@kubectl -n ili scale deploy/almagest-llm --replicas=0
+	@kubectl -n ili scale deploy/almagest-llm-27b --replicas=0
+	@kubectl -n ili wait --for=delete pod -l app.kubernetes.io/component=llm --timeout=120s 2>/dev/null || true
+	@kubectl -n ili wait --for=delete pod -l app.kubernetes.io/component=llm-27b --timeout=120s 2>/dev/null || true
+	@if [ "$(M)" = "8b" ]; then \
+	   kubectl -n ili scale deploy/almagest-llm --replicas=1; \
+	   kubectl -n ili set env deploy/almagest-api ALMAGEST_LLM_BASE_URL=http://almagest-llm:11434 ALMAGEST_LLM_MODEL=qwen3:8b; \
+	 elif [ "$(M)" = "27b" ]; then \
+	   kubectl -n ili scale deploy/almagest-llm-27b --replicas=1; \
+	   kubectl -n ili set env deploy/almagest-api ALMAGEST_LLM_BASE_URL=http://almagest-llm-27b:8000 ALMAGEST_LLM_MODEL=almagest-27b; \
+	   echo "note: the FIRST start downloads ~16GB and compiles CUDA graphs - up to an hour."; \
+	 elif [ "$(M)" = "off" ]; then \
+	   kubectl -n ili set env deploy/almagest-api ALMAGEST_LLM_BASE_URL-; \
+	   echo "no model: chat will say so plainly rather than fail."; \
+	 else echo "M must be 8b, 27b or off"; exit 1; fi
 
 k8s-tunnel: ## Tunnel the deployed API (and its model) to localhost for testing
 	# The API Service is ClusterIP and the model Service deliberately so: the

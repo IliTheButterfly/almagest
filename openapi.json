@@ -7603,6 +7603,39 @@
         "title": "MismatchRead",
         "type": "object"
       },
+      "ModelChoiceRead": {
+        "properties": {
+          "good_for": {
+            "title": "Good For",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "requires_swap": {
+            "title": "Requires Swap",
+            "type": "boolean"
+          },
+          "size_b": {
+            "title": "Size B",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "size_b",
+          "good_for",
+          "requires_swap"
+        ],
+        "title": "ModelChoiceRead",
+        "type": "object"
+      },
       "MovePlanRead": {
         "properties": {
           "rationale": {
@@ -14744,6 +14777,18 @@
             "minLength": 1,
             "title": "Content",
             "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
           }
         },
         "required": [
@@ -17999,6 +18044,32 @@
         ]
       }
     },
+    "/api/chat/models": {
+      "get": {
+        "description": "The models somebody may pick, smallest first.\n\nReports what is *configured*, not what is currently loadable: that depends on\nwhich deployment holds the card, and asking would be a cluster round trip on\nevery page load. A pick that turns out to be unreachable fails at the send,\nwhich already says so without losing the message.",
+        "operationId": "list_chat_models",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModelChoiceRead"
+                  },
+                  "title": "Response List Chat Models",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Chat Models",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
     "/api/chat/threads": {
       "get": {
         "description": "One history list. `kind` is required rather than defaulted, deliberately:\nthe whole point of two surfaces is that a caller says which one it means, and a\ndefault would quietly mix a project's threads into the search list.",
@@ -18381,6 +18452,59 @@
           }
         },
         "summary": "Send Chat Message",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/threads/{thread_id}/stream": {
+      "post": {
+        "description": "Append a user turn and stream the answer as it is generated.\n\nServer-sent events: `tool` frames while it looks things up, then `token`\nframes, then one `done` or `error`. The user's turn is committed before any of\nit, so a connection that drops mid-stream costs the reply and never the typing.\n\n`X-Accel-Buffering: no` because a buffering reverse proxy in front of this\nwould hold the whole body and deliver it at once \u2014 which looks exactly like\nthe feature not working. See ADR 0009 for what fronts this cluster.",
+        "operationId": "stream_chat_message",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Thread Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Chat Message",
         "tags": [
           "chat"
         ]

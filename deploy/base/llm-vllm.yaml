@@ -1,0 +1,206 @@
+# The big model: vLLM serving Qwen3.6-27B-AWQ on the 4090 (ADR 0016).
+#
+# Adapted from the sysadmin's own `vllm-qwen3-6-27b` in the `aycp` namespace,
+# which is already proven on this exact hardware. Copying a working recipe beats
+# deriving one: the AWQ-Marlin kernel choice, the fp8 KV cache and
+# `--gpu-memory-utilization 0.95` are what make a 27B fit in 24 GB at all, and
+# none of them is a number worth rediscovering by OOM.
+#
+# ## Why this exists next to `almagest-llm` rather than replacing it
+#
+# `nvidia.com/gpu` on this node is capacity 1, integral and exclusive (measured —
+# see ADR 0016). **Only one of these can hold the card at a time.** So "multiple
+# models" is not several servers running at once; it is several Deployments that
+# each know how to hold the card, of which at most one is scaled up.
+#
+#   kubectl -n ili scale deploy/almagest-llm       --replicas=0   # release Ollama
+#   kubectl -n ili scale deploy/almagest-llm-27b   --replicas=1   # take the card
+#
+# That is the same explicit yield ADR 0016 already describes for the co-tenant,
+# pointed inward. `replicas: 0` here is deliberate and matches the source recipe:
+# the expensive model is off until somebody wants it, and `ALMAGEST_LLM_BASE_URL`
+# decides which one chat talks to.
+#
+# ## What differs from the source, and why
+#
+#   * `--served-model-name almagest-27b` rather than the upstream name, so
+#     `ALMAGEST_LLM_MODEL` is a name we control and a model swap does not become a
+#     config change in two places.
+#   * `--enable-auto-tool-choice --tool-call-parser qwen3_coder` is **kept and is
+#     the point**: chat's tools (`app.services.chat_tools`) are useless against a
+#     server that cannot emit a tool call. Ollama's qwen3:8b manages this too, but
+#     a 27B is markedly better at deciding *when* to look something up rather than
+#     answering from memory, which is the failure this whole surface guards.
+#   * The `hf-token` Secret is **optional** here — `QuantTrio/Qwen3.6-27B-AWQ` is a
+#     public repo, and this namespace cannot delete Secrets (RBAC), so requiring
+#     one would add a rotation problem for nothing. If a gated model is ever
+#     wanted, add the env var back with `optional: true`.
+#   * `readOnlyRootFilesystem: true` with memory-backed `/tmp` and `/dev/shm`,
+#     exactly as the source has it. vLLM writes its Torch-inductor cache into
+#     `/tmp`, so the emptyDir is load-bearing rather than hygiene.
+#
+# ## The startup probe is the important one
+#
+# 240 failures at 15 s is an hour. That is not timidity: the first start
+# **downloads ~16 GB of weights** and then compiles CUDA graphs, and a liveness
+# probe that fired during either would restart the pod into doing it again,
+# forever. The liveness probe only takes over once the startup probe has passed.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: almagest-llm-models
+  labels:
+    app.kubernetes.io/component: llm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-shared
+  resources:
+    requests:
+      # A 27B at AWQ 4-bit is ~16 GB, plus HuggingFace's blob/ref bookkeeping.
+      # Separate from `almagest-models` (Ollama's store) because the two servers
+      # want different on-disk layouts and RWO means they cannot share a volume
+      # while both are up anyway.
+      storage: 40Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: almagest-llm-27b
+  labels:
+    app.kubernetes.io/component: llm
+spec:
+  # Off by default. The card is exclusive; see the header.
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: almagest
+      app.kubernetes.io/component: llm-27b
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: almagest
+        app.kubernetes.io/component: llm-27b
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.20.0
+          args:
+            - --model
+            - QuantTrio/Qwen3.6-27B-AWQ
+            - --served-model-name
+            - almagest-27b
+            - --quantization
+            - awq_marlin
+            - --kv-cache-dtype
+            - fp8_e4m3
+            - --max-model-len
+            - "61440"
+            - --tensor-parallel-size
+            - "1"
+            - --gpu-memory-utilization
+            - "0.95"
+            - --max-num-seqs
+            - "4"
+            - --max-num-batched-tokens
+            - "4096"
+            - --language-model-only
+            # Without these two, chat's tools cannot be called at all.
+            - --enable-auto-tool-choice
+            - --tool-call-parser
+            - qwen3_coder
+            - --reasoning-parser
+            - qwen3
+            - --trust-remote-code
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          env:
+            - name: HF_HOME
+              value: /models
+            - name: HF_HUB_CACHE
+              value: /models/hub
+            - name: HOME
+              value: /tmp
+            - name: XDG_CACHE_HOME
+              value: /tmp/cache
+            - name: VLLM_CACHE_ROOT
+              value: /tmp/vllm-cache
+            - name: TORCHINDUCTOR_CACHE_DIR
+              value: /tmp/torchinductor
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: expandable_segments:True
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "4"
+              memory: 24Gi
+              nvidia.com/gpu: 1
+            limits:
+              memory: 48Gi
+              nvidia.com/gpu: 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            # An hour. The first start downloads ~16 GB and compiles CUDA graphs;
+            # see the header for why nothing may restart it during that.
+            failureThreshold: 240
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 30
+            failureThreshold: 5
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: tmp, mountPath: /tmp }
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: almagest-llm-models
+        # Memory-backed, and required: the root filesystem is read-only, and vLLM
+        # writes its compile caches here.
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }
+        - name: shm
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: almagest-llm-27b
+  labels:
+    app.kubernetes.io/component: llm
+spec:
+  # ClusterIP, never a NodePort — same reason as `almagest-llm`: an OpenAI-
+  # compatible endpoint with no authentication of any kind must not be routable
+  # off-cluster.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: llm-27b
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

@@ -369,6 +369,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/chat/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Chat Models
+         * @description The models somebody may pick, smallest first.
+         *
+         *     Reports what is *configured*, not what is currently loadable: that depends on
+         *     which deployment holds the card, and asking would be a cluster round trip on
+         *     every page load. A pick that turns out to be unreachable fails at the send,
+         *     which already says so without losing the message.
+         */
+        get: operations["list_chat_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat/threads": {
         parameters: {
             query?: never;
@@ -6023,6 +6048,19 @@ export interface components {
             /** Slot Label */
             slot_label: string | null;
         };
+        /** ModelChoiceRead */
+        ModelChoiceRead: {
+            /** Good For */
+            good_for: string;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Requires Swap */
+            requires_swap: boolean;
+            /** Size B */
+            size_b: number;
+        };
         /** MovePlanRead */
         MovePlanRead: {
             /** Rationale */
@@ -8435,6 +8473,8 @@ export interface components {
         SendRequest: {
             /** Content */
             content: string;
+            /** Model */
+            model?: string | null;
         };
         /**
          * SendResponse
@@ -9886,6 +9926,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chat_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelChoiceRead"][];
                 };
             };
         };
