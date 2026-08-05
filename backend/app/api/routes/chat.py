@@ -259,6 +259,13 @@ class ModelChoiceRead(BaseModel):
     #: True when picking this hands the GPU from one server to another — minutes,
     #: not seconds. Surfaced so the choice is informed rather than surprising.
     requires_swap: bool
+    #: Whether anything is listening for it **right now**. Both model deployments
+    #: default to zero and a reaper scales them down on idle, so most of this list
+    #: is usually not running — and picking one does not start it.
+    reachable: bool
+    #: What to run to make it available. Named for this model, because generic
+    #: advice is what turns a specific failure into a shrug.
+    start_hint: str
 
 
 @router.get("/models", response_model=list[ModelChoiceRead])
@@ -277,6 +284,8 @@ def list_chat_models() -> list[ModelChoiceRead]:
             size_b=choice.size_b,
             good_for=choice.good_for,
             requires_swap=choice.requires_swap,
+            reachable=model_catalog.probe(choice),
+            start_hint=model_catalog.start_hint(choice),
         )
         for choice in model_catalog.CATALOG
     ]
@@ -384,6 +393,24 @@ def stream_chat_message(
     settings = get_settings()
     if request.model:
         choice = model_catalog.by_id(request.model)
+        if not model_catalog.probe(choice):
+            # The same refusal as `/send`, in this route's own currency: an SSE
+            # error frame. The client renders it in place with the user's turn
+            # still in the thread.
+            def not_running() -> Iterator[str]:
+                yield chat_stream._event(
+                    "error",
+                    {
+                        "message": (
+                            f"{choice.label} is not running. Picking a model here "
+                            f"does not start it — Almagest releases the GPU when "
+                            f"idle. Start it with "
+                            f"`{model_catalog.start_hint(choice)}`, then try again."
+                        )
+                    },
+                )
+
+            return StreamingResponse(not_running(), media_type="text/event-stream")
         model = chat_agent.build_model(choice.base_url, choice.served_name)
     else:
         model = chat_agent.build_model(settings.llm_base_url, settings.llm_model)

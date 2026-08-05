@@ -320,7 +320,12 @@ export function ChatThread({ threadId }: { threadId: number }) {
             {(models.data ?? []).map((choice) => (
               <option key={choice.id} value={choice.id}>
                 {choice.label}
-                {choice.requires_swap ? " — needs a GPU swap" : ""}
+                {/* Whether it is *running*, not whether it exists. Both model
+                    servers default to off and a reaper releases the GPU on idle,
+                    so most of this list is usually down — and picking one does
+                    not start it. Saying so in the option is what stops somebody
+                    choosing the 27B and waiting for an answer that cannot come. */}
+                {choice.reachable ? " — running" : " — not running"}
               </option>
             ))}
           </select>
@@ -328,11 +333,24 @@ export function ChatThread({ threadId }: { threadId: number }) {
         {/* The chosen model's own words on what it is for. Shown rather than
             tucked into a tooltip: picking well needs the sentence, and a phone
             has no hover. */}
-        {modelId !== "" && (
-          <p style={{ margin: 0, fontSize: "0.85em", opacity: 0.8 }}>
-            {(models.data ?? []).find((choice) => choice.id === modelId)?.good_for}
-          </p>
-        )}
+        {modelId !== "" &&
+          (() => {
+            const choice = (models.data ?? []).find((item) => item.id === modelId);
+            if (choice === undefined) return null;
+            return (
+              <p style={{ margin: 0, fontSize: "0.85em", opacity: 0.8 }}>
+                {choice.good_for}
+                {!choice.reachable && (
+                  // The command, before they send rather than after it fails.
+                  <>
+                    {" "}
+                    <strong>Not running — start it with</strong>{" "}
+                    <code className="mono">{choice.start_hint}</code>.
+                  </>
+                )}
+              </p>
+            );
+          })()}
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
