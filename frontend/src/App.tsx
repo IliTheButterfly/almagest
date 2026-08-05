@@ -179,6 +179,8 @@ export function App() {
                 PDF's extracted text, not part fields — a different question
                 from `/search`, not a mode of it. Not a scan target. */}
             <Route path="/chat" element={<ChatScreen />} />
+            {/* A conversation is linkable: same screen, thread id in the URL. */}
+            <Route path="/chat/:threadId" element={<ChatScreen />} />
             <Route path="/datasheets" element={<DatasheetSearchScreen />} />
             <Route path="/tree" element={<TreeScreen />} />
             <Route path="/scan" element={<ScanScreen />} />

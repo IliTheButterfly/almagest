@@ -177,6 +177,7 @@ function ProjectDetail({
         <h2 style={{ margin: 0 }}>Conversations</h2>
         <ChatList
           kind="project"
+          basePath={`/projects/${project.id}`}
           projectId={project.id}
           emptyBlurb="Nothing yet. Talk through the design, and send a writeup here when you want it kept."
         />

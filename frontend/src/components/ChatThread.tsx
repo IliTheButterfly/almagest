@@ -37,7 +37,21 @@ import { ErrorBanner, Loading } from "./Feedback";
 function Turn({ message }: { message: ChatMessageRead }) {
   const mine = message.role === "user";
   return (
-    <div className="card" style={{ marginLeft: mine ? "2rem" : 0, marginRight: mine ? 0 : "2rem" }}>
+    // `maxWidth` + `marginInlineStart:auto`, never a plain `marginLeft`: the card
+    // is already full-width inside the stack, so a margin *adds* to that width and
+    // pushes the whole page into a horizontal scroll — which on a phone silently
+    // clips the export link and the right-hand edge of every answer.
+    <div
+      className="card"
+      style={{
+        maxWidth: "min(100%, 34rem)",
+        // A flex item refuses to shrink below its content unless told to. Without
+        // this the <pre> below sets the card's width and the whole page scrolls.
+        minWidth: 0,
+        marginInlineStart: mine ? "auto" : undefined,
+        marginInlineEnd: mine ? undefined : "auto",
+      }}
+    >
       <div className="row" style={{ gap: "0.5rem", alignItems: "baseline" }}>
         <span className={mine ? "badge badge-accent" : "badge"}>{message.role}</span>
         {message.model !== null && (
@@ -50,7 +64,19 @@ function Turn({ message }: { message: ChatMessageRead }) {
         // point is that the reader can check what the answer was built from.
         <pre
           className="mono"
-          style={{ margin: 0, fontSize: "0.75em", overflowX: "auto", opacity: 0.85 }}
+          style={{
+            margin: 0,
+            fontSize: "0.75em",
+            // **Wrapped, not scrolled.** A sideways-scrolling box inside a
+            // vertically-scrolling page is a bad gesture on a phone, and getting
+            // `overflow-x: auto` to actually constrain a <pre> takes a min-width:0
+            // on every ancestor — one missed and the whole page scrolls sideways,
+            // silently clipping the export link. Wrapping cannot fail that way.
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            maxWidth: "100%",
+            opacity: 0.85,
+          }}
         >
           {message.tool_calls_json}
         </pre>
@@ -95,8 +121,8 @@ export function ChatThread({ threadId }: { threadId: number }) {
 
   return (
     <div className="stack">
-      <div className="row" style={{ alignItems: "baseline", gap: "0.5rem" }}>
-        <h2 style={{ flex: 1, margin: 0 }}>{detail.thread.title}</h2>
+      <div className="row" style={{ alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
+        <h2 style={{ flex: "1 1 12rem", margin: 0, minWidth: 0 }}>{detail.thread.title}</h2>
         <a className="badge" href={chatExportUrl(threadId, "md")} download>
           export .md
         </a>

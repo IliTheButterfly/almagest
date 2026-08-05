@@ -17,6 +17,7 @@
  * `kind` and the `projectId` differ.
  */
 
+import { useNavigate, useParams } from "react-router-dom";
 import { useState } from "react";
 
 import { ChatThread } from "../components/ChatThread";
@@ -34,16 +35,29 @@ export function ChatList({
   kind,
   projectId,
   emptyBlurb,
+  basePath,
 }: {
   kind: ChatKind;
   projectId?: number;
   emptyBlurb: string;
+  //: Where this list lives, so an opened thread can be a URL under it. Passed in
+  //: rather than derived, because the same component renders at `/chat` and
+  //: inside a project screen.
+  basePath: string;
 }) {
   const threads = useAsync<ChatThreadRead[]>(
     () => listChatThreads(kind, projectId),
     [kind, projectId],
   );
-  const [openId, setOpenId] = useState<number | null>(null);
+  // The open thread lives in the URL, not in state. A conversation you cannot
+  // link to is one you cannot send to someone, bookmark, or return to after a
+  // reload — and the reload case is the common one, because these threads are
+  // long-lived.
+  const { threadId } = useParams();
+  const navigate = useNavigate();
+  const openId = threadId === undefined ? null : Number(threadId);
+  const setOpenId = (id: number | null) =>
+    navigate(id === null ? basePath : `${basePath}/${id}`);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<unknown>(null);
 
@@ -134,6 +148,7 @@ export function ChatScreen() {
       <h1>Ask</h1>
       <ChatList
         kind="search"
+        basePath="/chat"
         emptyBlurb={
           "Nothing yet. Ask what is in stock, what would substitute for a part you cannot " +
           "find, or what a drawer is for."
