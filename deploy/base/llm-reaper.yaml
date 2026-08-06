@@ -92,11 +92,35 @@ data:
       # on why the bias points this direction.
       echo "no recent chat activity found; releasing"
     else
-      cutoff="$(date -u -d "-${IDLE_MINUTES} minutes" +%Y-%m-%dT%H:%M:%S 2>/dev/null)"
-      if [ -n "$cutoff" ] && [ "$newest" \> "$cutoff" ]; then
-        echo "chat active at $newest (cutoff $cutoff); leaving the GPU alone"
+      # **Epoch integers, not GNU relative dates.** This image is Alpine, so `date`
+      # is busybox's, and busybox rejects `-d "-45 minutes"` outright:
+      #
+      #     date: invalid date '-45 minutes'
+      #
+      # The old code sent exactly that, took the empty result, failed the
+      # `[ -n "$cutoff" ]` guard, and fell through to the release branch — on
+      # *every* run. So the reaper scaled both models down every ten minutes no
+      # matter how active chat was, `IDLE_MINUTES` never did anything at all, and
+      # the 27B could not be kept alive long enough to answer twice. It looked
+      # exactly like a flaky model.
+      #
+      # Both forms below are busybox-supported and verified in this image:
+      # `-D` to parse an ISO stamp, `+%s` to emit epoch seconds.
+      #
+      # The stamp is truncated to 19 characters first because `updated_at` carries
+      # fractional seconds and a `Z` (`2026-08-06T17:21:07.350992Z`), neither of
+      # which the `-D` format matches — and a parse failure here would fail open
+      # into the same silent always-release this comment exists to prevent.
+      newest_epoch="$(date -u -D %Y-%m-%dT%H:%M:%S \
+        -d "$(printf '%s' "$newest" | cut -c1-19)" +%s 2>/dev/null)"
+      cutoff_epoch=$(( $(date -u +%s) - IDLE_MINUTES * 60 ))
+      if [ -n "$newest_epoch" ] && [ "$newest_epoch" -gt "$cutoff_epoch" ]; then
+        echo "chat active at $newest (idle window ${IDLE_MINUTES}m); leaving the GPU alone"
         exit 0
       fi
+      # An unparseable stamp still releases, deliberately — the header's bias — but
+      # it now says so, instead of being indistinguishable from a real idle window.
+      [ -n "$newest_epoch" ] || echo "could not parse $newest; treating as idle"
       echo "idle since $newest; releasing"
     fi
 
