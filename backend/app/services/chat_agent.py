@@ -372,9 +372,21 @@ def respond(model: ChatModel, turns: Sequence[ChatMessage], *, session: Any = No
                 }
             )
     else:
-        # Still asking for tools after the cap. Saying so beats an empty bubble,
-        # and the cap is what stops a loop costing the whole request.
-        message = {"content": "I kept looking things up without reaching an answer."}
+        # **The cap is reached with the last round's results never shown to it.**
+        # The loop runs the tools of its final iteration, appends the results, and
+        # then falls out — so a model that would have answered from those results
+        # on the very next call never got asked. It was told "I kept looking things
+        # up without reaching an answer" while the answer sat unread in `messages`.
+        #
+        # So spend one more call, with `tools=None`. Offering no tools is what makes
+        # it terminal: the model cannot request a fourth round because there is
+        # nothing to request, and must answer from what was already gathered. That
+        # is a strictly better use of the same budget than discarding the work.
+        message = model.complete(messages, None)
+        if not answer_text(message):
+            # It had every result in front of it, no way to ask for more, and still
+            # said nothing. Now the giveaway is honest.
+            message = {"content": "I kept looking things up without reaching an answer."}
 
     text = answer_text(message)
     if not text:

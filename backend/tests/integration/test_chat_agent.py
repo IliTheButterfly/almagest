@@ -105,6 +105,80 @@ def test_a_reasoned_answer_with_no_content_is_shown_rather_than_discarded(db: Se
     assert "returned nothing" not in reply.text
 
 
+def test_the_last_round_of_tool_results_is_answered_from_not_thrown_away(db: Session) -> None:
+    """Observed on thread 11, asking "What containers do we have?".
+
+    The loop ran the tools of its final round, appended the results, fell out, and
+    replaced everything with "I kept looking things up without reaching an answer"
+    — while the answer sat unread in the message list. The model was never asked.
+
+    One more call is spent, with no tools offered. That is what makes it terminal:
+    there is no fourth round to request, so the model must answer from what it
+    already has.
+    """
+    calls: list[object] = []
+
+    class AlwaysTools:
+        model = "almagest-27b"
+
+        def complete(self, messages: object, tools: object = None) -> dict[str, object]:
+            calls.append(tools)
+            if tools is None:
+                return {"content": "Two drawers and a bin."}
+            return {
+                "tool_calls": [
+                    {
+                        "id": f"c{len(calls)}",
+                        "function": {"name": "list_locations", "arguments": "{}"},
+                    }
+                ]
+            }
+
+        def stream(self, messages: object) -> object:
+            del messages
+            return iter(())
+
+    thread = _thread(db)
+    chat.append_message(db, thread=thread, role=ChatRole.USER, content="What containers?")
+
+    reply = chat_agent.respond(AlwaysTools(), chat.messages(db, thread_id=thread.id), session=db)
+
+    assert reply.text == "Two drawers and a bin."
+    # The final call is the one with no tools — that is what forces an answer.
+    assert calls[-1] is None
+    assert len(calls) == chat_agent.MAX_TOOL_ROUNDS + 1
+
+
+def test_a_model_that_says_nothing_even_unarmed_still_gets_the_giveaway(db: Session) -> None:
+    """The forced answer is not a guarantee. When the model has every result, no
+    way to ask for more, and still returns nothing, the original message is the
+    honest one."""
+
+    class Mute:
+        model = "almagest-27b"
+
+        def complete(self, messages: object, tools: object = None) -> dict[str, object]:
+            del messages
+            if tools is None:
+                return {"content": ""}
+            return {
+                "tool_calls": [
+                    {"id": "c", "function": {"name": "list_locations", "arguments": "{}"}}
+                ]
+            }
+
+        def stream(self, messages: object) -> object:
+            del messages
+            return iter(())
+
+    thread = _thread(db)
+    chat.append_message(db, thread=thread, role=ChatRole.USER, content="What containers?")
+
+    reply = chat_agent.respond(Mute(), chat.messages(db, thread_id=thread.id), session=db)
+
+    assert "kept looking things up" in reply.text
+
+
 def _sse(*frames: dict[str, object]) -> object:
     """An SSE body as `urlopen` returns it — iterated line by line, not buffered."""
     lines = [f"data: {json.dumps(frame)}\n".encode() for frame in frames]

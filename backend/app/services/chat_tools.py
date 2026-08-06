@@ -100,8 +100,10 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "list_locations",
             "description": (
-                "List storage locations by name or path fragment, so you can say where "
-                "something lives or what a drawer is called."
+                "List storage locations: cabinets, drawers, bins, boxes and every "
+                "other container parts live in. Containers ARE locations here, so "
+                "use this to answer 'what containers do we have'. Omit `query` to "
+                "list everything; pass it only to filter by name or path fragment."
             ),
             "parameters": {
                 "type": "object",
