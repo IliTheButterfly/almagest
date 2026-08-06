@@ -78,6 +78,22 @@ produce: a wrong answer indistinguishable from a right one.
 *Place and balance* — `resolve_short_id`, `browse_locations`, `get_location`,
 `get_lot`, `get_lot_history`.
 
+"Does this part fit in that drawer" is answerable from two of those and no third
+tool: `get_location` carries the container's `geometry` in millimetres, and
+`get_part` carries the part's own. The dimensions live on `container_types`,
+whose routes are all `Excluded(AUTHORING)` — **and stay excluded**, because
+authoring a type means editing a slot template that decides how every container
+cloned from it subdivides, which is a thing to see rendered before saving.
+Reading how deep a drawer is is not that, so `LocationRead` resolves the type's
+envelope and reports it inline rather than handing out a `container_type_id` and
+a route that cannot be called. `browse_locations` deliberately does not carry it:
+a tree is hundreds of rows, and the fit question is asked about one container.
+
+Null dimensions are the common case and mean *unmeasured*, never zero — most
+container types have never had a tape measure taken to them.
+`geometry.inner_volume_mm3` is the raw envelope; the advisory `capacity` beside it is that
+volume times a `fill_factor`, because parts do not pack perfectly.
+
 *Projects* — `list_projects`, `get_project`, `get_project_bom`,
 `get_bom_suggestions`, `get_build_shortages`, `get_build_pick_list`.
 

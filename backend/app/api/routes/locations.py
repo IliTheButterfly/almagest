@@ -15,6 +15,7 @@ a printed label: the moment a box changes shelf, an encoded path is a lie.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -85,6 +86,66 @@ class CapacityRead(BaseModel):
     is_full: bool
     is_overfull: bool
     unit: str
+
+
+class GeometryRead(BaseModel):
+    """How big this container actually is, in millimetres.
+
+    Every value is the **container type's**, resolved here rather than left to a
+    client to fetch and join. `container_type_id` alone was a dead end for any
+    consumer that cannot follow it — notably the MCP tool surface, where the
+    container-type routes are deliberately unexposed as geometry *authoring*
+    (see `mcpserver/almagest_mcp/coverage.py`). Reading how deep a drawer is is
+    not authoring, so the fact travels with the container instead.
+
+    Null throughout is the common, honest case: most container types in a real
+    setup have never had a tape measure taken to them, and a null must never be
+    read as a zero. `CapacityRead` is the *derived* fill state; this is the
+    physical envelope those numbers come from.
+    """
+
+    #: What kind of container this is ("Raaco A75 drawer", "Gridfinity 2x1x6u"),
+    #: so a consumer can name it without a second lookup. Both halves travel:
+    #: `display_name` is what gets shown or quoted, `container_type_slug` is the
+    #: stable identifier to compare two containers by.
+    container_type_slug: str
+    container_type_display_name: str
+    #: Usable interior. What "will this part fit" is actually asking about.
+    inner_length_mm: float | None
+    inner_width_mm: float | None
+    inner_height_mm: float | None
+    #: `inner_length_mm * inner_width_mm * inner_height_mm`, or null if any of
+    #: the three is missing. Computed rather than stored: it is exactly the
+    #: product, and a stored copy would be free to drift from its own factors.
+    #:
+    #: **This is the raw envelope, not `CapacityRead.capacity`.** The volume
+    #: capacity model multiplies this by `fill_factor`, because parts do not
+    #: pack perfectly — see `app.services.capacity.VolumeCapacityStrategy`.
+    inner_volume_mm3: float | None
+    #: The longest single item this container will take, when that is smaller
+    #: than the interior implies — a drawer with a lip, a divided tray.
+    max_item_dimension_mm: float | None
+    #: Packing efficiency, resolved (instance override, else the type's default,
+    #: else the module constant). Reported because it is the whole difference
+    #: between `inner_volume_mm3` and the advisory capacity above it.
+    fill_factor: float
+    #: Fraction of capacity at which the container is called full. Advisory.
+    full_threshold: float
+    #: Outer footprint in the parent's grid units, for a container that sits in
+    #: a measured grid (ADR 0002) — a Gridfinity 2x1x6u bin is (2, 1, 6). Null
+    #: for a type that does not. Multiply by the *parent's* pitch for millimetres.
+    footprint_cols: int | None
+    footprint_rows: int | None
+    footprint_height_u: int | None
+    #: The pitch this container presents to *its own* children, when it is a
+    #: measured grid: 42.0 and 7.0 for Gridfinity. Null for irregular
+    #: compartments, which an assortment box's slot template covers instead.
+    grid_pitch_mm: float | None
+    grid_height_unit_mm: float | None
+    #: Part kinds this container will accept, or null for "no restriction".
+    #: Advisory like everything else here — assignment scores against it, and
+    #: nothing refuses a put-away over it.
+    allowed_part_kinds: list[str] | None
 
 
 # --- ADR 0009: drawn rooms and placed containers ---------------------------
@@ -354,6 +415,10 @@ class LocationRead(BaseModel):
     display: str | None
     child_count: int
     capacity: CapacityRead
+    #: The container type's physical envelope, resolved — or null when this
+    #: location has no container type at all, which every room and most shelves
+    #: legitimately do not. See `GeometryRead`.
+    geometry: GeometryRead | None
     lots: list[LotRead]
     #: Drives the "never printed" badge (`docs/PLAN.md`, "Label sheets matched
     #: to the layout"). Set by `POST /api/labels/sheets`, never by anything in
@@ -985,6 +1050,63 @@ def _plan_read(db: Session, parent: Location) -> RoomPlanRead:
     )
 
 
+def _allowed_part_kinds(raw: str | None) -> list[str] | None:
+    """Parse the JSON array of part-kind slugs, tolerating a malformed blob.
+
+    Tolerant on purpose, and for the same reason
+    `app.services.assignment.part_kind_allowed` is: that function treats
+    unparseable data as "no restriction" so a bad blob can never block a scan.
+    Raising here instead would make the container detail screen — and every tool
+    reading through it — fail on data that put-away happily ignores.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return [str(kind) for kind in parsed] if isinstance(parsed, list) and parsed else None
+
+
+def _geometry_read(location: Location, container_type: ContainerType | None) -> GeometryRead | None:
+    """Resolve a location's physical envelope, or null if it has no type.
+
+    `fill_factor`/`full_threshold` come from `capacity.container_inputs` rather
+    than being re-resolved here: the override chain is that function's to own,
+    and a second copy of it would be free to disagree with the capacity numbers
+    reported beside it.
+    """
+    if container_type is None:
+        return None
+    inputs = capacity.container_inputs(location, container_type)
+    # Truthiness, not `is not None`, and deliberately the same test
+    # `VolumeCapacityStrategy` applies to the same three columns: a 0 mm
+    # dimension is not a measurement, and treating it as one would report a
+    # 0 mm3 envelope where the strategy beside it reports "no defined capacity".
+    inner_volume = (
+        inputs.inner_length_mm * inputs.inner_width_mm * inputs.inner_height_mm
+        if inputs.inner_length_mm and inputs.inner_width_mm and inputs.inner_height_mm
+        else None
+    )
+    return GeometryRead(
+        container_type_slug=container_type.slug,
+        container_type_display_name=container_type.display_name,
+        inner_length_mm=inputs.inner_length_mm,
+        inner_width_mm=inputs.inner_width_mm,
+        inner_height_mm=inputs.inner_height_mm,
+        inner_volume_mm3=inner_volume,
+        max_item_dimension_mm=container_type.max_item_dimension_mm,
+        fill_factor=inputs.fill_factor,
+        full_threshold=inputs.full_threshold,
+        footprint_cols=container_type.footprint_cols,
+        footprint_rows=container_type.footprint_rows,
+        footprint_height_u=container_type.footprint_height_u,
+        grid_pitch_mm=container_type.grid_pitch_mm,
+        grid_height_unit_mm=container_type.grid_height_unit_mm,
+        allowed_part_kinds=_allowed_part_kinds(container_type.allowed_part_kinds_json),
+    )
+
+
 def _read(db: Session, location: Location) -> LocationRead:
     entity = describe(db, EntityType.LOCATION, location.id)
     container_type = (
@@ -1059,6 +1181,7 @@ def _read(db: Session, location: Location) -> LocationRead:
         display=entity.display,
         child_count=child_count,
         capacity=_capacity_read(db, location),
+        geometry=_geometry_read(location, container_type),
         lots=[lot_read(db, lot, parts_by_id.get(lot.part_id)) for lot in lots],
         last_printed_at=location.last_printed_at,
         retired_at=location.retired_at,

@@ -5391,6 +5391,54 @@ export interface components {
              */
             value: string;
         };
+        /**
+         * GeometryRead
+         * @description How big this container actually is, in millimetres.
+         *
+         *     Every value is the **container type's**, resolved here rather than left to a
+         *     client to fetch and join. `container_type_id` alone was a dead end for any
+         *     consumer that cannot follow it — notably the MCP tool surface, where the
+         *     container-type routes are deliberately unexposed as geometry *authoring*
+         *     (see `mcpserver/almagest_mcp/coverage.py`). Reading how deep a drawer is is
+         *     not authoring, so the fact travels with the container instead.
+         *
+         *     Null throughout is the common, honest case: most container types in a real
+         *     setup have never had a tape measure taken to them, and a null must never be
+         *     read as a zero. `CapacityRead` is the *derived* fill state; this is the
+         *     physical envelope those numbers come from.
+         */
+        GeometryRead: {
+            /** Allowed Part Kinds */
+            allowed_part_kinds: string[] | null;
+            /** Container Type Display Name */
+            container_type_display_name: string;
+            /** Container Type Slug */
+            container_type_slug: string;
+            /** Fill Factor */
+            fill_factor: number;
+            /** Footprint Cols */
+            footprint_cols: number | null;
+            /** Footprint Height U */
+            footprint_height_u: number | null;
+            /** Footprint Rows */
+            footprint_rows: number | null;
+            /** Full Threshold */
+            full_threshold: number;
+            /** Grid Height Unit Mm */
+            grid_height_unit_mm: number | null;
+            /** Grid Pitch Mm */
+            grid_pitch_mm: number | null;
+            /** Inner Height Mm */
+            inner_height_mm: number | null;
+            /** Inner Length Mm */
+            inner_length_mm: number | null;
+            /** Inner Volume Mm3 */
+            inner_volume_mm3: number | null;
+            /** Inner Width Mm */
+            inner_width_mm: number | null;
+            /** Max Item Dimension Mm */
+            max_item_dimension_mm: number | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -5886,6 +5934,7 @@ export interface components {
             effective_photo: components["schemas"]["DocumentRead"] | null;
             /** Esd Safe */
             esd_safe: boolean | null;
+            geometry: components["schemas"]["GeometryRead"] | null;
             /** Glyph */
             glyph: string | null;
             /** Id */

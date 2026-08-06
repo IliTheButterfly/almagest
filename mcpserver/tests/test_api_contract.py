@@ -186,6 +186,47 @@ def test_a_location_carries_its_path_and_contents(
     assert {"id", "name", "label_path", "short_id", "lots", "is_overfull"} <= set(read)
 
 
+def test_a_location_carries_the_millimetres_get_location_promises(
+    schema: dict[str, Any], operations: dict[str, tuple[str, str, dict[str, Any]]]
+) -> None:
+    """`get_location`'s docstring tells a model to answer "does this fit" from
+    these exact names, against a part's own dimensions. The container-type routes
+    that also hold them are excluded from the tool surface as authoring, so this
+    is the *only* door to them — a rename here would leave the docstring
+    instructing a model to read fields that are silently absent.
+    """
+    read = response_properties(schema, operations, "read_location")
+    geometry = properties(schema, read["geometry"])
+    assert {
+        "container_type_slug",
+        "container_type_display_name",
+        "inner_length_mm",
+        "inner_width_mm",
+        "inner_height_mm",
+        "inner_volume_mm3",
+        "max_item_dimension_mm",
+        "fill_factor",
+        "allowed_part_kinds",
+    } <= set(geometry)
+
+
+def test_a_part_carries_the_dimensions_to_compare_against_a_container(
+    schema: dict[str, Any], operations: dict[str, tuple[str, str, dict[str, Any]]]
+) -> None:
+    """The other half of the fit question, and `volume_source` with it: `get_part`
+    tells a model to read that before quoting a volume as measured rather than
+    estimated."""
+    read = response_properties(schema, operations, "read_part")
+    assert {
+        "length_mm",
+        "width_mm",
+        "height_mm",
+        "unit_volume_mm3",
+        "unit_mass_mg",
+        "volume_source",
+    } <= set(read)
+
+
 def test_the_tree_carries_structure_without_recursion(
     schema: dict[str, Any], operations: dict[str, tuple[str, str, dict[str, Any]]]
 ) -> None:
