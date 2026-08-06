@@ -124,3 +124,22 @@ describe("the layout change guard's affected-slot list", () => {
     expect(describeError(error).affectedSlots).toBeNull();
   });
 });
+
+describe("a plain string is not a message describeError can read", () => {
+  it("falls back — which is why a caller must wrap a string in an Error", () => {
+    // Found the hard way. The chat stream set `sendError` to the raw string from
+    // an SSE error frame, so every carefully-worded server message ("Qwen3 8B was
+    // not running, so it is starting now — press Try again shortly") was silently
+    // replaced by the generic fallback, and the screen said only "the model could
+    // not be reached". The backend was right; the UI threw its words away.
+    //
+    // The behaviour below is correct and deliberate, so this pins it rather than
+    // changing it. The lesson belongs at the call site.
+    const report = describeError("the model is starting", "generic fallback");
+    expect(report.headline).toBe("generic fallback");
+
+    expect(describeError(new Error("the model is starting"), "generic fallback").headline).toBe(
+      "the model is starting",
+    );
+  });
+});

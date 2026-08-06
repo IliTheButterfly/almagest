@@ -163,6 +163,55 @@ describe("absence is the common case", () => {
     expect(FakeSocket.last).not.toBe(first);
   });
 
+  it("gives up when no bridge ever answered, instead of logging forever", () => {
+    // **A failed WebSocket always logs to the console and the page cannot
+    // suppress it** — the browser emits it, so no try/catch reaches it. Retrying
+    // forever therefore fills devtools with ERR_CONNECTION_REFUSED on every load
+    // of every machine without the agent, which is nearly all of them.
+    //
+    // So: never connected + a few failures = stop. This is the case the file's
+    // own header calls common ("there is no bridge and never will be on this
+    // device").
+    const timers = new Map<number, () => void>();
+    let next = 1;
+    openBridge({
+      socket: (url) => new FakeSocket(url) as unknown as WebSocket,
+      setTimeout: (fn) => {
+        const handle = next++;
+        timers.set(handle, fn);
+        return handle;
+      },
+      clearTimeout: (handle) => {
+        timers.delete(handle);
+      },
+    });
+
+    // Fail every attempt without ever opening, draining whatever was scheduled.
+    let attempts = 0;
+    for (let round = 0; round < 10; round += 1) {
+      const socket = FakeSocket.last!;
+      attempts += 1;
+      socket.drop();
+      const pending = [...timers.values()];
+      timers.clear();
+      pending.forEach((fn) => fn());
+    }
+
+    // It stopped opening new sockets rather than scheduling another forever.
+    expect(attempts).toBeLessThanOrEqual(10);
+    expect(timers.size).toBe(0);
+  });
+
+  it("keeps reconnecting once a bridge HAS answered", () => {
+    // The other half: here the agent demonstrably exists and has merely
+    // restarted, so giving up would strand a real reader.
+    const { socket, fire } = harness();
+    const first = socket;
+    first.drop();
+    fire();
+    expect(FakeSocket.last).not.toBe(first);
+  });
+
   it("empties the roster when the bridge goes away", () => {
     const { connection, socket } = harness();
     attach(socket);

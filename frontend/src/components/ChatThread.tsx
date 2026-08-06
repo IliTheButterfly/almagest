@@ -30,7 +30,7 @@ import {
   listChatModels,
   type ChatMessageRead,
   type ChatThreadDetail,
-  type ChatModelChoice,
+  type ChatModelList,
 } from "../lib/api/client";
 import { streamChat } from "../lib/chat/stream";
 import { useAsync } from "../lib/hooks/useAsync";
@@ -128,7 +128,7 @@ export function ChatThread({ threadId }: { threadId: number }) {
   // storing the preference too would be a second source of truth for something
   // the transcript already answers.
   const [modelId, setModelId] = useState<string>("");
-  const models = useAsync<ChatModelChoice[]>(() => listChatModels(), []);
+  const models = useAsync<ChatModelList>(() => listChatModels(), []);
   const [sending, setSending] = useState(false);
   // The answer as it arrives. Rendered as a provisional bubble and thrown away on
   // `done`, when the thread reload brings back the persisted turn — so there is
@@ -139,10 +139,20 @@ export function ChatThread({ threadId }: { threadId: number }) {
   // Whether the last turn failed and can be re-run. Not the text: a retry sends
   // no content at all, because the question is already in the thread.
   const [canRetry, setCanRetry] = useState(false);
+  // Set when the server says it is starting a model. Drives the loading bar and
+  // the poll that retries by itself — being told to press a button every fifteen
+  // seconds is not a loading experience.
+  const [starting, setStarting] = useState(false);
+  const [startingFor, setStartingFor] = useState(0);
   // Seconds since the send. Drives both the "still working" copy and the prompt
   // below, because "it has been a while" is the only thing we can honestly say —
   // the server does not report progress and a fake percentage would be a lie.
   const [waited, setWaited] = useState(0);
+  // What the server says the default resolves to right now. Read from the same
+  // response as the list, so the label cannot disagree with the options.
+  const resolvedDefault = (models.data?.models ?? []).find(
+    (choice) => choice.id === models.data?.default_id,
+  );
 
   // A once-a-second tick, only while a send is in flight. Cleared on unmount and
   // whenever `sending` goes false, so a thread left open does not hold a timer.
@@ -157,6 +167,42 @@ export function ChatThread({ threadId }: { threadId: number }) {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [sending]);
+
+  // While a model is starting: count up, poll for it, and retry once it answers.
+  // The alternative — leaving a Try again button and walking away — makes the
+  // person the polling loop.
+  useEffect(() => {
+    if (!starting) {
+      setStartingFor(0);
+      return;
+    }
+    const began = Date.now();
+    let cancelled = false;
+    const tick = window.setInterval(() => {
+      setStartingFor(Math.round((Date.now() - began) / 1000));
+    }, 1000);
+    const poll = window.setInterval(() => {
+      void listChatModels()
+        .then((list) => {
+          if (cancelled) return;
+          const up = (list.models ?? []).some((choice) =>
+            modelId === "" ? choice.id === list.default_id : choice.id === modelId && choice.reachable,
+          );
+          if (up) {
+            setStarting(false);
+            void send(true);
+          }
+        })
+        .catch(() => undefined);
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(tick);
+      window.clearInterval(poll);
+    };
+    // `send` is stable enough for this: it reads current state through setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [starting, modelId]);
 
   if (thread.error !== null) {
     return <ErrorBanner error={thread.error} fallback="That conversation could not be loaded." />;
@@ -192,7 +238,15 @@ export function ChatThread({ threadId }: { threadId: number }) {
           failed = frame.message;
         }
       }
-      setSendError(failed);
+      // Wrapped in an Error, not set as a bare string. `describeError` only
+      // extracts a message from an Error instance or an ApiError problem — a
+      // plain string falls straight through to the fallback, which silently threw
+      // away every message the server had carefully written ("… is starting now,
+      // press Try again shortly") and replaced it with a generic sentence.
+      setSendError(failed === null ? null : new Error(failed));
+      // "is starting now" is the server's own phrasing in `_wake`; matching on it
+      // keeps the two ends in step without inventing a second error taxonomy.
+      setStarting(failed !== null && /starting now/i.test(failed));
       // Whether a retry is *available*, not what to re-send — there is nothing to
       // re-send. A turn that got an answer has nothing to retry.
       setCanRetry(failed !== null);
@@ -295,6 +349,17 @@ export function ChatThread({ threadId }: { threadId: number }) {
             error={sendError}
             fallback="The model could not be reached, so your message has no answer yet."
           />
+          {starting && (
+            <div className="stack" style={{ gap: "0.35rem" }}>
+              <div className="loading-bar" aria-hidden="true">
+                <i />
+              </div>
+              <p style={{ margin: 0, fontSize: "0.85em", opacity: 0.8 }}>
+                Loading the model — {startingFor}s. This page is watching for it and
+                will answer on its own.
+              </p>
+            </div>
+          )}
           {canRetry && (
             <button
               type="button"
@@ -316,8 +381,15 @@ export function ChatThread({ threadId }: { threadId: number }) {
         <label className="field" style={{ flex: "0 0 auto" }}>
           <span>Model</span>
           <select value={modelId} onChange={(event) => setModelId(event.target.value)}>
-            <option value="">Whatever is loaded (default)</option>
-            {(models.data ?? []).map((choice) => (
+            <option value="">
+              {/* Names the model it would actually use. "Whatever is loaded" was
+                  a promise the code did not keep — it used a fixed env var
+                  pointing at a server that is usually scaled down. */}
+              {resolvedDefault === undefined
+                ? "Whatever is loaded — nothing running"
+                : `Whatever is loaded — ${resolvedDefault.label}`}
+            </option>
+            {(models.data?.models ?? []).map((choice) => (
               <option key={choice.id} value={choice.id}>
                 {choice.label}
                 {/* Whether it is *running*, not whether it exists. Both model
@@ -335,7 +407,7 @@ export function ChatThread({ threadId }: { threadId: number }) {
             has no hover. */}
         {modelId !== "" &&
           (() => {
-            const choice = (models.data ?? []).find((item) => item.id === modelId);
+            const choice = (models.data?.models ?? []).find((item) => item.id === modelId);
             if (choice === undefined) return null;
             return (
               <p style={{ margin: 0, fontSize: "0.85em", opacity: 0.8 }}>

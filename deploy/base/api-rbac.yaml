@@ -1,0 +1,59 @@
+# The API's own identity, and the one thing it may do to the cluster.
+#
+# ## Why the API needs any cluster permission at all
+#
+# The GPU is released when chat is idle — it must be, since a held device blocks
+# every other namespace on this machine. That only works if coming back is
+# automatic, so a send that finds its model down starts it
+# (`app.services.model_scaler`). Starting a Deployment is a cluster write, and the
+# API therefore needs exactly enough rights to do it and nothing more.
+#
+# ## Its own ServiceAccount, not `default`
+#
+# The API was running as the namespace `default` ServiceAccount. Binding a scale
+# permission to that would hand it to **every pod in a namespace shared with other
+# people's production workloads** — the octans runner and the KubeVirt builder VM
+# among them. A dedicated identity keeps the grant attached to the thing that
+# needs it.
+#
+# ## Scoped to two Deployments, and to scaling them
+#
+# `resourceNames` names the two model servers, and the verbs stop at reading and
+# scaling. It cannot create, cannot delete, cannot touch a co-tenant's workload,
+# and cannot edit its own Deployment. If this credential leaked, the worst it
+# does is turn a model on.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: almagest-api
+  labels:
+    app.kubernetes.io/component: api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: almagest-api-scale-models
+  labels:
+    app.kubernetes.io/component: api
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    resourceNames: ["almagest-llm", "almagest-llm-27b"]
+    # `get` to see the current count, `patch` to set it. No create, no delete,
+    # and no `list` — listing would need a rule without `resourceNames`, which
+    # would widen this to every Deployment in a shared namespace.
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: almagest-api-scale-models
+  labels:
+    app.kubernetes.io/component: api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: almagest-api-scale-models
+subjects:
+  - kind: ServiceAccount
+    name: almagest-api

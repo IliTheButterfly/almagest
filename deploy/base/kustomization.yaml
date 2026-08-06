@@ -19,6 +19,9 @@ resources:
   - config.yaml
   - pvc.yaml
   - api.yaml
+  # The API's own identity, so it can start a model server on demand without
+  # that permission landing on every pod in a shared namespace.
+  - api-rbac.yaml
   - web.yaml
   - backup.yaml
   - maintenance.yaml

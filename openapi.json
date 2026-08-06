@@ -7821,6 +7821,35 @@
         "title": "ModelChoiceRead",
         "type": "object"
       },
+      "ModelListRead": {
+        "description": "The catalogue, plus what the default currently resolves to.\n\n`default_id` is the honest answer to \"whatever is loaded\": the id the server\n*would* use if a send named no model. Null when nothing is running, which the\nUI shows rather than implying a silent fallback that will fail.",
+        "properties": {
+          "default_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Id"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelChoiceRead"
+            },
+            "title": "Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "models",
+          "default_id"
+        ],
+        "title": "ModelListRead",
+        "type": "object"
+      },
       "MovePlanRead": {
         "properties": {
           "rationale": {
@@ -18243,11 +18272,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ModelChoiceRead"
-                  },
-                  "title": "Response List Chat Models",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ModelListRead"
                 }
               }
             },
