@@ -20,6 +20,10 @@ Offline throughout — `FakeChatModel` stands in for the endpoint.
 
 from __future__ import annotations
 
+import contextlib
+import json
+from typing import Any
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -65,6 +69,96 @@ def test_an_empty_completion_says_so_rather_than_storing_a_blank(db: Session) ->
     )
 
     assert "returned nothing" in reply.text
+
+
+def test_a_reasoned_answer_with_no_content_is_shown_rather_than_discarded(db: Session) -> None:
+    """The 27B's real failure, observed in the browser on 2026-08-06.
+
+    vLLM runs with `--reasoning-parser qwen3`, which lifts thinking out of
+    `content` into `reasoning_content`. A model that reasons to the answer and then
+    stops — ordinary on a short factual question — leaves `content` empty, and the
+    bubble read "(the model returned nothing)" while the response in fact carried a
+    complete answer. The fallback is what makes that sentence true only when it is.
+    """
+
+    class ReasonedOnly:
+        model = "almagest-27b"
+
+        def complete(self, messages: object, tools: object = None) -> dict[str, object]:
+            del messages, tools
+            return {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "It decouples supply noise from the chip.",
+            }
+
+        def stream(self, messages: object) -> object:
+            del messages
+            return iter(())
+
+    thread = _thread(db)
+    chat.append_message(db, thread=thread, role=ChatRole.USER, content="what does it do?")
+
+    reply = chat_agent.respond(ReasonedOnly(), chat.messages(db, thread_id=thread.id))
+
+    assert reply.text == "It decouples supply noise from the chip."
+    assert "returned nothing" not in reply.text
+
+
+def _sse(*frames: dict[str, object]) -> object:
+    """An SSE body as `urlopen` returns it — iterated line by line, not buffered."""
+    lines = [f"data: {json.dumps(frame)}\n".encode() for frame in frames]
+    lines.append(b"data: [DONE]\n")
+    return contextlib.nullcontext(iter(lines))
+
+
+def _delta(**fields: str) -> dict[str, object]:
+    return {"choices": [{"delta": fields}]}
+
+
+def test_a_stream_that_only_reasons_still_yields_the_reasoning(monkeypatch: Any) -> None:
+    """The streaming twin of the bug. The live-token path reads `delta.content`
+    and would otherwise end having yielded nothing at all, leaving the person
+    watching an empty bubble fill in with silence."""
+    model = chat_agent.OpenAICompatChatModel(base_url="http://x", model="almagest-27b")
+    monkeypatch.setattr(
+        chat_agent.urllib.request,
+        "urlopen",
+        lambda *_a, **_k: _sse(
+            _delta(reasoning_content="It decouples "), _delta(reasoning_content="supply noise.")
+        ),
+    )
+
+    assert "".join(model.stream([])) == "It decouples supply noise."
+
+
+def test_a_stream_with_real_content_never_leaks_the_reasoning(monkeypatch: Any) -> None:
+    """Reasoning is buffered, not yielded — so a model that thinks *and* answers
+    streams the answer alone, in order, with no deliberation spliced in."""
+    model = chat_agent.OpenAICompatChatModel(base_url="http://x", model="almagest-27b")
+    monkeypatch.setattr(
+        chat_agent.urllib.request,
+        "urlopen",
+        lambda *_a, **_k: _sse(
+            _delta(reasoning_content="hmm, decoupling..."),
+            _delta(content="100 "),
+            _delta(content="nF."),
+        ),
+    )
+
+    assert "".join(model.stream([])) == "100 nF."
+
+
+def test_reasoning_is_ignored_whenever_there_is_a_real_answer() -> None:
+    """The fallback must not become a second channel. When the model answers, its
+    working-out is not part of the answer — concatenating the two would show every
+    deliberation the `<think>` stripping exists to hide."""
+    message = {
+        "content": "100 nF.",
+        "reasoning_content": "The user probably means the decoupling cap, so...",
+    }
+
+    assert chat_agent.answer_text(message) == "100 nF."
 
 
 def test_history_is_bounded_so_a_long_thread_keeps_working(db: Session) -> None:

@@ -211,6 +211,14 @@ class OpenAICompatChatModel:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        # Reasoning deltas are buffered rather than yielded, for the same reason
+        # `answer_text` prefers content: they are working-out, and streaming them
+        # live would show the person a wall of deliberation they did not ask for.
+        # But a reasoning-parsed model can spend the whole turn here and emit no
+        # content at all, so throwing them away as they arrive would leave nothing
+        # to show. Kept, and used only if no content ever comes.
+        reasoning: list[str] = []
+        answered = False
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 for raw in response:
@@ -219,7 +227,7 @@ class OpenAICompatChatModel:
                         continue
                     body = line[5:].strip()
                     if body == "[DONE]":
-                        return
+                        break
                     try:
                         chunk = json.loads(body)
                     except json.JSONDecodeError:
@@ -230,9 +238,17 @@ class OpenAICompatChatModel:
                     delta = (chunk.get("choices") or [{}])[0].get("delta", {})
                     text = delta.get("content")
                     if text:
+                        answered = True
                         yield str(text)
+                    elif not answered:
+                        thought = delta.get("reasoning_content")
+                        if thought:
+                            reasoning.append(str(thought))
         except (urllib.error.URLError, OSError, ValueError) as error:
             raise ModelUnavailable(explain(error, self.base_url, self.model)) from error
+
+        if not answered and reasoning:
+            yield _strip_thinking("".join(reasoning))
 
 
 @dataclass
@@ -272,6 +288,31 @@ class FakeChatModel:
 def _strip_thinking(text: str) -> str:
     """Remove a `<think>` block. See the module docstring."""
     return _THINK.sub("", text).strip()
+
+
+def answer_text(message: dict[str, Any]) -> str:
+    """The visible answer in a completion, falling back to the reasoning.
+
+    **Empty `content` is not the same as no answer.** The 27B runs behind vLLM's
+    `--reasoning-parser qwen3`, which lifts the model's thinking out of `content`
+    into a separate `reasoning_content` field. A model that reasons its way to the
+    answer and then stops — common on a short factual question, where the thought
+    *is* the answer — therefore comes back with `content: ""` and a full
+    `reasoning_content`. Reading only `content` turned that into "(the model
+    returned nothing)", which is the one reading of the response that is simply
+    false: it returned plenty.
+
+    So the reasoning is used when, and only when, there is no content. It is not
+    concatenated: when the model does produce a real answer, its own thinking is
+    working-out the person did not ask to see, and `_strip_thinking` exists to
+    remove exactly that.
+    """
+    text = _strip_thinking(str(message.get("content") or ""))
+    if text:
+        return text
+    # `_strip_thinking` too: a server with no reasoning parser leaves the block
+    # inline, and this same field can then arrive still wrapped in `<think>`.
+    return _strip_thinking(str(message.get("reasoning_content") or ""))
 
 
 def to_messages(turns: Sequence[ChatMessage]) -> list[dict[str, Any]]:
@@ -335,10 +376,10 @@ def respond(model: ChatModel, turns: Sequence[ChatMessage], *, session: Any = No
         # and the cap is what stops a loop costing the whole request.
         message = {"content": "I kept looking things up without reaching an answer."}
 
-    text = _strip_thinking(str(message.get("content") or ""))
+    text = answer_text(message)
     if not text:
-        # An empty completion is a real outcome — a model that emitted only a
-        # think block, or hit its token ceiling mid-thought. Saying so beats
+        # Genuinely nothing: no content *and* no reasoning to fall back on — a
+        # model that hit its token ceiling before writing either. Saying so beats
         # storing an empty bubble nobody can interpret.
         text = "(the model returned nothing — it may have run out of tokens)"
     return Reply(
