@@ -5455,6 +5455,170 @@
         "title": "FilterIn",
         "type": "object"
       },
+      "GeometryRead": {
+        "description": "How big this container actually is, in millimetres.\n\nEvery value is the **container type's**, resolved here rather than left to a\nclient to fetch and join. `container_type_id` alone was a dead end for any\nconsumer that cannot follow it \u2014 notably the MCP tool surface, where the\ncontainer-type routes are deliberately unexposed as geometry *authoring*\n(see `mcpserver/almagest_mcp/coverage.py`). Reading how deep a drawer is is\nnot authoring, so the fact travels with the container instead.\n\nNull throughout is the common, honest case: most container types in a real\nsetup have never had a tape measure taken to them, and a null must never be\nread as a zero. `CapacityRead` is the *derived* fill state; this is the\nphysical envelope those numbers come from.",
+        "properties": {
+          "allowed_part_kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Part Kinds"
+          },
+          "container_type_display_name": {
+            "title": "Container Type Display Name",
+            "type": "string"
+          },
+          "container_type_slug": {
+            "title": "Container Type Slug",
+            "type": "string"
+          },
+          "fill_factor": {
+            "title": "Fill Factor",
+            "type": "number"
+          },
+          "footprint_cols": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Cols"
+          },
+          "footprint_height_u": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Height U"
+          },
+          "footprint_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Footprint Rows"
+          },
+          "full_threshold": {
+            "title": "Full Threshold",
+            "type": "number"
+          },
+          "grid_height_unit_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Height Unit Mm"
+          },
+          "grid_pitch_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Pitch Mm"
+          },
+          "inner_height_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Height Mm"
+          },
+          "inner_length_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Length Mm"
+          },
+          "inner_volume_mm3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Volume Mm3"
+          },
+          "inner_width_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inner Width Mm"
+          },
+          "max_item_dimension_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Item Dimension Mm"
+          }
+        },
+        "required": [
+          "container_type_slug",
+          "container_type_display_name",
+          "inner_length_mm",
+          "inner_width_mm",
+          "inner_height_mm",
+          "inner_volume_mm3",
+          "max_item_dimension_mm",
+          "fill_factor",
+          "full_threshold",
+          "footprint_cols",
+          "footprint_rows",
+          "footprint_height_u",
+          "grid_pitch_mm",
+          "grid_height_unit_mm",
+          "allowed_part_kinds"
+        ],
+        "title": "GeometryRead",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -6940,6 +7104,16 @@
             ],
             "title": "Esd Safe"
           },
+          "geometry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeometryRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "glyph": {
             "anyOf": [
               {
@@ -7110,6 +7284,7 @@
           "display",
           "child_count",
           "capacity",
+          "geometry",
           "lots",
           "last_printed_at",
           "retired_at"

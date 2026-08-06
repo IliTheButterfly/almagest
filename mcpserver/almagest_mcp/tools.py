@@ -331,6 +331,14 @@ def register_read_tools(server: MCPServer[Any], client: ApiClient) -> None:
         lot, never on the part — a reel and a cut-tape strip of the same MPN in the
         same bin are two lots — so `total_qty` is a sum over lots, and moving stock
         means naming a lot.
+
+        One part's physical size is here too: `length_mm`/`width_mm`/`height_mm`,
+        `unit_volume_mm3` and `unit_mass_mg`, which pair with a container's
+        `geometry` from `get_location` to answer "does this fit". Read
+        `volume_source` before quoting the volume as a fact — it says which rung
+        produced it: `override`/`dimensions` came from real measurements, while
+        `package_type`/`category`/`size_class` mean it was *estimated* from what
+        kind of part this is. Null means unmeasured, never zero.
         """
         payload = await client.call("read_part", path_params={"part_id": part_id})
         shaped = _with_units(payload)
@@ -381,6 +389,12 @@ def register_read_tools(server: MCPServer[Any], client: ApiClient) -> None:
         The path is always derived here and never encoded in a label or tag:
         containers move, and an encoded path becomes a lie the moment a drawer
         changes cabinet.
+
+        Deliberately the cheap shape: **no dimensions here.** A tree is hundreds
+        of rows, and millimetres on every one of them would be paid for by every
+        caller to serve the few that ask. `get_location` carries the full
+        `geometry` for one container, so narrow with this and then measure with
+        that — do not call it across a whole tree to find one drawer that fits.
         """
         payload = await client.call(
             "read_location_tree",
@@ -392,11 +406,26 @@ def register_read_tools(server: MCPServer[Any], client: ApiClient) -> None:
     async def get_location(
         location_id: Annotated[int, Field(ge=1)],
     ) -> dict[str, Any]:
-        """Read one container: its path, its short id, and every lot sitting in it.
+        """Read one container: its path, its short id, its size, and every lot in it.
 
         The "what is in this drawer" question. `lots` is the contents; each entry
         names its `part_id`, so pair this with `get_part` when you need what the
         part actually is.
+
+        `geometry` is how big the container physically is, in millimetres —
+        `inner_length_mm`/`inner_width_mm`/`inner_height_mm`, the `inner_volume_mm3`
+        they multiply to, `max_item_dimension_mm` for the longest thing it will
+        take, and `allowed_part_kinds` when it accepts only some. Paired with a
+        part's own `length_mm`/`width_mm`/`height_mm`/`unit_volume_mm3` from
+        `get_part`, that is enough to answer "does this fit". Null is the common
+        case and means **unmeasured, not zero**: most containers have never had a
+        tape measure taken to them, so say "not recorded" rather than treating a
+        missing dimension as an answer.
+
+        `geometry` is itself null for a container with no type at all — a room, a
+        bare shelf. `capacity` is the *derived* fill state and is advisory
+        everywhere: it multiplies the raw envelope by `fill_factor`, because parts
+        do not pack perfectly.
         """
         payload = await client.call("read_location", path_params={"location_id": location_id})
         shaped = _with_units(payload)
