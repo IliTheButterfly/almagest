@@ -25,6 +25,10 @@ spec:
         app.kubernetes.io/name: almagest
         app.kubernetes.io/component: api
     spec:
+      # Its own identity rather than the namespace `default`, because it carries a
+      # permission (scaling the model servers) that must not be handed to every
+      # pod in a namespace shared with other people's production workloads.
+      serviceAccountName: almagest-api
       # Satisfies PodSecurity `restricted`, though this namespace only enforces
       # `baseline`. Free to comply with here, and it means a future tightening
       # of the namespace label is a no-op rather than an outage.

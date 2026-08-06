@@ -60,6 +60,23 @@ export const WRITE_TIMEOUT_MS = 25_000;
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
+/**
+ * How many times to try before concluding there is no bridge on this device.
+ *
+ * **A failed WebSocket always logs to the console, and the page cannot suppress
+ * it** — the error is emitted by the browser, not by us, so it is reachable by no
+ * `try`, no handler and no flag. Retrying forever therefore produces an endless
+ * `ERR_CONNECTION_REFUSED` scroll in devtools on every page load of every machine
+ * without the agent, which is nearly all of them. That is not "degrading in
+ * silence", which is what this file claims to do.
+ *
+ * So a client that has **never** connected gives up after a few attempts: no
+ * bridge answered, and on a phone or a desktop without the agent none ever will.
+ * One that *has* connected keeps reconnecting for as long as the page lives,
+ * because there the agent demonstrably exists and has merely restarted.
+ */
+const MAX_ATTEMPTS_BEFORE_FIRST_CONNECT = 3;
+
 export interface BridgeCapabilities {
   readonly readsUid: boolean;
   readonly readsNdef: boolean;
@@ -215,6 +232,9 @@ export function openBridge(options: BridgeOptions = {}): BridgeConnection {
   let protocol = BRIDGE_PROTOCOL;
   let backoffMs = RECONNECT_MIN_MS;
   let reconnectTimer: number | null = null;
+  /** Consecutive failures since the last success. `everConnected` above is the
+   *  other half of the decision — see MAX_ATTEMPTS_BEFORE_FIRST_CONNECT. */
+  let failedAttempts = 0;
   let requestCounter = 0;
 
   const announceDevices = (): void => {
@@ -396,6 +416,7 @@ export function openBridge(options: BridgeOptions = {}): BridgeConnection {
         devices.clear();
         announceDevices();
       }
+      failedAttempts += 1;
       failEveryPendingWrite("the bridge disconnected");
       scheduleReconnect();
     };
@@ -403,6 +424,11 @@ export function openBridge(options: BridgeOptions = {}): BridgeConnection {
 
   const scheduleReconnect = (): void => {
     if (closed || reconnectTimer !== null) {
+      return;
+    }
+    // See MAX_ATTEMPTS_BEFORE_FIRST_CONNECT: nothing has ever answered here, so
+    // stop rather than log a refused connection every thirty seconds forever.
+    if (!everConnected && failedAttempts >= MAX_ATTEMPTS_BEFORE_FIRST_CONNECT) {
       return;
     }
     const delay = backoffMs;

@@ -117,6 +117,7 @@ export type ChatThreadDetail = Schemas["ThreadDetail"];
 export type ChatMessageRead = Schemas["MessageRead"];
 export type ChatKind = Schemas["ChatKind"];
 export type ChatModelChoice = Schemas["ModelChoiceRead"];
+export type ChatModelList = Schemas["ModelListRead"];
 export type ChatWriteupRead = Schemas["WriteupRead"];
 export type PartResearchRead = Schemas["PartResearchRead"];
 export type ResearchCandidateRead = Schemas["ResearchCandidateRead"];
@@ -799,7 +800,7 @@ export async function getChatThread(threadId: number): Promise<ChatThreadDetail>
 }
 
 /** The models that can answer, smallest first. */
-export async function listChatModels(): Promise<Schemas["ModelChoiceRead"][]> {
+export async function listChatModels(): Promise<Schemas["ModelListRead"]> {
   const { data, error, response } = await api.GET("/api/chat/models", {});
   if (error !== undefined) {
     fail("could not load the model list", error, response);

@@ -110,7 +110,16 @@ spec:
             - --kv-cache-dtype
             - fp8_e4m3
             - --max-model-len
-            - "61440"
+            # 16k, not the recipe's 61440. Measured here: the model itself takes
+            # 18.83 GiB and CUDA graphs another 0.44, which left **0.42 GiB for KV
+            # cache** on this 24 GiB card - far too little for a 61k context, and
+            # the engine aborted with "EngineCore failed to start" rather than
+            # degrading. 16k is a long chat and fits with room to spare.
+            #
+            # Raise it only against a measurement: the number that matters is the
+            # "Available KV cache memory" line in the startup log, not the ceiling
+            # a bigger card allowed elsewhere.
+            - "16384"
             - --tensor-parallel-size
             - "1"
             - --gpu-memory-utilization

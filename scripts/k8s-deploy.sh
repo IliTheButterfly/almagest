@@ -144,7 +144,30 @@ kubectl delete job "$JOB_NAME" --ignore-not-found >/dev/null
 # --- 3. Roll out -----------------------------------------------------------
 
 say "applying manifests"
+# The model Deployments declare `replicas: 0`, which is right as a *default* -
+# nothing may hold the GPU unasked. But it means a plain apply scales down
+# whichever model you are currently using, mid-answer, and for the 27B mid-startup:
+# it takes minutes to load, so a deploy during that window silently undoes it and
+# the next attempt starts from nothing. That happened three times before it was
+# noticed.
+#
+# So the running replica count is captured and put back. The manifest still owns
+# the default for a fresh cluster; the cluster owns what is running right now.
+say "remembering which models are running"
+declare -A MODEL_REPLICAS=()
+for model in almagest-llm almagest-llm-27b; do
+  MODEL_REPLICAS["$model"]="$(kubectl get deploy "$model" -n "$NAMESPACE" \
+    -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+done
+
 kubectl apply -k "$OVERLAY"
+
+for model in "${!MODEL_REPLICAS[@]}"; do
+  want="${MODEL_REPLICAS[$model]:-0}"
+  [ "$want" = "0" ] && continue
+  say "restoring $model to $want replica(s)"
+  kubectl scale "deploy/$model" -n "$NAMESPACE" --replicas="$want" >/dev/null
+done
 
 say "waiting for rollout"
 kubectl rollout status deployment/almagest-api --timeout=300s
