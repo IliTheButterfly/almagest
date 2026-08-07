@@ -67,3 +67,13 @@ out/bench/
 # rights are not ours to assume. `case.json` records each one's sha256 so the
 # corpus can re-fetch and verify them.
 bench/corpus/_pdfs/
+
+# Photographs. **Never committed**, on the same principle as the datasheets and
+# one stronger: a capture is a picture somebody took of their own bench, and a
+# git history is forever. `case.json` records `capture_sha256`, and the image
+# lives either in a running Almagest (upload it with
+# `python -m app.scripts.upload_capture`) or in the local cache below, which the
+# corpus loader checks first and which git never sees.
+bench/corpus/_captures/
+bench/corpus/**/capture.jpg
+bench/corpus/**/capture.png

@@ -124,7 +124,21 @@ class CaseRecord:
 
     # -- fields -----------------------------------------------------------
     #: template name -> one of CELL_OUTCOMES.
+    #:
+    #: **Order carries no meaning here and must not be relied on.** Records are
+    #: written with `sort_keys=True`, which sorts nested dicts as well, so any
+    #: ranking expressed as key order is silently destroyed on the way to disk.
+    #: That happened: the vision stage put its ranked candidates in this dict and
+    #: the chart drew the alphabetically-first one as the model's top answer.
+    #: Anything ordered goes in `ranked`.
     cells: dict[str, CellOutcome] = field(default_factory=dict)
+    #: What the model proposed, **in the order it proposed it**, best first.
+    #:
+    #: A list rather than dict ordering because rank is load-bearing: the first
+    #: entry is what a stub part would actually be created from, and the
+    #: difference between "the right answer was first" and "the right answer was
+    #: third" is most of what a proposal-based stage is measuring.
+    ranked: tuple[str, ...] = ()
     #: template name -> the model's own confidence, for the calibration curve.
     confidences: dict[str, float] = field(default_factory=dict)
 

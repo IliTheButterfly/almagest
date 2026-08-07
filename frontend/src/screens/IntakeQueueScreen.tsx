@@ -236,6 +236,27 @@ function SyncReport({ outcome }: { outcome: SyncOutcome }) {
  * schema: a pile of dismissed unknowns is noise, a pile of resolved ones is a
  * vendor format worth writing a parser for.
  */
+/** The prefix `app.scripts.upload_capture` puts in front of an image's sha256. */
+const CAPTURE_PAYLOAD = "capture:";
+
+/**
+ * What to show when there is no part number yet — the payload, unless it is not
+ * one.
+ *
+ * `raw_payload` is mandatory on an intake entry and is normally the thing that
+ * was scanned, which is exactly what a person wants to see. A photograph
+ * uploaded rather than scanned has nothing to put there, so the uploader stores
+ * the image's hash behind a prefix no symbology produces. Rendering that
+ * verbatim gives a row headlined by seventy-one hex characters, which tells the
+ * reader nothing and pushes everything useful off the screen.
+ *
+ * The stored value stays exactly as it is — it is the entry's identity and the
+ * hash is how the picture is found. Only the heading changes.
+ */
+export function headlineFor(rawPayload: string): string {
+  return rawPayload.startsWith(CAPTURE_PAYLOAD) ? "Photograph" : rawPayload;
+}
+
 function ServerRow({ entry, onChanged }: { entry: PendingIntakeRead; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -265,7 +286,7 @@ function ServerRow({ entry, onChanged }: { entry: PendingIntakeRead; onChanged: 
     <li className="list-item">
       <div className="row">
         <span className="title mono" style={{ flex: 1, overflowWrap: "anywhere" }}>
-          {entry.mpn ?? entry.supplier_part_number ?? entry.raw_payload}
+          {entry.mpn ?? entry.supplier_part_number ?? headlineFor(entry.raw_payload)}
         </span>
         {entry.decoded_kind !== null && <span className="badge">{entry.decoded_kind}</span>}
       </div>
