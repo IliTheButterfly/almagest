@@ -141,6 +141,9 @@ class Uploaded:
     height_px: int
     byte_size: int
     capture_id: int
+    #: True when a capture of these bytes already existed and was reused rather
+    #: than duplicated. Distinct from `deduplicated`, which is about the blob.
+    capture_reused: bool
     #: True when the blob store already held these exact bytes. Not an error --
     #: content addressing means re-uploading the same photograph is free and
     #: idempotent -- but worth printing, because it usually means somebody ran
@@ -157,6 +160,8 @@ class ApiClient(Protocol):
     def create_capture(self, body: dict[str, Any]) -> dict[str, Any]: ...
 
     def park_intake(self, body: dict[str, Any]) -> dict[str, Any]: ...
+
+    def find_capture(self, sha256: str) -> dict[str, Any] | None: ...
 
 
 class HttpApiClient:
@@ -210,6 +215,28 @@ class HttpApiClient:
             expect=(200, 201),
         )
 
+    def find_capture(self, sha256: str) -> dict[str, Any] | None:
+        """An existing capture of these exact bytes, if there is one.
+
+        A linear scan of the newest page rather than a query, because there is no
+        route that filters captures by document -- and adding one to the API for
+        a script's convenience would be the wrong direction. The page is capped
+        at 100 and the common case is a capture uploaded seconds ago, so this is
+        cheap and its worst case is a duplicate row rather than a wrong one.
+        """
+        url = self.base_url + "/api/captures?limit=100"
+        try:
+            with urllib.request.urlopen(url, timeout=self.timeout) as response:
+                body: Any = json.loads(response.read() or b"{}")
+        except (urllib.error.URLError, OSError, ValueError):
+            return None
+        if not isinstance(body, dict):
+            return None
+        for row in body.get("items") or []:
+            if isinstance(row, dict) and (row.get("document") or {}).get("sha256") == sha256:
+                return row
+        return None
+
 
 def upload_one(
     client: ApiClient,
@@ -259,7 +286,13 @@ def upload_one(
         body["note"] = note
     if device_id:
         body["device_id"] = device_id
-    capture = client.create_capture(body)
+    # Reuse rather than duplicate. The blob store is content-addressed, so a
+    # re-upload of the same photograph is free -- but a *capture* is a row, and
+    # creating a second one pointing at the same document leaves an orphan that
+    # no intake entry references. Found by running this twice against the
+    # cluster: two photographs, four captures.
+    existing = client.find_capture(sha256)
+    capture = existing if existing is not None else client.create_capture(body)
 
     intake_id = None
     if park:
@@ -294,6 +327,7 @@ def upload_one(
         height_px=height,
         byte_size=len(data),
         capture_id=int(capture["id"]),
+        capture_reused=existing is not None,
         deduplicated=bool(response.get("deduplicated", False)),
         intake_id=intake_id,
     )
@@ -357,7 +391,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         where = f"capture {result.capture_id}"
         if result.intake_id is not None:
             where += f", intake {result.intake_id}"
-        again = " (already stored)" if result.deduplicated else ""
+        again = " (already there)" if result.capture_reused else ""
         print(
             f"{path.name}: {result.width_px}x{result.height_px}, "
             f"{result.byte_size / 1000:.0f} kB -> {where}{again}\n  {result.sha256}"

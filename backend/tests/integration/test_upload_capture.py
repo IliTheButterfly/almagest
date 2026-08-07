@@ -78,6 +78,15 @@ class _Client:
         entry: dict[str, Any] = response.json()
         return entry
 
+    def find_capture(self, sha256: str) -> dict[str, Any] | None:
+        response = self.client.get("/api/captures", params={"limit": 100})
+        assert response.status_code == 200, response.text
+        for row in response.json()["items"]:
+            if row["document"]["sha256"] == sha256:
+                found: dict[str, Any] = row
+                return found
+        return None
+
 
 def _png(width: int, height: int) -> bytes:
     """A PNG header with the given size. Enough for IHDR; not a valid image."""
@@ -228,6 +237,17 @@ def test_uploading_the_same_photograph_twice_is_idempotent(
     assert second.deduplicated is True
     # The blob is shared and the intake entry is the same one, keyed on the hash.
     assert second.intake_id == first.intake_id
+    # **And the capture too.** This assertion is the one that was missing: the
+    # first version of this test checked the sha and the intake id, both of which
+    # were already idempotent, and passed while every re-run created a fresh
+    # capture row. Two photographs uploaded twice against the cluster produced
+    # four captures before anyone noticed.
+    assert second.capture_id == first.capture_id
+    assert second.capture_reused is True
+    assert first.capture_reused is False
+
+    captures = client.get("/api/captures").json()
+    assert captures["total"] == 1
 
 
 def test_a_file_that_is_not_an_image_is_refused_before_the_network(
