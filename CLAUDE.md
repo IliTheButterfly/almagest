@@ -102,8 +102,19 @@ the label code:
   needs it. A repoint route is the fix and is not written; it is only reachable
   by `curl` today, which is why it is recorded here rather than rushed.
 
-**Not built yet:** any *agent-assisted* field filling — capture extraction is
-algorithmic and offers candidates a person chooses between. Tag provisioning has
+**Half-built, and be precise about which half:** the **vision path**
+(`services/enrichment/vision.py` + `vision_openai_compat.py`, ADR 0021) is the
+first image-to-model interface here. The interface, the schema, the parser, the
+fake and both wire shapes exist and are tested offline; `test_e2e_capture_dispatch.py`
+runs a photograph through to a reviewable candidate with no GPU and no network.
+**No model has ever read an image through it** — which transport each server
+actually accepts is settled by `tests/integration/test_vision_live.py`, which is
+`live`-marked and has never run. There is also no queue, no worker and no UI for
+it yet, so nothing invokes it outside a test.
+
+**Not built yet:** any *unattended* agent-assisted field filling — capture
+extraction is algorithmic and offers candidates a person chooses between, and the
+vision path above has no worker to drive it. Tag provisioning has
 its API, its walks, a reader that can write, **and now tags written by real
 hardware** — what it does not have is a tag written through a mounted container
 rather than one lying on a desk. Treat this list with suspicion anyway: it is

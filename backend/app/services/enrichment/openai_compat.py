@@ -50,17 +50,20 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.enrichment.calls import CallStats
 from app.services.enrichment.extract import (
     ExtractionRequest,
     ExtractionResult,
     parse_response,
     schema_for,
 )
+from app.services.timing import elapsed_ms
 
 log = logging.getLogger("almagest.extract.model")
 
@@ -96,7 +99,17 @@ class ModelUnavailable(RuntimeError):
 
     Distinct from a malformed response: nothing was read, so no document is
     implicated and the run — not the document — is what failed.
+
+    Carries how long it took to fail, because the two ways this is raised look
+    identical in a log and mean opposite things: a connection refused in 3 ms is
+    a server that is not running, and the same message after 300 000 ms is a
+    server that is running and wedged. One is fixed by scaling a deployment up
+    and the other by looking at what it is doing.
     """
+
+    def __init__(self, message: str, *, elapsed_ms: int | None = None) -> None:
+        super().__init__(message)
+        self.elapsed_ms = elapsed_ms
 
 
 @dataclass
@@ -137,27 +150,43 @@ class OpenAICompatExtractionProvider:
             "guided_json": schema,
         }
 
-        body = self._post(payload)
+        started = time.perf_counter()
+        body = self._post(payload, started=started)
+        stats = stats_from_openai_body(body, started=started)
         try:
             content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
-            raise ModelUnavailable(f"no completion in the response: {error}") from error
+            raise ModelUnavailable(
+                f"no completion in the response: {error}", elapsed_ms=stats.latency_ms
+            ) from error
 
         try:
             decoded = json.loads(content)
         except json.JSONDecodeError as error:
+            # Two different faults produce non-JSON here, and telling them apart
+            # is the whole reason `finish_reason` is read.
+            if stats.truncated:
+                # The answer was cut off mid-object. Nothing is wrong with the
+                # model or the server; the batch did not fit in `max_tokens`.
+                raise ModelUnavailable(
+                    f"{self.name} stopped at the {self.max_tokens}-token ceiling with the "
+                    f"answer unfinished, so it is not valid JSON. Send fewer part numbers "
+                    f"per call (see extract.chunk) or raise max_tokens. ({error})",
+                    elapsed_ms=stats.latency_ms,
+                ) from error
             # A schema-constrained decode that produced non-JSON means the server
             # ignored `response_format`. Worth saying plainly: it is a deployment
             # fact, not a fact about this datasheet.
             raise ModelUnavailable(
                 f"{self.name} returned content that is not JSON; "
-                f"does {self.model} support constrained decoding? ({error})"
+                f"does {self.model} support constrained decoding? ({error})",
+                elapsed_ms=stats.latency_ms,
             ) from error
 
         # Everything the schema was supposed to guarantee is checked again here.
         # See the module docstring: the server that ignored the schema is exactly
         # the one whose output nobody validated.
-        return parse_response(decoded, request, provider=self.name, model=self.model)
+        return parse_response(decoded, request, provider=self.name, model=self.model, stats=stats)
 
     def _user_message(self, request: ExtractionRequest) -> str:
         """The document and the part numbers, in that order.
@@ -176,7 +205,7 @@ class OpenAICompatExtractionProvider:
             f"Datasheet text follows.\n\n---\n{request.document_text}"
         )
 
-    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post(self, payload: dict[str, Any], *, started: float) -> dict[str, Any]:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -189,9 +218,53 @@ class OpenAICompatExtractionProvider:
                 decoded: Any = json.loads(response.read() or b"{}")
         except urllib.error.HTTPError as error:
             detail = error.read()[:500].decode("utf-8", "replace")
-            raise ModelUnavailable(f"HTTP {error.code} from {url}: {detail}") from error
+            raise ModelUnavailable(
+                f"HTTP {error.code} from {url}: {detail}", elapsed_ms=elapsed_ms(started)
+            ) from error
         except (urllib.error.URLError, OSError, ValueError) as error:
-            raise ModelUnavailable(f"{type(error).__name__} calling {url}: {error}") from error
+            raise ModelUnavailable(
+                f"{type(error).__name__} calling {url}: {error}", elapsed_ms=elapsed_ms(started)
+            ) from error
         if not isinstance(decoded, dict):
-            raise ModelUnavailable(f"{url} returned {type(decoded).__name__}, not an object")
+            raise ModelUnavailable(
+                f"{url} returned {type(decoded).__name__}, not an object",
+                elapsed_ms=elapsed_ms(started),
+            )
         return decoded
+
+
+def stats_from_openai_body(body: dict[str, Any], *, started: float) -> CallStats:
+    """What the server said the call cost, defaulting to silence rather than zero.
+
+    Everything here is best-effort by design: `usage` is optional in the response
+    shape and a server that omits it is not misbehaving. A count this cannot read
+    stays `None`, because a benchmark that silently recorded zero tokens would
+    average them in and understate every model that reported honestly.
+    """
+    usage = body.get("usage")
+    prompt = completion = None
+    if isinstance(usage, dict):
+        prompt = _count(usage.get("prompt_tokens"))
+        completion = _count(usage.get("completion_tokens"))
+
+    finish_reason = None
+    choices = body.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        raw = choices[0].get("finish_reason")
+        if isinstance(raw, str) and raw:
+            finish_reason = raw
+
+    return CallStats(
+        latency_ms=elapsed_ms(started),
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        finish_reason=finish_reason,
+    )
+
+
+def _count(value: object) -> int | None:
+    # `bool` is an `int` and would report True as 1 token. Nothing sane sends
+    # one, which is exactly why it would go unnoticed.
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value

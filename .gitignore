@@ -59,3 +59,11 @@ frontend/coverage/
 # same repo, so committing one nests a repository inside itself.
 .claude/worktrees/
 certs/
+
+# Benchmark output: one directory per run, holding JSONL records and PNGs. Big,
+# regenerable, and meaningless outside the machine that produced it.
+out/bench/
+# The datasheets a benchmark run fetches. Kept out deliberately — redistribution
+# rights are not ours to assume. `case.json` records each one's sha256 so the
+# corpus can re-fetch and verify them.
+bench/corpus/_pdfs/

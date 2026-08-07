@@ -50,6 +50,7 @@ next free number is **0020**.
 | [0018](0018-chat-threads-writeups-and-export.md) | Two chat surfaces, writeups, and export | Separate histories per kind; the agent loop lives outside the API because its tools call back into the single SQLite writer; chat proposes and never commits |
 | [0019](0019-the-hostname-moves-under-aether.md) | The hostname moves to `almagest.aether.lan` | Supersedes 0001's hostname and nothing else. Recomputes the QR budget: 38 bytes leaves 4 bytes of headroom at version 3, so anything added to the payload pushes it to version 4 |
 | [0020](0020-seeing-and-switching-the-models.md) | Seeing which models are running, and switching them | Amends 0016. A *server* is the unit that starts and stops, starting one releases the others because there is one card, and `starting`/`unknown` are states rather than optimistic guesses |
+| [0021](0021-a-second-reader-for-the-frame-the-browser-already-read.md) | A second reader for the frame the browser already read | A vision model proposes ranked identities for the captures 0015's browser pass cannot resolve. The prohibitions are unrepresentable in the schema rather than written as rules; an empty answer is `UNIDENTIFIED`, not `FAILED`. Two wire shapes because Ollama and vLLM genuinely disagree — a choice made from documentation and **not yet verified against a server** |
 
 ## Where these override PLAN.md
 
