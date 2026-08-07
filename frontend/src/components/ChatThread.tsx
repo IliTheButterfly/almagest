@@ -23,6 +23,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import {
   chatExportUrl,
@@ -413,11 +414,14 @@ export function ChatThread({ threadId }: { threadId: number }) {
               <p style={{ margin: 0, fontSize: "0.85em", opacity: 0.8 }}>
                 {choice.good_for}
                 {!choice.reachable && (
-                  // The command, before they send rather than after it fails.
+                  // Before they send, rather than after it fails. A link rather
+                  // than the `make` command it used to print: sending starts the
+                  // model by itself, and for anything else there is now a page
+                  // with a button on it.
                   <>
                     {" "}
-                    <strong>Not running — start it with</strong>{" "}
-                    <code className="mono">{choice.start_hint}</code>.
+                    <strong>Not running.</strong> Sending starts it, or{" "}
+                    <Link to="/models">turn it on yourself</Link>.
                   </>
                 )}
               </p>

@@ -44,13 +44,23 @@ maintainer's own kubeconfig, needs no ServiceAccount, no Role and no RBAC change
 and `kubectl -n ili auth can-i patch cronjobs` was verified to answer yes before
 this was written.
 
-For the same reason the readiness probe here is its own few lines rather than
-`model_catalog.probe`: that function short-circuits to `False` whenever
-`ALMAGEST_LLM_BASE_URL` is unset, which is exactly this harness's situation and
-would make every model look permanently down. Its *logic* is copied faithfully --
-ask `/v1/models` and look for the served name, never trust a bare TCP connect,
-because the 4B and 8B share one Ollama listener and a connect answers True for a
-model that was never pulled.
+The readiness probe here is its own few lines for a related but narrower reason.
+`model_catalog.probe` short-circuits to `False` whenever `ALMAGEST_LLM_BASE_URL`
+is unset -- this harness's normal state -- which would make every model look
+permanently down.
+
+**ADR 0020 has since landed a `probe_server(..., force=True)` that skips exactly
+that short-circuit, so this could now delegate.** It deliberately does not, for
+one reason: `probe_server` lives beside `model_servers.start()`, and *that* is
+the half this module genuinely cannot use. Importing one and reimplementing the
+other would be the confusing arrangement. If the scaling ever moves off the
+in-pod service account, delete `is_serving` and call `probe_server(force=True)`
+instead -- the logic below is copied from it faithfully and the two should not
+drift in the meantime.
+
+That logic, in one line: ask `/v1/models` and look for the served name, never
+trust a bare TCP connect, because the 4B and 8B share one Ollama listener and a
+connect answers True for a model that was never pulled.
 """
 
 from __future__ import annotations
