@@ -1,0 +1,13 @@
+{
+  "_case": "A retail box with NO PART NUMBER ANYWHERE -- technical data, a CE mark, and a partial barcode. The correct answer is no candidates. Its presence is what stops the corpus rewarding a model for always guessing.",
+  "capture_sha256": "140c776b5091cc581e90a9047c2aed9b3961311e7342928117d7c53d2f1020d4",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": null,
+  "manufacturer": "Turnigy",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "8941"
+  ]
+}

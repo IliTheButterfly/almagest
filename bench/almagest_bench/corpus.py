@@ -92,7 +92,18 @@ class Case:
 
     case_id: str
     directory: Path
-    mpn: str
+    #: The part number, or **None when the item carries no part number at all**.
+    #:
+    #: A retail box is the case: an Arduino Nano Every says `ATMEGA4809` (the
+    #: chip on the board) and a URL, and nowhere states the product's own part
+    #: number. The correct answer for such a photograph is **no candidates** --
+    #: `VisionResult.candidates` being empty is a first-class answer and settles
+    #: a queue entry as UNIDENTIFIED.
+    #:
+    #: Including these is what stops the corpus rewarding a model for always
+    #: guessing. A corpus made only of labelled bags cannot tell an identifier
+    #: from a machine that says a plausible part number whatever it is shown.
+    mpn: str | None
     manufacturer: str | None
     #: `parameter_template.name` -> the value the datasheet states.
     expected: dict[str, TruthCell] = field(default_factory=dict)
@@ -188,6 +199,11 @@ class Case:
         return sha256(path.read_bytes()).hexdigest() == self.capture_sha256
 
     @property
+    def unidentifiable(self) -> bool:
+        """Is the right answer "I cannot name this"?"""
+        return self.mpn is None
+
+    @property
     def batched(self) -> bool:
         return bool(self.sibling_mpns)
 
@@ -220,7 +236,15 @@ def load_case(directory: Path) -> Case:
         raise CorpusError(f"{directory.name}: case.json is not JSON: {error}") from error
 
     mpn = body.get("mpn")
-    if not isinstance(mpn, str) or not mpn.strip():
+    if mpn is None:
+        # Explicit null means "nothing on this item names it". Distinct from a
+        # missing key, which is a case somebody forgot to finish.
+        if "mpn" not in body:
+            raise CorpusError(
+                f"{directory.name}: case.json needs an mpn, or an explicit null "
+                "if the item carries no part number"
+            )
+    elif not isinstance(mpn, str) or not mpn.strip():
         raise CorpusError(f"{directory.name}: case.json needs an mpn")
 
     expected: dict[str, TruthCell] = {}
@@ -253,7 +277,7 @@ def load_case(directory: Path) -> Case:
     return Case(
         case_id=directory.name,
         directory=directory,
-        mpn=mpn.strip(),
+        mpn=mpn.strip() if isinstance(mpn, str) else None,
         manufacturer=body.get("manufacturer"),
         expected=expected,
         absent=absent,

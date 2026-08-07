@@ -1,0 +1,18 @@
+{
+  "_case": "Rotated roughly 180 degrees. A near-sibling of CF14JT100K and CF14JT330K: the three differ only in the middle of the string, so a model that half-reads one can produce another real part number rather than an obvious error.",
+  "capture_sha256": "ea5e79e03863db45243252fbb2affe18261b9acc59cfb893abf4f43fee84dcc0",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": "CF14JT4K70",
+  "manufacturer": "Stackpole Electronics Inc",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "CF14JT4K70CT-ND",
+    "1830366",
+    "81734485",
+    "C013220220330141",
+    "38798879",
+    "000503570"
+  ]
+}

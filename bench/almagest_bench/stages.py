@@ -17,11 +17,16 @@ corpus worth having:
   model read the image correctly and misunderstood what it was looking at.
   Observed: `qwen3-vl:8b` answered `MCQ-XBEE3` at confidence 0.95 for a module
   whose part number is `XB3-24Z8UM`.
-* **fabricated** -- a part number that appears nowhere on the label and nowhere
-  in the case. This is the failure the never-auto-accept rule exists for.
+* **misread** -- within a couple of characters of the right answer. A
+  transcription slip, not an invention: `PS1440PQ2BT` for `PS1440P02BT`. Fixed
+  by the barcode anchor or a better photograph.
+* **fabricated** -- a part number that appears nowhere on the label, nowhere in
+  the case, and is not a near-miss of the truth. This is the failure the
+  never-auto-accept rule exists for.
 
-The first two are prompt problems. The third is not, and averaging them together
-would hide which one you have.
+The first three are prompt, optics or anchoring problems. The fourth is not, and
+averaging them together would hide which one you have -- which is exactly what
+happened on the first twelve-case run before `misread` existed.
 
 ## Nothing here is scored against a model's own confidence
 
@@ -42,7 +47,20 @@ from almagest_bench.corpus import Case
 from almagest_bench.record import CallRecord, CaseRecord
 
 #: How an identity answer relates to the truth. See the module docstring.
-IDENTITY_OUTCOMES = ("correct", "distractor", "fabricated", "none")
+IDENTITY_OUTCOMES = ("correct", "misread", "distractor", "fabricated", "none")
+
+#: Edit distance within which a wrong answer is a transcription slip rather than
+#: an invention.
+#:
+#: **Measured, not chosen from taste.** Over the first twelve-case run, three of
+#: the four answers this originally called "fabricated" were `PS1440PQ2BT` for
+#: `PS1440P02BT` (Q for 0), `CF14JTK70` for `CF14JT4K70` (a dropped character)
+#: and `CF14J330KCT-ND` for `CF14JT330K`. Filing those beside a genuinely
+#: invented part number would have reported a model that hallucinates when what
+#: it actually does is misread a character -- and those have opposite fixes. A
+#: misread is repaired by the barcode anchor or a better photograph; an
+#: invention is repaired by not trusting the model.
+MISREAD_EDIT_DISTANCE = 2
 
 
 @dataclass(frozen=True)
@@ -67,6 +85,13 @@ def judge_identity(case: Case, proposed: str) -> str:
     pipeline would not have.
     """
     key = normalize_mpn(proposed)
+    if case.mpn is None:
+        # Nothing on the item names it, so *any* proposal is wrong. Which kind of
+        # wrong still matters: a chip marking read off the board is a
+        # comprehension failure, an invented part number is the other thing.
+        if any(key == normalize_mpn(d) for d in case.distractors):
+            return "distractor"
+        return "fabricated"
     if key and key == normalize_mpn(case.mpn):
         return "correct"
     if any(key == normalize_mpn(distractor) for distractor in case.distractors):
@@ -78,7 +103,22 @@ def judge_identity(case: Case, proposed: str) -> str:
     # model read correctly and segmented badly, which is a different fix.
     if key and normalize_mpn(case.mpn) in key:
         return "distractor"
+    if key and _edit_distance(key, normalize_mpn(case.mpn)) <= MISREAD_EDIT_DISTANCE:
+        return "misread"
     return "fabricated"
+
+
+def _edit_distance(left: str, right: str) -> int:
+    """Levenshtein, iteratively. Small strings, no dependency worth adding."""
+    if len(left) < len(right):
+        left, right = right, left
+    previous = list(range(len(right) + 1))
+    for i, a in enumerate(left, start=1):
+        current = [i]
+        for j, b in enumerate(right, start=1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a != b)))
+        previous = current
+    return previous[-1]
 
 
 def run_vision_case(
@@ -171,8 +211,12 @@ def run_vision_case(
     # would be created from. The rest are recorded because "the right answer was
     # second" is a different and much more recoverable failure than "the right
     # answer was absent", and a reviewer sees both.
-    top = judgements[0].outcome if judgements else "none"
-    anywhere = any(j.outcome == "correct" for j in judgements)
+    # On an item with no part number, answering nothing IS the right answer.
+    if case.unidentifiable:
+        top = "correct" if not judgements else judgements[0].outcome
+    else:
+        top = judgements[0].outcome if judgements else "none"
+    anywhere = top == "correct" or any(j.outcome == "correct" for j in judgements)
 
     return CaseRecord(
         run_id=run_id,

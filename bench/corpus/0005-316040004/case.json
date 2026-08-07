@@ -1,0 +1,17 @@
+{
+  "_case": "Anchored, and the part number is PURELY NUMERIC -- `316040004` looks exactly like the lot and MID numbers beside it. Nothing about its shape says 'part number'; only the heading does.",
+  "capture_sha256": "031f197fea0efb3bb0b1a16c9f769143ed39928420b0344a6da07ec4560bfc18",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": "316040004",
+  "manufacturer": "Seeed Technology Co., Ltd",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "1597-1245-ND",
+    "BH2508280011",
+    "020026182",
+    "5487673",
+    "3478164"
+  ]
+}

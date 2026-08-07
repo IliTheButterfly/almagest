@@ -1,0 +1,19 @@
+{
+  "_case": "Anchored DigiKey label with a Data Matrix. The distractor list is the point: seven long alphanumerics on one label and only one of them is the part number. `445-5242-1-ND` is DigiKey's ordering code and sits directly above the MFR PN under a heading that just says 'PN'.",
+  "capture_sha256": "8e680ffbf635dfd3e0a1e5b4a575035082dadd423b037cbd6db2e688d6dd3b73",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": "PS1440P02BT",
+  "manufacturer": "TDK Corporation",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "445-5242-1-ND",
+    "5018027253",
+    "020026182",
+    "401291340",
+    "2236832",
+    "129040714",
+    "100335450"
+  ]
+}

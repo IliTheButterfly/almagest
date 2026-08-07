@@ -1,0 +1,16 @@
+{
+  "_case": "A retail box with no part number printed. `ATMEGA4809` is the microcontroller ON the board and is the obvious wrong answer -- a real part number, just not this product's. `ABX00028` is Arduino's actual code for the Nano Every and appears NOWHERE on the box, so a model returning it has recalled from memory rather than read, which is exactly what the never-auto-accept rule exists for.",
+  "capture_sha256": "f618b01f836ed7be7e0cfa92090e4afaedfdc9953b8ea2d489cb6b9e1c731270",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": null,
+  "manufacturer": "Arduino",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "ATMEGA4809",
+    "ABX00028",
+    "NANO-EVERY",
+    "STORE.ARDUINO.CC/NANO-EVERY"
+  ]
+}
