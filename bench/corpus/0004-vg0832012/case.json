@@ -1,0 +1,17 @@
+{
+  "_case": "Anchored. The ordering code here CONTAINS the part number (`1670-VG0832012-ND`), which is a harder confusion than an unrelated code: a model that returns the longer string has read every character correctly and still answered wrongly.",
+  "capture_sha256": "a17ff6dd0c4d31a66e11e1293a943118322fa0b8473fc77278a73b22b52742c2",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": "VG0832012",
+  "manufacturer": "Vybronics, Inc",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "1670-VG0832012-ND",
+    "V56SA1",
+    "020026182",
+    "7364317",
+    "129040714"
+  ]
+}

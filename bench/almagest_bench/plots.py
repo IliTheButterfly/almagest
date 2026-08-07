@@ -25,9 +25,11 @@ The three outcomes are three *states*, deliberately not two:
 * **correct** -- good.
 * **distractor** -- serious. The model read the label correctly and picked the
   wrong string off it. A prompt problem.
-* **fabricated** -- critical. A part number that is nowhere on the label. This is
-  the failure the never-auto-accept rule exists for, and it must not average in
-  with the one above.
+* **misread** -- warning. Within a couple of characters of the truth: a
+  transcription slip, repaired by the barcode anchor or a better photograph.
+* **fabricated** -- critical. A part number nowhere on the label and not a
+  near-miss of the truth. This is the failure the never-auto-accept rule exists
+  for, and it must not average in with the three above.
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ GRID = "#3a3a38"
 
 OUTCOME_STYLE = {
     "correct": (GOOD, "✓", "correct"),
+    "misread": (WARNING, "~", "misread"),
     "distractor": (SERIOUS, "!", "distractor"),
     "fabricated": (CRITICAL, "✕", "fabricated"),
     "none": (WARNING, "-", "no answer"),
@@ -276,20 +279,41 @@ def outcome_matrix(cells: list[Cell], path: Path, *, title: str, subtitle: str) 
                 fontsize=9,
             )
 
-    fig.suptitle(title, color=INK, fontsize=15, fontweight="bold", x=0.02, ha="left", y=0.985)
-    fig.text(0.02, 0.925, subtitle, color=INK_MUTED, fontsize=10, ha="left")
+    header_in, footer_in = 0.95, 0.55
+    top = 1 - header_in / fig_h
+    bottom = footer_in / fig_h
+    fig.suptitle(
+        title,
+        color=INK,
+        fontsize=15,
+        fontweight="bold",
+        x=0.02,
+        ha="left",
+        y=1 - 0.30 / fig_h,
+    )
+    fig.text(0.02, 1 - 0.62 / fig_h, subtitle, color=INK_MUTED, fontsize=10, ha="left")
 
+    # Two lines. One ran off the right edge of a twelve-row figure, which is the
+    # sort of thing only rendering it shows you.
     fig.text(
         0.02,
-        0.012,
-        "correct = the part number · distractor = something else printed on the label "
-        "(FCC ID, ordering code) · fabricated = not on the label at all",
+        0.33 / fig_h,
+        "correct = the part number, or nothing when the item carries none"
+        "     misread = within two characters of it",
+        color=INK_MUTED,
+        fontsize=8.5,
+        ha="left",
+    )
+    fig.text(
+        0.02,
+        0.15 / fig_h,
+        "distractor = a different string genuinely printed on the item     fabricated = neither",
         color=INK_MUTED,
         fontsize=8.5,
         ha="left",
     )
 
-    fig.tight_layout(rect=(0.0, 0.05, 1.0, 0.88))
+    fig.tight_layout(rect=(0.0, bottom, 1.0, top))
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=170, facecolor=SURFACE)
     plt.close(fig)

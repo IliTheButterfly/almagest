@@ -1,0 +1,18 @@
+{
+  "_case": "Anchored, well lit, upright. The easy end of the range and worth having as a control: a corpus of only hard cases cannot tell a model that is careful from one that is broken.",
+  "capture_sha256": "a4d4a2493d3a0d5108bc2805d02d1dcbc52c9d50d5199f5df005110ab83b316b",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": "2N7000-D75Z",
+  "manufacturer": "onsemi",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "488-2N7000-D75ZCT-ND",
+    "3478164",
+    "81734485",
+    "GP060048AA",
+    "38798827",
+    "000503570"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "_case": "The same part as 0001, photographed with the whole label rotated 90 degrees. Same truth, harder presentation -- and this is the exact label behind `digikey-label-26.json`, whose recorded OCR read the part number as `CFI4JT100K`.",
+  "capture_sha256": "cb2ba69a4550b90bff62a1a15ab9bb358166bfeec3c6f398a51096160d9c2503",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": "CF14JT100K",
+  "manufacturer": "Stackpole Electronics Inc",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "CF14JT100KCT-ND",
+    "1830399",
+    "81734485",
+    "C013220221116063",
+    "38798740",
+    "000503570"
+  ]
+}

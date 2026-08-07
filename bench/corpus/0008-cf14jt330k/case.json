@@ -1,0 +1,19 @@
+{
+  "_case": "Upside down, AND a second bag's label is in frame at the top of the photograph. Two labels, one answer -- the model has to pick the one it is being shown rather than the one it can read most easily. `CF14JT4K70` is a distractor because it is genuinely present in the image.",
+  "capture_sha256": "2ba3971885a2c517445cc1b2b6d8d15619e25468ee95668b8feeacc5544512af",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": "CF14JT330K",
+  "manufacturer": "Stackpole Electronics Inc",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "CF14JT330KCT-ND",
+    "1830411",
+    "81734485",
+    "C013220210906282",
+    "38799013",
+    "000503570",
+    "CF14JT4K70"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "_case": "The same shape of trap as 0010, and blurrier. `RP2040` is the chip; `ABX00053` is Arduino's code for this board and is not printed on it.",
+  "capture_sha256": "b61ec11fbc166302e5c3f81164871995e32713e0e04d9417c8b61ce4dc2ed5e4",
+  "_capture_note": "Photograph not committed (see .gitignore). Put it on this machine with `python -m app.scripts.upload_capture --cache bench/corpus/_captures <file>`.",
+  "mpn": null,
+  "manufacturer": "Arduino",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY: this case measures IDENTITY. No datasheet has been fetched, so any parametric truth here would be scoring a document nobody read.",
+  "distractors": [
+    "RP2040",
+    "ABX00053",
+    "NANO-RP2040-CONNECT-WITH-HEADERS",
+    "STORE.ARDUINO.CC/NANO-RP2040-CONNECT-WITH-HEADERS"
+  ],
+  "_distractor_note": "The URL slug is included because the model read it off the box and returned it as a part number. It is genuinely printed there, so it is a comprehension failure rather than an invention -- exactly the distinction the distractor list exists to preserve."
+}

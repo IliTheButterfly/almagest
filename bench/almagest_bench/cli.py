@@ -44,7 +44,8 @@ def cmd_corpus_check(args: argparse.Namespace) -> int:
         photo = case.capture_path
         mark = "photo" if photo else "NO PHOTO"
         verified = "" if case.verify_capture() else "  !! HASH MISMATCH"
-        print(f"  {case.case_id:28s} {case.mpn:16s} {mark}{verified}")
+        name = case.mpn or "(no part number printed)"
+        print(f"  {case.case_id:28s} {name:26s} {mark}{verified}")
     warnings = summary.warnings()
     if warnings:
         print("\nwhat this corpus cannot yet support:")
@@ -109,7 +110,19 @@ def cmd_vision(args: argparse.Namespace) -> int:
 
 
 def cmd_plot(args: argparse.Namespace) -> int:
+    """Draw the matrix, **re-judging every answer from the corpus as it goes.**
+
+    The verdict is recomputed here rather than read off the record, and that is a
+    correction to how this worked at first. `stages.py` writes an outcome at run
+    time, which quietly made scoring part of the expensive step: adding the
+    `misread` category would have meant paying for another GPU sweep to see its
+    effect. Re-judging from `ranked` -- which is the raw thing the model said --
+    keeps the promise the design made, that a scoring change costs a re-score.
+    """
     from almagest_bench.plots import Cell, Run, outcome_matrix
+    from almagest_bench.stages import judge_identity
+
+    by_case = {case.case_id: case for case in load_corpus(args.corpus)}
 
     # Grouped by (case, model) rather than one row per record, so repeats land in
     # the same cell. That grouping is the point: the first run of this harness
@@ -135,10 +148,18 @@ def cmd_plot(args: argparse.Namespace) -> int:
             # `ranked[0]`, never the first key of `cells`: records are written
             # with sort_keys, so dict order is alphabetical rather than ranked.
             top = record.ranked[0] if record.ranked else None
+            case = by_case.get(record.case_id)
+            if case is None:
+                outcome = "none"
+            elif top is None:
+                # No answer. On an item with no part number that is the right one.
+                outcome = "correct" if case.unidentifiable else "none"
+            else:
+                outcome = judge_identity(case, top)
             run = Run(
                 case_id=record.case_id,
                 model_id=record.model_id,
-                outcome=record.cells.get(f"identity:{top}", "none") if top else "none",
+                outcome=outcome,
                 proposed=top or "",
                 confidence=record.confidences.get(f"identity:{top}") if top else None,
                 latency_ms=call.latency_ms if call else None,
@@ -180,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     plot = sub.add_parser("plot", help="draw an outcome matrix from recorded runs")
     plot.add_argument("records", type=Path)
     plot.add_argument("out", type=Path)
+    plot.add_argument("--corpus", type=Path, default=Path("corpus"))
     plot.add_argument("--title", default="Reading a part number off a photograph")
     plot.add_argument("--subtitle", default="")
     plot.set_defaults(func=cmd_plot)
