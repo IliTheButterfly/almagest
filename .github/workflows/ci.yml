@@ -234,7 +234,14 @@ jobs:
       run:
         working-directory: bench
     steps:
+      # `submodules: recursive`, unlike the mcpserver job above. This package
+      # depends on `almagest-backend` at runtime, and the backend has path
+      # dependencies on `elec-value-parser` and `ecia-barcode` -- which are
+      # submodules. Without them `uv sync` cannot resolve and the job fails
+      # before it lints anything.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: astral-sh/setup-uv@v5
         with:
