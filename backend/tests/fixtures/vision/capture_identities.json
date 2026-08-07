@@ -1,0 +1,48 @@
+{
+  "_provenance": "HAND-AUTHORED, NOT YET RECORDED. Every response here has the exact shape of a structured-output response against vision.schema_for(), and every value was written by hand: there is no model or GPU in CI, and none had read these images when the interface was built. Replace each entry with a genuine recording the first time the live contract test runs against a real vision server (tests/integration/test_vision_live.py), and do NOT add a response here to make a new test pass without checking that a real model would plausibly emit it. A fixture that drifts from reality turns every test above it into a test of this file. The two cases below are not invented wholesale, though: the part number, the OCR misreadings and the presence or absence of a Data Matrix are all taken from real recorded reads of real DigiKey labels in frontend/src/lib/capture/fixtures/, so the shape of the errors is genuine even though the model's replies are not.",
+  "provider": "fake",
+  "model": "hand-authored-fixture",
+  "responses": {
+    "ec12cd38add3e2a6e2a0ddf95dc1786d0577f9d7100e649586cda3aa7cea3d69": {
+      "_case": "ANCHORED. This is the real sha256 of frontend/src/lib/capture/fixtures/digikey-creased-datamatrix.jpg, whose Data Matrix carries the part number in DI 1P (see barcodes.fixture.test.ts). The barcode already said CF14JT100K, so the request narrows max_candidates to 1 and the model is asked only to confirm the manufacturer and package. One candidate, high confidence, nothing to compete.",
+      "candidates": [
+        {
+          "mpn": "CF14JT100K",
+          "manufacturer": "Stackpole Electronics Inc",
+          "package": "Axial",
+          "confidence": 0.93,
+          "source_text": "CF14JT100K",
+          "note": "Part number is also carried in the Data Matrix; the printed line agrees with it character for character."
+        }
+      ],
+      "label_kind": "bag"
+    },
+    "5b7f0d1a4c9e2836af51d0c7b3e64912d85a07f3c6b19e40d2a85f31c704b6e9": {
+      "_case": "UNANCHORED, and the case ADR 0015 was written about. A hand-authored sha for a photograph of the same bag with the Data Matrix creased past decoding, so nothing but printed ink is available. tesseract read the part number as 'CFI4JT100K' (capital I for the digit 1) -- a real misreading, recorded in digikey-label-26.json. The model proposes the correct reading first and keeps the alternative it could not rule out, which is the whole reason candidates are ranked rather than asserted.",
+      "candidates": [
+        {
+          "mpn": "CF14JT100K",
+          "manufacturer": "Stackpole Electronics Inc",
+          "package": "Axial",
+          "confidence": 0.61,
+          "source_text": "CF14JT100K",
+          "note": "Third character is a digit 1, not a capital I; read from the stroke width against the 4 beside it. The printed description 'RES 100K OHM 5% 1/4W AXIAL' is consistent with this part."
+        },
+        {
+          "mpn": "CFR4JT100K",
+          "manufacturer": null,
+          "package": "Axial",
+          "confidence": 0.22,
+          "source_text": "CF?4JT100K",
+          "note": "Kept only because the second character sits under a crease. No manufacturer prefix is legible to distinguish the series."
+        }
+      ],
+      "label_kind": "bag"
+    },
+    "c3a91e77b0d4265faf83c10e9d7b45286103fae9d24c8b7051fd93a2e6081b4c": {
+      "_case": "ILLEGIBLE. An empty candidate list is a normal answer and settles the queue entry as UNIDENTIFIED rather than FAILED. Kept as a fixture because that path has to be tested with something, and a model pushed to answer anyway is a model inventing a part number.",
+      "candidates": [],
+      "label_kind": "bare_part"
+    }
+  }
+}
