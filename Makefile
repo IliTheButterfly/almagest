@@ -5,6 +5,7 @@ FE    := frontend
 AG    := deviceagent
 IC    := idcodec
 MCP   := mcpserver
+BENCH := bench
 
 .DEFAULT_GOAL := help
 .PHONY: help bootstrap sync test test-live lint fmt typecheck check migrate revision \
@@ -12,6 +13,7 @@ MCP   := mcpserver
         agent-sync agent-lint agent-typecheck agent-test agent-test-live agent-check agent-run \
         idcodec-sync idcodec-lint idcodec-typecheck idcodec-test idcodec-check \
         mcp-sync mcp-lint mcp-typecheck mcp-test mcp-test-live mcp-check mcp-run \
+        bench-sync bench-lint bench-typecheck bench-test bench-check \
         k8s-tls k8s-secrets k8s-deploy k8s-status k8s-logs k8s-shell k8s-diff \
         k8s-model k8s-tunnel k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
 
@@ -27,6 +29,7 @@ bootstrap: ## Clone submodules, create the venv, install deps, seed .env
 	$(MAKE) sync
 	$(MAKE) agent-sync
 	$(MAKE) mcp-sync
+	$(MAKE) bench-sync
 	$(MAKE) fe-install
 
 sync: ## Install/refresh backend dependencies
@@ -77,7 +80,7 @@ typecheck: ## mypy
 # `idcodec-check` goes **first**: it is the fastest of the three by an order of
 # magnitude and both others depend on it, so a broken codec should be named as
 # such rather than as fifty failing backend tests.
-check: idcodec-check lint typecheck test agent-check mcp-check station-check openapi-check ## Everything CI runs except the frontend and the image build
+check: idcodec-check lint typecheck test agent-check mcp-check bench-check station-check openapi-check ## Everything CI runs except the frontend and the image build
 
 migrate: ## Apply migrations up to head
 	cd $(BE) && $(UV) run alembic upgrade head
@@ -142,6 +145,26 @@ mcp-check: mcp-lint mcp-typecheck mcp-test ## Everything CI runs for the MCP ser
 
 mcp-run: ## Run the MCP server on stdio (an MCP client normally launches this itself)
 	cd $(MCP) && $(UV) run almagest-mcp
+
+# ---------------------------------------------------------------------------
+# bench — which local model, and what it costs. Its own venv because
+# matplotlib, numpy and kubectl have no business in the API image.
+# ---------------------------------------------------------------------------
+
+bench-sync: ## Install/refresh benchmark dependencies
+	cd $(BENCH) && $(UV) sync --dev
+
+bench-lint: ## ruff check + format check for the benchmark
+	cd $(BENCH) && $(UV) run ruff check .
+	cd $(BENCH) && $(UV) run ruff format --check .
+
+bench-typecheck: ## mypy for the benchmark
+	cd $(BENCH) && $(UV) run mypy almagest_bench
+
+bench-test: ## Benchmark unit tests — no cluster, no model, no GPU
+	cd $(BENCH) && $(UV) run pytest -q
+
+bench-check: bench-lint bench-typecheck bench-test ## Everything CI runs for the benchmark
 
 # ---------------------------------------------------------------------------
 # deviceagent — runs on the station Pi, not in the cluster
