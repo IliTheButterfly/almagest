@@ -31,6 +31,7 @@ import { CapturesScreen } from "./screens/CapturesScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
 import { LocationScreen } from "./screens/LocationScreen";
 import { LotScreen } from "./screens/LotScreen";
+import { ModelsScreen } from "./screens/ModelsScreen";
 import { NewContainersScreen } from "./screens/NewContainersScreen";
 import { NewContainerTypeScreen } from "./screens/NewContainerTypeScreen";
 import { NotFoundScreen } from "./screens/NotFoundScreen";
@@ -181,6 +182,11 @@ export function App() {
             <Route path="/chat" element={<ChatScreen />} />
             {/* A conversation is linkable: same screen, thread id in the URL. */}
             <Route path="/chat/:threadId" element={<ChatScreen />} />
+            {/* What is running on the GPU, and the switch for each. No nav tab:
+                the strip is already too long for a phone, and this is reached from
+                the model picker on Ask — which is where somebody is standing when
+                a model turns out not to be running. */}
+            <Route path="/models" element={<ModelsScreen />} />
             <Route path="/datasheets" element={<DatasheetSearchScreen />} />
             <Route path="/tree" element={<TreeScreen />} />
             <Route path="/scan" element={<ScanScreen />} />
