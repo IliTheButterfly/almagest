@@ -170,6 +170,15 @@ _MAINTENANCE: Final = (
     "overwrites the drift that proves a write path is broken, which is the one "
     "thing that must survive until a person has looked at it."
 )
+_MODEL_SERVERS: Final = (
+    "The GPU's own switch. These describe and move a Kubernetes Deployment that "
+    "holds the single graphics card this machine has, which is a fact about the "
+    "substrate rather than about the room full of parts — and the agent calling it "
+    "is very likely running *on* the model it would be turning off. Starting one "
+    "server also stops the other, so a curious tool call takes somebody else's "
+    "model away. The screen at `/models` is the door, and a person is standing at "
+    "it."
+)
 _SCRUB: Final = (
     "The same CronJob's other door, and heavier: it reads every stored blob in "
     "full, so an agent that called it out of curiosity would occupy the single "
@@ -508,6 +517,10 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "run_maintenance": Excluded(Reason.MACHINE_DOOR, _MAINTENANCE),
         "rebuild_caches": Excluded(Reason.MACHINE_DOOR, _MAINTENANCE),
         "scrub_blobs": Excluded(Reason.MACHINE_DOOR, _SCRUB),
+        # -- model servers -----------------------------------------------------
+        "read_model_servers": Excluded(Reason.MACHINE_DOOR, _MODEL_SERVERS),
+        "start_model_server": Excluded(Reason.MACHINE_DOOR, _MODEL_SERVERS),
+        "stop_model_server": Excluded(Reason.MACHINE_DOOR, _MODEL_SERVERS),
     }
 )
 

@@ -7821,6 +7821,35 @@
         "title": "ModelChoiceRead",
         "type": "object"
       },
+      "ModelHeldRead": {
+        "description": "One model a server can serve.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "loaded": {
+            "title": "Loaded",
+            "type": "boolean"
+          },
+          "size_b": {
+            "title": "Size B",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "size_b",
+          "loaded"
+        ],
+        "title": "ModelHeldRead",
+        "type": "object"
+      },
       "ModelListRead": {
         "description": "The catalogue, plus what the default currently resolves to.\n\n`default_id` is the honest answer to \"whatever is loaded\": the id the server\n*would* use if a send named no model. Null when nothing is running, which the\nUI shows rather than implying a silent fallback that will fail.",
         "properties": {
@@ -7848,6 +7877,147 @@
           "default_id"
         ],
         "title": "ModelListRead",
+        "type": "object"
+      },
+      "ModelServerListRead": {
+        "description": "Every model server, plus whether this install may change anything.\n\n`controllable` is false on a dev box and anywhere the API has no permission to\nscale. The list still renders \u2014 what is running is answered by asking the\nservers \u2014 but Start and Stop would only fail, so the UI hides them and shows\n`hint` instead.",
+        "properties": {
+          "controllable": {
+            "title": "Controllable",
+            "type": "boolean"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/ModelServerRead"
+            },
+            "title": "Servers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "servers",
+          "controllable",
+          "hint"
+        ],
+        "title": "ModelServerListRead",
+        "type": "object"
+      },
+      "ModelServerRead": {
+        "description": "One model server: what it is doing, and what it holds.",
+        "properties": {
+          "deployment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deployment"
+          },
+          "desired_replicas": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Desired Replicas"
+          },
+          "holds_gpu": {
+            "title": "Holds Gpu",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelHeldRead"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "ready_replicas": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ready Replicas"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ServerState"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "deployment",
+          "state",
+          "desired_replicas",
+          "ready_replicas",
+          "holds_gpu",
+          "models"
+        ],
+        "title": "ModelServerRead",
+        "type": "object"
+      },
+      "ModelSwitchResponse": {
+        "description": "What a start or stop did. Always carries the fresh list, so one round trip\nboth acts and refreshes \u2014 a UI that re-fetched separately would show the state\nfrom before its own click as often as not.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "released": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Released",
+            "type": "array"
+          },
+          "servers": {
+            "items": {
+              "$ref": "#/components/schemas/ModelServerRead"
+            },
+            "title": "Servers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "detail",
+          "released",
+          "servers"
+        ],
+        "title": "ModelSwitchResponse",
         "type": "object"
       },
       "MovePlanRead": {
@@ -15050,6 +15220,17 @@
         ],
         "title": "SendResponse",
         "type": "object"
+      },
+      "ServerState": {
+        "description": "What a model server is doing, in the four states worth telling apart.",
+        "enum": [
+          "running",
+          "starting",
+          "stopped",
+          "unknown"
+        ],
+        "title": "ServerState",
+        "type": "string"
       },
       "SessionRead": {
         "properties": {
@@ -25282,6 +25463,114 @@
           }
         },
         "summary": "Run Maintenance",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/models": {
+      "get": {
+        "description": "Which model servers exist and which are actually up.\n\nCosts one TCP handshake plus one small HTTP request per server, and one cluster\nread each. Slower than a static list on purpose: the alternative is a screen\nthat says a model is running because it is configured, which is wrong most of\nthe time \u2014 both servers default to zero and the reaper releases the GPU on idle.",
+        "operationId": "read_model_servers",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelServerListRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Model Servers",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/models/{server_id}/start": {
+      "post": {
+        "description": "Bring a model server up, releasing the other one to free the GPU.\n\nReturns as soon as the cluster accepts the request; it does not wait for\nweights to load, which takes minutes for the 27B and would time out in every\nproxy between here and the browser. `state` then reads `starting` until the\nserver answers, which is what a polling screen shows.\n\nAnswers 200 with `ok: false` rather than an error status when scaling is not\npossible here: nothing broke, this install simply cannot do it, and `detail`\ncarries the command that can.",
+        "operationId": "start_model_server",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelSwitchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Model Server",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/system/models/{server_id}/stop": {
+      "post": {
+        "description": "Scale a model server to zero, freeing the GPU now.\n\nThe reaper already does this on idle, but idle is tens of minutes and the reason\nto stop a model is usually that something else needs the card *now* \u2014 a\nco-tenant's build, or the other model.",
+        "operationId": "stop_model_server",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelSwitchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Model Server",
         "tags": [
           "system"
         ]

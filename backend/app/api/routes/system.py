@@ -21,7 +21,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -31,7 +31,7 @@ from app import __version__
 from app.db import maintenance
 from app.db.session import get_db
 from app.models.system import CacheState
-from app.services import documents
+from app.services import documents, model_servers
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -276,3 +276,166 @@ def rebuild_caches(
     ]
     db.commit()
     return RebuildResponse(rebuilt=results)
+
+
+# ---------------------------------------------------------------------------
+# Model servers
+#
+# Here rather than under `/api/chat` deliberately. Chat is the loudest consumer
+# of a model, but not the only one — datasheet extraction reads with the small
+# rung — and what these routes control is a *deployment holding a GPU*, which is
+# infrastructure in the same sense as the cache and backup doors above.
+#
+# `/api/chat/models` stays what it is: the picker's list, answering "what may I
+# choose and is it ready". These answer "what is on, and turn it on or off".
+# ---------------------------------------------------------------------------
+
+
+class ModelHeldRead(BaseModel):
+    """One model a server can serve."""
+
+    id: str
+    label: str
+    size_b: int
+    #: The server named this model when asked. False while weights are loading,
+    #: and false for a model that was never pulled — which is not the same as the
+    #: server being down, and is why this is per model rather than per server.
+    loaded: bool
+
+
+class ModelServerRead(BaseModel):
+    """One model server: what it is doing, and what it holds."""
+
+    id: str
+    label: str
+    #: The Kubernetes Deployment behind it, or None if this install has no name
+    #: for it. Shown so `kubectl` and this screen are talking about the same thing.
+    deployment: str | None
+    state: model_servers.ServerState
+    #: Replicas asked for, and ready. Both None when the cluster cannot be read,
+    #: which is **not** the same as zero — see `state == "unknown"`.
+    desired_replicas: int | None
+    ready_replicas: int | None
+    #: Whether this server is claiming the GPU, including while starting up. At
+    #: most one server can, so this is also the answer to "why is the other one
+    #: not coming up".
+    holds_gpu: bool
+    models: list[ModelHeldRead]
+
+
+class ModelServerListRead(BaseModel):
+    """Every model server, plus whether this install may change anything.
+
+    `controllable` is false on a dev box and anywhere the API has no permission to
+    scale. The list still renders — what is running is answered by asking the
+    servers — but Start and Stop would only fail, so the UI hides them and shows
+    `hint` instead.
+    """
+
+    servers: list[ModelServerRead]
+    controllable: bool
+    #: The command that does this from a laptop, when `controllable` is false.
+    hint: str | None
+
+
+class ModelSwitchResponse(BaseModel):
+    """What a start or stop did. Always carries the fresh list, so one round trip
+    both acts and refreshes — a UI that re-fetched separately would show the state
+    from before its own click as often as not."""
+
+    ok: bool
+    #: One sentence to show the person: what is happening and roughly how long, or
+    #: why nothing happened.
+    detail: str
+    #: Servers scaled to zero. A start releases the others to free the card; a stop
+    #: names itself.
+    released: list[str]
+    servers: list[ModelServerRead]
+
+
+def _model_server_read(status: model_servers.ServerStatus) -> ModelServerRead:
+    return ModelServerRead(
+        id=status.server.id,
+        label=status.server.label,
+        deployment=status.server.deployment,
+        state=status.state,
+        desired_replicas=status.desired_replicas,
+        ready_replicas=status.ready_replicas,
+        holds_gpu=status.holds_gpu,
+        models=[
+            ModelHeldRead(
+                id=held.choice.id,
+                label=held.choice.label,
+                size_b=held.choice.size_b,
+                loaded=held.loaded,
+            )
+            for held in status.models
+        ],
+    )
+
+
+def _model_server_list() -> ModelServerListRead:
+    controllable = model_servers.controllable()
+    return ModelServerListRead(
+        servers=[_model_server_read(status) for status in model_servers.statuses()],
+        controllable=controllable,
+        hint=None if controllable else "make k8s-model M=8b|27b|off",
+    )
+
+
+@router.get("/models", response_model=ModelServerListRead)
+def read_model_servers() -> ModelServerListRead:
+    """Which model servers exist and which are actually up.
+
+    Costs one TCP handshake plus one small HTTP request per server, and one cluster
+    read each. Slower than a static list on purpose: the alternative is a screen
+    that says a model is running because it is configured, which is wrong most of
+    the time — both servers default to zero and the reaper releases the GPU on idle.
+    """
+    return _model_server_list()
+
+
+def _require_model_server(server_id: str) -> model_servers.ModelServer:
+    server = model_servers.by_id(server_id)
+    if server is None:
+        raise HTTPException(status_code=404, detail=f"No model server '{server_id}'")
+    return server
+
+
+@router.post("/models/{server_id}/start", response_model=ModelSwitchResponse)
+def start_model_server(server_id: str) -> ModelSwitchResponse:
+    """Bring a model server up, releasing the other one to free the GPU.
+
+    Returns as soon as the cluster accepts the request; it does not wait for
+    weights to load, which takes minutes for the 27B and would time out in every
+    proxy between here and the browser. `state` then reads `starting` until the
+    server answers, which is what a polling screen shows.
+
+    Answers 200 with `ok: false` rather than an error status when scaling is not
+    possible here: nothing broke, this install simply cannot do it, and `detail`
+    carries the command that can.
+    """
+    result = model_servers.start(_require_model_server(server_id))
+    return ModelSwitchResponse(
+        ok=result.ok,
+        detail=result.detail,
+        released=list(result.released),
+        servers=_model_server_list().servers,
+    )
+
+
+@router.post("/models/{server_id}/stop", response_model=ModelSwitchResponse)
+def stop_model_server(server_id: str) -> ModelSwitchResponse:
+    """Scale a model server to zero, freeing the GPU now.
+
+    The reaper already does this on idle, but idle is tens of minutes and the reason
+    to stop a model is usually that something else needs the card *now* — a
+    co-tenant's build, or the other model.
+    """
+    result = model_servers.stop(_require_model_server(server_id))
+    return ModelSwitchResponse(
+        ok=result.ok,
+        detail=result.detail,
+        released=list(result.released),
+        servers=_model_server_list().servers,
+    )

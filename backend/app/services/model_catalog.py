@@ -152,14 +152,40 @@ def by_id(model_id: str | None) -> ModelChoice:
 PROBE_TIMEOUT = 0.5
 
 
-def probe(choice: ModelChoice, timeout: float = PROBE_TIMEOUT) -> bool:
-    """Is **this model** loadable right now?
+@dataclass(frozen=True)
+class ServerProbe:
+    """What one model server answered, in the two parts that differ.
 
-    Returns False immediately when no model is configured at all
+    `listening` without any `served` name is the state that used to be reported as
+    "running" and is not: vLLM binds its port and *then* spends minutes loading
+    weights. Keeping the two apart is what lets a status view say "starting".
+    """
+
+    #: Something accepted a TCP connection on the server's port.
+    listening: bool
+    #: The model names it says it can serve. Empty when it is not answering yet.
+    served: frozenset[str]
+
+
+def probe_server(
+    base_url: str, timeout: float = PROBE_TIMEOUT, *, force: bool = False
+) -> ServerProbe:
+    """Ask one server what it is serving right now.
+
+    Returns an empty probe immediately when no model is configured at all
     (`ALMAGEST_LLM_BASE_URL` empty). That is the test and bare-dev case, and
     without the short-circuit every call paid a real connect timeout per model —
     it turned a five-second test file into eighty-four seconds, which is the sort
-    of tax that gets a test suite skipped.
+    of tax that gets a test suite skipped. Off a cluster the names do not merely
+    fail to resolve, they *hang*, so this gate is about minutes rather than
+    milliseconds.
+
+    `force` skips that gate, and exists for one caller: the model status view,
+    which asks only after the cluster has told it a pod is up. Positive evidence
+    that something is listening is a better reason to spend a connect than an
+    environment variable that says which model chat prefers — and a server that is
+    running while `ALMAGEST_LLM_BASE_URL` is unset would otherwise be reported as
+    perpetually starting.
 
     Asks the server which models it has, rather than only whether something
     accepts a connection. A TCP probe was not enough: **the 4B and 8B share one
@@ -167,22 +193,18 @@ def probe(choice: ModelChoice, timeout: float = PROBE_TIMEOUT) -> bool:
     up — and the picker cheerfully offered a 4B that had never been pulled and
     would 404 at generation time.
 
-    Still tolerant of a server that is starting: vLLM binds its port only after
-    minutes of loading, and a refused connection is simply False, which is the
-    state a picker must not present as ready.
-
-    Any failure is `False`. This decides whether a control is offered, so being
-    wrong in the optimistic direction is the expensive one.
+    Any failure is an empty probe. This decides whether a control is offered, so
+    being wrong in the optimistic direction is the expensive one.
     """
     from app.config import get_settings
 
-    if not get_settings().llm_base_url:
-        return False
+    if not force and not get_settings().llm_base_url:
+        return ServerProbe(listening=False, served=frozenset())
 
-    parsed = urlparse(choice.base_url)
+    parsed = urlparse(base_url)
     host, port = parsed.hostname, parsed.port
     if host is None or port is None:
-        return False
+        return ServerProbe(listening=False, served=frozenset())
 
     # Cheap gate first: no listener means no model, and this costs a handshake
     # rather than a request when the server is down — which is the common case.
@@ -190,18 +212,31 @@ def probe(choice: ModelChoice, timeout: float = PROBE_TIMEOUT) -> bool:
         with socket.create_connection((host, port), timeout=timeout):
             pass
     except OSError:
-        return False
+        return ServerProbe(listening=False, served=frozenset())
 
     try:
-        request = urllib.request.Request(choice.base_url.rstrip("/") + "/v1/models")
+        request = urllib.request.Request(base_url.rstrip("/") + "/v1/models")
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = json.loads(response.read() or b"{}")
     except (urllib.error.URLError, OSError, ValueError):
-        # Listening but not answering: still starting, most likely.
-        return False
+        # Listening but not answering: still loading weights, most likely.
+        return ServerProbe(listening=True, served=frozenset())
 
-    served = {str(row.get("id", "")) for row in body.get("data", [])}
-    return choice.served_name in served
+    rows = body.get("data") or []
+    return ServerProbe(
+        listening=True,
+        served=frozenset(str(row.get("id", "")) for row in rows),
+    )
+
+
+def probe(choice: ModelChoice, timeout: float = PROBE_TIMEOUT) -> bool:
+    """Is **this model** loadable right now?
+
+    Tolerant of a server that is starting: a server that is listening but not yet
+    answering serves nothing, which is False — the state a picker must not present
+    as ready. See `probe_server` for why the distinction is kept upstream.
+    """
+    return choice.served_name in probe_server(choice.base_url, timeout).served
 
 
 def start_hint(choice: ModelChoice) -> str:

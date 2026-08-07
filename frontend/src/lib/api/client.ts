@@ -118,6 +118,9 @@ export type ChatMessageRead = Schemas["MessageRead"];
 export type ChatKind = Schemas["ChatKind"];
 export type ChatModelChoice = Schemas["ModelChoiceRead"];
 export type ChatModelList = Schemas["ModelListRead"];
+export type ModelServerList = Schemas["ModelServerListRead"];
+export type ModelServerRead = Schemas["ModelServerRead"];
+export type ModelSwitch = Schemas["ModelSwitchResponse"];
 export type ChatWriteupRead = Schemas["WriteupRead"];
 export type PartResearchRead = Schemas["PartResearchRead"];
 export type ResearchCandidateRead = Schemas["ResearchCandidateRead"];
@@ -2538,4 +2541,49 @@ export async function deleteCapture(captureId: number): Promise<void> {
   if (error !== undefined) {
     fail("could not delete that capture", error, response);
   }
+}
+
+// ------------------------------------------------------------------ models --
+
+/**
+ * Which model servers exist and which are actually up.
+ *
+ * Not the same question as `listChatModels`: that one asks "what may I pick for
+ * this message", this one asks "what is holding the GPU right now". A model
+ * *server* is the unit that starts and stops — the small and medium models share
+ * one, so stopping it takes both away.
+ */
+export async function listModelServers(): Promise<ModelServerList> {
+  const { data, error, response } = await api.GET("/api/system/models", {});
+  if (error !== undefined) {
+    fail("could not load the models", error, response);
+  }
+  return data;
+}
+
+/**
+ * Start a model server, releasing the other one to free the card.
+ *
+ * Returns as soon as the cluster accepts it — weights take minutes to load — so
+ * the reply says "starting" and carries the fresh list to render.
+ */
+export async function startModelServer(serverId: string): Promise<ModelSwitch> {
+  const { data, error, response } = await api.POST("/api/system/models/{server_id}/start", {
+    params: { path: { server_id: serverId } },
+  });
+  if (error !== undefined) {
+    fail("could not start that model", error, response);
+  }
+  return data;
+}
+
+/** Stop a model server, freeing the GPU now rather than on the idle timer. */
+export async function stopModelServer(serverId: string): Promise<ModelSwitch> {
+  const { data, error, response } = await api.POST("/api/system/models/{server_id}/stop", {
+    params: { path: { server_id: serverId } },
+  });
+  if (error !== undefined) {
+    fail("could not stop that model", error, response);
+  }
+  return data;
 }

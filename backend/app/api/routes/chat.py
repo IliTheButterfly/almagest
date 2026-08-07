@@ -42,7 +42,7 @@ from app.config import get_settings
 from app.db.session import get_db
 from app.models.chat import MAX_MESSAGE_CHARS, MAX_WRITEUP_CHARS, ChatThread, ChatWriteup
 from app.models.enums import ChatKind, ChatRole
-from app.services import chat, chat_agent, chat_stream, model_catalog, model_scaler
+from app.services import chat, chat_agent, chat_stream, model_catalog, model_servers
 from app.services.chat import ChatError
 from app.services.chat_agent import ModelUnavailable
 
@@ -185,21 +185,23 @@ def _wake(choice: object) -> str:
     and holding the request open would occupy a worker in a single-replica API and
     time out in every proxy on the way. The turn is already stored, so "try again
     shortly" is a real instruction rather than a brush-off.
-    """
-    from urllib.parse import urlparse
 
-    host = urlparse(choice.base_url).hostname or ""  # type: ignore[attr-defined]
+    Goes through `model_servers.start` rather than scaling this one Deployment,
+    because **the two servers share one GPU**: scaling the 27B up while Ollama is
+    still up leaves it `Pending` forever, and this route would have cheerfully
+    reported "starting now" about a pod that was never going to run.
+    """
+    server = model_servers.server_for(choice)  # type: ignore[arg-type]
     label = choice.label  # type: ignore[attr-defined]
-    if model_scaler.ensure_running(host):
+    if server is None:
         return (
-            f"{label} was not running, so it is starting now. The first start "
-            f"loads weights into VRAM and takes a few minutes for a large model — "
-            f"press Try again shortly."
+            f"{label} is not running and this install does not know how to start it. "
+            f"Start it with `{model_catalog.start_hint(choice)}`."  # type: ignore[arg-type]
         )
-    return (
-        f"{label} is not running and could not be started from here. "
-        f"Start it with `{model_catalog.start_hint(choice)}`."  # type: ignore[arg-type]
-    )
+    result = model_servers.start(server)
+    if result.ok:
+        return f"{label} was not running. {result.detail} Press Try again shortly."
+    return f"{label} is not running. {result.detail}"
 
 
 def _resolve_model(picked: str | None) -> tuple[chat_agent.ChatModel | None, str]:

@@ -3424,6 +3424,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Model Servers
+         * @description Which model servers exist and which are actually up.
+         *
+         *     Costs one TCP handshake plus one small HTTP request per server, and one cluster
+         *     read each. Slower than a static list on purpose: the alternative is a screen
+         *     that says a model is running because it is configured, which is wrong most of
+         *     the time — both servers default to zero and the reaper releases the GPU on idle.
+         */
+        get: operations["read_model_servers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/models/{server_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Model Server
+         * @description Bring a model server up, releasing the other one to free the GPU.
+         *
+         *     Returns as soon as the cluster accepts the request; it does not wait for
+         *     weights to load, which takes minutes for the 27B and would time out in every
+         *     proxy between here and the browser. `state` then reads `starting` until the
+         *     server answers, which is what a polling screen shows.
+         *
+         *     Answers 200 with `ok: false` rather than an error status when scaling is not
+         *     possible here: nothing broke, this install simply cannot do it, and `detail`
+         *     carries the command that can.
+         */
+        post: operations["start_model_server"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/models/{server_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop Model Server
+         * @description Scale a model server to zero, freeing the GPU now.
+         *
+         *     The reaper already does this on idle, but idle is tens of minutes and the reason
+         *     to stop a model is usually that something else needs the card *now* — a
+         *     co-tenant's build, or the other model.
+         */
+        post: operations["stop_model_server"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/verification-sessions/{session_id}": {
         parameters: {
             query?: never;
@@ -6143,6 +6221,20 @@ export interface components {
             start_hint: string;
         };
         /**
+         * ModelHeldRead
+         * @description One model a server can serve.
+         */
+        ModelHeldRead: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Loaded */
+            loaded: boolean;
+            /** Size B */
+            size_b: number;
+        };
+        /**
          * ModelListRead
          * @description The catalogue, plus what the default currently resolves to.
          *
@@ -6155,6 +6247,60 @@ export interface components {
             default_id: string | null;
             /** Models */
             models: components["schemas"]["ModelChoiceRead"][];
+        };
+        /**
+         * ModelServerListRead
+         * @description Every model server, plus whether this install may change anything.
+         *
+         *     `controllable` is false on a dev box and anywhere the API has no permission to
+         *     scale. The list still renders — what is running is answered by asking the
+         *     servers — but Start and Stop would only fail, so the UI hides them and shows
+         *     `hint` instead.
+         */
+        ModelServerListRead: {
+            /** Controllable */
+            controllable: boolean;
+            /** Hint */
+            hint: string | null;
+            /** Servers */
+            servers: components["schemas"]["ModelServerRead"][];
+        };
+        /**
+         * ModelServerRead
+         * @description One model server: what it is doing, and what it holds.
+         */
+        ModelServerRead: {
+            /** Deployment */
+            deployment: string | null;
+            /** Desired Replicas */
+            desired_replicas: number | null;
+            /** Holds Gpu */
+            holds_gpu: boolean;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Models */
+            models: components["schemas"]["ModelHeldRead"][];
+            /** Ready Replicas */
+            ready_replicas: number | null;
+            state: components["schemas"]["ServerState"];
+        };
+        /**
+         * ModelSwitchResponse
+         * @description What a start or stop did. Always carries the fresh list, so one round trip
+         *     both acts and refreshes — a UI that re-fetched separately would show the state
+         *     from before its own click as often as not.
+         */
+        ModelSwitchResponse: {
+            /** Detail */
+            detail: string;
+            /** Ok */
+            ok: boolean;
+            /** Released */
+            released: string[];
+            /** Servers */
+            servers: components["schemas"]["ModelServerRead"][];
         };
         /** MovePlanRead */
         MovePlanRead: {
@@ -8590,6 +8736,12 @@ export interface components {
             error?: string | null;
             user: components["schemas"]["MessageRead"];
         };
+        /**
+         * ServerState
+         * @description What a model server is doing, in the four states worth telling apart.
+         * @enum {string}
+         */
+        ServerState: "running" | "starting" | "stopped" | "unknown";
         /** SessionRead */
         SessionRead: {
             /** Bound Count */
@@ -14570,6 +14722,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MaintenanceRun"];
+                };
+            };
+        };
+    };
+    read_model_servers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelServerListRead"];
+                };
+            };
+        };
+    };
+    start_model_server: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelSwitchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_model_server: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelSwitchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
