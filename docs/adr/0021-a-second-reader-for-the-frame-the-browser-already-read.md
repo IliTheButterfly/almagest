@@ -115,11 +115,77 @@ above — so the path where it is documented to work is the path to use. The ima
 encoding differs too, and that difference is real: the same documentation shows
 `image_url` as a bare string rather than the nested object the OpenAI spec uses.
 
-**This choice is informed, not verified.** It was made from documentation, not
-from a server that answered. `tests/integration/test_vision_live.py` is what
-settles it, and one of its tests fails if the default is picking wrong. Until that
-has run against both servers, treat this table as a claim to check rather than a
-fact.
+**Verified on hardware, 2026-08-07, against `qwen3-vl:8b` on the cluster's
+Ollama.** All five live contract tests pass, and the findings are not what the
+documentation predicted:
+
+- **Both wire shapes work on Ollama.** Its OpenAI-compatible endpoint does accept
+  the nested `{"url": "data:image/jpeg;base64,..."}` form, despite the docs
+  showing a bare string. The documentation is more conservative than the server.
+- **`ollama_native` is still the right default, for a reason nobody predicted.**
+  On the ambiguous corpus case the native path completed within an 8192-token
+  budget and the OpenAI path did not. So the default now rests on a measurement
+  rather than on a reading of the docs — it just happens to be the same default.
+- **Constrained decoding constrains the shape and not the bounds.** The model
+  answered `95` for a field declared `{"minimum": 0.0, "maximum": 1.0}`,
+  reproducibly, across both transports and across two revisions of the prompt and
+  the schema description. This is exactly the "server accepted the schema and
+  ignored it" case `parse_response` re-validates for, and it is why the absent
+  `url` property is a stronger guarantee than any `maximum` could be: a property
+  that does not exist cannot be emitted, whereas a bound is advisory.
+- **The reasoning budget is spent before the answer.** Qwen3-VL thinks, and that
+  thinking comes out of `max_tokens`. At 1024 the hard case truncated; at 4096 it
+  produced 12318 characters of reasoning and **no answer at all**; at 8192 it
+  answered. Turning reasoning off is not the remedy — Ollama's `think: false`
+  returns an empty completion with nothing in place of the reasoning, which is
+  the failure this repository already met once in chat.
+
+## What it actually reads, measured
+
+Two photographs, `qwen3-vl:8b`, no barcode and no OCR hint — the model working
+from pixels alone. Deterministic across both transports.
+
+| | anchored distributor bag | bare module on a PCB |
+|---|---|---|
+| truth | `CF14JT100K` (Stackpole) | `XB3-24Z8UM` (Digi XBee 3) |
+| answer | **`CF14JT100K`** | `XB3-24Z8UM 0013A2004` |
+| confidence | 0.95 | 0.7, plus a second candidate at 0.6 |
+| wall clock | ~5 s | ~39 s |
+| prompt tokens | ~3 100 | ~7 700 |
+
+**The easy case is easy and the hard case is the whole point.** On the bag it
+picked the value under *"Manufacturer Part Number"* over the DigiKey ordering
+code printed directly above it under *"Part Number"* — the exact discrimination
+the prompt asks for.
+
+On the bare module, the first prompt returned **`MCQ-XBEE3` — the FCC ID — at
+confidence 0.95.** Confidently wrong, from a label that also carries a Canadian
+IC number, an OUI and a serial, all formatted more prominently than the part
+number. Naming those categories explicitly in the system prompt moved it onto the
+right string at a *lower* confidence with a ranked alternative beside it, which
+is the behaviour that makes a review queue useful rather than decorative.
+
+Three things follow, and none of them are about this model being good or bad:
+
+- **The `source_text` requirement is what caught the error.** The wrong answer
+  quoted `'MODEL: MCQ-XBEE3'`, a line that does not exist — the label says
+  `MODEL: MICRO` and `FCC ID: MCQ-XBEE3` on separate lines. A reviewer comparing
+  the quote against the photograph sees that immediately. A bare assertion would
+  have looked identical to the right answer.
+- **Confidence is not calibrated and must not be trusted.** 0.95 on a wrong
+  answer, before and after normalisation. This is the empirical case for the
+  never-auto-accept rule, and for keeping vision confidence out of the promotion
+  arithmetic entirely.
+- **The remaining error is segmentation, not comprehension.** `XB3-24Z8UM
+  0013A2004` is the part number with the adjacent OUI glued on, from a label
+  rotated ninety degrees. That is a different problem from reading the wrong
+  field, and it is the one `datasheet_validation`'s MPN-in-text check is placed
+  to catch.
+
+A corpus of two is not a benchmark and no ranking should be drawn from it. It is
+enough to say the path works end to end against a real model, and to have found
+four deployment facts that no amount of reading the documentation would have
+produced.
 
 ## Consequences
 

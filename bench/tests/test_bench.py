@@ -160,6 +160,62 @@ def test_an_empty_corpus_raises_rather_than_scoring_nothing(tmp_path: Path) -> N
         load_corpus(tmp_path)
 
 
+def test_a_case_can_point_at_a_photograph_committed_elsewhere(tmp_path: Path) -> None:
+    """So the DigiKey bag is not committed twice.
+
+    It already lives at `frontend/src/lib/capture/fixtures/` and `test_vision.py`
+    asserts its sha256. A second copy in the corpus would be 240 KB that can
+    silently diverge from the file those tests pin, which is the one kind of
+    drift a corpus must not have.
+    """
+    root = tmp_path / "bench" / "corpus"
+    root.mkdir(parents=True)
+    elsewhere = tmp_path / "frontend" / "fixtures"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "label.jpg").write_bytes(b"\xff\xd8\xff")
+    _write_case(root, "0001-x", _case_body(capture="frontend/fixtures/label.jpg"))
+
+    case = load_corpus(root)[0]
+    assert case.capture_path is not None
+    assert case.capture_path.read_bytes() == b"\xff\xd8\xff"
+
+
+def test_a_relative_corpus_path_still_finds_the_photograph(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bug the absolute-path test above could not catch.
+
+    `corpus/0001-x` has fewer than three parents, so walking up to the repository
+    root raised IndexError -- which the first version of this feature did, the
+    first time it was pointed at the real corpus from inside `bench/`.
+    """
+    root = tmp_path / "bench" / "corpus"
+    root.mkdir(parents=True)
+    elsewhere = tmp_path / "frontend" / "fixtures"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "label.jpg").write_bytes(b"\xff\xd8\xff")
+    _write_case(root, "0001-x", _case_body(capture="frontend/fixtures/label.jpg"))
+
+    monkeypatch.chdir(tmp_path / "bench")
+    case = load_corpus(Path("corpus"))[0]
+
+    assert case.capture_path is not None
+    assert case.capture_path.read_bytes() == b"\xff\xd8\xff"
+
+
+def test_a_distractor_is_recorded_so_it_can_be_scored_apart(tmp_path: Path) -> None:
+    """Returning the FCC ID is a different failure from inventing a part number.
+
+    Measured, not hypothetical: on the XBee case `qwen3-vl:8b` answered
+    `MCQ-XBEE3` -- the FCC ID printed two lines above the real part number -- at
+    confidence 0.95. It read the image correctly and misunderstood what it was
+    looking at, which is fixable in the prompt. A part number that appears
+    nowhere on the label is a different problem entirely.
+    """
+    _write_case(root := tmp_path, "0001-x", _case_body(distractors=["MCQ-XBEE3", "0013A2004"]))
+    assert load_corpus(root)[0].distractors == ("MCQ-XBEE3", "0013A2004")
+
+
 # ---------------------------------------------------------------------------
 # The record file
 # ---------------------------------------------------------------------------

@@ -106,13 +106,41 @@ class Case:
     #: 24 variants, and a benchmark run entirely at batch-size-1 measures a shape
     #: the system does not use.
     sibling_mpns: tuple[str, ...] = ()
+    #: Strings printed on this item that **look like a part number and are not**:
+    #: an FCC ID, a regulatory IC number, an OUI, a distributor ordering code.
+    #:
+    #: Scored separately from a random wrong answer, because they are different
+    #: failures with different fixes. A model that returns `MCQ-XBEE3` read the
+    #: image correctly and misunderstood what it was looking at -- fixable in the
+    #: prompt. A model that returns a part number nowhere on the label invented
+    #: one, which is the failure this whole pipeline is built around.
+    distractors: tuple[str, ...] = ()
 
     @property
     def text_path(self) -> Path:
         return self.directory / "text.txt"
 
+    #: Where the photograph lives when it is **not** beside `case.json`, as a path
+    #: from the repository root.
+    #:
+    #: Exists for one real case: the DigiKey resistor bag is already committed as
+    #: `frontend/src/lib/capture/fixtures/digikey-creased-datamatrix.jpg`, and
+    #: `test_vision.py` asserts its sha256. A second copy here would be 240 KB of
+    #: duplication that can silently diverge from the file those tests pin --
+    #: which is exactly the kind of drift a corpus must not have.
+    capture: str | None = None
+
     @property
     def capture_path(self) -> Path | None:
+        if self.capture:
+            # `resolve()` first, and it is load-bearing rather than tidiness: the
+            # case directory is often reached by a relative path (`corpus/0001-x`),
+            # which has fewer than three parents and raises IndexError. Found by
+            # running it, not by reading it.
+            #
+            # Three parents up from `<root>/bench/corpus/<case>` is `<root>`.
+            path = self.directory.resolve().parents[2] / self.capture
+            return path if path.exists() else None
         path = self.directory / "capture.jpg"
         return path if path.exists() else None
 
@@ -189,6 +217,8 @@ def load_case(directory: Path) -> Case:
         datasheet_url=body.get("datasheet_url"),
         document_sha256=body.get("document_sha256"),
         sibling_mpns=tuple(body.get("sibling_mpns") or ()),
+        distractors=tuple(body.get("distractors") or ()),
+        capture=body.get("capture"),
     )
 
 

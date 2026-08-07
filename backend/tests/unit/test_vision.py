@@ -220,10 +220,34 @@ def test_a_candidate_without_a_part_number_is_refused() -> None:
         _parse(_response(_candidate(mpn="")))
 
 
-@pytest.mark.parametrize("confidence", [-0.1, 1.4, "high", True, None])
-def test_a_confidence_outside_zero_to_one_is_refused(confidence: object) -> None:
+@pytest.mark.parametrize("confidence", [-0.1, 101, 1e6, "high", True, None])
+def test_a_confidence_that_is_not_a_fraction_or_a_percentage_is_refused(
+    confidence: object,
+) -> None:
     with pytest.raises(VisionResponseError, match="confidence"):
         _parse(_response(_candidate(confidence=confidence)))
+
+
+@pytest.mark.parametrize(
+    ("answered", "expected"), [(95, 0.95), (100, 1.0), (70.0, 0.7), (0.95, 0.95), (1, 1.0)]
+)
+def test_a_confidence_reported_in_percent_is_normalised(answered: float, expected: float) -> None:
+    """Measured behaviour, not an anticipated one.
+
+    qwen3-vl:8b answers `95` for a field declared `{"minimum": 0, "maximum": 1}`,
+    reproducibly, across both wire shapes and across two revisions of the prompt
+    and of the schema description that each spelled out "a decimal fraction
+    between 0.0 and 1.0 -- for example 0.95, never 95". Servers enforce the
+    *type* of a constrained field and not its bounds, so no schema can make this
+    unrepresentable the way the missing `url` property is.
+
+    Normalising is a narrower concession than refusing looks. What this module
+    refuses are claims *about the part*; a confidence expressed as 95 is a unit
+    convention, and this codebase normalises units everywhere rather than
+    rejecting a datasheet that says `100 nF` where the template says farads.
+    """
+    result = _parse(_response(_candidate(confidence=answered)))
+    assert result.candidates[0].confidence == pytest.approx(expected)
 
 
 def test_the_same_printed_string_twice_is_refused() -> None:
@@ -267,7 +291,16 @@ def test_candidates_must_be_an_array() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_fake_replays_the_anchored_case_through_the_real_parser() -> None:
+def test_the_fake_replays_a_real_recording_through_the_real_parser() -> None:
+    """The anchored entry is verbatim from qwen3-vl:8b, not written by hand.
+
+    Two things in it are the recording rather than a tidy-up, and both matter.
+    The confidence arrives as `95` and is normalised here, which is the path a
+    hand-authored `0.95` would never exercise. And `manufacturer` and `package`
+    come back null -- a correct answer for a label where neither is legible
+    without inference, and the case that would break if `_optional_text` ever
+    started insisting on a value.
+    """
     provider = FakeVisionProvider(FIXTURE)
     request = _request(ANCHORED_SHA, barcode_texts=("CF14JT100K",), max_candidates=1)
     result = provider.read(request)
@@ -275,14 +308,11 @@ def test_the_fake_replays_the_anchored_case_through_the_real_parser() -> None:
     assert result.candidates == (
         IdentityCandidate(
             mpn="CF14JT100K",
-            manufacturer="Stackpole Electronics Inc",
-            confidence=0.93,
-            source_text="CF14JT100K",
-            package="Axial",
-            note=(
-                "Part number is also carried in the Data Matrix; the printed line "
-                "agrees with it character for character."
-            ),
+            manufacturer=None,
+            confidence=0.95,
+            source_text="Manufacturer Part Number\nCF14JT100K",
+            package=None,
+            note=None,
         ),
     )
     assert provider.calls == [request]

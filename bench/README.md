@@ -30,8 +30,21 @@ protocol and reaper suspension), `corpus.py` (cases and truth).
 
 Not built: the runner, the scoring pass, the charts, the CLI.
 
-**Blocking input: there is no corpus.** That is not a missing module, it is a
-missing set of photographs and hand-checked values. See below.
+**The corpus has two cases and needs about sixty.** They are the right two to
+start from — one at each end of the range — but two cases support no ranking and
+no chart, and any number drawn from them would be noise with a decimal point.
+
+| case | what it is | `qwen3-vl:8b`, pixels only |
+|---|---|---|
+| `0001-cf14jt100k` | DigiKey bag, part number printed *and* in a Data Matrix | correct, ~5 s |
+| `0002-xb3-24z8um` | Digi XBee module soldered to a PCB, top marking only | reads the right string, glues the adjacent OUI onto it |
+
+The second is worth more than the first. Its label carries an FCC ID, a Canadian
+IC number, an OUI and a serial, all formatted more prominently than the part
+number — and the first version of the prompt returned the **FCC ID at confidence
+0.95**. A corpus of clean distributor bags would never have surfaced that. When
+adding cases, weight them toward bare parts and unlabelled bags for exactly this
+reason.
 
 ## Two sweeps, because they answer different questions
 

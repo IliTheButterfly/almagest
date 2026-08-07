@@ -328,6 +328,47 @@ def test_a_non_json_answer_names_the_transport_it_failed_on(
 
 
 @pytest.mark.parametrize("build", [_openai, _ollama])
+def test_an_answer_that_was_all_reasoning_is_named_as_such(
+    monkeypatch: pytest.MonkeyPatch, build: Any
+) -> None:
+    """Observed against qwen3-vl:8b, and the reason `max_tokens` is 8192.
+
+    A thinking model spends the completion budget reasoning *before* it answers.
+    On the ambiguous corpus case it produced 12318 characters of reasoning and an
+    empty completion. Reported as an empty answer rather than as "content that is
+    not JSON", which is what it used to look like and which sends the reader off
+    to investigate constrained decoding that is working perfectly.
+
+    Turning reasoning off is not the fix and the message says so: Ollama's
+    `think: false` on this model returns an empty completion too, with nothing in
+    place of the reasoning.
+    """
+    reasoning = "I can see a label. " * 40
+    if build is _openai:
+        body: dict[str, Any] = {
+            "choices": [
+                {
+                    "message": {"content": "", "reasoning_content": reasoning},
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+    else:
+        body = {"message": {"content": "", "thinking": reasoning}, "done_reason": "stop"}
+    _patch(monkeypatch, _Capture(body))
+
+    with pytest.raises(ModelUnavailable) as caught:
+        build().read(_request())
+
+    message = str(caught.value)
+    assert "empty completion" in message
+    assert "raise max_tokens" in message
+    assert str(len(reasoning)) in message
+    # And emphatically not the diagnosis that sends you to the serving stack.
+    assert "constrained decoding" not in message
+
+
+@pytest.mark.parametrize("build", [_openai, _ollama])
 def test_an_unreachable_server_says_how_long_it_took_to_fail(
     monkeypatch: pytest.MonkeyPatch, build: Any
 ) -> None:

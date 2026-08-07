@@ -290,8 +290,18 @@ def schema_for(request: VisionRequest) -> dict[str, Any]:
                             "minimum": 0.0,
                             "maximum": 1.0,
                             "description": (
-                                "How legible this reading was -- focus, glare, creases, "
-                                "obscured characters. Not how plausible the part is."
+                                # The range is spelled out in the description as well as
+                                # in `minimum`/`maximum` because **servers enforce the
+                                # type and not the bounds**: observed on Ollama's
+                                # structured output, qwen3-vl:8b answered `100` for a
+                                # field declared `maximum: 1.0`. `parse_response` refuses
+                                # it either way, but a refused read is a wasted GPU
+                                # second, and the description is what the model actually
+                                # reads.
+                                "A decimal fraction between 0.0 and 1.0 -- for example "
+                                "0.95, never 95. How legible this reading was: focus, "
+                                "glare, creases, obscured characters. Not how plausible "
+                                "the part is."
                             ),
                         },
                         "source_text": {
@@ -416,13 +426,49 @@ def _optional_text(body: dict[str, Any], key: str, where: str) -> str | None:
     return value.strip() or None
 
 
+#: Above this, a confidence is being reported in percent and is divided by 100.
+#:
+#: **Measured, not anticipated.** qwen3-vl:8b answers `95` for a field declared
+#: `{"minimum": 0.0, "maximum": 1.0}`, reproducibly, across both wire shapes and
+#: across two revisions of the prompt and the schema description that each said
+#: "a decimal fraction between 0.0 and 1.0 -- for example 0.95, never 95". The
+#: servers enforce the *type* of a constrained field and not its bounds, so the
+#: schema cannot make this unrepresentable the way it can with a missing property.
+PERCENT_THRESHOLD = 1.0
+
+
 def _confidence(body: dict[str, Any], where: str) -> float:
+    """The model's confidence, in whichever scale it chose to answer in.
+
+    A percentage is normalised rather than refused, and that is a narrower
+    concession than it looks. What this module refuses -- an invented part
+    number, a missing quote, a candidate beyond the requested cap -- are all
+    *claims about the part*. A confidence expressed as 95 instead of 0.95 is a
+    **unit convention**, and this codebase already normalises units everywhere
+    rather than rejecting a datasheet that says `100 nF` where the template
+    says farads.
+
+    Refusing it was tried first and is the wrong trade: it discards an otherwise
+    correct reading, and it fails the whole capture rather than the field. The
+    blast radius of accepting it is small by construction -- a vision confidence
+    never reaches `candidates.AUTO_PROMOTE_CONFIDENCE` (see the module
+    docstring), so this number ranks candidates for a reviewer and decides
+    nothing on its own.
+
+    Anything above 100 is still refused. At that point the scale is not a
+    convention this can recognise, and guessing would be inventing.
+    """
     value = body.get("confidence")
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise VisionResponseError(f"{where}.confidence must be a number")
-    if not 0.0 <= float(value) <= 1.0:
-        raise VisionResponseError(f"{where}.confidence must be between 0 and 1, got {value}")
-    return float(value)
+    number = float(value)
+    if PERCENT_THRESHOLD < number <= 100.0:
+        number /= 100.0
+    if not 0.0 <= number <= 1.0:
+        raise VisionResponseError(
+            f"{where}.confidence must be between 0 and 1, or a percentage of it, got {value}"
+        )
+    return number
 
 
 def _label_kind(body: dict[str, Any]) -> str | None:
