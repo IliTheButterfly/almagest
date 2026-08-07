@@ -74,6 +74,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.services.enrichment.calls import CallStats
+
 #: How many identities the model may propose when nothing anchors the read.
 #:
 #: Three, not one, because the whole point of proposing rather than asserting is
@@ -197,6 +199,11 @@ class VisionResult:
     #: Ranked, best first. **May be empty** -- see the module docstring.
     candidates: tuple[IdentityCandidate, ...] = ()
     label_kind: str | None = None
+    #: What the call cost. `None` from a fake or a replayed fixture, which is
+    #: honest -- a recording has no latency of its own. The prompt token count is
+    #: the one that matters here: `grab.ts` does not downscale, so this is what
+    #: will say whether sending a 4K frame whole is affordable.
+    stats: CallStats | None = None
 
     @property
     def identified(self) -> bool:
@@ -317,7 +324,12 @@ def schema_for(request: VisionRequest) -> dict[str, Any]:
 
 
 def parse_response(
-    payload: object, request: VisionRequest, *, provider: str, model: str
+    payload: object,
+    request: VisionRequest,
+    *,
+    provider: str,
+    model: str,
+    stats: CallStats | None = None,
 ) -> VisionResult:
     """Validate a raw response into a `VisionResult`, or raise.
 
@@ -372,6 +384,7 @@ def parse_response(
         document_sha256=request.document_sha256,
         candidates=tuple(candidates),
         label_kind=_label_kind(body),
+        stats=stats,
     )
 
 

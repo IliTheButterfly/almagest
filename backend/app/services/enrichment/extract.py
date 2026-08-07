@@ -66,6 +66,12 @@ from sqlalchemy.orm import Session
 from app.models.enums import ValueType
 from app.models.parameter import ParameterChoice, ParameterTemplate
 from app.services import parameters
+
+# `CallStats` lives in `calls.py` because `vision.py` needs it too and neither
+# pure interface should have to import the other to say what a call cost. It is
+# imported (not just referenced) here so `from ...extract import CallStats`
+# keeps working for the transports that already do.
+from app.services.enrichment.calls import CallStats
 from app.services.scanning.codes import normalize_mpn
 
 #: Most part numbers to put in one call.
@@ -300,6 +306,11 @@ class ExtractionResult:
     model: str
     document_ref: str
     variants: tuple[ExtractedVariant, ...]
+    #: What the call cost. `None` from a fake or a replayed fixture, which is
+    #: honest -- a recorded response has no latency of its own, and a fabricated
+    #: one would put invented numbers into a benchmark. A trailing default, so
+    #: every existing construction site is untouched.
+    stats: CallStats | None = None
 
     def variant_for(self, mpn: str) -> ExtractedVariant | None:
         key = normalize_mpn(mpn)
@@ -416,7 +427,12 @@ def schema_for(request: ExtractionRequest) -> dict[str, Any]:
 
 
 def parse_response(
-    payload: object, request: ExtractionRequest, *, provider: str, model: str
+    payload: object,
+    request: ExtractionRequest,
+    *,
+    provider: str,
+    model: str,
+    stats: CallStats | None = None,
 ) -> ExtractionResult:
     """Validate a raw response into an `ExtractionResult`, or raise."""
     body = _object(payload, "response")
@@ -484,6 +500,7 @@ def parse_response(
         model=model,
         document_ref=request.document_ref,
         variants=tuple(variants),
+        stats=stats,
     )
 
 

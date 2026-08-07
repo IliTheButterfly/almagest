@@ -53,6 +53,7 @@ from app.models.storage import Location
 from app.services import shortid
 from app.services.scanning import aliases, codes, ecia, lcsc
 from app.services.scanning.describe import EntityDescription, describe
+from app.services.timing import elapsed_ms
 
 ResolutionStatus = Literal["resolved", "ambiguous", "unknown"]
 
@@ -398,7 +399,7 @@ def resolve(
 
     existing_lots = _existing_lots(session, target) if target is not None else ()
 
-    latency_ms = _elapsed_ms(started)
+    latency_ms = elapsed_ms(started)
     event = _new_event(
         session,
         payload=payload,
@@ -455,10 +456,6 @@ def record_bind(
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
-
-
-def _elapsed_ms(started: float) -> int:
-    return max(0, round((time.perf_counter() - started) * 1000))
 
 
 def _new_event(
