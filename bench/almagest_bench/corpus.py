@@ -129,9 +129,32 @@ class Case:
     #: duplication that can silently diverge from the file those tests pin --
     #: which is exactly the kind of drift a corpus must not have.
     capture: str | None = None
+    #: The photograph's sha256 -- **the normal way a case names its image**.
+    #:
+    #: Photographs are never committed (see `.gitignore`): a capture is a picture
+    #: of somebody's own bench and a git history is forever. So the case records
+    #: the hash and the bytes live somewhere git does not see -- the local cache
+    #: below, or a running Almagest, which is what
+    #: `app.scripts.upload_capture` puts them in.
+    #:
+    #: The hash is also what makes that safe. An image fetched from anywhere is
+    #: verifiable against the case, so a corpus cannot silently start scoring a
+    #: different photograph than the one its truth was written for.
+    capture_sha256: str | None = None
 
     @property
     def capture_path(self) -> Path | None:
+        """The photograph, if this machine has it. `None` is a normal answer.
+
+        Checked in order of how specific each source is:
+
+        1. an explicit `capture` path, for an image that is legitimately in the
+           repository already (the DigiKey bag is, as a frontend test fixture);
+        2. the gitignored cache, keyed by hash -- where `upload_capture --cache`
+           and `almagest-bench corpus fetch` put things;
+        3. `capture.jpg` beside `case.json`, which git ignores but a person may
+           well have dropped there by hand.
+        """
         if self.capture:
             # `resolve()` first, and it is load-bearing rather than tidiness: the
             # case directory is often reached by a relative path (`corpus/0001-x`),
@@ -140,9 +163,29 @@ class Case:
             #
             # Three parents up from `<root>/bench/corpus/<case>` is `<root>`.
             path = self.directory.resolve().parents[2] / self.capture
-            return path if path.exists() else None
-        path = self.directory / "capture.jpg"
-        return path if path.exists() else None
+            if path.exists():
+                return path
+        if self.capture_sha256:
+            for suffix in (".jpg", ".png"):
+                cached = self.directory.parent / "_captures" / f"{self.capture_sha256}{suffix}"
+                if cached.exists():
+                    return cached
+        local = self.directory / "capture.jpg"
+        return local if local.exists() else None
+
+    def verify_capture(self) -> bool:
+        """Is the image on disk the one this case's truth was written against?
+
+        `True` when there is nothing to check -- no recorded hash, or no image
+        present -- because "unverifiable" and "wrong" want different handling and
+        only the second should stop a run.
+        """
+        from hashlib import sha256
+
+        path = self.capture_path
+        if path is None or not self.capture_sha256:
+            return True
+        return sha256(path.read_bytes()).hexdigest() == self.capture_sha256
 
     @property
     def batched(self) -> bool:
@@ -219,6 +262,7 @@ def load_case(directory: Path) -> Case:
         sibling_mpns=tuple(body.get("sibling_mpns") or ()),
         distractors=tuple(body.get("distractors") or ()),
         capture=body.get("capture"),
+        capture_sha256=body.get("capture_sha256"),
     )
 
 

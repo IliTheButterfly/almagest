@@ -248,6 +248,33 @@ def test_records_round_trip_through_the_file(tmp_path: Path) -> None:
     assert restored.calls[0].prompt_tokens == 900
 
 
+def test_rank_survives_serialisation(tmp_path: Path) -> None:
+    """The bug that made the first chart wrong, and it was silent.
+
+    Records are written with `sort_keys=True`, which sorts *nested* dicts too. The
+    vision stage had put its ranked candidates in `cells` keyed by part number, so
+    a model whose top answer was `XB3-24Z8UM` and whose second was `187ABE1` came
+    back off disk with `187ABE1` first -- and the chart faithfully drew the
+    alphabetically-first candidate as the model's answer.
+
+    Rank is load-bearing: the first entry is what a stub part would be created
+    from. So it lives in a list, where sorting cannot reach it.
+    """
+    path = tmp_path / "records.jsonl"
+    with RecordWriter(path) as writer:
+        writer.write(
+            _record(
+                ranked=("XB3-24Z8UM", "187ABE1"),
+                cells={"identity:XB3-24Z8UM": "correct", "identity:187ABE1": "distractor"},
+            )
+        )
+
+    (restored,) = list(read_cases(path))
+    assert restored.ranked[0] == "XB3-24Z8UM"
+    # And the dict really is reordered, which is why the list is needed at all.
+    assert list(restored.cells) == sorted(restored.cells)
+
+
 def test_a_run_killed_mid_write_still_reads(tmp_path: Path) -> None:
     """The realistic overnight failure, and why this is JSONL rather than SQLite.
 

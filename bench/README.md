@@ -28,7 +28,29 @@ one is lying around.
 Built: `record.py` (the JSONL format and `--resume` keys), `cluster.py` (the swap
 protocol and reaper suspension), `corpus.py` (cases and truth).
 
-Not built: the runner, the scoring pass, the charts, the CLI.
+Built since: the runner (`stages.py`), the CLI (`almagest-bench corpus check |
+vision | plot`) and the outcome matrix (`plots.py`).
+
+Not built: the extraction sweep, the research sweep, `metrics.py` wired into a
+scoring command.
+
+## What the first real run found
+
+Two cases, two models, two repeats, pixels only. Not a benchmark — a shakedown —
+and it earned its keep three times over:
+
+- **The same model, at temperature 0, is not stable on a hard case.** `qwen3-vl:8b`
+  answered the XBee once and spent 25 431 characters of reasoning without
+  answering the next time. The repeat pips in the chart exist because of this.
+- **`sort_keys=True` was silently destroying candidate rank.** The vision stage
+  put its ranked candidates in a dict keyed by part number; JSON serialisation
+  sorted them, and the chart drew the alphabetically-first candidate as the
+  model's top answer. Rank now lives in `CaseRecord.ranked`, where sorting cannot
+  reach it, and a test pins it.
+- **Reasoning cost, not image size, is what breaks a run.** The 4B failed the
+  hard case *both* times the same way. Both models read the easy label in a few
+  seconds; the ambiguous one costs an order of magnitude more and sometimes
+  everything.
 
 **The corpus has two cases and needs about sixty.** They are the right two to
 start from — one at each end of the range — but two cases support no ranking and
