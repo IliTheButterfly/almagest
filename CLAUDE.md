@@ -107,10 +107,14 @@ the label code:
 first image-to-model interface here. The interface, the schema, the parser, the
 fake and both wire shapes exist and are tested offline; `test_e2e_capture_dispatch.py`
 runs a photograph through to a reviewable candidate with no GPU and no network.
-**No model has ever read an image through it** — which transport each server
-actually accepts is settled by `tests/integration/test_vision_live.py`, which is
-`live`-marked and has never run. There is also no queue, no worker and no UI for
-it yet, so nothing invokes it outside a test.
+**It has now run against a real model** — `qwen3-vl:8b` on the cluster's Ollama,
+2026-08-07, all five live contract tests passing. Both wire shapes work; the
+reasoning budget, not the image, is what sets `max_tokens`; and a server enforces
+a constrained field's *type* but not its bounds. See ADR 0021's "Verified on
+hardware" and "What it actually reads" for the numbers and for the one
+confidently-wrong answer that the `source_text` requirement caught. There is
+still **no queue, no worker and no UI**, so nothing invokes it outside a test and
+a script.
 
 **Not built yet:** any *unattended* agent-assisted field filling — capture
 extraction is algorithmic and offers candidates a person chooses between, and the

@@ -1,0 +1,19 @@
+{
+  "_case": "UNANCHORED, and the hard end of the range. A Digi XBee 3 module soldered onto a populated PCB -- no bag, no distributor label, nothing but the part's own top marking. This is the case ADR 0021 exists for and the one CLAUDE.md rates at 30-60% end to end, and the limit is the marking-to-part lookup rather than the optics.",
+  "_why_this_case_is_worth_more_than_the_other": "Three of the four long alphanumeric strings on this label are NOT the part number, and all three are more prominently formatted than the one that is. A model that reads every character perfectly can still return the wrong string. That is the failure mode worth measuring, and a corpus of clean distributor bags would never surface it.",
+  "mpn": "XB3-24Z8UM",
+  "manufacturer": "Digi International",
+  "_identity_note": "Printed as 'XB3-24Z8UM   rev F', rotated 90 degrees with the rest of the label. Decodes as XBee 3 (XB3), 2.4 GHz (24), Zigbee (Z), 8 = U.FL antenna, U = micro form factor, M = through-hole/SMT micro. 'MODEL: MICRO' on the line above corroborates the form factor.",
+  "expected": {},
+  "absent": [],
+  "_expected_note": "EMPTY ON PURPOSE. This case measures IDENTITY, not parameters: the module's electrical characteristics are nowhere on the label, so any parametric truth here would have to come from a datasheet nobody has fetched. Scoring extraction against it would be scoring a datasheet that was never read.",
+  "distractors": [
+    "MCQ-XBEE3",
+    "1846A-XBEE3",
+    "0013A2004",
+    "A8FB0200000002712",
+    "187ABE1"
+  ],
+  "_distractor_note": "Every one of these is printed on the label in the same block as the real part number, and each is a distinct way to be wrong. MCQ-XBEE3 is the FCC ID and 1846A-XBEE3 the Canadian IC certification number -- both contain the string 'XBEE3' and both look far more like a part number than XB3-24Z8UM does. 0013A2004 is Digi's OUI prefix (the top half of the module's MAC address). A8FB0200000002712 is the unit serial. 187ABE1 is the lower half of the MAC. A model returning any of these read the image correctly and misunderstood what it was looking at, which is a prompt problem; a model returning something that appears nowhere on the label invented it, which is the failure the never-auto-accept rule exists for. The scorer keeps them apart.",
+  "_hazards": "Rotated text (the whole label reads bottom-to-top), a small Data Matrix on a curved reflective label that may not decode at all, specular glare from the metal shield, and a blob of cured adhesive across the lower edge of the module."
+}

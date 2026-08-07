@@ -219,6 +219,50 @@ jobs:
       - name: pytest
         run: uv run pytest -q
 
+  # The benchmark that decides which local model to use. Its own venv because
+  # matplotlib, numpy and kubectl have no business in the API image; its own job
+  # for the same reason mcpserver has one.
+  #
+  # Nothing here touches a cluster, a model or a GPU. The tests are about the ways
+  # a benchmark can produce a confident number that is not true -- a corpus that
+  # cannot measure precision, a confidence interval computed over cells instead of
+  # cases -- which is exactly the class of bug nobody notices in a result table.
+  bench:
+    name: bench
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bench
+    steps:
+      # `submodules: recursive`, unlike the mcpserver job above. This package
+      # depends on `almagest-backend` at runtime, and the backend has path
+      # dependencies on `elec-value-parser` and `ecia-barcode` -- which are
+      # submodules. Without them `uv sync` cannot resolve and the job fails
+      # before it lints anything.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: bench/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy almagest_bench
+
+      - name: pytest
+        run: uv run pytest -q
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest

@@ -1,0 +1,32 @@
+{
+  "_case": "ANCHORED, and the easy end of the range. A DigiKey bag with the manufacturer part number printed in full AND carried in a Data Matrix, so the barcode already settles identity and the model is only asked to confirm the manufacturer and package. The symbol is creased across the middle -- it is the label that prompted the decode ladder in barcodes.fixture.test.ts -- so a run where zxing fails is a legitimate unanchored case for the same photograph.",
+  "capture": "frontend/src/lib/capture/fixtures/digikey-creased-datamatrix.jpg",
+  "_capture_note": "Deliberately NOT a copy. This file is already committed and test_vision.py asserts its sha256 (ec12cd38add3e2a6e2a0ddf95dc1786d0577f9d7100e649586cda3aa7cea3d69); a second copy here could silently diverge from the one those tests pin.",
+  "mpn": "CF14JT100K",
+  "manufacturer": "Stackpole Electronics Inc",
+  "expected": {
+    "resistance": {
+      "raw_value": "100 kOhm",
+      "truth_source": "distributor",
+      "note": "From the printed part description 'RES 100K OHM 5% 1/4W AXIAL'. A distributor's own parametrics, independent of the datasheet-reading path under test."
+    },
+    "tolerance": {
+      "raw_value": "5%",
+      "truth_source": "distributor",
+      "note": "Same printed description."
+    },
+    "power_rating": {
+      "raw_value": "0.25 W",
+      "truth_source": "distributor",
+      "note": "Printed as '1/4W'. Recorded in the canonical unit because that is what the value grammar parses; the label's own spelling is kept here."
+    }
+  },
+  "absent": [],
+  "_absent_note": "EMPTY, AND THAT IS A LIMITATION, NOT A CLAIM. `absent` must list fields the DATASHEET does not state, and no datasheet has been fetched for this part yet. Until one is, precision is not measurable on this case -- corpus.summarise().warnings() says so, and it is right to. Do not fill this in from the label: the label being silent about a field says nothing about whether the datasheet states it.",
+  "distractors": [
+    "CF14JT100KCT-ND",
+    "1830399"
+  ],
+  "_distractor_note": "CF14JT100KCT-ND is DigiKey's ordering code and is printed directly above the manufacturer part number under the heading 'Part Number', while the real MPN sits under 'Manufacturer Part Number'. Returning the ordering code is the single most likely wrong answer here, and it is a comprehension failure rather than a reading failure. 1830399 is the Master Part ID.",
+  "date_code": "2247"
+}

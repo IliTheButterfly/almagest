@@ -1,0 +1,47 @@
+[project]
+name = "almagest-bench"
+version = "0.1.0"
+description = "Measures which local model to use, and what it costs to use it."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # A runtime dependency, unlike deviceagent's test-only one, and deliberately.
+    # Scoring has to use `candidates.compare_raw` and the real promotion rules: a
+    # benchmark whose notion of "correct" differs from the shipped one is
+    # measuring a system nobody runs.
+    "almagest-backend",
+    "matplotlib>=3.9",
+    "numpy>=2.0",
+]
+
+[project.scripts]
+almagest-bench = "almagest_bench.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "mypy>=1.11", "ruff>=0.6"]
+
+[tool.uv.sources]
+almagest-backend = { path = "../backend", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["almagest_bench"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# RUF002: the prose in this repository uses typographic punctuation on purpose.
+ignore = ["RUF002", "RUF003"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

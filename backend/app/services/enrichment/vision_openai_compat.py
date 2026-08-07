@@ -84,10 +84,32 @@ from app.services.timing import elapsed_ms
 #: swap is competing with weights still arriving in VRAM.
 DEFAULT_TIMEOUT = 300.0
 
-#: Candidates are a few hundred tokens even when the model is being thorough. The
-#: ceiling is here so a model that starts narrating is cut off rather than left
-#: holding the GPU.
-DEFAULT_MAX_TOKENS = 1024
+#: The ceiling on one answer. Generous, and the reason is measured rather than
+#: guessed.
+#:
+#: The answer itself is tiny -- three candidates is about forty tokens. But
+#: **Qwen3-VL is a thinking model and its reasoning is spent from this same
+#: budget before the answer begins.** Observed on qwen3-vl:8b against the XBee
+#: case in `bench/corpus/`: roughly 1700 characters of reasoning, then 44 tokens
+#: of content. At 1024 the reasoning consumed the ceiling and the JSON arrived
+#: truncated, which reads as a malformed response from a healthy model.
+#:
+#: **Turning thinking off is not the fix, and it is worth saying why.** Ollama's
+#: `think: false` on this model returns an *empty* completion -- the reasoning is
+#: suppressed and nothing takes its place. That is the same failure this
+#: repository already hit once and fixed in chat ("an answer that was all
+#: reasoning read as no answer at all"), and it is strictly worse than a large
+#: budget: a truncated answer is at least diagnosable, an empty one looks like
+#: the model had nothing to say.
+#:
+#: 8192, and the last raise is the informative one. At 4096 the *easy* case
+#: answered fine and the ambiguous one -- a bare module whose label carries an
+#: FCC ID, an IC number and a MAC address alongside the part number -- spent
+#: **12318 characters of reasoning and never answered**. Reasoning cost scales
+#: with how ambiguous the picture is, so the ceiling has to be set by the hard
+#: case rather than the common one. Matching `openai_compat`'s 8192 keeps one
+#: number to remember.
+DEFAULT_MAX_TOKENS = 8192
 
 ImageTransport = Literal["openai_content_parts", "ollama_native"]
 
@@ -110,8 +132,18 @@ SYSTEM_PROMPT = (
     "cannot quote it, you did not read it.\n"
     "- Your confidence is about legibility -- focus, glare, creases, obscured "
     "characters -- not about how plausible the part is.\n"
-    "- A distributor code (a DigiKey or Mouser ordering number) is not the "
-    "manufacturer part number. Do not report one as the other."
+    "- Many strings on a label are not the part number. A distributor ordering "
+    "code (DigiKey, Mouser), an FCC ID, a Canadian IC certification number, a "
+    "MAC address or OUI prefix, a serial number, a date code and an internal "
+    "master-part ID are all NOT the manufacturer part number. Report none of "
+    "them as one.\n"
+    "- Where a label prints headings, the heading tells you which is which. "
+    "'Manufacturer Part Number' is the one wanted; 'Part Number' on a "
+    "distributor label usually is not.\n"
+    "- On a bare component with no headings, the part number is the marking that "
+    "encodes the product, not the one that encodes a certification. If two "
+    "candidates are plausible, return both and say which line each came from "
+    "rather than choosing confidently."
 )
 
 
@@ -287,6 +319,25 @@ class OpenAICompatVisionProvider:
                 f"completion content was {type(content).__name__}, not a string",
                 elapsed_ms=elapsed_ms(started),
             )
+        if not content.strip():
+            # An answer that was all reasoning. Observed with Ollama's
+            # `think: false` on a thinking model: the reasoning is suppressed and
+            # nothing replaces it. Named plainly, because an empty string would
+            # otherwise surface as "content that is not JSON" and send the reader
+            # off to investigate constrained decoding, which is working fine.
+            thinking = _reasoning_of(body)
+            detail = (
+                f" It emitted {len(thinking)} characters of reasoning and no answer."
+                if thinking
+                else ""
+            )
+            raise ModelUnavailable(
+                f"{self.name} returned an empty completion.{detail} "
+                "A thinking model spends this budget reasoning before it answers; "
+                "raise max_tokens rather than disabling reasoning, which on some "
+                "servers removes the answer along with it.",
+                elapsed_ms=elapsed_ms(started),
+            )
         return content
 
     def _stats_of(self, body: dict[str, Any], *, started: float) -> CallStats:
@@ -337,6 +388,28 @@ class OpenAICompatVisionProvider:
                 elapsed_ms=elapsed_ms(started),
             )
         return decoded
+
+
+def _reasoning_of(body: dict[str, Any]) -> str:
+    """The model's reasoning, wherever this server happens to put it.
+
+    Ollama's native shape uses `message.thinking`; the OpenAI-compatible servers
+    that expose it at all use `reasoning_content` on the choice's message. Read
+    only to explain an empty answer, never used as one.
+    """
+    message = body.get("message")
+    if isinstance(message, dict):
+        thinking = message.get("thinking")
+        if isinstance(thinking, str):
+            return thinking
+    choices = body.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        inner = choices[0].get("message")
+        if isinstance(inner, dict):
+            reasoning = inner.get("reasoning_content")
+            if isinstance(reasoning, str):
+                return reasoning
+    return ""
 
 
 def _count(value: object) -> int | None:

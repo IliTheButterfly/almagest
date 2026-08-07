@@ -1,10 +1,16 @@
 """The live contract test that settles which wire shape each server accepts.
 
-**This is the file that answers the one genuinely unverified question in the
-vision path.** `vision_openai_compat` ships two transports because Ollama and vLLM
-document different payloads, and the choice between them was made from
-documentation rather than from a server that answered. Everything else about the
-vision path is tested offline and is not waiting on anything; this is.
+**This is the file that answered the one genuinely unverified question in the
+vision path**, and it has now been run: `qwen3-vl:8b` on the cluster's Ollama,
+2026-08-07, all five passing.
+
+What it found is why it exists. **Both** wire shapes work against Ollama, despite
+its documentation showing only the bare-string form — so the shipped default is
+right for a *measured* reason (the native path completes a hard case within the
+token budget where the OpenAI path does not) rather than the documented one. And
+constrained decoding turned out to enforce a field's type but not its bounds,
+which is exactly the drift the re-validation in `parse_response` exists to catch.
+See ADR 0021.
 
 Never runs in CI, and needs a real vision model:
 
