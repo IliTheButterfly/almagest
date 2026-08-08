@@ -502,7 +502,20 @@ def test_a_photograph_becomes_a_fully_specified_part(
     # against a mock that could be wrong in the same direction as the code.
     assert proposed["status"] == PendingIntakeStatus.PENDING
     assert proposed["resolved_part_id"] is None
-    assert proposed["mpn"] == MPN, "the barcode's reading, and no model may replace it"
+    # `mpn` is the barcode's reading and no model may replace it — but be precise about
+    # what *this* assertion proves, which is less than it looks. The fixture's only
+    # candidate is the same string the barcode gave, so a `record_result` that wrote
+    # `entry.mpn = candidates[0].mpn` would still satisfy it. Verified by mutation:
+    # applying exactly that change leaves this test green.
+    #
+    # The invariant itself is proved where the two strings differ —
+    # `test_dispatch.py::test_a_proposal_never_touches_the_barcode_the_person_or_the_worklist`
+    # (entry `CF14JT100K`, candidate `CFI4JT100K`) and
+    # `test_dispatch_worker.py::test_the_worker_drains_the_queue_through_the_real_routes`
+    # (entry `mpn` NULL throughout). Both go red under that mutation. What is left here
+    # is a regression guard on the value surviving the round trip, which is worth having
+    # and is not the same claim.
+    assert proposed["mpn"] == MPN
 
     part_id = int(identities[0]["part_id"])
     part = db.get(Part, part_id)
