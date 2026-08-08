@@ -227,6 +227,14 @@ export type DispatchState = Schemas["DispatchState"];
 export type IntakeDispatchRead = Schemas["IntakeDispatchRead"];
 export type DispatchResultResponse = Schemas["DispatchResultResponse"];
 
+/** One parked scan's whole timeline. `ModelRunRead` carries the transcript: the prompt
+ *  as sent — image replaced by its sha256 — and the completion string exactly as the
+ *  server returned it, before anything parsed it. */
+export type IntakeActivityRead = Schemas["IntakeActivityRead"];
+export type ModelRunRead = Schemas["ModelRunRead"];
+export type CaptureActivity = Schemas["CaptureActivity"];
+export type ResolvedPartActivity = Schemas["ResolvedPartActivity"];
+
 export type LotRead = Schemas["LotRead"];
 export type LedgerEntry = Schemas["LedgerEntry"];
 export type MovementResponse = Schemas["MovementResponse"];
@@ -1686,6 +1694,28 @@ export async function cancelCaptureDispatch(intakeId: number): Promise<DispatchR
   });
   if (error !== undefined) {
     fail("could not cancel that read", error, response);
+  }
+  return data;
+}
+
+/**
+ * Everything that has happened to one parked scan (ADR 0021).
+ *
+ * Capture, dispatch standing, every model run with its prompt and raw answer, the
+ * candidates proposed, the part a person accepted, and that part's research,
+ * extraction and field candidates — stitched server-side out of seven tables,
+ * because the three workers deliberately do not know about each other and so
+ * nothing else in the system can say what became of a photograph.
+ *
+ * A pure read. There is no write over this surface at all: choosing a candidate is
+ * still `resolvePendingIntake`, and there is deliberately no second door.
+ */
+export async function getIntakeActivity(entryId: number): Promise<IntakeActivityRead> {
+  const { data, error, response } = await api.GET("/api/intake/pending/{entry_id}/activity", {
+    params: { path: { entry_id: entryId } },
+  });
+  if (error !== undefined) {
+    fail("could not load that entry's activity", error, response);
   }
   return data;
 }

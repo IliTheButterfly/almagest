@@ -176,6 +176,15 @@ _INTAKE: Final = (
     "The intake desk pass: a scan is parked by a phone at the bench and resolved "
     "later by a human deciding what the barcode actually was."
 )
+_RUNS: Final = (
+    "The transcript of every model call, and one intake entry's whole story stitched "
+    "out of it. Both halves are for a *person* looking at a reading that came out "
+    "wrong: the write is a worker's door, and the read hands back the prompt a model "
+    "was given and the raw string it returned — worker diagnostics, not an answer "
+    "about the inventory, and the one surface whose whole purpose is that a human "
+    "audits a machine's output. An agent reading its own siblings' prompts back is "
+    "also the loop `_CHAT` refuses for the same reason."
+)
 _MAINTENANCE: Final = (
     "The nightly CronJob's door. `check_caches` is the read and is exposed; "
     "running the pass or rebuilding a cache is not, for two separate reasons. The "
@@ -536,6 +545,9 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "resolve_entry": Excluded(Reason.HUMAN_JUDGEMENT, _INTAKE),
         "dismiss_entry": Excluded(Reason.HUMAN_JUDGEMENT, _INTAKE),
         "reopen_entry": Excluded(Reason.HUMAN_JUDGEMENT, _INTAKE),
+        # -- the transcript ----------------------------------------------------
+        "record_model_run": Excluded(Reason.MACHINE_DOOR, _RUNS),
+        "read_intake_activity": Excluded(Reason.HUMAN_JUDGEMENT, _RUNS),
         # -- diagnostics -------------------------------------------------------
         "health": Exposed("check_health"),
         "read_caches": Exposed("check_caches"),

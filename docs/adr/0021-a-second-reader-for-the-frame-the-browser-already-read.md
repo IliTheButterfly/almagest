@@ -217,6 +217,53 @@ produced.
   decoding?"* — sending whoever read it to investigate the serving stack when the
   fix was a smaller batch.
 
+## Amendment, 2026-08-08: the transcript, because `source_text` only half-works
+
+`source_text` was placed here so a reviewer could check the characters the model
+claims it read against the photograph, and the measurement above shows it earning
+that: the wrong answer quoted `MODEL: MCQ-XBEE3`, a line that is not on the label.
+
+Using it in anger exposes what it does not cover. It answers *what the model
+said*. The question that follows every wrong reading is *what was it told* — was
+the barcode anchor present, did the browser's OCR hand it `CFI4JT100K` and did it
+copy the typo, did the reasoning budget run out before the answer began. None of
+that is recoverable from a candidate row, and the run above that emitted 12 318
+characters of reasoning and never answered leaves **no candidate row at all**,
+which makes it precisely the run with the most to learn from and the least
+recorded.
+
+So `model_runs` stores the prompt as sent and the completion as returned, per call,
+and `GET /api/intake/pending/{id}/activity` stitches one entry's whole story out of
+it: capture, dispatch, runs, candidates, the part a person accepted, and that
+part's research, extraction and field candidates. **The never-auto-accept rule is
+only reviewable if the prompt is reviewable**, and that is the whole argument.
+
+Four constraints came out of building it, each of which is a way it could have gone
+wrong:
+
+- **The image is replaced by `{"image_sha256": ...}` before the payload is stored.**
+  A base64'd frame is megabytes, the blob already exists in the document store, and
+  `model_runs` has no pruning — so a copy would be pure duplication in the one place
+  nothing sweeps. The substitution is per wire shape, because the image lives in a
+  different field in each and a sanitiser written for one would pass the other
+  through silently.
+- **A failed call is recorded too.** `ModelUnavailable` carries the sanitised
+  request and whatever came back, so a run that broke leaves a transcript rather
+  than a one-line message. Where the transport had nothing to report the columns are
+  NULL, which is the honest shape.
+- **`CallStats`' missing-versus-zero rule survives to the screen.** No column
+  defaults to 0 and the UI says "not recorded", because a zero would read as an
+  empty prompt and would pull any average over these rows toward whichever servers
+  were quiet.
+- **Retention is unbounded and no pruning is implemented.** A drain of forty
+  photographs writes forty transcripts; the per-row bound is 200 000 characters,
+  deliberately loose so the 12 318-character case is not the thing that gets cut.
+  The table bound does not exist yet. Stated rather than implied.
+
+The displayed confidence stays the stored, clamped one. Where the transcript's own
+number is shown it is labelled as the model's claim about itself, since the two
+differ by exactly the clamp this ADR argues for.
+
 ## Supersedes
 
 Nothing. Extends ADR 0015 with a second reader for the frames its browser-side

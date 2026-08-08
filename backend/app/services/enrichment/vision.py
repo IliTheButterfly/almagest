@@ -193,6 +193,14 @@ class IdentityCandidate:
 
 @dataclass(frozen=True)
 class VisionResult:
+    """One read: the identities proposed, and the conversation that produced them.
+
+    The last three fields are all optional with trailing defaults, which is the
+    trick `stats` established: adding a diagnostic to this dataclass must never
+    touch a construction site. `parse_response` is the only place that fills them
+    in, and a caller that passes none of them gets exactly the object it used to.
+    """
+
     provider: str
     model: str
     document_sha256: str
@@ -204,6 +212,19 @@ class VisionResult:
     #: the one that matters here: `grab.ts` does not downscale, so this is what
     #: will say whether sending a 4K frame whole is affordable.
     stats: CallStats | None = None
+    #: The completion string exactly as the server returned it, **before this
+    #: module parsed it**. Kept because the candidates above are conclusions and
+    #: this is the conversation they came out of: a reviewer asking "why did it
+    #: read the FCC ID as a part number" has nothing to look at otherwise. Ends up
+    #: in `model_runs.response_text`.
+    raw_response: str | None = None
+    #: The payload that was sent, as JSON, **with the image replaced by
+    #: `{"image_sha256": ...}`** -- sanitised by the transport, which is the only
+    #: layer that ever holds the bytes. This is the half that makes the never
+    #: auto-accept rule reviewable: `source_text` says what the model claimed it
+    #: read, and this says what it was *told*, including whether the browser's OCR
+    #: handed it the typo it repeated.
+    request_json: str | None = None
 
     @property
     def identified(self) -> bool:
@@ -340,6 +361,8 @@ def parse_response(
     provider: str,
     model: str,
     stats: CallStats | None = None,
+    raw_response: str | None = None,
+    request_json: str | None = None,
 ) -> VisionResult:
     """Validate a raw response into a `VisionResult`, or raise.
 
@@ -395,6 +418,8 @@ def parse_response(
         candidates=tuple(candidates),
         label_kind=_label_kind(body),
         stats=stats,
+        raw_response=raw_response,
+        request_json=request_json,
     )
 
 
@@ -527,9 +552,31 @@ class FakeVisionProvider:
                 f"no recorded response for document {request.document_sha256!r}; "
                 f"recorded: {sorted(self._responses)}"
             )
+        recorded = self._responses[request.document_sha256]
         return parse_response(
-            self._responses[request.document_sha256],
+            recorded,
             request,
             provider=self.name,
             model=self.model,
+            # The recorded answer, re-serialised. Filled in so the whole transcript
+            # path -- the worker recording a run, the timeline rendering it -- is
+            # exercised by the offline tests rather than only against a GPU.
+            raw_response=json.dumps(recorded, sort_keys=True),
+            # **Marked as a replay, not dressed up as a wire payload.** A fixture
+            # never built a request, and a plausible-looking one here would put a
+            # prompt in front of a reviewer that no model was ever sent. What the
+            # fake genuinely knows is the hints it was handed, so that is what it
+            # says -- and `replayed: true` is the flag that stops anybody reading
+            # the rest as provenance.
+            request_json=json.dumps(
+                {
+                    "replayed": True,
+                    "image_sha256": request.document_sha256,
+                    "media_type": request.media_type,
+                    "barcode_texts": list(request.barcode_texts),
+                    "ocr_lines": list(request.ocr_lines),
+                    "max_candidates": request.max_candidates,
+                },
+                sort_keys=True,
+            ),
         )

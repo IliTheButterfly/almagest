@@ -49,6 +49,7 @@ from app.models.projects import (
     StockAllocation,
 )
 from app.models.research import ResearchCandidate
+from app.models.runs import ModelRun
 from app.models.scanning import BarcodeAlias, PendingIntake, ScanEvent, ScanSource
 from app.models.stock import StockLedger, StockLot
 from app.models.storage import (
@@ -89,6 +90,7 @@ __all__ = [
     "LocationPlanShapePoint",
     "LocationTag",
     "Manufacturer",
+    "ModelRun",
     "ObjectId",
     "PackageType",
     "Packaging",

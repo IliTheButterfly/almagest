@@ -16,6 +16,7 @@ from fastapi.routing import APIRoute
 
 from app import __version__
 from app.api.routes import (
+    activity,
     captures,
     chat,
     container_types,
@@ -141,6 +142,16 @@ def create_app() -> FastAPI:
     # model; `tests/integration/test_route_fence.py` greps the routes package to keep
     # it so.
     app.include_router(dispatch.router)
+    # The transcript: every model call, and one intake entry's whole story stitched
+    # out of the tables the three workers write separately. Two routers because the
+    # subjects differ — `/api/runs` is a worker's door and
+    # `/api/intake/pending/{id}/activity` is a person's read — and one prefix cannot
+    # carry both.
+    #
+    # A read over stored text. No pixels and no model call, which the route fence
+    # enforces rather than trusts.
+    app.include_router(activity.router)
+    app.include_router(activity.intake_router)
     # Chat threads, turns, writeups and export (ADR 0018). Storage only — no model
     # runs in this process and no agent loop lives here: an agent whose tools call
     # back into this single-replica SQLite writer, from inside it, is a deadlock.

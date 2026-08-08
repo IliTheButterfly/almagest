@@ -1218,6 +1218,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/intake/pending/{entry_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Intake Activity
+         * @description Everything that has happened to one parked scan.
+         *
+         *     A `GET` with no side effects at all — see the module docstring. It reads seven
+         *     tables and writes none, which is what makes it safe to open while a worker is
+         *     mid-drain.
+         */
+        get: operations["read_intake_activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/intake/pending/{entry_id}/dismiss": {
         parameters: {
             query?: never;
@@ -3052,6 +3076,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Model Run
+         * @description Record that a model was called. A worker's door, over HTTP for ADR 0005.
+         *
+         *     **Always inserts; deliberately not idempotent.** Two calls happened, and a
+         *     second row is the only way to see that the first failed and the retry
+         *     succeeded — or that both failed identically, which is what says the problem is
+         *     not transient. `app.services.runs.record` argues it at length.
+         *
+         *     A dangling `intake_id` is refused rather than silently stored as NULL: a run
+         *     recorded against a photograph that does not exist is a worker bug, and
+         *     swallowing it would produce a row nothing can ever show.
+         */
+        post: operations["record_model_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scan/alias": {
         parameters: {
             query?: never;
@@ -4400,6 +4453,26 @@ export interface components {
             /** Used */
             used: number;
         };
+        /** CaptureActivity */
+        CaptureActivity: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Document Sha256 */
+            document_sha256: string;
+            /** Height Px */
+            height_px: number;
+            /** Id */
+            id: number;
+            /** Regions */
+            regions: components["schemas"]["CaptureRegionActivity"][];
+            /** Text Status */
+            text_status: string;
+            /** Width Px */
+            width_px: number;
+        };
         /** CaptureCreate */
         CaptureCreate: {
             /** Device Id */
@@ -4448,6 +4521,25 @@ export interface components {
             text_status: string;
             /** Width Px */
             width_px: number;
+        };
+        /**
+         * CaptureRegionActivity
+         * @description One outline the browser read off the photograph.
+         *
+         *     The geometry is left out. This view answers "what was read", and the quads are
+         *     for drawing the overlay, which `GET /api/captures/{id}` already serves.
+         */
+        CaptureRegionActivity: {
+            /** Confidence */
+            confidence: number | null;
+            /** Kind */
+            kind: string;
+            /** Order Index */
+            order_index: number;
+            /** Symbology */
+            symbology: string | null;
+            /** Text */
+            text: string;
         };
         /** CaptureRegionIn */
         CaptureRegionIn: {
@@ -5117,6 +5209,18 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** DispatchActivity */
+        DispatchActivity: {
+            /** Attempts */
+            attempts: number;
+            /** Error */
+            error: string | null;
+            /** Label Kind */
+            label_kind: string | null;
+            /** Max Attempts */
+            max_attempts: number;
+            state: components["schemas"]["DispatchState"];
+        };
         /**
          * DispatchClaim
          * @description One leased entry, with everything the worker needs to read its photograph.
@@ -5271,6 +5375,21 @@ export interface components {
          * @enum {string}
          */
         DispatchState: "not_requested" | "pending" | "claimed" | "proposed" | "unidentified" | "failed";
+        /** DocumentActivity */
+        DocumentActivity: {
+            /** Byte Size */
+            byte_size: number;
+            /** Extraction Attempts */
+            extraction_attempts: number;
+            /** Extraction Error */
+            extraction_error: string | null;
+            /** Extraction State */
+            extraction_state: string;
+            /** Media Type */
+            media_type: string;
+            /** Sha256 */
+            sha256: string;
+        };
         /** DocumentAttachRequest */
         DocumentAttachRequest: {
             /**
@@ -5749,6 +5868,35 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * FieldCandidateActivity
+         * @description One `parameter_value_candidate` row, with the field it is about named.
+         */
+        FieldCandidateActivity: {
+            /** Confidence */
+            confidence: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Raw Value */
+            raw_value: string;
+            /** Requires Human */
+            requires_human: boolean;
+            /** Review Reason */
+            review_reason: string | null;
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Status */
+            status: string;
+            /** Template Label */
+            template_label: string;
+            /** Template Name */
+            template_name: string;
+        };
         /** FilterIn */
         FilterIn: {
             /**
@@ -5926,6 +6074,26 @@ export interface components {
             replayed?: boolean;
         };
         /**
+         * IntakeActivityRead
+         * @description The whole story of one parked scan, in the order it happened.
+         *
+         *     Every section is present even when it is empty, and that is the point rather
+         *     than a shape accident: a client has to be able to say *"no worker has run"*
+         *     where nothing has run, and *"the model could name nothing"* where one ran and
+         *     proposed nothing. An absent key cannot carry that difference, and rendering an
+         *     empty section as a blank reads as a failure.
+         */
+        IntakeActivityRead: {
+            capture: components["schemas"]["CaptureActivity"] | null;
+            dispatch: components["schemas"]["DispatchActivity"];
+            entry: components["schemas"]["IntakeEntryActivity"];
+            /** Identity Candidates */
+            identity_candidates: components["schemas"]["IdentityCandidateRead"][];
+            /** Model Runs */
+            model_runs: components["schemas"]["ModelRunRead"][];
+            resolved_part: components["schemas"]["ResolvedPartActivity"] | null;
+        };
+        /**
          * IntakeDispatchRead
          * @description One entry's dispatch standing, and what was proposed for it.
          */
@@ -5941,6 +6109,41 @@ export interface components {
             /** Label Kind */
             label_kind: string | null;
             state: components["schemas"]["DispatchState"];
+        };
+        /**
+         * IntakeEntryActivity
+         * @description The entry's own facts. Read-only here, like everything on this route.
+         */
+        IntakeEntryActivity: {
+            /** Client Op Id */
+            client_op_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decoded Kind */
+            decoded_kind: string | null;
+            /** Device Id */
+            device_id: string | null;
+            /** Id */
+            id: number;
+            /** Mpn */
+            mpn: string | null;
+            /** Note */
+            note: string | null;
+            /** Queued At */
+            queued_at: string | null;
+            /** Raw Payload */
+            raw_payload: string;
+            /** Resolved At */
+            resolved_at: string | null;
+            /** Resolved Part Id */
+            resolved_part_id: number | null;
+            /** Status */
+            status: string;
+            /** Symbology */
+            symbology: string | null;
         };
         /**
          * LabelBackendKind
@@ -6636,6 +6839,119 @@ export interface components {
             default_id: string | null;
             /** Models */
             models: components["schemas"]["ModelChoiceRead"][];
+        };
+        /** ModelRunCreated */
+        ModelRunCreated: {
+            run: components["schemas"]["ModelRunRead"];
+        };
+        /**
+         * ModelRunIn
+         * @description One call to a model, as the worker that made it reports it.
+         *
+         *     ## The two text fields carry no length limit here, deliberately
+         *
+         *     `app.services.runs` truncates them at `MAX_TRANSCRIPT_CHARS` and sets
+         *     `truncated`. Enforcing the same number on the wire would make a worker
+         *     responsible for knowing it, and a worker that hit it would have no better
+         *     option than to discard the transcript — which is the outcome the bound exists
+         *     to avoid, not to cause. Refusing to record a model call because its reasoning
+         *     was long is exactly backwards: ADR 0021's most informative measurement is a run
+         *     that emitted 12 318 characters of reasoning and no answer.
+         *
+         *     ## Counts are optional and are never defaulted to zero
+         *
+         *     `usage` is absent from several local servers' responses. A zero would read as
+         *     "the prompt was empty" and would pull any average taken over these rows toward
+         *     whichever servers were quiet — `app.services.enrichment.calls.CallStats`' own
+         *     rule, kept intact all the way to the column.
+         */
+        ModelRunIn: {
+            /** Completion Tokens */
+            completion_tokens?: number | null;
+            /** Document Sha256 */
+            document_sha256?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Finish Reason */
+            finish_reason?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Intake Id */
+            intake_id?: number | null;
+            kind: components["schemas"]["ModelRunKind"];
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Model */
+            model: string;
+            /** Prompt Tokens */
+            prompt_tokens?: number | null;
+            /** Provider */
+            provider: string;
+            /** Request Json */
+            request_json?: string | null;
+            /** Response Text */
+            response_text?: string | null;
+            /** Started At */
+            started_at?: string | null;
+        };
+        /**
+         * ModelRunKind
+         * @description Which stage of the pipeline a `model_runs` row records.
+         *
+         *     A plain `sa.String` plus `StrEnumType`, never `sa.Enum` — a test greps
+         *     `sqlite_master` for `CHECK` and SQLite cannot alter one. That matters more
+         *     here than almost anywhere: this enum exists to grow. Every future stage that
+         *     hands a prompt to a model — a research suggestion, a parameter fill, a chat
+         *     turn worth keeping — becomes a member and nothing else changes, because a run
+         *     is a notebook entry rather than a typed relationship.
+         *
+         *     Two members today, and they are two rather than one because the *subject*
+         *     differs. A vision run is about a photograph and hangs off an intake entry; an
+         *     extraction run is about a page of text and hangs off a document. Collapsing
+         *     them would make `intake_id` and `document_sha256` both meaningless-by-default
+         *     and leave nothing that says which one to expect.
+         * @enum {string}
+         */
+        ModelRunKind: "vision" | "extraction";
+        /**
+         * ModelRunRead
+         * @description One recorded call, transcript included.
+         */
+        ModelRunRead: {
+            /** Completion Tokens */
+            completion_tokens: number | null;
+            /** Document Sha256 */
+            document_sha256: string | null;
+            /** Error */
+            error: string | null;
+            /** Finish Reason */
+            finish_reason: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: number;
+            /** Intake Id */
+            intake_id: number | null;
+            kind: components["schemas"]["ModelRunKind"];
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Model */
+            model: string;
+            /** Prompt Tokens */
+            prompt_tokens: number | null;
+            /** Provider */
+            provider: string;
+            /** Request Json */
+            request_json: string | null;
+            /** Response Text */
+            response_text: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * ModelServerListRead
@@ -8501,6 +8817,28 @@ export interface components {
             /** Template */
             template?: string | null;
         };
+        /** ResearchCandidateActivity */
+        ResearchCandidateActivity: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Document Sha256 */
+            document_sha256: string | null;
+            /** Note */
+            note: string | null;
+            /** Rank */
+            rank: number;
+            /** Reject Reason */
+            reject_reason: string | null;
+            /** Source */
+            source: string;
+            /** State */
+            state: string;
+            /** Url */
+            url: string;
+        };
         /** ResearchCandidateRead */
         ResearchCandidateRead: {
             /**
@@ -8688,6 +9026,35 @@ export interface components {
             short_id: string | null;
             /** Slot Label */
             slot_label: string | null;
+        };
+        /**
+         * ResolvedPartActivity
+         * @description The part a **person** accepted, and what the later workers made of it.
+         *
+         *     Reached through `resolved_part_id` only. A candidate's stub `part_id` is a
+         *     machine's proposal and is not followed — see `app.services.activity.PartStory`.
+         */
+        ResolvedPartActivity: {
+            /** Documents */
+            documents: components["schemas"]["DocumentActivity"][];
+            /** Field Candidates */
+            field_candidates: components["schemas"]["FieldCandidateActivity"][];
+            /** Id */
+            id: number;
+            /** Is Stub */
+            is_stub: boolean;
+            /** Mpn */
+            mpn: string | null;
+            /** Name */
+            name: string;
+            /** Research Attempts */
+            research_attempts: number;
+            /** Research Candidates */
+            research_candidates: components["schemas"]["ResearchCandidateActivity"][];
+            /** Research Error */
+            research_error: string | null;
+            /** Research State */
+            research_state: string;
         };
         /** ResolvedTarget */
         ResolvedTarget: {
@@ -11934,6 +12301,37 @@ export interface operations {
             };
         };
     };
+    read_intake_activity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeActivityRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     dismiss_entry: {
         parameters: {
             query?: never;
@@ -14623,6 +15021,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResolveResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_model_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelRunIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelRunCreated"];
                 };
             };
             /** @description Validation Error */

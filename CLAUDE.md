@@ -168,6 +168,29 @@ makes **no cluster call and holds no GPU**, so ADR 0016's "do not hold the card
 — no GPU was taken to build it — so the reaper's new branch has never been exercised
 by a real CronJob run, and `ClusterCard` has never spoken to a real Kubernetes API.
 
+**And the transcript now exists**: `model_runs` (`app/models/runs.py`,
+`services/runs.py`), `POST /api/runs` as the worker's door,
+`GET /api/intake/pending/{id}/activity` as the stitched per-entry timeline
+(`services/activity.py`), and `IntakeActivityScreen.tsx` at
+`/intake/:entryId/activity`, linked from every server row on the intake queue.
+It stores what a model was **told** as well as what it said, because ADR 0021's
+`source_text` only makes the answer checkable — the next question after a wrong
+reading is always what the prompt contained, and the OCR typo `CFI4JT100K` sitting
+in it is the answer. Four things about it:
+
+- **`request_json` never holds image bytes.** The transport replaces the image with
+  `{"image_sha256": ...}` before the payload leaves it, per wire shape, and a test
+  asserts the base64 is absent from both.
+- **No count is ever defaulted to zero.** `CallStats`' missing-versus-zero rule is
+  carried through the column, the wire type and the screen, which says
+  "not recorded".
+- **A failed call records a run too**, with `error` set and a NULL transcript where
+  the transport had nothing to report. That is the case a transcript matters most
+  for, since a broken run leaves no candidate row at all.
+- **Retention is unbounded and nothing prunes.** `MAX_TRANSCRIPT_CHARS` bounds one
+  row, not the table; the pruning pass is not written. No triggers either — a run
+  is a notebook entry, following `captures.py`.
+
 **Not built yet:** any *unattended* agent-assisted field filling of *parameters* —
 capture extraction is algorithmic and offers candidates a person chooses between,
 and the vision path proposes an identity rather than filling fields. Tag

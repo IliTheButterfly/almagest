@@ -1272,6 +1272,31 @@ class DispatchState(StrEnum):
     FAILED = "failed"
 
 
+class ModelRunKind(StrEnum):
+    """Which stage of the pipeline a `model_runs` row records.
+
+    A plain `sa.String` plus `StrEnumType`, never `sa.Enum` — a test greps
+    `sqlite_master` for `CHECK` and SQLite cannot alter one. That matters more
+    here than almost anywhere: this enum exists to grow. Every future stage that
+    hands a prompt to a model — a research suggestion, a parameter fill, a chat
+    turn worth keeping — becomes a member and nothing else changes, because a run
+    is a notebook entry rather than a typed relationship.
+
+    Two members today, and they are two rather than one because the *subject*
+    differs. A vision run is about a photograph and hangs off an intake entry; an
+    extraction run is about a page of text and hangs off a document. Collapsing
+    them would make `intake_id` and `document_sha256` both meaningless-by-default
+    and leave nothing that says which one to expect.
+    """
+
+    #: Reading a photograph to propose an identity (ADR 0021). `intake_id` is set;
+    #: `document_sha256` is the photograph.
+    VISION = "vision"
+    #: Reading a datasheet's text to propose field values (ADR 0005).
+    #: `document_sha256` is the PDF and `intake_id` is NULL.
+    EXTRACTION = "extraction"
+
+
 class ChatKind(StrEnum):
     """Which history list a `chat_threads` row belongs to (ADR 0018).
 

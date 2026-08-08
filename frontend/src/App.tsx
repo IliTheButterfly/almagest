@@ -28,6 +28,7 @@ import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
 import { ChatScreen } from "./screens/ChatScreen";
 import { DatasheetSearchScreen } from "./screens/DatasheetSearchScreen";
 import { CapturesScreen } from "./screens/CapturesScreen";
+import { IntakeActivityScreen } from "./screens/IntakeActivityScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
 import { LocationScreen } from "./screens/LocationScreen";
 import { LotScreen } from "./screens/LotScreen";
@@ -191,6 +192,11 @@ export function App() {
             <Route path="/tree" element={<TreeScreen />} />
             <Route path="/scan" element={<ScanScreen />} />
             <Route path="/intake" element={<IntakeQueueScreen />} />
+            {/* One entry's whole story: what the browser read, what a model was told
+                and answered, and what became of the part somebody accepted. A
+                diagnostic read, reached from the row it is about — not a scan target,
+                and deliberately not a place anything can be changed. */}
+            <Route path="/intake/:entryId/activity" element={<IntakeActivityScreen />} />
             {/* Emptying the inbox. Not a scan target — reached from the tab, and from
                 intake once a part has been parked there. */}
             <Route path="/staging" element={<StagingScreen />} />
