@@ -134,6 +134,33 @@ So a station that has gone blank after a deploy is not a station that needs
 restarting — it is the case that unit exists to make impossible, and if it
 happens anyway the watchdog is where to look.
 
+### In cluster mode the PWA has to match a server it does not ship with
+
+This is the one genuinely new obligation the mode brings, and nothing enforces
+it. In `local` mode `frontend/dist` and the API come out of the same checkout and
+cannot disagree. In `cluster` mode the bench serves its own `dist` against an API
+built from **whatever commit the cluster is running**, which is a different
+commit as soon as anybody deploys — and a screen calling a route the deployed API
+does not have gets a 404 rather than an error that names the cause.
+
+So build `dist` at the deployed commit, not at `main`. The image tag is that
+commit:
+
+```bash
+kubectl -n ili get deploy almagest-api \
+  -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+# ghcr.io/…/almagest-api:sha-<commit>
+
+git checkout <commit> -- frontend/     # then build, then restore
+(cd frontend && pnpm install --frozen-lockfile && pnpm build)
+git checkout HEAD -- frontend/         # dist is gitignored and survives this
+rsync -a --delete frontend/dist/ jetson:prog/almagest/frontend/dist/
+```
+
+The build has to happen off the bench regardless: Node 22 wants glibc 2.28 and
+Ubuntu 18.04 has 2.27, so the Nano cannot build the PWA at all — see
+`install.sh`, which warns rather than fails when `dist` is missing.
+
 ### `--reader none` is a statement, not a disabled feature
 
 This bench has no PN532 under a platform; its only reader is on USB. That is
