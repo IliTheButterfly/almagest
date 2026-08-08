@@ -15,6 +15,7 @@ None of this touches a cluster, a model or a GPU.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -633,3 +634,115 @@ def test_a_real_separation_is_reportable() -> None:
         IdentityScore(model_id="near", cases=40, outcomes={"correct": 39}),
         {"good": good, "near": near},
     )
+
+
+# ---------------------------------------------------------------------------
+# Datasheet text: gitignored, hashed, verified
+# ---------------------------------------------------------------------------
+
+
+def test_a_case_with_no_text_on_this_machine_is_not_extractable(tmp_path: Path) -> None:
+    """The ordinary state of a fresh clone, and it must not read as a model failure.
+
+    The text is gitignored by decision (2026-08-08), so `extractable` is false until
+    somebody fetches it. The sweep has to skip such a case rather than hand a model an
+    empty string and record every field as missing — which in a chart is
+    indistinguishable from a model that declined to answer.
+    """
+    _write_case(tmp_path, "0001-x", _case_body(text_sha256="a" * 64))
+    case = load_corpus(tmp_path)[0]
+
+    assert case.text_path is None
+    assert case.extractable is False
+    # Unverifiable is not the same as wrong: nothing to check passes.
+    assert case.verify_text() is True
+
+
+def test_text_is_read_from_the_gitignored_cache_by_hash(tmp_path: Path) -> None:
+    body = b"RES 100K OHM 5% 1/4W AXIAL\n"
+    digest = hashlib.sha256(body).hexdigest()
+    (tmp_path / "_text").mkdir()
+    (tmp_path / "_text" / f"{digest}.txt").write_bytes(body)
+    _write_case(tmp_path, "0001-x", _case_body(text_sha256=digest))
+
+    case = load_corpus(tmp_path)[0]
+    assert case.extractable is True
+    assert case.verify_text() is True
+    assert case.text().startswith("RES 100K OHM")
+
+
+def test_text_that_does_not_match_its_hash_is_refused_rather_than_scored(
+    tmp_path: Path,
+) -> None:
+    """A corpus scoring the wrong document is worse than one that will not run.
+
+    The cache is a gitignored directory anybody may have dropped a file into, so the
+    hash is verified at read time rather than trusted. Without this, a truth set
+    written against one revision of a datasheet would silently score a model against
+    another.
+    """
+    digest = hashlib.sha256(b"the document the truth was written against").hexdigest()
+    (tmp_path / "_text").mkdir()
+    (tmp_path / "_text" / f"{digest}.txt").write_bytes(b"a completely different document")
+    _write_case(tmp_path, "0001-x", _case_body(text_sha256=digest))
+
+    case = load_corpus(tmp_path)[0]
+    assert case.verify_text() is False
+    with pytest.raises(CorpusError, match="does not hash to"):
+        case.text()
+
+
+def test_asking_for_text_that_is_absent_raises_rather_than_returning_empty(
+    tmp_path: Path,
+) -> None:
+    """`""` would run the model on nothing and blame the model for the result."""
+    _write_case(tmp_path, "0001-x", _case_body(text_sha256="b" * 64))
+    case = load_corpus(tmp_path)[0]
+    with pytest.raises(CorpusError, match="no datasheet text"):
+        case.text()
+
+
+def test_there_is_no_committed_text_file_fallback(tmp_path: Path) -> None:
+    """The arrangement the decision rejected must not remain reachable by accident.
+
+    An earlier `Case.text_path` pointed at `text.txt` beside `case.json` and the module
+    docstring said it was committed. Both are gone. Offering it as a *fallback* would
+    let manufacturer text into git history by the back door, which is the one outcome
+    the decision was about — so a file sitting there is ignored.
+    """
+    _write_case(tmp_path, "0001-x", _case_body(text_sha256="c" * 64))
+    (tmp_path / "0001-x" / "text.txt").write_text("committed by mistake", encoding="utf-8")
+
+    case = load_corpus(tmp_path)[0]
+    assert case.text_path is None
+    assert case.extractable is False
+
+
+def test_corpus_check_says_the_extraction_sweep_would_run_over_nothing(
+    tmp_path: Path,
+) -> None:
+    """The denominator, surfaced before a night is spent rather than after.
+
+    A sweep that quietly ran over zero cases and reported nothing would look exactly
+    like a sweep that ran and found nothing wrong.
+    """
+    _write_case(tmp_path, "0001-x", _case_body())
+    summary = summarise(load_corpus(tmp_path))
+
+    assert summary.extractable_cases == 0
+    assert any("extraction sweep would run over zero cases" in w for w in summary.warnings())
+
+
+def test_a_partly_fetched_corpus_warns_that_its_denominator_is_smaller(
+    tmp_path: Path,
+) -> None:
+    body = b"one datasheet"
+    digest = hashlib.sha256(body).hexdigest()
+    (tmp_path / "_text").mkdir()
+    (tmp_path / "_text" / f"{digest}.txt").write_bytes(body)
+    _write_case(tmp_path, "0001-has-text", _case_body(text_sha256=digest))
+    _write_case(tmp_path, "0002-no-text", _case_body())
+
+    summary = summarise(load_corpus(tmp_path))
+    assert summary.extractable_cases == 1
+    assert any("1 of 2 cases have datasheet text" in w for w in summary.warnings())
