@@ -48,6 +48,7 @@ from app.scripts.dispatch_watcher import (
     serve_flag,
     server_for_model_url,
 )
+from app.services import model_servers
 from app.services.enrichment.vision import FakeVisionProvider
 
 SHA = "f" * 64
@@ -689,3 +690,85 @@ def test_queue_depth_survives_a_response_with_no_pending_field() -> None:
     status = HttpQueueStatus("http://127.0.0.1:1")
     # Port 1 refuses the connection, which is the unreachable branch without a fake.
     assert status.pending_count() is None
+
+
+# ---------------------------------------------------------------------------
+# `Card.release` itself, which every test above fakes past
+# ---------------------------------------------------------------------------
+#
+# Added after review, because a mutation got through: replacing
+# `if not self._we_started_it:` with `if False:` — making the drain release a server
+# it never started, which is the eviction this design explicitly refuses — left all
+# twenty tests above green.
+#
+# The reason is `FakeCard`. It is the right seam for testing the *watcher*, and it
+# means the real `Card`'s one safety decision is never executed. `almagest-llm` serves
+# the chat models and the vision model on one listener, so releasing a server that was
+# already up ends somebody's conversation. That is worth a test that touches the real
+# object.
+
+
+class _RecordingScaler:
+    """The one call `Card` makes on the way up, and `model_servers.stop` on the way down."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    def set_replicas(self, host: str, replicas: int) -> bool:
+        self.calls.append((host, replicas))
+        return True
+
+
+def _real_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[dispatch_watcher.ClusterCard, _RecordingScaler]:
+    scaler = _RecordingScaler()
+    server = model_servers.SERVERS[0]
+    monkeypatch.setattr(dispatch_watcher.model_scaler, "set_replicas", scaler.set_replicas)
+    # `model_servers.stop` scales the named server to zero through the same scaler, so
+    # patching that one function is enough to observe both directions.
+    monkeypatch.setattr(
+        model_servers,
+        "stop",
+        lambda srv: model_servers.SwitchResult(
+            ok=scaler.set_replicas(srv.host, 0), released=(srv.id,), detail="stopped"
+        ),
+    )
+    return dispatch_watcher.ClusterCard(server), scaler
+
+
+def test_a_card_this_drain_started_is_released(monkeypatch: pytest.MonkeyPatch) -> None:
+    card, scaler = _real_card(monkeypatch)
+
+    assert card.ask_for_it() is True
+    assert card.we_started_it is True
+    assert card.release() is True
+
+    # Up, then back down: the drain gives back exactly what it took.
+    assert scaler.calls == [(card.server.host, 1), (card.server.host, 0)]
+
+
+def test_a_card_that_was_already_up_is_never_released(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The eviction this design refuses, and the one a mutation walked straight through.
+
+    `almagest-llm` serves chat *and* vision on one listener. A drain that finds the
+    server already up has borrowed somebody's model, and scaling it to zero afterwards
+    ends their conversation — so `release` must be a no-op unless this object asked for
+    the server itself.
+    """
+    card, scaler = _real_card(monkeypatch)
+
+    # No `ask_for_it`: this stands for the drain finding the server already serving.
+    assert card.we_started_it is False
+    assert card.release() is False
+    assert scaler.calls == [], "it scaled something it did not start"
+
+
+def test_releasing_twice_gives_the_card_back_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`release_now` is called on every exit path, so it runs more than once by design."""
+    card, scaler = _real_card(monkeypatch)
+    card.ask_for_it()
+
+    assert card.release() is True
+    assert card.release() is False
+    assert scaler.calls.count((card.server.host, 0)) == 1
