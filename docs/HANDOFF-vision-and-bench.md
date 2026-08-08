@@ -18,6 +18,9 @@ is load-bearing.
 | #107 | `app.scripts.upload_capture`, photographs gitignored, the bench runner and chart |
 | #108 | Corpus 2 → 12 cases, the `misread` category, scoring made a separate pass |
 | #109 | Removed a `use_hints` flag that was declared, documented and never read |
+| #111 | **The unattended path**: the capture-dispatch queue, its five routes, and `dispatch_captures.py` |
+| #112 | The intake panel — proposals beside the photograph, and the button that spends the GPU |
+| #113 | `almagest-bench score` — `metrics.py` finally reachable |
 
 **Cluster:** `sha-d6b8a4ee1af2` on `almagest-api` and `almagest-web`, healthy,
 recorded in `deploy/overlays/aether/kustomization.yaml`. Both LLM deployments at
@@ -99,23 +102,57 @@ tests.
 
 ---
 
+## Built since this document was written (2026-08-08)
+
+Kept as a separate section rather than folded into the prose above, because the
+difference between "what the session that wrote this did" and "what the next
+session did" is the thing a third reader most needs and most easily loses.
+
+**The unattended path (#111, #112).** Built as described below, and the two
+departures from the sketch are worth knowing:
+
+- **`test_route_fence.py` did not exist.** The prompt for that work asserted a
+  grep test already guarded `app/api/routes/` against model calls, image decoding
+  and base64. It did not. It exists now — with a self-test, because the first
+  version joined tokens with newlines, split every `from x import y` in half, and
+  passed against the whole repository while checking nothing.
+- **Five routes, and the candidates ride on `PendingIntakeRead`.** A sixth route
+  to read them per entry would have been one request per row in the panel, so they
+  are embedded instead. `DELETE /api/dispatch/requests/{id}` takes the fifth slot.
+
+**`almagest-bench score` (#113).** `metrics.py` needed its own identity metrics:
+vision records key `cells` as `identity:<mpn>`, so `score_model` turned every
+proposed part number into its own "template" with one observation. Run against the
+12-case records it reproduces the figures in this document exactly, recomputed from
+the JSONL rather than copied — which is the first independent check that they were
+right.
+
+**The two result charts were reviewed and accepted.** The pic-review queue is
+empty; that open decision is closed.
+
 ## What is NOT built
 
-**The unattended path.** There is no dispatch queue, no worker and no UI panel,
-so nothing invokes the vision model outside a test and the bench CLI. A capture
-parked in the intake queue sits there. This is the biggest remaining chunk and
-the design is settled — see ADR 0021 and the plan for the queue shape (a copy of
-`research.py`'s lease machinery, six columns on `pending_intakes`, five routes,
-five `coverage.py` lines, and `dispatch_captures.py` as the third sibling
-worker).
-
-**The extraction and research sweeps.** `bench/` runs the vision stage only.
-`metrics.py` exists and is unwired to a `score` command.
+**The extraction and research sweeps.** `bench/` runs the vision stage only, and
+this is **blocked on a decision rather than on effort** — see "Open decisions"
+below. A reproducible extraction run wants a committed `text.txt` per case, and
+whether extracted datasheet text may be committed has never been answered. Do not
+start it by guessing that answer; the choice determines whether the corpus grows a
+committed artefact per case or the sweep re-fetches from manufacturer CDNs and
+stops being reproducible.
 
 **The 30B-A3B VL and the CPU-only embedding pod.** Both were in the original
 plan; neither is deployed. The embedding pod must be **CPU-only** — an always-on
 GPU pod denies an exclusive card to the co-tenant, which is the thing ADR 0016's
 own argument implies and did not say.
+
+**Nothing has yet run against a real model through the queue.** The whole
+unattended path is proved end to end with `FakeVisionProvider` — real migrations,
+real blob store, real routes, only the model replayed from a fixture. The first
+live drain is therefore still a first: it wants the reaper suspended, the card
+taken, and **the card released before the reaper is restored**. What it will
+measure that nothing else can is the prompt-token cost of a *phone* frame, since
+`grab.ts` does not downscale and every figure recorded so far came from a
+photograph uploaded by `upload_capture`.
 
 **The anchored benchmark variant.** It needs a capture whose regions the browser
 filled in, and `upload_capture` deliberately does not decode barcodes or run OCR
@@ -201,8 +238,9 @@ windo-lab build run be:almagest-check -p bench --local -- make check
 it since does not remove it, and stripping it means rewriting a merged `main`.
 That is the owner's call.
 
-**Two result charts are in the pic-review queue**, unreviewed. The 12-case one
-supersedes the 2-case one.
+~~**Two result charts are in the pic-review queue**, unreviewed.~~ **Settled
+2026-08-08: both accepted**, and the queue is empty. The 12-case one supersedes the
+2-case one.
 
 **Whether committing extracted datasheet text is acceptable** — asked in the
 original plan, never answered. It matters for the extraction sweep, which wants

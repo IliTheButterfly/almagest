@@ -112,13 +112,36 @@ runs a photograph through to a reviewable candidate with no GPU and no network.
 reasoning budget, not the image, is what sets `max_tokens`; and a server enforces
 a constrained field's *type* but not its bounds. See ADR 0021's "Verified on
 hardware" and "What it actually reads" for the numbers and for the one
-confidently-wrong answer that the `source_text` requirement caught. There is
-still **no queue, no worker and no UI**, so nothing invokes it outside a test and
-a script.
+confidently-wrong answer that the `source_text` requirement caught.
 
-**Not built yet:** any *unattended* agent-assisted field filling — capture
-extraction is algorithmic and offers candidates a person chooses between, and the
-vision path above has no worker to drive it. Tag provisioning has
+**The queue, the worker and the panel now exist** (ADR 0021): six `dispatch_*`
+columns and an index on `pending_intakes`, `intake_identity_candidates`,
+`services/dispatch.py` (a mechanical copy of `research.py` — do not abstract the
+two together), five `/api/dispatch` routes, `app/scripts/dispatch_captures.py` as
+the third sibling worker, and a proposals section in `IntakeQueueScreen.tsx`.
+Three things about it are easy to get wrong and are enforced by tests:
+
+- **It is opt-in.** `DispatchState` defaults to `NOT_REQUESTED`, unlike research's
+  `PENDING`, because a read costs a GPU handover on an exclusive co-tenanted card.
+- **`UNIDENTIFIED` is not `FAILED`** and carries no error text, exactly as
+  `EXHAUSTED` is not `FAILED`.
+- **Nothing automated writes `pending_intakes.mpn`, `resolved_part_id` or
+  `status`.** `PROPOSED` is terminal for the machine at any confidence; a person
+  accepts a candidate through the existing `POST /api/intake/pending/{id}/resolve`
+  and there is deliberately no second door. `MAX_VISION_CONFIDENCE` clamps a
+  stored reading strictly below `candidates.AUTO_PROMOTE_CONFIDENCE` — the model
+  was measured reporting 0.95 on an answer that was the item's FCC ID.
+
+`tests/integration/test_route_fence.py` greps `app/api/routes/` for model calls,
+image decoding and base64, and keeps ADR 0005 structural rather than remembered.
+**No part of this has yet run against a real model through the queue** — the
+end-to-end proof uses `FakeVisionProvider` over real migrations, the real blob
+store and the real routes.
+
+**Not built yet:** any *unattended* agent-assisted field filling of *parameters* —
+capture extraction is algorithmic and offers candidates a person chooses between,
+and the vision path proposes an identity rather than filling fields. Tag
+provisioning has
 its API, its walks, a reader that can write, **and now tags written by real
 hardware** — what it does not have is a tag written through a mounted container
 rather than one lying on a desk. Treat this list with suspicion anyway: it is
@@ -160,8 +183,10 @@ make bootstrap        # submodules, venv, deps, .env from .env.example
 make migrate          # alembic upgrade head
 make run              # API with autoreload on :8000
 make check            # ruff, mypy --strict, pytest across idcodec + backend + deviceagent
-                      #   + mcpserver + deploy/station, plus the openapi.json staleness check.
-                      #   Everything CI runs EXCEPT the frontend and the image build
+                      #   + mcpserver + bench + deploy/station, plus the openapi.json
+                      #   staleness check. Everything CI runs EXCEPT the frontend and the
+                      #   image build. Note `openapi-check` is `git diff --exit-code`, so it
+                      #   fails while a regenerated openapi.json is still uncommitted
 make fe-check         # the frontend gate: lint, typecheck, tests, build. Its own CI job, and
                       #   deliberately not folded in — it is a different runtime entirely
 make help             # all targets
@@ -185,6 +210,21 @@ make mcp-check        # ruff, mypy --strict, pytest; folded into `make check`
 make mcp-run          # the stdio server (an MCP client normally launches this itself)
 cd mcpserver && uv run pytest -q
 cd mcpserver && uv run pytest -m live    # needs a running API; skipped by default
+
+# bench — which local model reads a photograph, and what it costs
+make bench-check      # ruff, mypy --strict, pytest; folded into `make check`
+cd bench && uv run almagest-bench corpus check
+cd bench && uv run almagest-bench score ../out/bench/<run>/records.jsonl
+# `score` needs no GPU and no model: running writes JSONL and stops, so a scoring
+# change costs a re-score rather than another GPU handover. It refuses to print a
+# percentage below 30 cases and refuses to rank two models the noise cannot
+# separate — see bench/README.md, and do not work around either refusal.
+
+# The capture-dispatch worker (ADR 0021) — reads a parked photograph
+cd backend && uv run python -m app.scripts.dispatch_captures --fixture <f.json> --once
+# `--fixture` replays a recorded response through the real parser, so the whole
+# path runs with no GPU. Dispatching is opt-in: an entry only enters the queue via
+# POST /api/dispatch/requests, because a read costs a GPU handover.
 
 # idcodec — no dependencies at all, so its own venv is the point
 make idcodec-check    # ruff, mypy --strict, pytest; folded into `make check`
