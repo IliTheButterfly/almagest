@@ -30,6 +30,10 @@ from app.models.chat import ChatMessage, ChatThread, ChatWriteup, ChatWriteupPos
 from app.models.dispatch import IntakeIdentityCandidate
 from app.models.documents import Document, DocumentLink
 from app.models.enrichment import ParameterValueCandidate
+from app.models.field_proposals import (
+    ParameterFieldProposal,
+    ParameterFieldProposalEvidence,
+)
 from app.models.identity import ObjectId
 from app.models.layout import LayoutSuggestion
 from app.models.layout_authoring import (
@@ -95,6 +99,8 @@ __all__ = [
     "PackageType",
     "Packaging",
     "ParameterChoice",
+    "ParameterFieldProposal",
+    "ParameterFieldProposalEvidence",
     "ParameterTemplate",
     "ParameterValue",
     "ParameterValueCandidate",

@@ -91,6 +91,11 @@ ROUTES: Final[Mapping[str, Route]] = MappingProxyType(
         "move_stock": _post("/api/stock/lots/{lot_id}/move"),
         "recount_stock": _post("/api/stock/lots/{lot_id}/recount"),
         "undo_movement": _post("/api/stock/undo"),
+        # -- proposing a filterable field, also write-gated --------------------
+        # The one authoring-adjacent write a model gets, and it authors nothing:
+        # it records that a datasheet states a parameter with no field for it,
+        # with the quote that says so. `create_parameter_field` stays excluded.
+        "propose_field": _post("/api/field-proposals"),
         # -- diagnostics -----------------------------------------------------
         "health": _get("/api/system/health"),
         "read_caches": _get("/api/system/caches"),

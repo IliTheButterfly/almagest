@@ -19,7 +19,7 @@ expensive to undo.
 So a bare "ADR 0013" is ambiguous, and this index is how you resolve one. In a
 *new* citation, name the slug — `ADR 0013 (rc522)`, or the path
 `docs/adr/0013-the-rc522-as-a-second-reader.md` — never the number alone. The
-next free number is **0020**.
+next free number is **0023**.
 
 ## The records
 
@@ -39,7 +39,7 @@ next free number is **0020**.
 | [0010](0010-the-active-project-and-the-cart-as-a-running-record.md) | Open projects as tabs, and the cart as a running record | Supersedes 0007's (cart) checkout model; amends what the cart is *for* |
 | [0011](0011-a-take-is-a-withdrawal-and-belongs-to-an-iteration.md) | A take is a withdrawal, and it belongs to an iteration | Amends 0010: the tab strip is unchanged, what *committing* does is not |
 | [0011](0011-authoring-part-types-and-filterable-fields.md) | Authoring part types, and what happens when two of them want the same field name | One column, `parameter_template.is_seed` |
-| [0012](0012-the-mcp-server-and-a-forced-coverage-decision.md) | The MCP server, and why every route must be decided about | 26 curated tools, and `coverage.py` forcing a disposition for **every** route so the tool surface cannot silently go stale |
+| [0012](0012-the-mcp-server-and-a-forced-coverage-decision.md) | The MCP server, and why every route must be decided about | 27 curated tools, and `coverage.py` forcing a disposition for **every** route so the tool surface cannot silently go stale |
 | [0012](0012-what-a-tag-holds-and-which-readers-exist.md) | What a tag holds, as distinct from what we bound; and which readers exist | Tag provisioning had a complete API and no callers; this is the write half |
 | [0013](0013-the-nightly-pass-repairs-staleness-and-only-reports-drift.md) | The nightly pass repairs staleness and only reports drift | A scheduled rebuild would erase the write-path bug it is evidence of; the repair is an explicit route |
 | [0013](0013-the-rc522-as-a-second-reader.md) | The RC522 as a second reader, and what that costs | Supersedes PLAN.md's rejection of the MFRC522, which rested on library quality that no longer applies now that `agent/iso14443a.py` is ours and unit-tested |
@@ -51,6 +51,7 @@ next free number is **0020**.
 | [0019](0019-the-hostname-moves-under-aether.md) | The hostname moves to `almagest.aether.lan` | Supersedes 0001's hostname and nothing else. Recomputes the QR budget: 38 bytes leaves 4 bytes of headroom at version 3, so anything added to the payload pushes it to version 4 |
 | [0020](0020-seeing-and-switching-the-models.md) | Seeing which models are running, and switching them | Amends 0016. A *server* is the unit that starts and stops, starting one releases the others because there is one card, and `starting`/`unknown` are states rather than optimistic guesses |
 | [0021](0021-a-second-reader-for-the-frame-the-browser-already-read.md) | A second reader for the frame the browser already read | A vision model proposes ranked identities for the captures 0015's browser pass cannot resolve. The prohibitions are unrepresentable in the schema rather than written as rules; an empty answer is `UNIDENTIFIED`, not `FAILED`. Two wire shapes because Ollama and vLLM disagree. **Verified against `qwen3-vl:8b` on 2026-08-07**, which corrected three things the documentation implied: both shapes work on Ollama, a constrained field's bounds are not enforced (only its type), and the reasoning budget — not the image — is what sets `max_tokens` |
+| [0022](0022-a-model-proposes-a-field-and-a-person-creates-it.md) | A model proposes a filterable field; a person creates it | `IngestReport.unknown_templates` was computed and thrown away; it is now a `parameter_field_proposals` row with the datasheet quote. The failure guarded against is a **duplicate** template, not a bad row — two fields for one concept fragment parametric search silently, because the filter is a join on `template_id`. `nearest_existing_template` is the safety mechanism and its `synonym` rung is curated content, because `Rds(on)` and `on_resistance` share no stem. `POST /api/parameter-fields` stays the only writer; the decision route records an existing `field_id` and creates nothing. **No 27B run has happened** |
 
 ## Where these override PLAN.md
 

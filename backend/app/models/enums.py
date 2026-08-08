@@ -1272,6 +1272,67 @@ class DispatchState(StrEnum):
     FAILED = "failed"
 
 
+class FieldProposalStatus(StrEnum):
+    """Where one proposed `parameter_template` stands (ADR 0011, ADR 0017).
+
+    Three members, and the shape of the whole feature is in the fact that
+    **none of them is `created`**. Nothing automated mints a
+    `parameter_template`: a proposal is a worklist entry, a person presses the
+    button, and `POST /api/parameter-fields` — the door that already existed —
+    is what actually writes the row. `ACCEPTED` records that somebody did that,
+    with `created_template_id` pointing at what came out of it.
+
+    A plain `sa.String` plus `StrEnumType`, never `sa.Enum`; see `CLAUDE.md`.
+    """
+
+    #: Waiting for a person. The default, unlike `DispatchState`, because a
+    #: proposal costs nothing to hold and the whole point is that it is read.
+    PENDING = "pending"
+    #: A person created the field, or merged the proposal into an existing one.
+    #: `created_template_id` says which template it became — set by the caller
+    #: after `POST /api/parameter-fields` returns, never by this side.
+    ACCEPTED = "accepted"
+    #: A person said no. Kept rather than deleted: the same datasheet phrase will
+    #: be proposed again on the next pass, and a dismissed row is what stops it
+    #: coming back to the top of the list as though it were new.
+    DISMISSED = "dismissed"
+
+
+class FieldProposalMatch(StrEnum):
+    """How a proposal was matched to an existing `parameter_template`.
+
+    **This enum is the safety mechanism, not a diagnostic.** The dangerous
+    failure of proposing fields is not a bad row, it is a *duplicate*: a model
+    proposes `Rds(on)` while `on_resistance` already exists, search fragments
+    across two templates, and `substitution_direction` then sees parts as
+    missing a value they actually have. `UNIQUE(part_id, template_id)` is
+    load-bearing for search fan-out and a second template for one concept is
+    how that guarantee stops meaning anything.
+
+    So every proposal carries the nearest existing template it could find and
+    *why*, and the review surface offers "merge into `on_resistance`" ahead of
+    "create `Rds(on)`". The members are ordered strongest-first and
+    `app.services.field_proposals.MATCH_SCORES` scores them; a reason with no
+    match at all is a NULL column rather than a member here, because "nothing
+    resembles this" is the absence of a match and not a kind of one.
+    """
+
+    #: The normalised names are identical — `Voltage Rating` against
+    #: `voltage_rating`. The field already exists and there is nothing to create.
+    EXACT_NAME = "exact_name"
+    #: The proposal's normalised name equals an existing template's normalised
+    #: **display** name. Same concept, one side spelled for a human.
+    DISPLAY_NAME = "display_name"
+    #: Both names are in one curated synonym group — `rds(on)` and
+    #: `on_resistance`. Content, deliberately, and the only rung of the ladder
+    #: that encodes electronics knowledge rather than string arithmetic.
+    SYNONYM = "synonym"
+    #: The names share enough word stems **and** measure a compatible quantity.
+    #: Both halves are required: `rise_time` and `rise_rate` share a stem and
+    #: are not the same field, and the unit is what says so.
+    TOKENS = "tokens"
+
+
 class ModelRunKind(StrEnum):
     """Which stage of the pipeline a `model_runs` row records.
 

@@ -852,3 +852,143 @@ def register_write_tools(server: MCPServer[Any], client: ApiClient, settings: Mc
             },
         )
         return dict(payload)
+
+    @server.tool(annotations=_WRITE)
+    async def propose_parameter_field(
+        name: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=128,
+                description=(
+                    "A short machine name for the parameter, lower_snake_case and with "
+                    "no unit in it: 'on_resistance', not 'Rds(on) in mOhm'."
+                ),
+            ),
+        ],
+        quote: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=500,
+                description=(
+                    "The heading, cell or sentence in the datasheet that states this "
+                    "parameter, verbatim. Required. If you cannot quote it, you did "
+                    "not read it."
+                ),
+            ),
+        ],
+        value_type: Annotated[
+            str,
+            Field(
+                pattern="^(numeric|enum)$",
+                description=(
+                    "'numeric' for anything with a unit, 'enum' for a fixed set of "
+                    "named options such as a dielectric or a package."
+                ),
+            ),
+        ],
+        display_name: Annotated[
+            str | None,
+            Field(
+                max_length=255,
+                description=(
+                    "What a person should see in a filter panel, including the "
+                    "datasheet's own symbol: 'On resistance Rds(on)'."
+                ),
+            ),
+        ] = None,
+        base_unit: Annotated[
+            str | None,
+            Field(
+                max_length=64,
+                description=(
+                    "For a numeric parameter, the name of its physical quantity — "
+                    "'ohm', not 'ohms' and not 'mOhm'. `list_filterable_fields` shows "
+                    "which quantities existing fields use. Leave it out if unsure: a "
+                    "wrong quantity is worse than none, because every value later "
+                    "stored against the field would be wrong while still answering "
+                    "range queries."
+                ),
+            ),
+        ] = None,
+        category: Annotated[
+            str | None,
+            Field(
+                max_length=255,
+                description=(
+                    "A part category slug from `browse_part_categories`. The field is "
+                    "then offered on that category and every descendant of it. Leave "
+                    "it out for something every part has."
+                ),
+            ),
+        ] = None,
+        stated_value: Annotated[
+            str | None,
+            Field(
+                max_length=255,
+                description="The value or limit printed for it, as printed: '45 mOhm'.",
+            ),
+        ] = None,
+        document_ref: Annotated[
+            str | None,
+            Field(
+                max_length=255,
+                description=(
+                    "Which document said so — a datasheet sha256 if you have one. "
+                    "Proposing again from the same document updates that sighting "
+                    "instead of inflating the count of how many datasheets stated it, "
+                    "which is the number a person judges on."
+                ),
+            ),
+        ] = None,
+        note: Annotated[
+            str | None,
+            Field(max_length=500, description="Anything the person deciding should know."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Propose that a filterable field is missing, with the datasheet line that says so.
+
+        Use this when a datasheet specifies a parameter that `list_filterable_fields`
+        does not offer — an ESR on a capacitor, an on-resistance on a MOSFET. It
+        records a proposal for a person to act on.
+
+        **It does not create the field, and nothing here can.** Creating one is a
+        person pressing a button in the app, because a field definition is shared by
+        every part in its category and the dangerous failure is a *duplicate*: a
+        second field for a concept that already has one fragments parametric search
+        silently, so a part with a value under one name reads as having none under the
+        other. Nothing reports that; it just makes searches quietly wrong.
+
+        So call `list_filterable_fields` first and propose only what is genuinely
+        absent — and put the datasheet's own symbol in `display_name`, because the
+        server matches your name against the existing fields and shows the reviewer
+        the nearest one it found.
+
+        Returns the stored proposal, including `seen_count` (how many documents have
+        stated it) and `nearest`, the existing field it may duplicate. A `nearest`
+        with `match: "exact_name"` means the field is already there and that name is
+        the answer to your question.
+        """
+        payload = await client.call(
+            "propose_field",
+            body={
+                "name": name,
+                "display_name": display_name,
+                "suggested_value_type": value_type,
+                "suggested_base_unit": base_unit,
+                "suggested_category": category,
+                "evidence": [
+                    {
+                        "quote": quote,
+                        "document_ref": document_ref or "",
+                        "source": "llm_inferred",
+                        "stated_value": stated_value,
+                        "note": note,
+                        "provider": "mcp",
+                        "model": settings.device_id,
+                    }
+                ],
+            },
+        )
+        return dict(payload)

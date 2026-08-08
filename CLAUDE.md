@@ -34,7 +34,7 @@ The full design lives in **[docs/PLAN.md](docs/PLAN.md)** — treat it as the so
   into the intake queue with its photograph attached, and `extract.ts` pairs each
   printed heading with the value under it to suggest fields — **ranked
   suggestions, never applied values**, per the never-auto-accept rule
-- `mcpserver/` — the MCP server: 26 curated tools over the HTTP API, writes gated
+- `mcpserver/` — the MCP server: 27 curated tools over the HTTP API, writes gated
   behind `ALMAGEST_MCP_ALLOW_WRITES`, and `coverage.py` + its manifest test forcing
   a disposition for **every** route so the tool surface cannot silently go stale.
   See ADR 0012 (mcp)
@@ -244,6 +244,43 @@ activity screen. Three things:
 observed ones, so `tests/integration/test_vision_live.py` is what will settle whether
 a real server frames its stream that way. No GPU was taken to build any of this.
 
+**And a datasheet can now propose a field that does not exist** (ADR 0022). The signal
+was already being computed and thrown away: `cross_check.IngestReport.unknown_templates`
+means "this datasheet named a parameter and there is no `parameter_template` for it",
+and nothing persisted it — or the *useful* half, which is which sheet said so, which
+part, the value, and the line. `parameter_field_proposals` +
+`parameter_field_proposal_evidence`, `services/field_proposals.py`, four
+`/api/field-proposals` routes, `services/enrichment/field_discovery.py` (+ its
+transport and fake), `app/scripts/propose_fields.py` and `FieldProposalsScreen.tsx` at
+`/field-proposals`, linked from Review. Five things about it:
+
+- **The failure it guards is a *duplicate*, not a bad row.** A `parameter_template` is
+  shared by every part in its category, so a second one for a concept that already has
+  one — `Rds(on)` beside `on_resistance` — fragments parametric search **silently**: the
+  filter is a join on `template_id`, so a part with a value under one name reads as
+  having none under the other, and `substitution_direction` decides on the half it can
+  see. Nothing raises. `field_proposals.nearest_existing_template` is the mechanism, and
+  its `synonym` rung is **curated content in the module** because no normaliser bridges
+  a datasheet's symbol to an inventory's word.
+- **`POST /api/parameter-fields` is still the only writer of `parameter_template`.**
+  `FieldProposalStatus` has no `created` member, `POST /api/field-proposals/{id}/decision`
+  takes a `field_id` that already resolves and refuses `accepted` without one, and a test
+  greps all four propose-path modules for `create_template`/`ParameterTemplate(`.
+  `create_parameter_field` stays `Excluded(Reason.AUTHORING)` over MCP;
+  `propose_parameter_field` is what an agent gets, write-gated.
+- **The count is of documents, and the quote is `NOT NULL`.** One evidence row per
+  `(proposal, source, document_ref)`, so a nightly re-run adds nothing — a heading in five
+  unrelated sheets is a real field, the same heading five times from one sheet is one
+  observation. `document_ref` is `NOT NULL` with an empty default, for the trap
+  `ParameterValueCandidate.source_ref` documents.
+- **The schema has no `substitution_direction`**, and the create form does not default one.
+  Guessing it makes substitution wrong by construction while looking like it works.
+- **Nothing schedules the model pass.** `propose_fields.py` is `--sha256` plus
+  `--once`/`--fixture`, with no queue and no lease: a 27B on the one card would compete
+  with the dispatch drain and that contention needs its own decision. So a datasheet
+  uploaded today produces no proposals until somebody asks. **No 27B run has happened** —
+  the whole path is proved with a hand-authored fixture through the real parser.
+
 **Not built yet:** any *unattended* agent-assisted field filling of *parameters* —
 capture extraction is algorithmic and offers candidates a person chooses between,
 and the vision path proposes an identity rather than filling fields. Tag
@@ -395,7 +432,7 @@ Master repo (**Almagest**) plus submodules, split only where coupling is genuine
 
 - `backend/`, `frontend/`, `deviceagent/` — **one repo, kept together.** All three are bound by the API contract; a route signature change touches all of them and must be one atomic commit.
 - `idcodec/` — same repo, its own distribution (`almagest-idcodec`) and its own venv. The short-ID codec and the tag payload rules, **standard library only**. Both the API and the agent depend on it by path — the API re-exports it through `app.services.shortid` and `app.services.provisioning` so existing call sites are untouched, the agent imports it directly — so the two can never fold a tag UID differently. It exists because the agent runs on a Pi 4 and used to pull the whole API runtime in for two pure functions. Nothing that needs a `Session`, `app.models` or `app.config` may go in it; `idcodec/tests/test_stdlib_only.py` fails if anything non-stdlib is imported.
-- `mcpserver/` — same repo, its own distribution (`almagest-mcp`) and its own venv. The inventory as tools an agent can call: 26 curated tools over the HTTP API — against 142 operations, so 116 are `Excluded` on purpose — stdio transport, `.mcp.json` at the repo root wires it up. **A translation layer, not a second API** — whole units instead of `qty_milli`, a `{template: value}` mapping instead of the API's list of pairs, and nothing that imports `app.models` or opens the database. Writes are off unless `ALMAGEST_MCP_ALLOW_WRITES` is set, and go through the same `/api/stock/...` routes the PWA uses. Its own venv because the MCP SDK has no business in the API image, and it needs no submodules: the contract test reads the committed `openapi.json` and the tool tests drive a fake transport. **`almagest_mcp/coverage.py` is the map — read it before adding a tool.**
+- `mcpserver/` — same repo, its own distribution (`almagest-mcp`) and its own venv. The inventory as tools an agent can call: 27 curated tools over the HTTP API — against 176 operations, so 149 are `Excluded` on purpose — stdio transport, `.mcp.json` at the repo root wires it up. **A translation layer, not a second API** — whole units instead of `qty_milli`, a `{template: value}` mapping instead of the API's list of pairs, and nothing that imports `app.models` or opens the database. Writes are off unless `ALMAGEST_MCP_ALLOW_WRITES` is set, and go through the same `/api/stock/...` routes the PWA uses. Its own venv because the MCP SDK has no business in the API image, and it needs no submodules: the contract test reads the committed `openapi.json` and the tool tests drive a fake transport. **`almagest_mcp/coverage.py` is the map — read it before adding a tool.**
 - `mensa/` — submodule. The bench station firmware: ESP-IDF, separate toolchain.
 - `antlia/` — submodule, **public**. A Flipper Zero app that reads a container tag and types its short ID into the connected computer as a USB keyboard, so a laptop can identify a bin. Split for the same reason as `mensa/`: its own toolchain (`ufbt`, the Flipper SDK) and no coupling to the API contract — it needs no network at all. It carries a **second implementation of the short-ID codec, in C**, which is the one risk worth knowing about: `antlia/tests/vectors.h` is generated from `idcodec/` by `antlia/tools/gen_vectors.py`, so a divergence fails Antlia's CI. Change `idcodec/shortid.py` or `tagpayload.py` and you must run `make vectors` there too.
 - `circinus/` — submodule. OpenSCAD/CAD; binary-ish files that would bloat every clone forever.

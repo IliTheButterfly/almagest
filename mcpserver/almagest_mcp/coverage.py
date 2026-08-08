@@ -311,7 +311,18 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
             "and choices, which is the form a query needs.",
         ),
         "read_parameter_field": Excluded(Reason.SUBSUMED, _FIELD_AUTHORING),
-        "create_parameter_field": Excluded(Reason.AUTHORING, _FIELD_AUTHORING),
+        "create_parameter_field": Excluded(
+            Reason.AUTHORING,
+            _FIELD_AUTHORING + " "
+            "**A person commits, and `propose_parameter_field` is how a model "
+            "contributes.** The failure this excludes is not a bad row but a "
+            "duplicate: a second template for a concept that already has one — "
+            "`Rds(on)` beside `on_resistance` — fragments parametric search "
+            "silently, because the filter is a join on `template_id` and a part "
+            "with a value under one name reads as having none under the other. "
+            "So the propose tool records the datasheet quote and the nearest "
+            "existing field, and the button that creates one is in the PWA.",
+        ),
         "update_parameter_field": Excluded(Reason.AUTHORING, _FIELD_AUTHORING),
         "delete_parameter_field": Excluded(Reason.AUTHORING, _FIELD_AUTHORING),
         "add_parameter_choice": Excluded(Reason.AUTHORING, _FIELD_AUTHORING),
@@ -320,6 +331,28 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "list_parameter_quantities": Excluded(Reason.SUBSUMED, _FIELD_AUTHORING),
         "create_parameter_quantity": Excluded(Reason.AUTHORING, _FIELD_AUTHORING),
         "delete_parameter_quantity": Excluded(Reason.AUTHORING, _FIELD_AUTHORING),
+        # -- proposing a field, which is the *exposed* half of the above --------
+        "propose_field": Exposed("propose_parameter_field"),
+        "list_field_proposals": Excluded(
+            Reason.SUBSUMED,
+            "The review surface's own list. A model that proposed a field has no "
+            "further business with the queue — reading back what is waiting for a "
+            "person is how a tool starts nudging, and `propose_parameter_field` "
+            "is already idempotent on the normalised name, so nothing needs "
+            "checking first.",
+        ),
+        "read_field_proposal": Excluded(
+            Reason.SUBSUMED,
+            "One proposal by id. Same answer as `list_field_proposals`: reading the "
+            "review queue back is not the proposer's business, and "
+            "`propose_parameter_field` already returns the stored row it wrote.",
+        ),
+        "decide_field_proposal": Excluded(
+            Reason.HUMAN_JUDGEMENT,
+            "Accepting or dismissing a proposed field. The decision the propose "
+            "tool exists to inform, and the one this whole surface is shaped to "
+            "keep with a person — see `create_parameter_field`.",
+        ),
         "list_base_units": Excluded(
             Reason.SUBSUMED,
             "The unit picker for the field editor. `list_filterable_fields` "
@@ -593,6 +626,12 @@ WRITE_TOOLS: Final[frozenset[str]] = frozenset(
         "move_stock",
         "recount_stock",
         "undo_movement",
+        # Not a movement, and the only write here that touches no stock. It records
+        # a *proposal* that a filterable field is missing — creating one stays a
+        # person's click, because a duplicate field definition fragments parametric
+        # search silently. Write-gated all the same: it writes a row, and the gate
+        # is about that rather than about how consequential the row is.
+        "propose_parameter_field",
     }
 )
 

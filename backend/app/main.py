@@ -25,6 +25,7 @@ from app.api.routes import (
     enrichment,
     extraction,
     facets,
+    field_proposals,
     handoff,
     intake,
     labels,
@@ -190,6 +191,12 @@ def create_app() -> FastAPI:
     # has to be a POST because it carries the whole filter set in its body. See
     # the module docstring.
     app.include_router(parameter_fields.router)
+    # The *propose* half of the same job: fields something believes are missing,
+    # with the datasheet quote that says so and the nearest existing field they
+    # might duplicate. Included beside the authoring router on purpose — the two
+    # read as a pair, and the pairing is the design: nothing here creates a
+    # `parameter_template`, and the route above stays the only thing that does.
+    app.include_router(field_proposals.router)
     # The quantities a numeric field may be measured in. Its own prefix rather than
     # a sub-path of parameter-fields: a field belongs to a category, a quantity
     # belongs to the install, and a dozen fields may share one.
