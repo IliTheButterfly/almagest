@@ -288,21 +288,18 @@ k8s-model: ## Switch the GPU between models: make k8s-model M=8b|27b|off
 	   echo "no model: chat will say so plainly rather than fail."; \
 	 else echo "M must be 8b, 27b or off"; exit 1; fi
 
-k8s-tunnel: ## Tunnel the deployed API (and its model) to localhost for testing
-	# The API Service is ClusterIP and the model Service deliberately so: the
-	# Ollama endpoint has NO authentication of any kind, so putting it on a
-	# NodePort would publish an unauthenticated model server to the LAN. A
-	# port-forward is the right shape - it is authenticated by your kubeconfig
-	# and it dies with the terminal.
+k8s-tunnel: ## Tunnel the deployed PWA + API to localhost, reconnecting on drops
+	# A supervisor, not a bare `kubectl port-forward`, because that dies on every
+	# pod restart - and the API is `strategy: Recreate`, so **every deploy kills
+	# it**. From the browser a dead tunnel looks exactly like a broken
+	# application, which sends you to debug the wrong thing.
 	#
-	#   API   -> http://127.0.0.1:8000   (docs at /docs, chat at /api/chat/...)
-	#   model -> http://127.0.0.1:11434  (only needed to poke Ollama directly)
-	@echo "API   http://127.0.0.1:8000/docs"
-	@echo "model http://127.0.0.1:11434"
-	@echo "ctrl-c to stop"
-	@kubectl -n ili port-forward svc/almagest-llm 11434:11434 & \
-	 kubectl -n ili port-forward svc/almagest-api 8000:8000; \
-	 kill %1 2>/dev/null || true
+	#   web   -> https://localhost:8443/   the PWA. Valid cert if certs/ca.crt is trusted
+	#   API   -> http://127.0.0.1:8000/docs
+	#
+	# `make k8s-tunnel MODEL=1` adds Ollama on 11434. Opt-in because it has no
+	# authentication at all, and a tunnel that heals holds it open indefinitely.
+	@./scripts/k8s-tunnel.sh $(if $(MODEL),--model,)
 
 k8s-status: ## Everything Almagest owns in the shared namespace
 	kubectl get all,pvc,cm,secret,ingress -n ili -l app.kubernetes.io/part-of=almagest
