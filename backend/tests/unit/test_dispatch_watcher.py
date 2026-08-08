@@ -130,12 +130,33 @@ class FakeClient:
     #: `record_run` while this fake did not, which is how the watcher and the
     #: transcript landed individually green and together broken.
     runs: list[dict[str, Any]] = field(default_factory=list)
+    #: Every partial republished during the drain, `(run_id, text)`.
+    #:
+    #: Here for the *same* reason `runs` is, one round later: `ApiClient` grew three
+    #: more methods for the live-run path and this fake had none of them, so both
+    #: drain tests failed on `AttributeError` — a third instance of the break the
+    #: comment above records. `test_the_heartbeat_wrapper_covers_every_api_call`
+    #: below is the guard that stops there being a fourth.
+    partials: list[tuple[int, str]] = field(default_factory=list)
     #: Raise from `fetch_image`, to model a drain that dies mid-flight.
     explode: bool = False
 
     def record_run(self, run: dict[str, Any]) -> None:
         self.calls.append("record_run")
         self.runs.append(run)
+
+    def start_run(self, run: dict[str, Any]) -> int | None:
+        self.calls.append("start_run")
+        self.runs.append(dict(run))
+        return len(self.runs)
+
+    def record_progress(self, run_id: int, response_text: str) -> None:
+        self.calls.append("record_progress")
+        self.partials.append((run_id, response_text))
+
+    def finish_run(self, run_id: int, patch: dict[str, Any]) -> None:
+        self.calls.append("finish_run")
+        self.runs[run_id - 1].update(patch)
 
     def claim(self, *, worker_id: str, limit: int) -> list[QueuedCapture]:
         self.calls.append("claim")
@@ -670,6 +691,14 @@ def test_nothing_here_can_queue_a_photograph_by_itself(provider: FakeVisionProvi
         # anything, which is what this allowlist is actually about — kept closed
         # rather than relaxed, so a future call that *could* queue still fails here.
         "record_run",
+        # The same three times over: opening a run row, republishing the partial
+        # answer onto it, and settling it. All about a call that is already
+        # happening, none of them able to put a photograph into the queue. The
+        # opt-in ADR 0021 requires is `POST /api/dispatch/requests` and it is still
+        # not on this list.
+        "start_run",
+        "record_progress",
+        "finish_run",
     }
     tree = _module_tree()
     strings = _code_strings(tree)
@@ -808,7 +837,14 @@ def test_the_watcher_passes_transcripts_through_and_counts_them_as_progress(
     watcher.tick()
 
     assert client.runs, "the drain recorded no transcript at all"
-    assert "record_run" in client.calls
+    # The live path, which is what a drain uses now: the row is opened before the model
+    # is asked and settled afterwards. `record_run` is the single-shot fallback and is
+    # only reached when `start_run` could not open a row, so its absence here is right.
+    assert {"start_run", "finish_run"} <= set(client.calls)
+    assert client.partials, (
+        "no partial was republished, so a forty-second read is still forty seconds of "
+        "silence — and the reaper loses its per-second liveness evidence with it"
+    )
     # Recorded *through* the heartbeat wrapper rather than around it, asserted
     # against the real one: a transcript that bypassed the flag would record fine
     # and leave the drain looking idle to the reaper, which is the failure this
@@ -819,3 +855,63 @@ def test_the_watcher_passes_transcripts_through_and_counts_them_as_progress(
     dispatch_watcher.HeartbeatClient(inner, flag).record_run({"kind": "vision"})
     assert inner.runs == [{"kind": "vision"}]
     assert flag.snapshot()["draining"] is True
+
+    # And the partial republish, which is the **strongest** liveness signal the wrapper
+    # has: it fires roughly once a second for the whole inference, so the ten-minute
+    # silence the reaper watches for can no longer be reached by a read that is merely
+    # slow — only by one that is genuinely stuck. A partial that bypassed the flag would
+    # throw that away.
+    # A clock that starts at zero and reads 100 from the second call onwards, so the
+    # only thing that can keep the drain alive past a ten-second stall bound is the
+    # partial touching the flag.
+    reads = [0.0]
+
+    def stepped() -> float:
+        reads.append(100.0)
+        return reads[-2]
+
+    quiet = dispatch_watcher.DrainFlag(stall_seconds=10.0, clock=stepped)
+    quiet.begin()
+    wrapped = dispatch_watcher.HeartbeatClient(FakeClient(), quiet)
+
+    wrapped.record_progress(1, "half an answer")
+
+    # The clock jumped a hundred seconds past a ten-second stall bound, and the drain is
+    # still live *only* because the partial touched the flag. Without the touch this
+    # reads `stalled` and the reaper reclaims the card out from under an inference that
+    # is running perfectly well.
+    assert quiet.snapshot()["draining"] is True
+    assert quiet.snapshot()["stalled"] is False
+
+
+def test_the_heartbeat_wrapper_covers_every_api_call() -> None:
+    """Every method on `ApiClient` exists on `HeartbeatClient`. Structurally.
+
+    **This has now broken twice for the same reason and this test is the fix.**
+    `ApiClient` is a `Protocol`, so it is structural: adding a method to it and
+    forgetting the wrapper produces no error anywhere, two individually-green
+    branches, and a drain that dies on `AttributeError` at the first model call.
+    It happened when `record_run` was added, and it happened again when the three
+    live-run methods were — including in `FakeClient` above, which is why its
+    `partials` field carries the same note.
+
+    Compared against the Protocol rather than against a hand-written list, because a
+    hand-written list is the thing that would have needed updating and did not.
+    Membership only: whether each method *touches the flag* is what the tests around
+    this one assert, and asserting it here would need a fake per signature.
+    """
+    from app.scripts.dispatch_captures import ApiClient
+
+    required = {
+        name
+        for name in dir(ApiClient)
+        if not name.startswith("_") and callable(getattr(ApiClient, name, None))
+    }
+    assert required, "reading the Protocol found no methods, so this test proves nothing"
+
+    missing = sorted(required - set(dir(dispatch_watcher.HeartbeatClient)))
+    assert not missing, (
+        f"HeartbeatClient does not wrap {missing}. A Protocol is structural, so nothing "
+        "else will tell you: the drain will die on AttributeError at the first model "
+        "call, and only running the watcher and the worker together would find it."
+    )
