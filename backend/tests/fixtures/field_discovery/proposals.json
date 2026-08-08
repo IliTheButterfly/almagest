@@ -1,0 +1,36 @@
+{
+  "_provenance": "HAND-AUTHORED, NOT YET RECORDED. This file has the exact shape of a structured-output response against field_discovery.schema_for(), and every field in it was written by hand — no model or network was available when the interface was built, and no 27B run has happened. Replace it with a genuine recording the first time a live contract test runs against a real provider, and do not add an entry here to make a new test pass without checking that a real model would actually emit it. A fixture that drifts from reality makes every test above it a test of this file.",
+  "provider": "fake",
+  "model": "hand-authored-fixture",
+  "responses": {
+    "sha256:mosfet-family-sheet": {
+      "proposals": [
+        {
+          "name": "on_resistance",
+          "display_name": "On resistance Rds(on)",
+          "value_type": "numeric",
+          "base_unit": "ohm",
+          "category": "semiconductors",
+          "quote": "Static drain-source on-resistance Rds(on)  VGS = 10 V, ID = 8 A   45   mOhm",
+          "stated_value": "45 mOhm",
+          "page": 2,
+          "note": "Stated at VGS = 10 V; the sheet also gives 62 mOhm at 4.5 V."
+        },
+        {
+          "name": "gate_threshold_voltage",
+          "display_name": "Gate threshold voltage Vgs(th)",
+          "value_type": "numeric",
+          "base_unit": "volt",
+          "category": "semiconductors",
+          "quote": "Gate threshold voltage Vgs(th)  VDS = VGS, ID = 250 uA   1.0   2.5   V",
+          "stated_value": "1.0 to 2.5 V",
+          "page": 2,
+          "note": null
+        }
+      ]
+    },
+    "sha256:nothing-new-sheet": {
+      "proposals": []
+    }
+  }
+}

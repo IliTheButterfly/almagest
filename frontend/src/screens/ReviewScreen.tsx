@@ -136,6 +136,14 @@ export function ReviewScreen() {
           Nothing shown here is in the catalogue yet — every rule that got a value this
           far refused to guess, on purpose.
         </p>
+        {/* The sibling queue, one level up: this one is about *values* a source
+            proposed for fields that exist, that one about *fields* a datasheet
+            stated that none exists for. Linked from here rather than from the nav
+            strip, which is already too long for a phone. */}
+        <p className="muted-note" style={{ margin: "0.4rem 0 0" }}>
+          Datasheets also turn up parameters there is no field for at all.{" "}
+          <Link to="/field-proposals">Proposed fields</Link> is that queue.
+        </p>
         {selected.size > 0 && (
           <div className="row" style={{ marginTop: "0.6rem" }}>
             <button

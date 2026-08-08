@@ -5580,6 +5580,217 @@
         "title": "EntityType",
         "type": "string"
       },
+      "EvidenceIn": {
+        "description": "One document's sighting of the field.\n\n`quote` is `min_length=1` at the wire level as well as refused by the service,\nwhich is not belt-and-braces for its own sake: this is the field that makes a\nproposal reviewable at all, and a client that omits it should be told so by the\nschema rather than by a 422 from three layers down.",
+        "properties": {
+          "document_ref": {
+            "default": "",
+            "description": "Which document said so \u2014 a datasheet sha256, normally. Part of the uniqueness key, so re-reading the same document updates its own sighting rather than inflating the count. Empty means 'this source has one observation'.",
+            "maxLength": 255,
+            "title": "Document Ref",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For the person reviewing: why this source thinks the field is worth having, what it was unsure about. Never parsed, only shown.",
+            "title": "Note"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A part the field was stated for, if known. Not part of the uniqueness key \u2014 one family datasheet covers many part numbers, and the count this produces is of documents.",
+            "title": "Part Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "quote": {
+            "description": "The heading, cell or line the field name was read from, verbatim. Required. If you cannot quote it, you did not read it.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Quote",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Provenance",
+            "default": "llm_inferred",
+            "description": "Which kind of source stated it. Ordered by PROVENANCE_PRIORITY."
+          },
+          "stated_value": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The value printed under the heading, verbatim \u2014 the best available hint about type and unit. Never written to parameter_value: there is no template to write it against.",
+            "title": "Stated Value"
+          }
+        },
+        "required": [
+          "quote"
+        ],
+        "title": "EvidenceIn",
+        "type": "object"
+      },
+      "EvidenceRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_ref": {
+            "title": "Document Ref",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "stated_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stated Value"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "document_ref",
+          "part_id",
+          "quote",
+          "stated_value",
+          "page",
+          "note",
+          "provider",
+          "model",
+          "created_at"
+        ],
+        "title": "EvidenceRead",
+        "type": "object"
+      },
       "ExtractionClaim": {
         "description": "One document leased to a worker.\n\nCarries only what is needed to fetch and identify it. **No storage path and no\ntext**: the worker reads the bytes from `url`, over HTTP like any other client,\nbecause ADR 0005 gives it neither the database nor the volume.",
         "properties": {
@@ -5966,6 +6177,332 @@
         ],
         "title": "FieldCandidateActivity",
         "type": "object"
+      },
+      "FieldProposalDecided": {
+        "properties": {
+          "proposal": {
+            "$ref": "#/components/schemas/FieldProposalRead"
+          }
+        },
+        "required": [
+          "proposal"
+        ],
+        "title": "FieldProposalDecided",
+        "type": "object"
+      },
+      "FieldProposalDecision": {
+        "description": "What a person decided about one proposal.\n\n**Records a decision; it does not perform one.** `accepted` requires a\n`field_id` that already resolves to a `parameter_template`, which the client\nobtained by calling `POST /api/parameter-fields` itself. That is what keeps the\nnumber of ways to create a field at one \u2014 the same reason the intake queue's\nacceptance goes through the existing `resolve` route.",
+        "properties": {
+          "field_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The parameter field this became: the one created through POST /api/parameter-fields, or the existing one it was merged into. Required for 'accepted' and refused for 'dismissed'.",
+            "title": "Field Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why, for whoever sees this proposed again.",
+            "title": "Note"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FieldProposalStatus",
+            "description": "`accepted` or `dismissed`. `pending` is refused \u2014 it is not a decision."
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "FieldProposalDecision",
+        "type": "object"
+      },
+      "FieldProposalIn": {
+        "description": "One proposed field, with everything a person needs to judge it.",
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "evidence": {
+            "description": "At least one sighting. A proposal with no quote cannot be reviewed.",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceIn"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Evidence",
+            "type": "array"
+          },
+          "name": {
+            "description": "The field name as the document stated it. Normalised for dedup, so the same concept spelled three ways is one proposal with three sightings.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "suggested_base_unit": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A suggested physical quantity name. Not validated here \u2014 an unrecognised suggestion is something to correct in the create form, and refusing to store it would throw the quote away with it. GET /api/parameter-fields/base-units is the accepted list.",
+            "title": "Suggested Base Unit"
+          },
+          "suggested_category": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A part category slug the field would belong to.",
+            "title": "Suggested Category"
+          },
+          "suggested_substitution_direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubstitutionDirection"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A suggestion only, and deliberately optional with no default: POST /api/parameter-fields requires it precisely because defaulting a voltage rating to 'exact' makes substitution wrong by construction, and a proposal must not launder that decision by arriving with one filled in."
+          },
+          "suggested_value_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValueType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "evidence"
+        ],
+        "title": "FieldProposalIn",
+        "type": "object"
+      },
+      "FieldProposalList": {
+        "properties": {
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/FieldProposalRead"
+            },
+            "title": "Proposals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposals"
+        ],
+        "title": "FieldProposalList",
+        "type": "object"
+      },
+      "FieldProposalRead": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_template_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created Template Id"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Note"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRead"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_norm": {
+            "title": "Name Norm",
+            "type": "string"
+          },
+          "nearest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NearestMatchRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seen_count": {
+            "title": "Seen Count",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "suggested_base_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Base Unit"
+          },
+          "suggested_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Category"
+          },
+          "suggested_substitution_direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Substitution Direction"
+          },
+          "suggested_value_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Value Type"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "name_norm",
+          "display_name",
+          "suggested_value_type",
+          "suggested_base_unit",
+          "suggested_category",
+          "suggested_substitution_direction",
+          "status",
+          "seen_count",
+          "nearest",
+          "created_template_id",
+          "decision_note",
+          "created_at",
+          "updated_at",
+          "decided_at"
+        ],
+        "title": "FieldProposalRead",
+        "type": "object"
+      },
+      "FieldProposalStatus": {
+        "description": "Where one proposed `parameter_template` stands (ADR 0011, ADR 0017).\n\nThree members, and the shape of the whole feature is in the fact that\n**none of them is `created`**. Nothing automated mints a\n`parameter_template`: a proposal is a worklist entry, a person presses the\nbutton, and `POST /api/parameter-fields` \u2014 the door that already existed \u2014\nis what actually writes the row. `ACCEPTED` records that somebody did that,\nwith `created_template_id` pointing at what came out of it.\n\nA plain `sa.String` plus `StrEnumType`, never `sa.Enum`; see `CLAUDE.md`.",
+        "enum": [
+          "pending",
+          "accepted",
+          "dismissed"
+        ],
+        "title": "FieldProposalStatus",
+        "type": "string"
       },
       "FilterIn": {
         "properties": {
@@ -9862,6 +10399,57 @@
         "title": "NameConflictPolicy",
         "type": "string"
       },
+      "NearestMatchRead": {
+        "description": "The existing field this proposal is most likely a duplicate of.",
+        "properties": {
+          "base_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Unit"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "match": {
+            "title": "Match",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "template_id": {
+            "title": "Template Id",
+            "type": "integer"
+          },
+          "value_type": {
+            "title": "Value Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "name",
+          "display_name",
+          "value_type",
+          "base_unit",
+          "match",
+          "score"
+        ],
+        "title": "NearestMatchRead",
+        "type": "object"
+      },
       "NewSiblingRead": {
         "properties": {
           "based_on_location_id": {
@@ -13655,6 +14243,18 @@
         },
         "title": "ProjectUpdate",
         "type": "object"
+      },
+      "Provenance": {
+        "description": "Where a parameter value came from \u2014 and, for a candidate, its **source**.\n\nOrdered by trust: a manufacturer's own printed table beats an API's\nmarketing copy. `PRIORITY` below resolves disagreements.\n\nOne enum serves both `parameter_value.provenance` and\n`parameter_value_candidate.source`, deliberately: promotion copies the\ncandidate's source straight into the value's provenance, so a second enum\nwould only create a mapping table to get out of step with.\n\n**Adding a source is a one-line change here and nothing else, because there\nis no `CHECK` constraint on either column.** That rule has now paid three\ntimes: `CapacityModel.GRID_UNITS` for ADR 0002's recursive container types,\nthe scanning enums (`AliasKind`, `ScanDecodedKind`) grown after\n`scan_events` was already populated, and now this \u2014 a new provider is a\nmember here plus a row in `PROVENANCE_PRIORITY`, with no rebuild of\n`parameter_value`, `parameter_value_candidate`, or anything referencing\nthem. Under `sa.Enum` each of the three would have been a full table\nrebuild of a table already holding data.",
+        "enum": [
+          "manual",
+          "datasheet_table",
+          "mpn_decoder",
+          "distributor_freetext",
+          "llm_inferred"
+        ],
+        "title": "Provenance",
+        "type": "string"
       },
       "ProvisionProgressRead": {
         "properties": {
@@ -22035,6 +22635,210 @@
         "summary": "Read Extraction Status",
         "tags": [
           "extraction"
+        ]
+      }
+    },
+    "/api/field-proposals": {
+      "get": {
+        "description": "Proposed fields, likeliest duplicates first.\n\nOrdered by how strongly each resembles an existing field, so the rows that must\n**not** be waved through are the ones at the top. A proposal with no near match\nis genuinely new information and can wait.",
+        "operationId": "list_field_proposals",
+        "parameters": [
+          {
+            "description": "Which proposals to return. Defaults to the pending ones, which is the review surface's question. Pass nothing explicitly for all of them.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/FieldProposalStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "pending",
+              "description": "Which proposals to return. Defaults to the pending ones, which is the review surface's question. Pass nothing explicitly for all of them.",
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldProposalList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Field Proposals",
+        "tags": [
+          "field-proposals"
+        ]
+      },
+      "post": {
+        "description": "Record that a document states a field this install has no template for.\n\nAn upsert on the normalised name, and an upsert per `(source, document_ref)` on\nthe evidence, so a nightly pass over the same datasheets adds nothing the second\ntime. It also **re-runs the duplicate check**: a template created since the first\nsighting turns \"nothing resembles this\" into \"merge into that one\" rather than\nleaving a stale answer a reviewer would trust.\n\nCreates no `parameter_template` and cannot \u2014 see the module docstring.",
+        "operationId": "propose_field",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldProposalIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldProposalRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Propose Field",
+        "tags": [
+          "field-proposals"
+        ]
+      }
+    },
+    "/api/field-proposals/{proposal_id}": {
+      "get": {
+        "operationId": "read_field_proposal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Proposal Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldProposalRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Field Proposal",
+        "tags": [
+          "field-proposals"
+        ]
+      }
+    },
+    "/api/field-proposals/{proposal_id}/decision": {
+      "post": {
+        "description": "Record what a person decided. **Creates nothing.**\n\n`accepted` needs a `field_id` that already resolves, because the field was\ncreated by the client's own call to `POST /api/parameter-fields` \u2014 with every\nguard in `app.services.parameter_fields` applied, including the `base_unit`\ncheck that is an invariant of the search engine rather than input validation.\nAccepting without one is refused rather than treated as \"create it for me\": that\nbranch is the one a later edit would grow into a second creation path.",
+        "operationId": "decide_field_proposal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Proposal Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldProposalDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldProposalDecided"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Field Proposal",
+        "tags": [
+          "field-proposals"
         ]
       }
     },

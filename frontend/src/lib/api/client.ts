@@ -2677,3 +2677,63 @@ export async function stopModelServer(serverId: string): Promise<ModelSwitch> {
   }
   return data;
 }
+
+// --- proposed fields: what a datasheet stated and this install has no field for
+//
+// The propose half of the authoring surface. `createParameterField` above stays
+// the *only* way a `parameter_template` comes into existence — a proposal is a
+// worklist entry with a datasheet quote attached, and accepting one is two calls
+// from the screen: create the field through the route that already existed, then
+// record the outcome here. Two doors onto one write is how the never-auto-accept
+// rule stops being true, so there is deliberately no third call that does both.
+export type FieldProposalRead = Schemas["FieldProposalRead"];
+export type FieldProposalList = Schemas["FieldProposalList"];
+export type FieldProposalEvidence = Schemas["EvidenceRead"];
+export type FieldProposalNearestMatch = Schemas["NearestMatchRead"];
+export type FieldProposalStatus = Schemas["FieldProposalStatus"];
+
+/**
+ * Proposed fields, likeliest duplicates first.
+ *
+ * The ordering is the safety mechanism showing through: a proposal that resembles
+ * an existing field is one about to become a **duplicate**, and a duplicate
+ * `parameter_template` fragments parametric search silently — the filter is a join
+ * on `template_id`, so a part with a value under `on_resistance` reads as having
+ * none under `Rds(on)`. Those rows come first because they are the ones that must
+ * not be waved through; a proposal with no near match is new information and can
+ * wait.
+ */
+export async function listFieldProposals(
+  status: FieldProposalStatus | null = "pending",
+): Promise<FieldProposalRead[]> {
+  const { data, error, response } = await api.GET("/api/field-proposals", {
+    params: { query: status === null ? {} : { status } },
+  });
+  if (error !== undefined) {
+    fail("could not load the proposed fields", error, response);
+  }
+  return data.proposals;
+}
+
+/**
+ * Record what a person decided about a proposal. **Creates nothing.**
+ *
+ * `accepted` needs the id of a field that already exists — created by calling
+ * `createParameterField` first, with every guard in the server's authoring service
+ * applied, including the `base_unit` check that is an invariant of the search
+ * engine rather than input validation. The API refuses `accepted` without one
+ * rather than treating it as "create it for me".
+ */
+export async function decideFieldProposal(
+  proposalId: number,
+  request: { status: "accepted" | "dismissed"; field_id?: number | null; note?: string | null },
+): Promise<FieldProposalRead> {
+  const { data, error, response } = await api.POST(
+    "/api/field-proposals/{proposal_id}/decision",
+    { params: { path: { proposal_id: proposalId } }, body: request },
+  );
+  if (error !== undefined) {
+    fail("could not record that decision", error, response);
+  }
+  return data.proposal;
+}

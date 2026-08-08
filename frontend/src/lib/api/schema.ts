@@ -1162,6 +1162,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/field-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Field Proposals
+         * @description Proposed fields, likeliest duplicates first.
+         *
+         *     Ordered by how strongly each resembles an existing field, so the rows that must
+         *     **not** be waved through are the ones at the top. A proposal with no near match
+         *     is genuinely new information and can wait.
+         */
+        get: operations["list_field_proposals"];
+        put?: never;
+        /**
+         * Propose Field
+         * @description Record that a document states a field this install has no template for.
+         *
+         *     An upsert on the normalised name, and an upsert per `(source, document_ref)` on
+         *     the evidence, so a nightly pass over the same datasheets adds nothing the second
+         *     time. It also **re-runs the duplicate check**: a template created since the first
+         *     sighting turns "nothing resembles this" into "merge into that one" rather than
+         *     leaving a stale answer a reviewer would trust.
+         *
+         *     Creates no `parameter_template` and cannot — see the module docstring.
+         */
+        post: operations["propose_field"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/field-proposals/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Field Proposal */
+        get: operations["read_field_proposal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/field-proposals/{proposal_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide Field Proposal
+         * @description Record what a person decided. **Creates nothing.**
+         *
+         *     `accepted` needs a `field_id` that already resolves, because the field was
+         *     created by the client's own call to `POST /api/parameter-fields` — with every
+         *     guard in `app.services.parameter_fields` applied, including the `base_unit`
+         *     check that is an invariant of the search engine rather than input validation.
+         *     Accepting without one is refused rather than treated as "create it for me": that
+         *     branch is the one a later edit would grow into a second creation path.
+         */
+        post: operations["decide_field_proposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/handoff/qr.svg": {
         parameters: {
             query?: never;
@@ -5828,6 +5908,82 @@ export interface components {
          */
         EntityType: "part" | "location" | "stock_lot" | "container_type" | "part_category" | "supplier_part" | "document" | "project" | "device";
         /**
+         * EvidenceIn
+         * @description One document's sighting of the field.
+         *
+         *     `quote` is `min_length=1` at the wire level as well as refused by the service,
+         *     which is not belt-and-braces for its own sake: this is the field that makes a
+         *     proposal reviewable at all, and a client that omits it should be told so by the
+         *     schema rather than by a 422 from three layers down.
+         */
+        EvidenceIn: {
+            /**
+             * Document Ref
+             * @description Which document said so — a datasheet sha256, normally. Part of the uniqueness key, so re-reading the same document updates its own sighting rather than inflating the count. Empty means 'this source has one observation'.
+             * @default
+             */
+            document_ref?: string;
+            /** Model */
+            model?: string | null;
+            /**
+             * Note
+             * @description For the person reviewing: why this source thinks the field is worth having, what it was unsure about. Never parsed, only shown.
+             */
+            note?: string | null;
+            /** Page */
+            page?: number | null;
+            /**
+             * Part Id
+             * @description A part the field was stated for, if known. Not part of the uniqueness key — one family datasheet covers many part numbers, and the count this produces is of documents.
+             */
+            part_id?: number | null;
+            /** Provider */
+            provider?: string | null;
+            /**
+             * Quote
+             * @description The heading, cell or line the field name was read from, verbatim. Required. If you cannot quote it, you did not read it.
+             */
+            quote: string;
+            /**
+             * @description Which kind of source stated it. Ordered by PROVENANCE_PRIORITY.
+             * @default llm_inferred
+             */
+            source?: components["schemas"]["Provenance"];
+            /**
+             * Stated Value
+             * @description The value printed under the heading, verbatim — the best available hint about type and unit. Never written to parameter_value: there is no template to write it against.
+             */
+            stated_value?: string | null;
+        };
+        /** EvidenceRead */
+        EvidenceRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Document Ref */
+            document_ref: string;
+            /** Id */
+            id: number;
+            /** Model */
+            model: string | null;
+            /** Note */
+            note: string | null;
+            /** Page */
+            page: number | null;
+            /** Part Id */
+            part_id: number | null;
+            /** Provider */
+            provider: string | null;
+            /** Quote */
+            quote: string;
+            /** Source */
+            source: string;
+            /** Stated Value */
+            stated_value: string | null;
+        };
+        /**
          * ExtractionClaim
          * @description One document leased to a worker.
          *
@@ -6025,6 +6181,127 @@ export interface components {
             /** Template Name */
             template_name: string;
         };
+        /** FieldProposalDecided */
+        FieldProposalDecided: {
+            proposal: components["schemas"]["FieldProposalRead"];
+        };
+        /**
+         * FieldProposalDecision
+         * @description What a person decided about one proposal.
+         *
+         *     **Records a decision; it does not perform one.** `accepted` requires a
+         *     `field_id` that already resolves to a `parameter_template`, which the client
+         *     obtained by calling `POST /api/parameter-fields` itself. That is what keeps the
+         *     number of ways to create a field at one — the same reason the intake queue's
+         *     acceptance goes through the existing `resolve` route.
+         */
+        FieldProposalDecision: {
+            /**
+             * Field Id
+             * @description The parameter field this became: the one created through POST /api/parameter-fields, or the existing one it was merged into. Required for 'accepted' and refused for 'dismissed'.
+             */
+            field_id?: number | null;
+            /**
+             * Note
+             * @description Why, for whoever sees this proposed again.
+             */
+            note?: string | null;
+            /** @description `accepted` or `dismissed`. `pending` is refused — it is not a decision. */
+            status: components["schemas"]["FieldProposalStatus"];
+        };
+        /**
+         * FieldProposalIn
+         * @description One proposed field, with everything a person needs to judge it.
+         */
+        FieldProposalIn: {
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Evidence
+             * @description At least one sighting. A proposal with no quote cannot be reviewed.
+             */
+            evidence: components["schemas"]["EvidenceIn"][];
+            /**
+             * Name
+             * @description The field name as the document stated it. Normalised for dedup, so the same concept spelled three ways is one proposal with three sightings.
+             */
+            name: string;
+            /**
+             * Suggested Base Unit
+             * @description A suggested physical quantity name. Not validated here — an unrecognised suggestion is something to correct in the create form, and refusing to store it would throw the quote away with it. GET /api/parameter-fields/base-units is the accepted list.
+             */
+            suggested_base_unit?: string | null;
+            /**
+             * Suggested Category
+             * @description A part category slug the field would belong to.
+             */
+            suggested_category?: string | null;
+            /** @description A suggestion only, and deliberately optional with no default: POST /api/parameter-fields requires it precisely because defaulting a voltage rating to 'exact' makes substitution wrong by construction, and a proposal must not launder that decision by arriving with one filled in. */
+            suggested_substitution_direction?: components["schemas"]["SubstitutionDirection"] | null;
+            suggested_value_type?: components["schemas"]["ValueType"] | null;
+        };
+        /** FieldProposalList */
+        FieldProposalList: {
+            /** Proposals */
+            proposals: components["schemas"]["FieldProposalRead"][];
+        };
+        /** FieldProposalRead */
+        FieldProposalRead: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created Template Id */
+            created_template_id: number | null;
+            /** Decided At */
+            decided_at: string | null;
+            /** Decision Note */
+            decision_note: string | null;
+            /** Display Name */
+            display_name: string | null;
+            /** Evidence */
+            evidence?: components["schemas"]["EvidenceRead"][];
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Name Norm */
+            name_norm: string;
+            nearest: components["schemas"]["NearestMatchRead"] | null;
+            /** Seen Count */
+            seen_count: number;
+            /** Status */
+            status: string;
+            /** Suggested Base Unit */
+            suggested_base_unit: string | null;
+            /** Suggested Category */
+            suggested_category: string | null;
+            /** Suggested Substitution Direction */
+            suggested_substitution_direction: string | null;
+            /** Suggested Value Type */
+            suggested_value_type: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * FieldProposalStatus
+         * @description Where one proposed `parameter_template` stands (ADR 0011, ADR 0017).
+         *
+         *     Three members, and the shape of the whole feature is in the fact that
+         *     **none of them is `created`**. Nothing automated mints a
+         *     `parameter_template`: a proposal is a worklist entry, a person presses the
+         *     button, and `POST /api/parameter-fields` — the door that already existed —
+         *     is what actually writes the row. `ACCEPTED` records that somebody did that,
+         *     with `created_template_id` pointing at what came out of it.
+         *
+         *     A plain `sa.String` plus `StrEnumType`, never `sa.Enum`; see `CLAUDE.md`.
+         * @enum {string}
+         */
+        FieldProposalStatus: "pending" | "accepted" | "dismissed";
         /** FilterIn */
         FilterIn: {
             /**
@@ -7342,6 +7619,26 @@ export interface components {
          * @enum {string}
          */
         NameConflictPolicy: "fail" | "reuse" | "namespace";
+        /**
+         * NearestMatchRead
+         * @description The existing field this proposal is most likely a duplicate of.
+         */
+        NearestMatchRead: {
+            /** Base Unit */
+            base_unit: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Match */
+            match: string;
+            /** Name */
+            name: string;
+            /** Score */
+            score: number;
+            /** Template Id */
+            template_id: number;
+            /** Value Type */
+            value_type: string;
+        };
         /** NewSiblingRead */
         NewSiblingRead: {
             /** Based On Location Id */
@@ -8511,6 +8808,30 @@ export interface components {
             source_ref?: string | null;
             status?: components["schemas"]["ProjectStatus"] | null;
         };
+        /**
+         * Provenance
+         * @description Where a parameter value came from — and, for a candidate, its **source**.
+         *
+         *     Ordered by trust: a manufacturer's own printed table beats an API's
+         *     marketing copy. `PRIORITY` below resolves disagreements.
+         *
+         *     One enum serves both `parameter_value.provenance` and
+         *     `parameter_value_candidate.source`, deliberately: promotion copies the
+         *     candidate's source straight into the value's provenance, so a second enum
+         *     would only create a mapping table to get out of step with.
+         *
+         *     **Adding a source is a one-line change here and nothing else, because there
+         *     is no `CHECK` constraint on either column.** That rule has now paid three
+         *     times: `CapacityModel.GRID_UNITS` for ADR 0002's recursive container types,
+         *     the scanning enums (`AliasKind`, `ScanDecodedKind`) grown after
+         *     `scan_events` was already populated, and now this — a new provider is a
+         *     member here plus a row in `PROVENANCE_PRIORITY`, with no rebuild of
+         *     `parameter_value`, `parameter_value_candidate`, or anything referencing
+         *     them. Under `sa.Enum` each of the three would have been a full table
+         *     rebuild of a table already holding data.
+         * @enum {string}
+         */
+        Provenance: "manual" | "datasheet_table" | "mpn_decoder" | "distributor_freetext" | "llm_inferred";
         /** ProvisionProgressRead */
         ProvisionProgressRead: {
             /** Bound */
@@ -12387,6 +12708,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractionQueueStatus"];
+                };
+            };
+        };
+    };
+    list_field_proposals: {
+        parameters: {
+            query?: {
+                /** @description Which proposals to return. Defaults to the pending ones, which is the review surface's question. Pass nothing explicitly for all of them. */
+                status?: components["schemas"]["FieldProposalStatus"] | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldProposalList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propose_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FieldProposalIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldProposalRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_field_proposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldProposalRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_field_proposal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FieldProposalDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldProposalDecided"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

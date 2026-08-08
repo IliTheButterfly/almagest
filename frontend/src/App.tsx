@@ -27,6 +27,7 @@ import { ContainerTypeScreen } from "./screens/ContainerTypeScreen";
 import { ContainerTypesScreen } from "./screens/ContainerTypesScreen";
 import { ChatScreen } from "./screens/ChatScreen";
 import { DatasheetSearchScreen } from "./screens/DatasheetSearchScreen";
+import { FieldProposalsScreen } from "./screens/FieldProposalsScreen";
 import { CapturesScreen } from "./screens/CapturesScreen";
 import { IntakeActivityScreen } from "./screens/IntakeActivityScreen";
 import { IntakeQueueScreen } from "./screens/IntakeQueueScreen";
@@ -201,6 +202,12 @@ export function App() {
                 intake once a part has been parked there. */}
             <Route path="/staging" element={<StagingScreen />} />
             <Route path="/review" element={<ReviewScreen />} />
+            {/* Fields a datasheet stated that there is no template for — the same
+                kind of errand as Review, and reached from it rather than from the
+                nav strip, which is already too long for a phone. Deliberately not
+                under `/parameter-fields`: this is the propose queue, and the thing
+                that actually creates a field is the form on Part types. */}
+            <Route path="/field-proposals" element={<FieldProposalsScreen />} />
             {/* The photographs the scanner kept. Not a scan target: reached from
                 the tab, and from the capture panel on Scan. */}
             <Route path="/captures" element={<CapturesScreen />} />

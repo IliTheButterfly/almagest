@@ -77,6 +77,22 @@ is no part), and `pending_intakes` is a *scan* worklist whose ordering and UI sa
 "the ones I just scanned", so injecting a background job's findings would show the
 user scans they never made. A durable `part identity candidate` queue is a
 follow-up with its own migration.
+
+## An unknown *field name* is now kept, and it was the one thing being discarded
+
+`unknown_templates` used to be computed and dropped. What went with it was the
+useful half: which datasheet said it, which part it was stated for, the value, and
+the line it was read from — the four things somebody deciding "should this install
+have an `esr` field?" needs, and none of them recoverable afterwards, since the
+extraction response is not stored. `_propose_field` records a
+`parameter_field_proposals` row instead.
+
+That changes nothing about what this module writes to `parameter_template`, which
+is still nothing at all. A proposal is a worklist entry with a quote attached, and
+`app.services.field_proposals` has no path onto `parameter_template` — the reason
+being the duplicate rather than the bad row: two templates for one concept
+fragment parametric search silently, because the filter is a join on `template_id`
+and a part with a value under one name reads as having none under the other.
 """
 
 from __future__ import annotations
@@ -87,9 +103,10 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.catalog import Part
+from app.models.catalog import Part, PartCategory
 from app.models.enums import CrossCheckVerdict, IdentityRefusal, Provenance
 from app.models.parameter import ParameterTemplate
+from app.services import field_proposals
 from app.services.enrichment import candidates
 from app.services.enrichment.extract import (
     ExtractedField,
@@ -283,6 +300,11 @@ class IngestReport:
     #: Field names the response carried that this install has no
     #: `parameter_template` for. Skipped, never created: templates are curated
     #: content and a model must not add one.
+    #:
+    #: **Also recorded**, since this chunk, as a `parameter_field_proposals` row
+    #: with the quote it was read from — see `ingest`. This tuple stays the
+    #: report's own answer for the same reason `checks` does: a caller asking
+    #: "what did this run find" should not have to query for it.
     unknown_templates: tuple[str, ...]
 
     def check_for(self, mpn: str) -> VariantCrossCheck | None:
@@ -374,6 +396,7 @@ def ingest(session: Session, result: ExtractionResult) -> IngestReport:
             template = templates.get(field_check.template_name)
             if template is None:
                 unknown.add(field_check.template_name)
+                _propose_field(session, part, field_check, result)
                 continue
             candidates.record(
                 session,
@@ -404,6 +427,59 @@ def ingest(session: Session, result: ExtractionResult) -> IngestReport:
         decisions=tuple(decisions),
         unclaimed=tuple(unclaimed),
         unknown_templates=tuple(sorted(unknown)),
+    )
+
+
+def _propose_field(
+    session: Session,
+    part: Part,
+    check: FieldCrossCheck,
+    result: ExtractionResult,
+) -> None:
+    """Keep the evidence for a field this install has no template for.
+
+    This branch used to compute `unknown_templates` and throw the *interesting*
+    part away: which datasheet said it, which part it was stated for, what the
+    value was, and the line it was read from. All four are exactly what somebody
+    deciding "should `esr` be a field here?" needs, and none of them could be
+    recovered afterwards — the extraction run is gone and the response is not
+    kept.
+
+    Recording it creates nothing. A `parameter_field_proposals` row is a worklist
+    entry; `POST /api/parameter-fields` remains the only writer of
+    `parameter_template`, and `app.services.field_proposals` has no path to one.
+    The suggested `value_type` is deliberately **not** guessed here: the response
+    schema constrains `template_name` to fields that were asked for, so a name
+    reaching this branch is a field the *catalogue* dropped between the request
+    being built and the response arriving — a template deleted mid-run — and
+    inventing a type for it would be a fact nobody stated.
+
+    A refusal is not swallowed: `FieldProposalError` here would mean the name
+    normalises to nothing or the quote is empty, and both are conditions
+    `parse_response` already refuses, so a raise means one of those guards has
+    stopped working rather than that this datasheet is unusual.
+    """
+    category = session.get(PartCategory, part.category_id) if part.category_id is not None else None
+    field_proposals.record_proposal(
+        session,
+        name=check.template_name,
+        suggested_category=None if category is None else category.slug,
+        evidence=[
+            field_proposals.EvidenceReport(
+                quote=check.extracted.source_text,
+                document_ref=result.document_ref,
+                source=Provenance.LLM_INFERRED,
+                part_id=part.id,
+                stated_value=check.extracted.raw_value,
+                page=check.extracted.page,
+                note=(
+                    "The extraction request asked for this field, so the catalogue had a "
+                    "template for it when the call was built and does not now."
+                ),
+                provider=result.provider,
+                model=result.model,
+            )
+        ],
     )
 
 
