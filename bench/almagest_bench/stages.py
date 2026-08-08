@@ -131,15 +131,25 @@ def run_vision_case(
     base_url: str,
     repeat: int = 0,
     max_candidates: int = 3,
-    use_hints: bool = False,
 ) -> CaseRecord:
     """One photograph through one model, recorded.
 
-    `use_hints` decides whether the browser's barcode and OCR readings go in.
-    Default off, and that is the honest measurement: with a decoded barcode the
-    part number is already known and the model is only confirming, which measures
-    almost nothing. The hinted variant is worth running separately to see whether
-    a model *contradicts* an anchor it was given, which would be its own finding.
+    **Unanchored: no barcode reading and no OCR line goes in.** Every number this
+    produces is therefore the worst case, and should be read as such -- the
+    deployed pipeline hands the model whatever the browser decoded, and on a bag
+    with a readable Data Matrix that is the part number itself.
+
+    There was a `use_hints` flag here that did nothing. It was removed rather
+    than implemented, because implementing it honestly needs a real decode:
+    `zxing-wasm` and `tesseract.js` live in the browser (ADR 0015) and a Python
+    approximation of them would be a second reader that drifts from the one the
+    PWA actually uses. Taking the anchor from the corpus's own truth instead
+    would be worse still -- it would leak the answer into the input and measure
+    nothing at all.
+
+    So the anchored variant waits for a capture whose regions were filled in by
+    the browser, which `upload_capture` deliberately does not do. That is the
+    right shape: the honest way to run it is to scan the label with the PWA.
     """
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     photo = case.capture_path
