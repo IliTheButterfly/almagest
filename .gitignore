@@ -77,3 +77,14 @@ bench/corpus/_pdfs/
 bench/corpus/_captures/
 bench/corpus/**/capture.jpg
 bench/corpus/**/capture.png
+
+# Extracted datasheet **text**, for the extraction sweep. Same principle as the
+# PDFs it came out of: redistribution rights are not ours to assume, and a git
+# history is forever — the XBee photograph still in this history is the standing
+# reminder of how hard that is to undo.
+#
+# `case.json` records `text_sha256`, so a corpus is still reproducible: the text
+# is fetched once (`almagest-bench corpus fetch-text`) and verified against the
+# hash before anything scores against it. The cost of this choice, stated
+# plainly: a fresh clone cannot reproduce an extraction run until it re-fetches.
+bench/corpus/_text/

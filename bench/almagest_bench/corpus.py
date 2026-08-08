@@ -36,16 +36,31 @@ One directory per case, numbered and named, following the convention
 `ecia-barcode/tests/fixtures/ecia/` already uses:
 
     bench/corpus/0007-cf14jt100k/
-      case.json     identity, expected cells, absent fields, truth sources
-      text.txt      the datasheet text -- the extraction model's actual input
-      capture.jpg   the photograph, for the vision stage (optional)
+      case.json     identity, expected cells, absent fields, truth sources,
+                    and the sha256 of the datasheet text
+    bench/corpus/_text/<sha256>.txt      the datasheet text — gitignored
+    bench/corpus/_captures/<sha256>.jpg  the photograph — gitignored
+    bench/corpus/_pdfs/<sha256>.pdf      the PDF it came out of — gitignored
 
-`text.txt` is committed so the extraction sweep is reproducible and needs no
-network: a sweep that re-fetched PDFs would spend the night benchmarking
-manufacturer CDNs and would give different models different inputs on different
-days. The PDFs themselves stay out of the repository -- redistribution rights are
-not ours to assume -- and are fetched by sha256 into a gitignored directory when
-the research sweep needs them.
+**Nothing a manufacturer wrote is committed.** Settled 2026-08-08, and this
+paragraph is a correction: an earlier version of this module said `text.txt` *is*
+committed, and carried a `Case.text_path` pointing beside `case.json` to match. It
+was never populated, and the arrangement was refused before it could be — on the
+same ground as the PDFs. Redistribution rights are not ours to assume, and the XBee
+photograph still in this repository's history is the standing reminder of what
+"forever" costs.
+
+The reproducibility argument for committing it was real and is not dismissed: a
+sweep that re-fetched PDFs would spend the night benchmarking manufacturer CDNs and
+would hand different models different inputs on different days. What preserves it
+instead is the **hash**. `case.json` records `text_sha256`; the text is fetched
+once into `_text/` and verified against that hash before anything scores against
+it, so two runs on two machines are provably reading the same document.
+
+The cost is stated rather than hidden: **a fresh clone cannot reproduce an
+extraction run until it re-fetches the text.** `Case.extractable` is false until it
+does, and the sweep skips such a case loudly instead of feeding a model an empty
+string and recording every field as missing.
 """
 
 from __future__ import annotations
@@ -127,10 +142,6 @@ class Case:
     #: one, which is the failure this whole pipeline is built around.
     distractors: tuple[str, ...] = ()
 
-    @property
-    def text_path(self) -> Path:
-        return self.directory / "text.txt"
-
     #: Where the photograph lives when it is **not** beside `case.json`, as a path
     #: from the repository root.
     #:
@@ -152,6 +163,64 @@ class Case:
     #: verifiable against the case, so a corpus cannot silently start scoring a
     #: different photograph than the one its truth was written for.
     capture_sha256: str | None = None
+
+    #: The sha256 of this case's extracted datasheet **text**, for the extraction
+    #: sweep. Same arrangement as the capture and for the same two reasons: the text
+    #: is not ours to redistribute, and a git history is forever.
+    #:
+    #: **Settled 2026-08-08.** The alternative — a committed `text.txt` per case —
+    #: would make a bare clone reproduce a run with no network at all, which is what
+    #: `docs/HANDOFF-vision-and-bench.md` said the sweep wanted. It was refused on
+    #: the same ground as the PDFs: redistribution rights are not ours to assume,
+    #: and the XBee photograph still sitting in this repository's history is the
+    #: standing reminder of what "forever" costs.
+    #:
+    #: The price is real and is not hidden: **a fresh clone cannot reproduce an
+    #: extraction run until it re-fetches the text.** The hash is what keeps that
+    #: honest — text fetched from anywhere is verified against the case before it is
+    #: scored, so a corpus cannot quietly start measuring a different document than
+    #: the one its truth was written for.
+    text_sha256: str | None = None
+
+    @property
+    def text_path(self) -> Path | None:
+        """The extracted datasheet text, if this machine has it. `None` is normal.
+
+        One source only, unlike `capture_path`: the gitignored cache, keyed by hash.
+        There is deliberately no "committed beside `case.json`" fallback, because
+        that is precisely the arrangement the decision above rejected — offering it
+        as a fallback would let it happen by accident.
+        """
+        if not self.text_sha256:
+            return None
+        cached = self.directory.parent / "_text" / f"{self.text_sha256}.txt"
+        return cached if cached.exists() else None
+
+    def verify_text(self) -> bool:
+        """Is the text on disk the one this case's truth was written against?
+
+        `True` when there is nothing to check, matching `verify_capture`:
+        "unverifiable" and "wrong" want different handling and only the second
+        should stop a run.
+        """
+        from hashlib import sha256
+
+        path = self.text_path
+        if path is None or not self.text_sha256:
+            return True
+        return sha256(path.read_bytes()).hexdigest() == self.text_sha256
+
+    @property
+    def extractable(self) -> bool:
+        """Can the extraction sweep run this case at all?
+
+        Truth to score against **and** text to score from. A case with truth and no
+        text is not an error — it is the ordinary state of this corpus today — but it
+        must be skipped loudly rather than counted as a model failure, which is what
+        would happen if the sweep fed an empty string to a model and marked every
+        field missing.
+        """
+        return bool(self.expected or self.absent) and self.text_path is not None
 
     @property
     def capture_path(self) -> Path | None:
@@ -218,9 +287,30 @@ class Case:
         return tuple(sorted({*self.expected, *self.absent}))
 
     def text(self) -> str:
-        if not self.text_path.exists():
-            raise CorpusError(f"{self.case_id}: no text.txt to extract from")
-        return self.text_path.read_text(encoding="utf-8")
+        """The datasheet text this case's truth was written against.
+
+        Raises rather than returning `""`. An empty string would run the model on
+        nothing and record every field as missing, which reads in a chart as a model
+        that declined to answer — the most expensive possible way to be wrong about
+        one's own harness. Callers check `extractable` first.
+
+        The hash is verified here rather than trusted, because the cache is a
+        gitignored directory anybody may have dropped a file into and a corpus
+        scoring the wrong document is worse than one that will not run.
+        """
+        path = self.text_path
+        if path is None:
+            raise CorpusError(
+                f"{self.case_id}: no datasheet text on this machine. "
+                f"text_sha256={self.text_sha256!r}; fetch it into bench/corpus/_text/ "
+                "(it is gitignored — see the module docstring)."
+            )
+        if not self.verify_text():
+            raise CorpusError(
+                f"{self.case_id}: the cached text does not hash to {self.text_sha256!r}. "
+                "This case's truth was written against a different document."
+            )
+        return path.read_text(encoding="utf-8")
 
     def independent_cells(self) -> dict[str, TruthCell]:
         return {name: cell for name, cell in self.expected.items() if cell.independent}
@@ -287,6 +377,7 @@ def load_case(directory: Path) -> Case:
         distractors=tuple(body.get("distractors") or ()),
         capture=body.get("capture"),
         capture_sha256=body.get("capture_sha256"),
+        text_sha256=body.get("text_sha256"),
     )
 
 
@@ -319,6 +410,11 @@ class CorpusSummary:
     batched_cases: int
     by_source: dict[str, int]
     templates: tuple[str, ...]
+    #: Cases with truth to score but **no datasheet text on this machine**. Not an
+    #: error — it is the ordinary state of a fresh clone, since the text is
+    #: gitignored — but it is the extraction sweep's denominator, so it is counted
+    #: here rather than discovered when the sweep silently runs over nothing.
+    extractable_cases: int = 0
 
     @property
     def model_derived_fraction(self) -> float:
@@ -344,6 +440,19 @@ class CorpusSummary:
                 f"{self.model_derived_fraction:.0%} of truth cells came from a model. "
                 "Redraw every chart excluding them; if the ranking changes, the "
                 "benchmark has measured itself."
+            )
+        if self.cells and not self.extractable_cases:
+            out.append(
+                "No case has datasheet text on this machine, so the extraction sweep "
+                "would run over zero cases. The text is gitignored by design (see "
+                "`corpus.py`); fetch it into `bench/corpus/_text/` and record each "
+                "`text_sha256` in `case.json`."
+            )
+        elif self.extractable_cases < self.cases:
+            out.append(
+                f"{self.extractable_cases} of {self.cases} cases have datasheet text. "
+                "The extraction sweep will skip the rest, so its denominator is not the "
+                "corpus size — do not quote an extraction rate against the case count."
             )
         if not self.batched_cases:
             out.append(
@@ -372,6 +481,7 @@ def summarise(cases: list[Case]) -> CorpusSummary:
         batched_cases=sum(1 for case in cases if case.batched),
         by_source=by_source,
         templates=tuple(sorted(templates)),
+        extractable_cases=sum(1 for case in cases if case.extractable),
     )
 
 
