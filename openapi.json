@@ -6573,6 +6573,30 @@
         "title": "LayoutRead",
         "type": "object"
       },
+      "LeaseSweepRead": {
+        "description": "One work queue's expired-lease sweep.",
+        "properties": {
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "queue": {
+            "title": "Queue",
+            "type": "string"
+          },
+          "stalled": {
+            "title": "Stalled",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "queue",
+          "failed",
+          "stalled"
+        ],
+        "title": "LeaseSweepRead",
+        "type": "object"
+      },
       "LedgerEntry": {
         "properties": {
           "counted_qty_milli": {
@@ -8078,6 +8102,19 @@
           "has_drift": {
             "title": "Has Drift",
             "type": "boolean"
+          },
+          "has_stalled_leases": {
+            "default": false,
+            "title": "Has Stalled Leases",
+            "type": "boolean"
+          },
+          "lease_sweeps": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LeaseSweepRead"
+            },
+            "title": "Lease Sweeps",
+            "type": "array"
           },
           "occupancy_rebuilt": {
             "title": "Occupancy Rebuilt",
@@ -26208,7 +26245,7 @@
     },
     "/api/system/maintenance": {
       "post": {
-        "description": "The nightly pass: repair routine staleness, report suspected bugs.\n\nThe two halves are deliberately not the same operation, and conflating them\nwould destroy the only evidence that matters:\n\n* **Occupancy is rebuilt.** `location_occupancy` is *designed* to go stale \u2014\n  `AFTER INSERT ON stock_ledger` and `AFTER UPDATE OF location_id ON\n  stock_lots` mark rows dirty and leave the recompute to a batch pass,\n  because doing it inline would put a tree walk on every ledger write. A\n  dirty row is the mechanism working, so rebuilding it is routine. It also\n  matters more than it sounds: `locations.is_overfull` is written *only*\n  here, so until something ran this, the \"capacity is advisory, flag the\n  location, suggest a defrag\" behaviour could never fire, and the storage\n  map's fill ratios were served from a table with no rows in it.\n\n* **Balances and reservations are only checked.** Both are maintained\n  incrementally on every write by `services/ledger.py` and\n  `services/reservations.py`. Drift there is not expected staleness, it is a\n  bug in a write path \u2014 and quietly rebuilding it every night would erase\n  the symptom while leaving the cause, so the wrong numbers would come back\n  the next day with nothing recorded. `POST /caches/rebuild` is the repair,\n  run deliberately once the cause is known.",
+        "description": "The nightly pass: repair routine staleness, report suspected bugs.\n\nThe two halves are deliberately not the same operation, and conflating them\nwould destroy the only evidence that matters:\n\n* **Occupancy is rebuilt.** `location_occupancy` is *designed* to go stale \u2014\n  `AFTER INSERT ON stock_ledger` and `AFTER UPDATE OF location_id ON\n  stock_lots` mark rows dirty and leave the recompute to a batch pass,\n  because doing it inline would put a tree walk on every ledger write. A\n  dirty row is the mechanism working, so rebuilding it is routine. It also\n  matters more than it sounds: `locations.is_overfull` is written *only*\n  here, so until something ran this, the \"capacity is advisory, flag the\n  location, suggest a defrag\" behaviour could never fire, and the storage\n  map's fill ratios were served from a table with no rows in it.\n\n* **Abandoned queue leases are swept.** Also repair, and for the same reason:\n  a lease is deliberately not a lock, it expires on its own so a worker may be\n  killed without anybody noticing, and collecting the expired ones is the\n  mechanism working. The queues already do this at the top of every `claim` \u2014\n  but that is a repair which happens *as a side effect of use*, and the\n  dispatch queue is opt-in with no scheduled worker, so \"the next claim will\n  sweep it\" can mean never. See\n  `app.db.maintenance.sweep_abandoned_leases`.\n\n* **Balances and reservations are only checked.** Both are maintained\n  incrementally on every write by `services/ledger.py` and\n  `services/reservations.py`. Drift there is not expected staleness, it is a\n  bug in a write path \u2014 and quietly rebuilding it every night would erase\n  the symptom while leaving the cause, so the wrong numbers would come back\n  the next day with nothing recorded. `POST /caches/rebuild` is the repair,\n  run deliberately once the cause is known.",
         "operationId": "run_maintenance",
         "responses": {
           "200": {
