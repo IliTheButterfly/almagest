@@ -1,13 +1,45 @@
 #!/usr/bin/env bash
-# Install the station's four user units on the machine at the bench.
+# Install the station's user units on the machine at the bench.
 #
 # Idempotent, and does nothing that needs root — see README.md for the one step
 # that does (adding the operator to `dialout`, without which no USB reader can
 # be opened at all) and why it is not in here.
+#
+#   ./install.sh                       # this machine keeps its own inventory
+#   ./install.sh --upstream cluster    # this machine is a window onto the cluster
+#
+# The two differ in one thing only: what is listening on 127.0.0.1:8000. See
+# README.md, "Where the data comes from".
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 units="${HOME}/.config/systemd/user"
+
+# `local` is the default because it is the mode that needs nothing outside the
+# machine: no cluster, no token, no network. A station that cannot reach the
+# cluster should come up holding its own data rather than not at all.
+upstream="local"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --upstream)
+            upstream="${2:-}"
+            shift 2
+            ;;
+        --upstream=*)
+            upstream="${1#*=}"
+            shift
+            ;;
+        *)
+            echo "unknown argument: $1" >&2
+            echo "usage: install.sh [--upstream local|cluster]" >&2
+            exit 2
+            ;;
+    esac
+done
+if [[ "${upstream}" != "local" && "${upstream}" != "cluster" ]]; then
+    echo "--upstream must be 'local' or 'cluster', not '${upstream}'" >&2
+    exit 2
+fi
 
 # The units hardcode `%h/prog/almagest`, which is where this is normally cloned.
 # A checkout somewhere else is not refused — it gets a drop-in. Editing the
@@ -27,7 +59,7 @@ command -v uv >/dev/null || {
     exit 1
 }
 
-echo "==> syncing the two venvs the station runs"
+echo "==> syncing the venvs the station runs"
 # Extras are chosen per project rather than with `--all-extras`, and both
 # choices matter:
 #
@@ -43,11 +75,31 @@ echo "==> syncing the two venvs the station runs"
 #            RC522, which builds from source and fails on a Jetson Nano — and a
 #            station whose reader is on USB has no SPI device to talk to.
 (cd "${repo}/idcodec" && uv sync --quiet)
-(cd "${repo}/backend" && uv sync --quiet --extra labels)
 (cd "${repo}/deviceagent" && uv sync --quiet --extra flipper)
 
-echo "==> migrating the database"
-(cd "${repo}/backend" && uv run alembic upgrade head)
+if [[ "${upstream}" == "local" ]]; then
+    (cd "${repo}/backend" && uv sync --quiet --extra labels)
+    echo "==> migrating the database"
+    (cd "${repo}/backend" && uv run alembic upgrade head)
+else
+    # Neither the venv nor the schema is synced in cluster mode, and the second
+    # omission is the one that matters: `alembic upgrade head` would *create*
+    # `data/almagest.db`, empty and migrated and never read by anything. A file
+    # that looks exactly like the station's inventory and is not it is the kind
+    # of thing someone restores from a year later.
+    echo "==> skipping the local database (upstream is the cluster)"
+
+    command -v "${HOME}/.local/bin/kubectl" >/dev/null || {
+        echo "kubectl is not at ~/.local/bin/kubectl — the tunnel unit runs it by" >&2
+        echo "absolute path. See README.md, 'Where the data comes from'." >&2
+        exit 1
+    }
+    [[ -r "${HOME}/.kube/config" ]] || {
+        echo "~/.kube/config is missing. The station needs its own credential —" >&2
+        echo "not the workstation's. See deploy/station/cluster-access.yaml." >&2
+        exit 1
+    }
+fi
 
 if [[ ! -f "${repo}/frontend/dist/index.html" ]]; then
     # Built elsewhere on purpose: Node 22 needs glibc 2.28 and Ubuntu 18.04 has
@@ -83,6 +135,13 @@ for unit in "${repo}"/deploy/station/almagest-station-*.service; do
                 *-bridge.service)
                     echo "WorkingDirectory=${repo}/deviceagent"
                     ;;
+                *-upstream.service)
+                    # It runs the repo's own `scripts/k8s-tunnel.sh`, so it moves
+                    # with the checkout exactly like the api and web units do.
+                    echo "WorkingDirectory=${repo}"
+                    echo "ExecStart="
+                    echo "ExecStart=${repo}/scripts/k8s-tunnel.sh --api-only --quiet"
+                    ;;
                 *-web.service)
                     echo "WorkingDirectory=${repo}"
                     echo "ExecStart="
@@ -106,14 +165,38 @@ for unit in "${repo}"/deploy/station/almagest-station-*.service; do
 done
 
 systemctl --user daemon-reload
-systemctl --user enable almagest-station-api.service \
+
+# Exactly one of api/upstream is ever enabled: they both own 127.0.0.1:8000, and
+# the loser of that race binds nothing and reports `active` while doing it. The
+# unwanted one is *stopped* as well as disabled, because switching modes on a
+# running station is the normal way this is used and `disable` alone would leave
+# yesterday's process holding the port until the next reboot.
+if [[ "${upstream}" == "local" ]]; then
+    serve="almagest-station-api.service"
+    retire="almagest-station-upstream.service"
+else
+    serve="almagest-station-upstream.service"
+    retire="almagest-station-api.service"
+fi
+systemctl --user disable --now "${retire}" >/dev/null 2>&1 || true
+systemctl --user enable "${serve}" \
                         almagest-station-web.service \
                         almagest-station-bridge.service \
                         almagest-station-kiosk.service
 
 echo
-echo "Installed. Start them with:"
-echo "  systemctl --user start almagest-station-{api,web,bridge,kiosk}"
+echo "Installed, upstream=${upstream}."
+if [[ "${upstream}" == "local" ]]; then
+    echo "Start them with:"
+    echo "  systemctl --user start almagest-station-{api,web,bridge,kiosk}"
+else
+    echo "Start them with:"
+    echo "  systemctl --user start almagest-station-{upstream,web,bridge,kiosk}"
+    echo
+    echo "The tunnel is the whole dependency on the cluster. If the bench shows a"
+    echo "502, look there first:"
+    echo "  systemctl --user status almagest-station-upstream"
+fi
 echo
 echo "The bridge cannot open a Flipper until this has been done once, as root:"
 echo "  sudo usermod -aG dialout ${USER}   # then log out and back in"

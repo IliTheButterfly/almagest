@@ -5,6 +5,7 @@
 #   scripts/k8s-tunnel.sh              # web + API
 #   scripts/k8s-tunnel.sh --model      # ...and Ollama, see the warning below
 #   scripts/k8s-tunnel.sh --quiet      # only complain when something breaks
+#   scripts/k8s-tunnel.sh --api-only   # just the API, for the bench station
 #
 # ## Why this is a supervisor and not one `kubectl port-forward`
 #
@@ -67,12 +68,14 @@ set -uo pipefail
 NAMESPACE="ili"
 QUIET=0
 WANT_MODEL=0
+API_ONLY=0
 
 for arg in "$@"; do
   case "$arg" in
     --model) WANT_MODEL=1 ;;
     --quiet) QUIET=1 ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --api-only) API_ONLY=1 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'unknown argument: %s (try --help)\n' "$arg" >&2; exit 2 ;;
   esac
 done
@@ -87,6 +90,17 @@ FORWARDS=(
   "almagest-web|8443|443|https://127.0.0.1:8443/"
   "almagest-api|8000|8000|http://127.0.0.1:8000/api/system/health"
 )
+# `--api-only` is what `almagest-station-upstream.service` runs. The bench serves
+# its own copy of the PWA from `frontend/dist` over `station_web.py`, on the one
+# loopback origin that gives the kiosk a camera without the private CA, so the
+# web forward there would bind 8443 for nothing — and the preflight below would
+# then refuse to start the whole tunnel whenever anything else held that port.
+# The API is the only thing the station actually needs from the cluster.
+if [ "$API_ONLY" -eq 1 ]; then
+  FORWARDS=(
+    "almagest-api|8000|8000|http://127.0.0.1:8000/api/system/health"
+  )
+fi
 if [ "$WANT_MODEL" -eq 1 ]; then
   FORWARDS+=("almagest-llm|11434|11434|http://127.0.0.1:11434/api/tags")
 fi
@@ -231,7 +245,9 @@ supervise() {
 
 say "tunnel up — it reconnects on its own, including across a deploy"
 printf '\n'
-printf '  web    https://localhost:8443/         <- the PWA. Valid cert if certs/ca.crt is trusted\n'
+if [ "$API_ONLY" -eq 0 ]; then
+  printf '  web    https://localhost:8443/         <- the PWA. Valid cert if certs/ca.crt is trusted\n'
+fi
 printf '  API    http://127.0.0.1:8000/docs\n'
 if [ "$WANT_MODEL" -eq 1 ]; then
   printf '  model  http://127.0.0.1:11434         <- UNAUTHENTICATED, loopback only\n'

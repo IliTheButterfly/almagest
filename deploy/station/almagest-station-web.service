@@ -1,7 +1,17 @@
 [Unit]
 Description=Almagest station PWA (one origin with the API)
-After=almagest-station-api.service
-Wants=almagest-station-api.service
+# Ordering only, and against *both* possible owners of 127.0.0.1:8000 — see
+# README.md, "Where the data comes from". `After=` a unit that is not going to
+# start is a no-op, so naming both is how one file works in either mode.
+#
+# There is deliberately no `Wants=`. It looks harmless and is not: `Wants=`
+# *starts* the named unit even when it is disabled, so with `Wants=…-api` here a
+# `systemctl restart almagest-station-web` on a cluster-mode station pulled the
+# local API back up, and `Conflicts=` in the upstream unit then correctly killed
+# the tunnel. The bench went back to serving its own empty database, with every
+# unit still reporting `active`. Nothing needs pulling in anyway: whichever
+# backend the mode chose is `enable`d and comes up on its own.
+After=almagest-station-api.service almagest-station-upstream.service
 
 [Service]
 # Not `Type=exec`: it arrived in systemd 240 and the bench Jetson runs 237,

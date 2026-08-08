@@ -1,0 +1,78 @@
+[Unit]
+Description=Almagest upstream tunnel (the cluster API, on the port the local one used)
+# This is the *cluster* half of the choice README.md calls "Where the data comes
+# from". It puts the deployed API on 127.0.0.1:8000 — the exact address
+# `almagest-station-api` used to serve its own SQLite on — so that nothing above
+# it changes: `station_web` still proxies to `http://127.0.0.1:8000`, the bridge
+# still commits to `http://127.0.0.1:8000`, and the kiosk still loads one
+# loopback origin and therefore still has a camera without the private CA.
+#
+# Why a tunnel and not the NodePort: from the bench's subnet the node accepts
+# 6443 and drops 30443, 443, 80 and 22 alike, so `https://almagest.aether.lan:30443`
+# cannot be reached from here at all. The Kubernetes API is the one door that
+# opens, and `port-forward` is what goes through it.
+Conflicts=almagest-station-api.service
+After=network-online.target
+Wants=network-online.target
+# systemd 237 (the bench Jetson) reads this in [Unit], not [Service]. Zero
+# disables the start-rate limiter, which matters because the supervisor below
+# refuses to start while port 8000 is held — so a mode switch that leaves the old
+# api unit shutting down produces a burst of fast failures, and the default of 5
+# starts in 10 s would put this in `failed` and leave the bench dark.
+StartLimitIntervalSec=0
+
+[Service]
+# Deliberately not `Type=exec` — it arrived in systemd 240 and the bench Jetson
+# runs 237, which rejects it and falls back to `simple`. See the api unit.
+Type=simple
+WorkingDirectory=%h/prog/almagest
+# Not the workstation's kubeconfig. This is `deploy/station/cluster-access.yaml`:
+# a ServiceAccount that can create `pods/portforward` and read pods and services,
+# and cannot create, mutate or delete anything. A kiosk that autologins with no
+# password must not carry a token that can delete the namespace's Deployments and
+# PVCs — and `ili` is shared with unrelated production workloads.
+Environment=KUBECONFIG=%h/.kube/config
+# systemd's default PATH has no `~/.local/bin`, which is where `kubectl` is
+# installed on the bench (there is no root here to put it in /usr/local/bin).
+# `curl` must also resolve, and its absence is not fatal but is expensive: the
+# script degrades to process supervision only, which is precisely the half that
+# does not work — see below.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# `scripts/k8s-tunnel.sh --api-only`, not a bare `kubectl port-forward`, and the
+# difference is the entire reason this unit is not two lines shorter.
+#
+# `port-forward svc/x` resolves the Service to **one pod** at startup and never
+# re-resolves. Replace that pod — every deploy does, since the API is
+# `strategy: Recreate` — and kubectl carries on running, still holding 8000,
+# forwarding to something that no longer exists. It does not exit, so no
+# `Restart=` setting of any kind sees it: systemd reports the unit `active`, the
+# port keeps accepting connections, and every request through it fails. That was
+# measured against a real `rollout restart`, not reasoned about; the script's
+# header records it.
+#
+# So the supervisor's watchdog is what actually keeps this unit honest — it
+# probes `/api/system/health` through the forward and kills it once the Service
+# has ready endpoints and the tunnel still does not answer. The endpoint check is
+# what stops it spinning while the deployment is legitimately at zero replicas
+# mid-deploy.
+ExecStart=%h/prog/almagest/scripts/k8s-tunnel.sh --api-only --quiet
+
+# For the failures the script cannot repair from the inside: it exits when a
+# preflight fails, most often because port 8000 is still held by the api unit
+# during a mode switch.
+Restart=always
+RestartSec=5
+# `control-group`, so the whole tree goes. The script is the main process and
+# both the supervisor subshell and its `kubectl` child sit underneath it; under
+# `mixed` only the script is signalled and the forward is left holding 8000,
+# which is the one state its own preflight then refuses to start in.
+KillMode=control-group
+# The script traps SIGTERM to close the tunnel and exits non-zero through it.
+# Without this every ordinary `stop` is recorded as `Failed with result
+# 'exit-code'`, which teaches the operator to ignore the one line that would have
+# mattered. Same reason as the api unit.
+SuccessExitStatus=143
+
+[Install]
+WantedBy=default.target
