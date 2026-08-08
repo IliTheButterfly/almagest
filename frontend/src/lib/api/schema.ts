@@ -739,6 +739,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dispatch/claims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim Dispatch Work
+         * @description Lease up to `limit` entries whose photograph wants reading.
+         *
+         *     A POST despite reading like a query, because it **writes**: it takes a lease and
+         *     burns an attempt. A GET that mutated the queue would be retried by every proxy and
+         *     prefetched by every crawler.
+         *
+         *     An empty `claims` list is the ordinary answer and not an error — it means nobody has
+         *     asked for a photograph to be read, which on this queue is where a healthy install
+         *     spends nearly all of its life.
+         */
+        post: operations["claim_dispatch_work"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dispatch/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request Dispatch
+         * @description Ask for one entry's photograph to be read by a model.
+         *
+         *     The route the other two queues have no equivalent of, and the reason is the GPU —
+         *     see the module docstring. Also the requeue door: a `proposed`, `unidentified` or
+         *     `failed` entry is re-offered from zero attempts, which is ADR 0021's
+         *     read-it-again-with-a-better-model path and needs no separate route because it is
+         *     this one.
+         *
+         *     Refuses an entry with no photograph rather than letting a worker discover it and
+         *     burn an attempt reporting it.
+         */
+        post: operations["request_dispatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dispatch/requests/{intake_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel Dispatch
+         * @description Take an entry back out of the queue.
+         *
+         *     Requesting is a person's act and so is changing their mind — and the resource being
+         *     spent is visible to them, so forty queued photographs is a number somebody may want
+         *     to cut down before a drain starts.
+         *
+         *     **The candidates already read are kept.** They are the record a person consults to
+         *     decide whether another handover is worth it.
+         */
+        delete: operations["cancel_dispatch"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dispatch/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Dispatch Result
+         * @description Record one run's outcome — the identities it proposed, or a failure.
+         *
+         *     Note `candidates: []` and `error` are **different submissions**. An empty list says
+         *     the model looked and could name nothing, which settles the entry `unidentified`; an
+         *     error says the run broke, which leaves it claimable until attempts run out.
+         *     Collapsing them would make a model server that was still loading indistinguishable
+         *     from a photograph nobody can read — and would put the second in a health check.
+         */
+        post: operations["submit_dispatch_result"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dispatch/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Dispatch Status
+         * @description Queue depth. One grouped count over an indexed column, cheap enough to poll.
+         */
+        get: operations["read_dispatch_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents": {
         parameters: {
             query?: never;
@@ -4978,6 +5108,160 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * DispatchClaim
+         * @description One leased entry, with everything the worker needs to read its photograph.
+         *
+         *     Both of the browser's readings ride along, weighted honestly, which is ADR 0021's
+         *     central mechanism rather than a convenience:
+         *
+         *     * `barcode_texts` is an **anchor**. A decoded symbology is checksummed and is
+         *       stronger evidence than anything the model will produce, so a worker holding one
+         *       narrows the request to a single candidate and asks only for confirmation of
+         *       manufacturer and package.
+         *     * `ocr_lines` go in **labelled as unreliable rather than omitted**. They are usually
+         *       nearly right, and nearly right is exactly what a second reader can repair —
+         *       `CFI4JT100K` for `CF14JT100K` is the recorded case.
+         *
+         *     Sent rather than looked up by the worker so a run needs exactly one API call before
+         *     it starts working, the same reason `ResearchClaim` carries `mpn_norm`.
+         */
+        DispatchClaim: {
+            /** Attempts */
+            attempts: number;
+            /** Barcode Texts */
+            barcode_texts: string[];
+            /** Capture Id */
+            capture_id: number;
+            /** Capture Sha256 */
+            capture_sha256: string;
+            /** Intake Id */
+            intake_id: number;
+            /**
+             * Lease Expires At
+             * Format: date-time
+             */
+            lease_expires_at: string;
+            /** Media Type */
+            media_type: string;
+            /** Mpn */
+            mpn: string | null;
+            /** Ocr Lines */
+            ocr_lines: string[];
+        };
+        /** DispatchClaimBatch */
+        DispatchClaimBatch: {
+            /** Claims */
+            claims: components["schemas"]["DispatchClaim"][];
+            /** Worker Id */
+            worker_id: string;
+        };
+        /** DispatchClaimRequest */
+        DispatchClaimRequest: {
+            /**
+             * Limit
+             * @default 1
+             */
+            limit?: number;
+            /** Worker Id */
+            worker_id: string;
+        };
+        /** DispatchQueueStatus */
+        DispatchQueueStatus: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Failed */
+            failed: number;
+            /** Lease Seconds */
+            lease_seconds: number;
+            /** Max Attempts */
+            max_attempts: number;
+            /** Not Requested */
+            not_requested: number;
+            /** Pending */
+            pending: number;
+            /** Unidentified */
+            unidentified: number;
+        };
+        /** DispatchRequestBody */
+        DispatchRequestBody: {
+            /** Intake Id */
+            intake_id: number;
+        };
+        /**
+         * DispatchResultRequest
+         * @description A completed run: every identity proposed, or an error.
+         *
+         *     Exactly one of `candidates` and `error`, enforced at the route rather than by a
+         *     validator so the refusal carries the same `{reason, message}` shape as every other
+         *     refusal in this module.
+         */
+        DispatchResultRequest: {
+            /** Candidates */
+            candidates?: components["schemas"]["IdentitySubmission"][] | null;
+            /** Error */
+            error?: string | null;
+            /** Intake Id */
+            intake_id: number;
+            /** Label Kind */
+            label_kind?: string | null;
+        };
+        /** DispatchResultResponse */
+        DispatchResultResponse: {
+            entry: components["schemas"]["IntakeDispatchRead"];
+        };
+        /**
+         * DispatchState
+         * @description Where one `pending_intakes` row stands in the capture-dispatch queue (ADR 0021).
+         *
+         *     The third queue, and deliberately the same shape as the two before it: **this
+         *     column plus an index, not a table** — see `ExtractionState` for the argument, and
+         *     `ResearchState` for the same argument applied to a different subject. Extraction
+         *     is about a document with no text; research about a part with no document; this is
+         *     about a **photograph nobody has read**.
+         *
+         *     ## `NOT_REQUESTED` is the default, and that is the difference from research
+         *
+         *     `ResearchState.PENDING` is the default for a part, because researching one costs a
+         *     few HTTP requests to somebody else's CDN and the queue can be left to drain
+         *     itself. Dispatching a capture costs a **GPU handover**: the single card this
+         *     machine has is exclusive and co-tenanted (ADR 0016), so a vision model becoming
+         *     resident means some other workload is not. Defaulting every parked scan to
+         *     `PENDING` would mean a phone that syncs forty labels has quietly queued forty
+         *     model runs.
+         *
+         *     So it is opt-in. Every scan parks as `NOT_REQUESTED` and something — a person
+         *     tapping *read this label*, or a policy that has decided this capture is worth a
+         *     model — moves it to `PENDING`. That is why this enum has six members where
+         *     `ResearchState` has five with the same names: the extra one is the state of *not
+         *     having asked*, which for research does not exist.
+         *
+         *     ## `UNIDENTIFIED` is not `FAILED`, and the distinction is load-bearing
+         *
+         *     Exactly `ResearchState`'s `EXHAUSTED`/`FAILED` split, for exactly its reason.
+         *     ADR 0021 puts it plainly: **"we could not tell what this is" is a photograph
+         *     problem whose fix is another photograph**, while `FAILED` means something is
+         *     wrong with the system. A blurred label, a bag photographed from the back, a bare
+         *     component with its marking worn off — all reach `UNIDENTIFIED` and none of them
+         *     is a bug. Collapsing the two puts two unrelated diagnoses in one bucket and the
+         *     bucket stops being read.
+         *
+         *     A health check counts `FAILED`. It must not count `UNIDENTIFIED`, or it fills
+         *     with photographs nothing is wrong with.
+         *
+         *     ## `PROPOSED` is terminal *for the machine*
+         *
+         *     It means ranked `intake_identity_candidates` rows exist and a person has not
+         *     chosen among them. Nothing automated advances past it at any confidence —
+         *     `CLAUDE.md`'s never-auto-accept rule, and the measurement behind it is in
+         *     ADR 0021: the model reported 0.95 on an answer that was the item's FCC ID. The
+         *     entry's own `status` stays `pending` until somebody resolves it through the
+         *     ordinary intake door.
+         * @enum {string}
+         */
+        DispatchState: "not_requested" | "pending" | "claimed" | "proposed" | "unidentified" | "failed";
         /** DocumentAttachRequest */
         DocumentAttachRequest: {
             /**
@@ -5533,6 +5817,63 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** IdentityCandidateRead */
+        IdentityCandidateRead: {
+            /** Confidence */
+            confidence: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Manufacturer */
+            manufacturer: string | null;
+            /** Model */
+            model: string | null;
+            /** Mpn */
+            mpn: string;
+            /** Note */
+            note: string | null;
+            /** Package */
+            package: string | null;
+            /** Part Id */
+            part_id: number | null;
+            /** Provider */
+            provider: string | null;
+            /** Rank */
+            rank: number;
+            /** Source Text */
+            source_text: string;
+        };
+        /**
+         * IdentitySubmission
+         * @description One proposed identity and what the model quoted for it.
+         */
+        IdentitySubmission: {
+            /** Confidence */
+            confidence: number;
+            /** Manufacturer */
+            manufacturer?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Mpn */
+            mpn: string;
+            /** Note */
+            note?: string | null;
+            /** Package */
+            package?: string | null;
+            /** Part Id */
+            part_id?: number | null;
+            /** Provider */
+            provider?: string | null;
+            /**
+             * Rank
+             * @default 0
+             */
+            rank?: number;
+            /** Source Text */
+            source_text: string;
+        };
         /**
          * InstantiateRequest
          * @description "Give me N of these" — the bulk-provisioning entry point.
@@ -5574,6 +5915,23 @@ export interface components {
              * @default false
              */
             replayed?: boolean;
+        };
+        /**
+         * IntakeDispatchRead
+         * @description One entry's dispatch standing, and what was proposed for it.
+         */
+        IntakeDispatchRead: {
+            /** Attempts */
+            attempts: number;
+            /** Candidates */
+            candidates: components["schemas"]["IdentityCandidateRead"][];
+            /** Error */
+            error: string | null;
+            /** Intake Id */
+            intake_id: number;
+            /** Label Kind */
+            label_kind: string | null;
+            state: components["schemas"]["DispatchState"];
         };
         /**
          * LabelBackendKind
@@ -7206,7 +7564,25 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** PendingIntakeRead */
+        /**
+         * PendingIntakeRead
+         * @description One parked scan as the desk pass sees it, proposals included.
+         *
+         *     ## Why the dispatch candidates are embedded rather than a route of their own
+         *
+         *     The intake panel renders every entry's proposed identities inline, so a separate
+         *     `GET /api/intake/pending/{id}/candidates` would be one request per row — a queue of
+         *     forty photographs would cost forty round trips to draw once. They ride here instead,
+         *     read in one query for the whole page (`app.services.dispatch.candidates_for` per
+         *     entry against an index whose leading column is `intake_id`).
+         *
+         *     The cost of that choice is bounded and small: the list is **empty for every entry
+         *     nobody has dispatched**, which is nearly all of them, and at most
+         *     `vision.DEFAULT_MAX_CANDIDATES` long for the rest.
+         *
+         *     Note this is additive — an existing client that ignores the field is unaffected —
+         *     and it is why ADR 0021's five routes are five and not six.
+         */
         PendingIntakeRead: {
             /** Capture Id */
             capture_id: number | null;
@@ -7223,8 +7599,20 @@ export interface components {
             decoded_kind: string | null;
             /** Device Id */
             device_id: string | null;
+            /** Dispatch Attempts */
+            dispatch_attempts: number;
+            /** Dispatch Error */
+            dispatch_error: string | null;
+            /** Dispatch Label Kind */
+            dispatch_label_kind: string | null;
+            dispatch_state: components["schemas"]["DispatchState"];
             /** Id */
             id: number;
+            /**
+             * Identity Candidates
+             * @default []
+             */
+            identity_candidates?: components["schemas"]["IdentityCandidateRead"][];
             /** Lot Code */
             lot_code: string | null;
             /** Manufacturer */
@@ -10866,6 +11254,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_dispatch_work: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DispatchClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchClaimBatch"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_dispatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DispatchRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_dispatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                intake_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_dispatch_result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DispatchResultRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchResultResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_dispatch_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchQueueStatus"];
                 };
             };
         };
