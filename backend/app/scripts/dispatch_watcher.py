@@ -442,6 +442,23 @@ class HeartbeatClient:
         self._flag.touch()
         self._inner.submit_failure(intake_id=intake_id, error=error)
 
+    def record_run(self, run: dict[str, Any]) -> None:
+        """Post one transcript, and count it as progress.
+
+        Added when the watcher and the transcript met: `ApiClient` grew this method and
+        `HeartbeatClient` did not, so the two landed individually green and together
+        broken — every drain died on `AttributeError` at the first model call. A
+        `Protocol` is structural, so nothing warned; only running both found it.
+
+        It touches the heartbeat like every other call, and that is the point rather
+        than symmetry. A run is recorded either side of the model call, so it is the
+        freshest liveness evidence available at exactly the moment the drain looks most
+        idle from outside — mid-inference, with nothing else to report — which is when
+        the reaper is deciding whether to take the card back.
+        """
+        self._flag.touch()
+        self._inner.record_run(run)
+
 
 # ---------------------------------------------------------------------------
 # The loop
