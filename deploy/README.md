@@ -32,6 +32,13 @@ share these manifests: see **[station/README.md](station/README.md)**.
   almagest-backup      CronJob, 03:17 daily, keeps 14
   almagest-maintenance CronJob, 03:42 daily, no volume — talks to the API
   almagest-blob-scrub  CronJob, 04:17 Sundays, no volume — talks to the API
+
+  almagest-llm         the model server, replicas: 0 at rest — holds the GPU
+  almagest-llm-27b     the big model, replicas: 0 — at most one of these two
+  almagest-llm-reaper  CronJob, */10, scales both to 0 once nothing needs them
+
+  almagest-dispatch-watcher  Deployment, replicas: 1, CPU only
+    '-- :9099/draining -> "is a drain in flight?", read by the reaper
 ```
 
 Everything is named `almagest-*` and labelled
@@ -202,6 +209,62 @@ exactly one writer — the API. So the work runs inside the API process and this
 only asks it to, over HTTP. That is the same division ADR 0005 draws for the
 extraction worker, and the reason `almagest-backup` next door goes to the trouble
 of opening the database `mode=ro`.
+
+## The GPU: who takes it, who gives it back
+
+Both model Deployments request `nvidia.com/gpu: 1` on a node with one card that a
+co-tenant also wants, so both rest at `replicas: 0`. Two things move them.
+
+**`almagest-llm-reaper`** is the only thing that *releases* the card, every ten
+minutes, and it measures idleness from the newest chat thread's `updated_at`. Its
+bias is toward releasing: an API it cannot reach, or a stamp it cannot parse,
+scales the models down anyway.
+
+**`almagest-dispatch-watcher`** is the only thing that *takes* it unattended. It
+polls `GET /api/dispatch/status` every 15 s, and when a person has asked for a
+photograph to be read (ADR 0021 — dispatching is opt-in and stays that way) it
+brings the vision model up, drains the whole queue in one model load, and hands the
+card back. **Idle it makes no cluster call and holds no GPU.**
+
+Three properties of that pair are the whole design, and each is a bug if it goes:
+
+- **The watcher waits; it never evicts.** `model_servers.start()` releases every
+  other server first — right for a person pressing Start, wrong for a background
+  drain, because the thing it would release is a model somebody is talking to. So
+  the watcher reads `statuses()` and backs off instead. **The accepted cost: a
+  queued photograph can wait behind a chat model indefinitely.** Every deferral is
+  logged, so the wait is visible rather than looking hung. `kubectl logs
+  deploy/almagest-dispatch-watcher` is where you find out that is what is
+  happening.
+- **It releases only what it started.** The Ollama server holds the chat models
+  *and* the vision model on one listener. A drain that finds it already up uses it
+  and leaves it, because scaling it to zero afterwards would end somebody's
+  conversation to reclaim a GPU that was already spent.
+- **The reaper was taught about drains rather than suspended.** A vision run
+  touches no chat thread, so by the reaper's own measure a drain looks exactly like
+  an idle model — and it scaled the model to zero mid-read. The fix is one extra
+  HTTP call, `GET :9099/draining` on the watcher, *not* suspend-and-restore: a
+  suspension that outlives a crashed harness leaves nothing releasing the card at
+  all, which is the worse failure. The reaper stays the single authority.
+
+  That deferral is bounded, or it would be a GPU leak. The flag answers true only
+  while the drain is **making progress** — every claim and submission refreshes a
+  heartbeat, and ten minutes of silence puts it back to false even though the drain
+  has not returned. A watcher that is gone answers nothing, which the reaper reads
+  as "no drain". Both directions of failure end in the card going back.
+
+  Note what the reaper deliberately does **not** ask: `pending > 0`. A queue nobody
+  is draining is precisely when the card should be released.
+
+Diagnosing it:
+
+```bash
+kubectl -n ili logs -f deploy/almagest-dispatch-watcher
+kubectl -n ili run drainq --rm -it --image=busybox --restart=Never -- \
+  wget -qO- http://almagest-dispatch-watcher:9099/draining
+kubectl -n ili get deploy almagest-llm almagest-llm-27b   # who has the card
+kubectl -n ili logs job/$(kubectl -n ili get jobs -o name | grep llm-reaper | tail -1 | cut -d/ -f2)
+```
 
 ## Things that are load-bearing
 

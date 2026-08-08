@@ -1,0 +1,162 @@
+# Queued photographs read themselves, and the card goes back afterwards (ADR 0021).
+#
+# ## Why a Deployment and not a CronJob
+#
+# Every other background job here is a CronJob, so this is the odd one out and the
+# reason is state that must outlive a single pass: the drain has to remember
+# *whether it was the thing that started the model server*, because the answer
+# decides whether releasing the GPU is a courtesy or an eviction. The Ollama server
+# holds the chat models and the vision model on one listener, so scaling it to zero
+# after a drain that found it already up would end somebody's conversation. A Job
+# that dies mid-drain loses that answer.
+#
+# It is also, deliberately, almost free while idle: one `GET /api/dispatch/status`
+# every fifteen seconds, which is a grouped count over an indexed column. **No
+# cluster call and no GPU while the queue is empty**, which is what keeps ADR 0016's
+# "do not hold the card 24/7" true with this running.
+#
+# ## It waits for the card; it never takes it
+#
+# `app.services.model_servers.start()` releases every *other* server first — right
+# for a person pressing Start, wrong for a background drain, since the thing it
+# would release is a model somebody is talking to. The watcher reads `statuses()`
+# and backs off instead. The accepted cost is that a queued photograph can wait
+# behind a chat model indefinitely; every deferral is logged so the wait is visible.
+#
+# ## Explicit limits, because this namespace has no ResourceQuota
+#
+# CPU only. Nothing here decodes an image — the bytes go from
+# `GET /api/documents/{sha256}` straight into the provider — so the pod's own
+# footprint is a `urllib` client and a JSON parser.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: almagest-dispatch-watcher
+  labels:
+    app.kubernetes.io/component: dispatch-watcher
+---
+# The same two Deployments and the same two verbs the API already has, and nothing
+# more. `resourceNames` is what stops this being a credential that could scale a
+# co-tenant's workload; no `list`, because listing needs a rule without
+# `resourceNames` and that would widen it to every Deployment in a shared namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: almagest-dispatch-watcher-scale-models
+  labels:
+    app.kubernetes.io/component: dispatch-watcher
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    resourceNames: ["almagest-llm", "almagest-llm-27b"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: almagest-dispatch-watcher-scale-models
+  labels:
+    app.kubernetes.io/component: dispatch-watcher
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: almagest-dispatch-watcher-scale-models
+subjects:
+  - kind: ServiceAccount
+    name: almagest-dispatch-watcher
+---
+# How the reaper asks "is a drain in flight?". A ClusterIP Service on a port that is
+# deliberately not 8000: this is not the API and must never be mistaken for it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: almagest-dispatch-watcher
+  labels:
+    app.kubernetes.io/component: dispatch-watcher
+spec:
+  selector:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: dispatch-watcher
+  ports:
+    - name: drain-flag
+      port: 9099
+      targetPort: 9099
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: almagest-dispatch-watcher
+  labels:
+    app.kubernetes.io/component: dispatch-watcher
+spec:
+  # One. Two watchers would each claim a photograph and each want the card, and the
+  # queue's lease would arbitrate that only after thirty minutes of waste.
+  replicas: 1
+  # Recreate, not RollingUpdate: the outgoing pod releases the card in its SIGTERM
+  # handler, and a second watcher overlapping with it would ask for the server the
+  # first is putting back.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: almagest
+      app.kubernetes.io/component: dispatch-watcher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: almagest
+        app.kubernetes.io/component: dispatch-watcher
+    spec:
+      serviceAccountName: almagest-dispatch-watcher
+      # Long enough for a signal handler to scale the model server to zero before the
+      # kubelet stops waiting. The default 30 s would usually do; a cluster API that
+      # is slow to answer is exactly when it would not.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: watcher
+          # The API image: this program lives in that tree, shares its OpenAPI
+          # contract, and needs nothing from the image but a Python and the standard
+          # library.
+          image: ghcr.io/ilithebutterfly/almagest-api
+          command:
+            - python
+            - -m
+            - app.scripts.dispatch_watcher
+            - --base-url
+            - http://almagest-api:8000
+            - --model-url
+            - http://almagest-llm:11434
+            - --model
+            - qwen3-vl:8b
+          ports:
+            - name: drain-flag
+              containerPort: 9099
+          # The flag endpoint doubles as the liveness signal, and that is not a
+          # coincidence worth hiding: a watcher whose HTTP thread has died is also a
+          # watcher the reaper can no longer ask, and the reaper's documented bias is
+          # to release. Restarting it is the honest response to both.
+          livenessProbe:
+            httpGet:
+              path: /draining
+              port: drain-flag
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true

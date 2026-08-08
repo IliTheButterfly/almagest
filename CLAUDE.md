@@ -138,6 +138,36 @@ image decoding and base64, and keeps ADR 0005 structural rather than remembered.
 end-to-end proof uses `FakeVisionProvider` over real migrations, the real blob
 store and the real routes.
 
+**And the queue now drains itself**, without the opt-in changing: a person still
+asks per photograph. `app/scripts/dispatch_watcher.py` +
+`deploy/base/dispatch-watcher.yaml` are a CPU-only Deployment that polls
+`GET /api/dispatch/status` every 15 s, brings the vision model up when something is
+`pending`, drains the whole queue in one model load, and releases the card. Idle it
+makes **no cluster call and holds no GPU**, so ADR 0016's "do not hold the card
+24/7" still holds. Four things about it are load-bearing and each has a test:
+
+- **It waits for the card and never evicts.** `model_servers.start()` releases
+  every *other* server first, which is right for a person pressing Start and wrong
+  here — the thing it would release is a model somebody is talking to. So the
+  watcher reads `statuses()` and backs off. **A queued photograph can therefore
+  wait behind a chat model indefinitely**; that is the accepted trade and every
+  deferral is logged so it does not look hung.
+- **It releases only what it started.** The Ollama server holds the chat models
+  *and* the vision model on one listener, so a drain that finds it already up uses
+  it and leaves it up.
+- **The reaper was taught about dispatch rather than suspended.** A vision run
+  touches no chat thread, so `llm-reaper.yaml` scaled the model to zero mid-read.
+  It now asks `GET :9099/draining` first. Suspend-and-restore was rejected: a
+  suspension outliving a crashed harness leaves *nothing* releasing the card.
+- **That deferral is bounded**, or it is a GPU leak. The flag is true only while the
+  drain is making *progress* (a heartbeat on every claim and submission); ten
+  minutes of silence, or a dead pod, and the reaper reclaims. `pending > 0` is
+  deliberately **not** a reason to hold a GPU.
+
+**Nothing here has run in the cluster.** The whole path is proved offline with fakes
+— no GPU was taken to build it — so the reaper's new branch has never been exercised
+by a real CronJob run, and `ClusterCard` has never spoken to a real Kubernetes API.
+
 **Not built yet:** any *unattended* agent-assisted field filling of *parameters* —
 capture extraction is algorithmic and offers candidates a person chooses between,
 and the vision path proposes an identity rather than filling fields. Tag
