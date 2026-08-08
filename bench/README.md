@@ -29,10 +29,47 @@ Built: `record.py` (the JSONL format and `--resume` keys), `cluster.py` (the swa
 protocol and reaper suspension), `corpus.py` (cases and truth).
 
 Built since: the runner (`stages.py`), the CLI (`almagest-bench corpus check |
-vision | plot`) and the outcome matrix (`plots.py`).
+vision | score | plot`) and the outcome matrix (`plots.py`).
 
-Not built: the extraction sweep, the research sweep, `metrics.py` wired into a
-scoring command.
+Not built: the extraction sweep and the research sweep. Both are blocked on a
+decision nobody has taken — whether extracted datasheet text may be committed —
+because a reproducible extraction run needs a `text.txt` per case rather than a
+live fetch from a manufacturer CDN. See "Open decisions" in
+`docs/HANDOFF-vision-and-bench.md`.
+
+### `score` — what it refuses to tell you
+
+```bash
+almagest-bench score ../out/bench/<run>/records.jsonl        # a table
+almagest-bench score ../out/bench/<run>/records.jsonl --json # for a script
+```
+
+No GPU, no model, no network: it reads the JSONL and re-judges every answer, so a
+scoring change costs a re-score and never a re-run. That was always the design and
+`metrics.py` was nevertheless unreachable — which meant every number anybody quoted
+came off the run command's inline summary, computed *inside* the expensive step and
+therefore uncorrectable.
+
+Three refusals are the point of it:
+
+- **No percentage below `MIN_CASES_FOR_RATES` (30).** `plots.refuse_rate_chart`
+  already declines to draw a rate at twelve cases; printing "50%" as text instead
+  would defeat that by the shortest possible route. You get counts and the floor is
+  named. `--json` returns `correct_rate: null` rather than omitting the key, so a
+  consumer cannot mistake the refusal for an older version of the command.
+- **No ranking two models the noise cannot separate.** The interval bootstraps over
+  **cases**, carrying every repeat of a drawn case with it — repeats of one
+  photograph are not independent observations, and this model has been measured
+  disagreeing with itself on a repeat. At twelve cases nearly nothing clears the
+  gate, and reporting *that* is the finding.
+- **`fabricated` on its own line, never folded into a wrong total.** A misread is
+  repaired by the barcode anchor or a better photograph; an invention is repaired by
+  not trusting the model. Those are opposite conclusions.
+
+The verdict comes from `metrics.judge_records`, which `plot` also calls. It used to
+live inside `plot`, meaning the table and the picture could disagree about one
+file — and a chart disagreeing with the console is exactly how the
+ranked-candidate bug was found.
 
 ## What the first real run found
 

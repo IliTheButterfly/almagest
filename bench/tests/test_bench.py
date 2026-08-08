@@ -383,3 +383,253 @@ def test_the_interval_resamples_cases_not_cells() -> None:
 
 def test_an_interval_needs_more_than_one_case() -> None:
     assert bootstrap_f1([_record()]) is None
+
+
+# ---------------------------------------------------------------------------
+# Scoring the identity stage — the `score` command
+# ---------------------------------------------------------------------------
+#
+# `metrics.py` sat complete and unreachable: every number anybody quoted came off
+# `cmd_vision`'s inline summary, computed *during* the expensive step and therefore
+# uncorrectable without a re-run. These tests guard the three refusals that make
+# the command worth having rather than merely convenient.
+
+
+def _vision(case_id: str, ranked: tuple[str, ...], **overrides: object) -> CaseRecord:
+    body: dict[str, object] = {
+        "stage": "vision",
+        "case_id": case_id,
+        "model_id": "qwen3-vl:8b",
+        "ranked": ranked,
+        "cells": {f"identity:{mpn}": "correct" for mpn in ranked[:1]},
+        "confidences": {f"identity:{mpn}": 0.9 for mpn in ranked},
+    }
+    body.update(overrides)
+    return _record(**body)
+
+
+def _corpus(root: Path, cases: dict[str, str | None]) -> Path:
+    for case_id, mpn in cases.items():
+        _write_case(
+            root,
+            case_id,
+            _case_body(mpn=mpn, manufacturer=None if mpn is None else "Stackpole"),
+        )
+    return root
+
+
+def _judged(records: list[CaseRecord], corpus: Path) -> list[tuple[CaseRecord, str]]:
+    from almagest_bench.metrics import judge_records
+
+    return judge_records(records, {case.case_id: case for case in load_corpus(corpus)})
+
+
+def test_score_refuses_a_percentage_below_the_case_floor(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The rule `plots.refuse_rate_chart` already enforces, applied to text.
+
+    Printing "50%" in a table is the shortest possible way to defeat a chart that
+    declined to draw it, and the number then travels into somebody's notes with no
+    caveat attached.
+    """
+    from almagest_bench.cli import main
+    from almagest_bench.plots import MIN_CASES_FOR_RATES
+
+    corpus = _corpus(tmp_path / "corpus", {"0001-a": "CF14JT100K", "0002-b": "CF14JT220K"})
+    records = tmp_path / "records.jsonl"
+    with RecordWriter(records) as writer:
+        writer.write(_vision("0001-a", ("CF14JT100K",)))
+        writer.write(_vision("0002-b", ("WIDGET-9000",)))
+
+    assert main(["score", str(records), "--corpus", str(corpus)]) == 0
+    out = capsys.readouterr().out
+    assert "not reported" in out
+    assert f"{MIN_CASES_FOR_RATES}-case floor" in out
+    # The counts are printed instead, so the command is still useful under the floor.
+    assert "correct         1" in out
+
+
+def test_score_reports_fabrications_on_their_own_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A misread and an invention have opposite fixes, so they never share a total.
+
+    `CF14JT100Q` is one character from the truth — a transcription slip the barcode
+    anchor repairs. `WIDGET-9000` is on nothing. Folding both into "wrong" would
+    report a model that hallucinates when what it mostly does is misread.
+    """
+    from almagest_bench.cli import main
+
+    corpus = _corpus(tmp_path / "corpus", {"0001-a": "CF14JT100K", "0002-b": "CF14JT220K"})
+    records = tmp_path / "records.jsonl"
+    with RecordWriter(records) as writer:
+        writer.write(_vision("0001-a", ("CF14JT100Q",)))
+        writer.write(_vision("0002-b", ("WIDGET-9000",)))
+
+    assert main(["score", str(records), "--corpus", str(corpus)]) == 0
+    out = capsys.readouterr().out
+    assert "misread         1" in out
+    assert "fabricated      1" in out
+    assert "the one that matters" in out
+
+
+def test_score_refuses_to_rank_two_models_the_corpus_cannot_separate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`resolvable`'s rule for the identity stage.
+
+    Two models over four cases, one answer apart. The bootstrap interval on four
+    cases is far wider than that gap, so the honest output is "do not rank them" —
+    and reporting that is the finding, not a failure to produce a leaderboard.
+    """
+    from almagest_bench.cli import main
+
+    corpus = _corpus(
+        tmp_path / "corpus",
+        {"0001-a": "AAA1", "0002-b": "BBB2", "0003-c": "CCC3", "0004-d": "DDD4"},
+    )
+    records = tmp_path / "records.jsonl"
+    with RecordWriter(records) as writer:
+        for case_id, mpn in (("0001-a", "AAA1"), ("0002-b", "BBB2"), ("0003-c", "CCC3")):
+            writer.write(_vision(case_id, (mpn,)))
+            writer.write(_vision(case_id, (mpn,), model_id="other-model"))
+        writer.write(_vision("0004-d", ("DDD4",)))
+        writer.write(_vision("0004-d", ("WIDGET-9000",), model_id="other-model"))
+
+    assert main(["score", str(records), "--corpus", str(corpus)]) == 0
+    assert "INDISTINGUISHABLE" in capsys.readouterr().out
+
+
+def test_score_says_which_stages_exist_when_a_file_has_no_vision_records(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A reader hitting this should learn the sweeps are unbuilt, not doubt their file."""
+    from almagest_bench.cli import main
+
+    corpus = _corpus(tmp_path / "corpus", {"0001-a": "CF14JT100K"})
+    records = tmp_path / "records.jsonl"
+    with RecordWriter(records) as writer:
+        writer.write(_record(cells={"resistance": "correct"}))  # an extraction record
+
+    assert main(["score", str(records), "--corpus", str(corpus)]) == 1
+    assert "not built yet" in capsys.readouterr().err
+
+
+def test_the_json_report_keeps_a_refused_rate_as_null_rather_than_dropping_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An omitted key invites a consumer to compute the rate itself.
+
+    `null` says "we declined"; a missing field says nothing and is indistinguishable
+    from an older version of this command.
+    """
+    from almagest_bench.cli import main
+
+    corpus = _corpus(tmp_path / "corpus", {"0001-a": "CF14JT100K"})
+    records = tmp_path / "records.jsonl"
+    with RecordWriter(records) as writer:
+        writer.write(_vision("0001-a", ("CF14JT100K",)))
+
+    assert main(["score", str(records), "--corpus", str(corpus), "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    model = report["models"]["qwen3-vl:8b"]
+    assert "correct_rate" in model
+    assert model["correct_rate"] is None
+    assert model["rate_floor"] == 30
+    # Every outcome present even at zero, so a vanished `fabricated` count cannot
+    # be mistaken for no fabrications.
+    assert model["outcomes"]["fabricated"] == 0
+
+
+def test_score_and_plot_judge_a_record_the_same_way(tmp_path: Path) -> None:
+    """One verdict, one function — the reason `judge_records` was extracted.
+
+    `plot` carried this inline, so the table and the picture could have drawn
+    different conclusions from one file. A chart disagreeing with the console is
+    exactly how the ranked-candidate bug was found; it should not be possible by
+    construction.
+
+    `cells` is deliberately misleading in this record: written with `sort_keys`, its
+    first key is the alphabetically-first candidate rather than the answer. Judging
+    must follow `ranked`.
+    """
+    corpus = _corpus(tmp_path / "corpus", {"0001-a": "CF14JT100K"})
+    record = _vision("0001-a", ("CF14JT100K", "AAA-FIRST-ALPHABETICALLY"))
+    ((_, outcome),) = _judged([record], corpus)
+    assert outcome == "correct"
+
+
+def test_no_answer_is_correct_on_an_item_that_names_itself_nowhere(tmp_path: Path) -> None:
+    """The class that keeps "always guess" from being a winning strategy.
+
+    `mpn: null` means nothing printed on the item names it, so returning no
+    candidate is the right answer and must score as such.
+    """
+    corpus = _corpus(tmp_path / "corpus", {"0001-blank": None})
+    ((_, outcome),) = _judged([_vision("0001-blank", ())], corpus)
+    assert outcome == "correct"
+
+
+def test_an_unstable_repeat_does_not_narrow_the_interval(tmp_path: Path) -> None:
+    """Repeats of one photograph are not independent observations.
+
+    ADR 0021 measured the same model answering a case once and exhausting its
+    budget on the next repeat. Bootstrapping over *records* would treat that as two
+    observations and narrow the interval on the strength of the instability, so the
+    resample is over `case_id` and carries every repeat of a drawn case with it.
+    """
+    from almagest_bench.metrics import bootstrap_identity
+
+    corpus = _corpus(tmp_path / "corpus", {"0001-a": "AAA1", "0002-b": "BBB2"})
+    judged = _judged(
+        [
+            _vision("0001-a", ("AAA1",)),
+            _vision("0001-a", ("WIDGET-9000",)),
+            _vision("0002-b", ("BBB2",)),
+            _vision("0002-b", ("BBB2",)),
+        ],
+        corpus,
+    )
+    interval = bootstrap_identity(judged)
+    assert interval is not None
+    # Two cases, one of them internally inconsistent: the interval has to be wide.
+    assert interval.half_width > 0.2
+
+
+def test_an_identity_interval_needs_more_than_one_case(tmp_path: Path) -> None:
+    from almagest_bench.metrics import bootstrap_identity
+
+    corpus = _corpus(tmp_path / "corpus", {"0001-a": "AAA1"})
+    assert bootstrap_identity(_judged([_vision("0001-a", ("AAA1",))], corpus)) is None
+
+
+def test_a_real_separation_is_reportable() -> None:
+    """The other half of the refusal, and the reason it is not vacuous.
+
+    `test_score_refuses_to_rank_two_models_the_corpus_cannot_separate` would pass
+    against an `identity_resolvable` that returned `False` unconditionally. Forty
+    cases with one model right on all and the other wrong on all must come back
+    reportable, or the gate is not a gate — the same lesson as the route fence's
+    own self-test.
+    """
+    from almagest_bench.metrics import IdentityScore, identity_resolvable
+
+    good = [(_vision(f"c{index}", ("AAA1",)), "correct") for index in range(40)]
+    bad = [(_vision(f"c{index}", ("WIDGET-9000",)), "fabricated") for index in range(40)]
+
+    assert identity_resolvable(
+        IdentityScore(model_id="good", cases=40, outcomes={"correct": 40}),
+        IdentityScore(model_id="bad", cases=40, outcomes={"correct": 0}),
+        {"good": good, "bad": bad},
+    )
+    # And a one-case gap over the same forty must not.
+    near = [
+        (_vision(f"c{index}", ("AAA1",)), "correct" if index else "fabricated")
+        for index in range(40)
+    ]
+    assert not identity_resolvable(
+        IdentityScore(model_id="good", cases=40, outcomes={"correct": 40}),
+        IdentityScore(model_id="near", cases=40, outcomes={"correct": 39}),
+        {"good": good, "near": near},
+    )
