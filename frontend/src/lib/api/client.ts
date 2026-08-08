@@ -232,6 +232,7 @@ export type DispatchResultResponse = Schemas["DispatchResultResponse"];
  *  server returned it, before anything parsed it. */
 export type IntakeActivityRead = Schemas["IntakeActivityRead"];
 export type ModelRunRead = Schemas["ModelRunRead"];
+export type CaptureChatRead = Schemas["CaptureChatRead"];
 export type CaptureActivity = Schemas["CaptureActivity"];
 export type ResolvedPartActivity = Schemas["ResolvedPartActivity"];
 
@@ -1716,6 +1717,27 @@ export async function getIntakeActivity(entryId: number): Promise<IntakeActivity
   });
   if (error !== undefined) {
     fail("could not load that entry's activity", error, response);
+  }
+  return data;
+}
+
+/**
+ * Open the conversation *about* this scan, seeded with the context once.
+ *
+ * Not a second way to read the photograph: the dispatch run stays single-shot and
+ * schema-constrained, and a conversation cannot be constrained that way. **The model
+ * does not see the image** — chat is text-only all the way down — so the thread is
+ * seeded with the OCR lines, the candidates and their quotes, and the raw completion.
+ *
+ * Get-or-create, so pressing the button twice reopens yesterday's questions rather
+ * than starting a second thread beside them. `created` says which happened.
+ */
+export async function openCaptureChat(entryId: number): Promise<CaptureChatRead> {
+  const { data, error, response } = await api.POST("/api/intake/pending/{entry_id}/chat", {
+    params: { path: { entry_id: entryId } },
+  });
+  if (error !== undefined) {
+    fail("could not open a conversation about that scan", error, response);
   }
   return data;
 }

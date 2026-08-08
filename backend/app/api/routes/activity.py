@@ -1,15 +1,40 @@
-"""One intake entry's whole story, and the door a worker records a run through.
+"""One intake entry's whole story, and the doors a worker records a run through.
 
-Two routes with one subject:
+Five routes with one subject:
 
 * `GET /api/intake/pending/{entry_id}/activity` — the timeline. Capture, dispatch,
   the model runs with their transcripts and their cost, the proposed candidates,
   the part a person accepted, and that part's research, extraction and field
   candidates. A read, and nothing but a read.
-* `POST /api/runs` — a worker reporting that it called a model. The same kind of
-  door as `/api/dispatch/results`, and for the same ADR 0005 reason: the worker is
-  a separate process and two SQLite writers is corruption, so it reaches the
-  database over HTTP or not at all.
+* `POST /api/runs` — a worker reporting that it *started* calling a model. The same
+  kind of door as `/api/dispatch/results`, and for the same ADR 0005 reason: the
+  worker is a separate process and two SQLite writers is corruption, so it reaches
+  the database over HTTP or not at all.
+* `POST /api/runs/{run_id}/progress` — the answer so far, republished while the
+  model is still generating it.
+* `POST /api/runs/{run_id}/finish` — the final answer and the bill, or the failure.
+* `POST /api/intake/pending/{entry_id}/chat` — open a conversation *about* this scan.
+
+## A run is watchable because the row exists before the answer does
+
+The transcript used to be written once, afterwards. That is simpler and it cannot
+show anything live: ADR 0021 measured reads spending their whole budget on reasoning
+before answering — once 12 318 characters with no answer at all — and for those forty
+seconds there was no row, so a person watching could not tell an overrunning read
+from a hung worker.
+
+So the row is opened at the start, the partial text is republished onto it about once
+a second, and it is settled at the end. **`finished_at IS NULL` is what "in flight"
+means** and `ModelRunRead.in_flight` is the flag a client polls on.
+
+**The throttle is the worker's, and it is load-bearing rather than tidy.** The API is
+one SQLite writer on an RWO volume; a per-token republish would put thousands of
+transactions through it for one photograph, competing with every scan and every
+put-away. `app.services.enrichment.progress` holds the policy and has a test.
+
+**And a client must stop polling.** `runs_in_flight` is served precisely so it can:
+above zero, refresh; at zero, stop. `runs.STALE_AFTER_SECONDS` bounds the case where
+a worker dies mid-read, so a killed pod cannot leave a tab polling forever.
 
 ## Why the transcript is stored and shown at all
 
@@ -39,10 +64,12 @@ would fail if it did — and the image is referenced only by sha256, which is wh
 
 ## Nothing here writes the three forbidden columns
 
-There is no field on `ModelRunIn` that could reach `pending_intakes.mpn`,
-`resolved_part_id` or `status`, and the activity route takes no body at all.
-Recording that a model was asked a question is not the same act as accepting its
-answer, and this module can only do the first.
+There is no field on `ModelRunIn`, `ModelRunProgress` or `ModelRunFinish` that could
+reach `pending_intakes.mpn`, `resolved_part_id` or `status`; the activity route takes
+no body at all; and the chat route takes none either — it creates a thread and one
+message. Recording that a model was asked a question, watching it answer, and
+arguing with the answer are all different acts from accepting it, and this module can
+only do the first three.
 """
 
 from __future__ import annotations
@@ -51,7 +78,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, computed_field
 from sqlalchemy.orm import Session
 
 from app.api.limits import RowId
@@ -65,7 +92,7 @@ from app.models.runs import (
     ModelRun,
 )
 from app.models.scanning import PendingIntake
-from app.services import activity, runs
+from app.services import activity, capture_chat, chat, runs
 from app.services.dispatch import MAX_DISPATCH_ATTEMPTS
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -134,6 +161,42 @@ class ModelRunIn(BaseModel):
     model_config = {"protected_namespaces": ()}
 
 
+class ModelRunProgress(BaseModel):
+    """The answer so far, from the worker watching it arrive.
+
+    **The whole accumulated text, not a delta.** `app.services.runs.progress` argues
+    it: an append endpoint would need to be exactly-once to be correct, and a
+    retried POST would otherwise duplicate a fragment into a transcript the model
+    never emitted. Replacement makes the failure modes HTTP actually has cost a
+    frame and nothing worse.
+
+    No length limit here, for the same reason `ModelRunIn`'s two text fields have
+    none: the bound is `MAX_TRANSCRIPT_CHARS` and it is applied in the service, so a
+    worker never has to know the number and never has to choose between discarding a
+    transcript and being refused.
+    """
+
+    response_text: str
+
+
+class ModelRunFinish(BaseModel):
+    """A run settling: the final answer and the bill, or the failure.
+
+    Every count is optional and **never defaulted to zero** — `ModelRunIn`'s note
+    applies unchanged. `response_text` absent means the worker had nothing to
+    report, and the partial already stored is then kept rather than cleared: on a
+    stream that died, what arrived before it died is the evidence.
+    """
+
+    finished_at: datetime | None = None
+    latency_ms: int | None = Field(default=None, ge=0)
+    prompt_tokens: int | None = Field(default=None, ge=0)
+    completion_tokens: int | None = Field(default=None, ge=0)
+    finish_reason: str | None = Field(default=None, max_length=MAX_FINISH_REASON_LENGTH)
+    response_text: str | None = None
+    error: str | None = Field(default=None, max_length=4000)
+
+
 class ModelRunRead(BaseModel):
     """One recorded call, transcript included."""
 
@@ -157,6 +220,24 @@ class ModelRunRead(BaseModel):
     truncated: bool
 
     model_config = {"from_attributes": True, "protected_namespaces": ()}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def in_flight(self) -> bool:
+        """Is a model still working on this, right now?
+
+        Computed from the two timestamps through `app.services.runs.in_flight_at`
+        rather than stored, so there is exactly one definition of "in flight" and no
+        column that can disagree with `finished_at`.
+
+        **This is the field the client polls on.** While any run on an entry is in
+        flight the screen refreshes about once a second and shows a loading card with
+        elapsed time; when none is, it stops. `in_flight_at` is also what bounds
+        that: a worker killed mid-read leaves a row that never finishes, and after
+        `STALE_AFTER_SECONDS` this goes false so the polling ends rather than running
+        against the single writer for as long as the tab is open.
+        """
+        return runs.in_flight_at(self.started_at, self.finished_at)
 
 
 class ModelRunCreated(BaseModel):
@@ -307,6 +388,14 @@ class IntakeActivityRead(BaseModel):
     #: value; the model's own self-report survives only inside a transcript.
     identity_candidates: list[IdentityCandidateRead]
     resolved_part: ResolvedPartActivity | None
+    #: How many of `model_runs` a model is still working on.
+    #:
+    #: Said as a number at the top level rather than left for the client to count,
+    #: because it is the **whole polling contract**: refresh while this is above zero,
+    #: stop when it is not. A client counting `in_flight` itself would be a second
+    #: implementation of a rule that has a staleness bound in it, and the one that
+    #: got it wrong would poll the single SQLite writer forever.
+    runs_in_flight: int
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +446,86 @@ def record_model_run(request: ModelRunIn, db: Session = Depends(get_db)) -> Mode
     return created
 
 
+def _require_run(db: Session, run_id: int) -> ModelRun:
+    run = db.get(ModelRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={"reason": "not_found", "message": f"no model run with id {run_id}"},
+        )
+    return run
+
+
+@router.post("/{run_id}/progress", response_model=ModelRunRead)
+def record_run_progress(
+    run_id: RowId, request: ModelRunProgress, db: Session = Depends(get_db)
+) -> ModelRunRead:
+    """The answer so far, while the model is still generating it.
+
+    **This is what makes a read watchable, and it is a store rather than a stream.**
+    The worker asks its model for a streamed response, accumulates the text, and
+    republishes it here about once a second; the activity screen polls. No push
+    transport was added and this process still speaks to no model — ADR 0005 is
+    untouched, because storing text somebody else generated is exactly what the API
+    already does for a finished run.
+
+    **The rate limit lives in the worker, not here**, and that is a deliberate
+    division: `app.services.enrichment.progress.ProgressReporter` publishes at most
+    once per second and only when the text grew. This route could not enforce it
+    without keeping per-run state in a single-replica process, and a route that
+    accepted every frame while *hoping* callers throttle would put thousands of
+    transactions per photograph through the one SQLite writer. The reason it is safe
+    to trust the caller is that the only caller is ours and its throttle has a test.
+
+    409 on a finished run, rather than a silent no-op: a partial that lands after the
+    final answer would overwrite it with an earlier prefix, and a worker doing that
+    has a bug worth surfacing.
+    """
+    run = _require_run(db, run_id)
+    try:
+        runs.progress(db, run=run, response_text=request.response_text)
+    except runs.RunError as error:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"reason": error.reason, "message": str(error)},
+        ) from error
+    read = _run_read(run)
+    db.commit()
+    return read
+
+
+@router.post("/{run_id}/finish", response_model=ModelRunRead)
+def finish_model_run(
+    run_id: RowId, request: ModelRunFinish, db: Session = Depends(get_db)
+) -> ModelRunRead:
+    """Settle a run: the final answer and what it cost, or what broke.
+
+    The other half of the split `record` starts. Setting `finished_at` is what takes
+    the run out of flight and stops every watching client polling, so it is called on
+    the failure path too — a read that broke is finished, and leaving it unsettled
+    would have the screen waiting on an answer that is never coming.
+
+    Deliberately **not** refused on a second call: unlike a partial, finishing twice
+    is a worker retrying a call whose 200 it never saw, and both bodies carry the
+    same facts. `app.services.runs.finish` argues it.
+    """
+    run = _require_run(db, run_id)
+    runs.finish(
+        db,
+        run=run,
+        finished_at=request.finished_at,
+        latency_ms=request.latency_ms,
+        prompt_tokens=request.prompt_tokens,
+        completion_tokens=request.completion_tokens,
+        finish_reason=request.finish_reason,
+        response_text=request.response_text,
+        error=request.error,
+    )
+    read = _run_read(run)
+    db.commit()
+    return read
+
+
 @intake_router.get("/{entry_id}/activity", response_model=IntakeActivityRead)
 def read_intake_activity(entry_id: RowId, db: Session = Depends(get_db)) -> IntakeActivityRead:
     """Everything that has happened to one parked scan.
@@ -372,6 +541,7 @@ def read_intake_activity(entry_id: RowId, db: Session = Depends(get_db)) -> Inta
             detail={"reason": "not_found", "message": f"no pending intake with id {entry_id}"},
         )
     story = activity.story_for(db, entry=entry)
+    run_reads = [_run_read(run) for run in story.model_runs]
     return IntakeActivityRead(
         entry=IntakeEntryActivity.model_validate(entry),
         capture=(
@@ -398,7 +568,10 @@ def read_intake_activity(entry_id: RowId, db: Session = Depends(get_db)) -> Inta
             # the reader has to know the ceiling to interpret.
             max_attempts=MAX_DISPATCH_ATTEMPTS,
         ),
-        model_runs=[_run_read(run) for run in story.model_runs],
+        model_runs=run_reads,
+        # Counted off the same `in_flight` the rows carry, so the number and the
+        # badges can never disagree.
+        runs_in_flight=sum(1 for run in run_reads if run.in_flight),
         identity_candidates=[
             IdentityCandidateRead.model_validate(row) for row in story.identity_candidates
         ],
@@ -438,6 +611,71 @@ def read_intake_activity(entry_id: RowId, db: Session = Depends(get_db)) -> Inta
             )
         ),
     )
+
+
+class CaptureChatRead(BaseModel):
+    """Where the conversation about this scan lives.
+
+    Deliberately thin: a thread id and whether it was just started. The transcript
+    itself is served by `GET /api/chat/threads/{id}` and sent through
+    `POST /api/chat/threads/{id}/send`, which are the routes the PWA's chat component
+    already drives. Returning a whole `ThreadDetail` here would be a second way to
+    read a thread, and the second one is always the one that goes stale.
+    """
+
+    thread_id: int
+    #: False when an earlier conversation was reopened. Surfaced so the UI can say
+    #: "picking up where you left off" rather than presenting old questions as new.
+    created: bool
+    #: Characters of context seeded into the opening turn. A number rather than the
+    #: text, because the text is in the thread — this is here so a client can tell a
+    #: briefing that assembled from one that came out empty.
+    briefing_chars: int
+
+
+@intake_router.post(
+    "/{entry_id}/chat", response_model=CaptureChatRead, status_code=status.HTTP_201_CREATED
+)
+def open_capture_chat(entry_id: RowId, db: Session = Depends(get_db)) -> CaptureChatRead:
+    """Open the conversation about this scan, seeding it with the context once.
+
+    **Not a second way to read a photograph.** The dispatch run stays single-shot and
+    schema-constrained — that decode is what makes an invented datasheet URL
+    unrepresentable and a missing `source_text` a refusal — and a conversation cannot
+    be constrained that way. So this is a place to *ask about* the reading, beside it
+    (ADR 0018), and `app.services.capture_chat` argues the whole split.
+
+    **The model does not see the photograph.** Chat is text-only all the way down and
+    giving the API process a multimodal transport is the one thing ADR 0005's fence
+    exists to prevent, so the thread is seeded with the browser's readings, the
+    candidates with their quotes, and the raw completion instead. Enough for "why did
+    you read the FCC ID as a part number"; not the same as looking.
+
+    **No path from here to an identity.** This creates a thread and one message. There
+    is no field on this route, no tool in `chat_tools`, and no call in
+    `capture_chat` that could reach `pending_intakes.mpn`, `resolved_part_id`,
+    `status` or `intake_identity_candidates` — accepting a candidate is still
+    `POST /api/intake/pending/{entry_id}/resolve`, pressed by a person.
+
+    201 even when an existing thread is reopened. The response says which happened;
+    the alternative — 200 for a reopen — would make a client's success handling depend
+    on a distinction it does not act on.
+    """
+    entry = db.get(PendingIntake, entry_id)
+    if entry is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={"reason": "not_found", "message": f"no pending intake with id {entry_id}"},
+        )
+    thread, created = capture_chat.thread_for(db, entry=entry)
+    messages = chat.messages(db, thread_id=thread.id)
+    read = CaptureChatRead(
+        thread_id=thread.id,
+        created=created,
+        briefing_chars=len(messages[0].content) if messages else 0,
+    )
+    db.commit()
+    return read
 
 
 def _run_read(run: ModelRun) -> ModelRunRead:

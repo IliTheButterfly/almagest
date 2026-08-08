@@ -1242,6 +1242,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/intake/pending/{entry_id}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open Capture Chat
+         * @description Open the conversation about this scan, seeding it with the context once.
+         *
+         *     **Not a second way to read a photograph.** The dispatch run stays single-shot and
+         *     schema-constrained — that decode is what makes an invented datasheet URL
+         *     unrepresentable and a missing `source_text` a refusal — and a conversation cannot
+         *     be constrained that way. So this is a place to *ask about* the reading, beside it
+         *     (ADR 0018), and `app.services.capture_chat` argues the whole split.
+         *
+         *     **The model does not see the photograph.** Chat is text-only all the way down and
+         *     giving the API process a multimodal transport is the one thing ADR 0005's fence
+         *     exists to prevent, so the thread is seeded with the browser's readings, the
+         *     candidates with their quotes, and the raw completion instead. Enough for "why did
+         *     you read the FCC ID as a part number"; not the same as looking.
+         *
+         *     **No path from here to an identity.** This creates a thread and one message. There
+         *     is no field on this route, no tool in `chat_tools`, and no call in
+         *     `capture_chat` that could reach `pending_intakes.mpn`, `resolved_part_id`,
+         *     `status` or `intake_identity_candidates` — accepting a candidate is still
+         *     `POST /api/intake/pending/{entry_id}/resolve`, pressed by a person.
+         *
+         *     201 even when an existing thread is reopened. The response says which happened;
+         *     the alternative — 200 for a reopen — would make a client's success handling depend
+         *     on a distinction it does not act on.
+         */
+        post: operations["open_capture_chat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/intake/pending/{entry_id}/dismiss": {
         parameters: {
             query?: never;
@@ -3105,6 +3147,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish Model Run
+         * @description Settle a run: the final answer and what it cost, or what broke.
+         *
+         *     The other half of the split `record` starts. Setting `finished_at` is what takes
+         *     the run out of flight and stops every watching client polling, so it is called on
+         *     the failure path too — a read that broke is finished, and leaving it unsettled
+         *     would have the screen waiting on an answer that is never coming.
+         *
+         *     Deliberately **not** refused on a second call: unlike a partial, finishing twice
+         *     is a worker retrying a call whose 200 it never saw, and both bodies carry the
+         *     same facts. `app.services.runs.finish` argues it.
+         */
+        post: operations["finish_model_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Run Progress
+         * @description The answer so far, while the model is still generating it.
+         *
+         *     **This is what makes a read watchable, and it is a store rather than a stream.**
+         *     The worker asks its model for a streamed response, accumulates the text, and
+         *     republishes it here about once a second; the activity screen polls. No push
+         *     transport was added and this process still speaks to no model — ADR 0005 is
+         *     untouched, because storing text somebody else generated is exactly what the API
+         *     already does for a finished run.
+         *
+         *     **The rate limit lives in the worker, not here**, and that is a deliberate
+         *     division: `app.services.enrichment.progress.ProgressReporter` publishes at most
+         *     once per second and only when the text grew. This route could not enforce it
+         *     without keeping per-run state in a single-replica process, and a route that
+         *     accepted every frame while *hoping* callers throttle would put thousands of
+         *     transactions per photograph through the one SQLite writer. The reason it is safe
+         *     to trust the caller is that the only caller is ours and its throttle has a test.
+         *
+         *     409 on a finished run, rather than a silent no-op: a partial that lands after the
+         *     final answer would overwrite it with an earlier prefix, and a worker doing that
+         *     has a bug worth surfacing.
+         */
+        post: operations["record_run_progress"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scan/alias": {
         parameters: {
             query?: never;
@@ -4473,6 +4583,24 @@ export interface components {
             /** Width Px */
             width_px: number;
         };
+        /**
+         * CaptureChatRead
+         * @description Where the conversation about this scan lives.
+         *
+         *     Deliberately thin: a thread id and whether it was just started. The transcript
+         *     itself is served by `GET /api/chat/threads/{id}` and sent through
+         *     `POST /api/chat/threads/{id}/send`, which are the routes the PWA's chat component
+         *     already drives. Returning a whole `ThreadDetail` here would be a second way to
+         *     read a thread, and the second one is always the one that goes stale.
+         */
+        CaptureChatRead: {
+            /** Briefing Chars */
+            briefing_chars: number;
+            /** Created */
+            created: boolean;
+            /** Thread Id */
+            thread_id: number;
+        };
         /** CaptureCreate */
         CaptureCreate: {
             /** Device Id */
@@ -4642,7 +4770,7 @@ export interface components {
          *     off a build) stays a one-line change.
          * @enum {string}
          */
-        ChatKind: "search" | "project";
+        ChatKind: "search" | "project" | "capture";
         /**
          * ChatRole
          * @description Who said one turn.
@@ -6092,6 +6220,8 @@ export interface components {
             /** Model Runs */
             model_runs: components["schemas"]["ModelRunRead"][];
             resolved_part: components["schemas"]["ResolvedPartActivity"] | null;
+            /** Runs In Flight */
+            runs_in_flight: number;
         };
         /**
          * IntakeDispatchRead
@@ -6845,6 +6975,31 @@ export interface components {
             run: components["schemas"]["ModelRunRead"];
         };
         /**
+         * ModelRunFinish
+         * @description A run settling: the final answer and the bill, or the failure.
+         *
+         *     Every count is optional and **never defaulted to zero** — `ModelRunIn`'s note
+         *     applies unchanged. `response_text` absent means the worker had nothing to
+         *     report, and the partial already stored is then kept rather than cleared: on a
+         *     stream that died, what arrived before it died is the evidence.
+         */
+        ModelRunFinish: {
+            /** Completion Tokens */
+            completion_tokens?: number | null;
+            /** Error */
+            error?: string | null;
+            /** Finish Reason */
+            finish_reason?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Prompt Tokens */
+            prompt_tokens?: number | null;
+            /** Response Text */
+            response_text?: string | null;
+        };
+        /**
          * ModelRunIn
          * @description One call to a model, as the worker that made it reports it.
          *
@@ -6914,6 +7069,25 @@ export interface components {
          */
         ModelRunKind: "vision" | "extraction";
         /**
+         * ModelRunProgress
+         * @description The answer so far, from the worker watching it arrive.
+         *
+         *     **The whole accumulated text, not a delta.** `app.services.runs.progress` argues
+         *     it: an append endpoint would need to be exactly-once to be correct, and a
+         *     retried POST would otherwise duplicate a fragment into a transcript the model
+         *     never emitted. Replacement makes the failure modes HTTP actually has cost a
+         *     frame and nothing worse.
+         *
+         *     No length limit here, for the same reason `ModelRunIn`'s two text fields have
+         *     none: the bound is `MAX_TRANSCRIPT_CHARS` and it is applied in the service, so a
+         *     worker never has to know the number and never has to choose between discarding a
+         *     transcript and being refused.
+         */
+        ModelRunProgress: {
+            /** Response Text */
+            response_text: string;
+        };
+        /**
          * ModelRunRead
          * @description One recorded call, transcript included.
          */
@@ -6930,6 +7104,22 @@ export interface components {
             finished_at: string | null;
             /** Id */
             id: number;
+            /**
+             * In Flight
+             * @description Is a model still working on this, right now?
+             *
+             *     Computed from the two timestamps through `app.services.runs.in_flight_at`
+             *     rather than stored, so there is exactly one definition of "in flight" and no
+             *     column that can disagree with `finished_at`.
+             *
+             *     **This is the field the client polls on.** While any run on an entry is in
+             *     flight the screen refreshes about once a second and shows a loading card with
+             *     elapsed time; when none is, it stops. `in_flight_at` is also what bounds
+             *     that: a worker killed mid-read leaves a row that never finishes, and after
+             *     `STALE_AFTER_SECONDS` this goes false so the polling ends rather than running
+             *     against the single writer for as long as the tab is open.
+             */
+            readonly in_flight: boolean;
             /** Intake Id */
             intake_id: number | null;
             kind: components["schemas"]["ModelRunKind"];
@@ -12332,6 +12522,37 @@ export interface operations {
             };
         };
     };
+    open_capture_chat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureChatRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     dismiss_entry: {
         parameters: {
             query?: never;
@@ -15054,6 +15275,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelRunCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finish_model_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelRunFinish"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelRunRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_run_progress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelRunProgress"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelRunRead"];
                 };
             };
             /** @description Validation Error */

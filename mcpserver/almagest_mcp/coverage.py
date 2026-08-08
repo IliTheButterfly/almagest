@@ -185,6 +185,23 @@ _RUNS: Final = (
     "audits a machine's output. An agent reading its own siblings' prompts back is "
     "also the loop `_CHAT` refuses for the same reason."
 )
+_RUNS_LIVE: Final = (
+    "The live half of one worker's own run row: the partial answer republished while a "
+    "model is still generating it, and the call that settles the row afterwards. Both "
+    "are addressed by run id, which only the worker that opened the row has, and both "
+    "are rate-coupled to that one read — the throttle that keeps a per-token "
+    "republish off a single SQLite writer lives in the worker, so a second caller "
+    "posting at its own pace is precisely the load the design excludes. Nothing here "
+    "answers a question about the inventory."
+)
+_CAPTURE_CHAT: Final = (
+    "Opens a conversation *about* one parked scan, seeded with the OCR, the candidates "
+    "and the raw completion (ADR 0018). A door for a person arguing with a reading, "
+    "and an agent has no use for it: the surface it would want is the timeline "
+    "(`read_intake_activity`, excluded for its own reason), and the thing it creates "
+    "here is a transcript store — the loop `_CHAT` refuses. It writes no identity by "
+    "construction, so exposing it would buy an agent nothing it could act on."
+)
 _MAINTENANCE: Final = (
     "The nightly CronJob's door. `check_caches` is the read and is exposed; "
     "running the pass or rebuilding a cache is not, for two separate reasons. The "
@@ -547,7 +564,10 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "reopen_entry": Excluded(Reason.HUMAN_JUDGEMENT, _INTAKE),
         # -- the transcript ----------------------------------------------------
         "record_model_run": Excluded(Reason.MACHINE_DOOR, _RUNS),
+        "record_run_progress": Excluded(Reason.MACHINE_DOOR, _RUNS_LIVE),
+        "finish_model_run": Excluded(Reason.MACHINE_DOOR, _RUNS_LIVE),
         "read_intake_activity": Excluded(Reason.HUMAN_JUDGEMENT, _RUNS),
+        "open_capture_chat": Excluded(Reason.MACHINE_DOOR, _CAPTURE_CHAT),
         # -- diagnostics -------------------------------------------------------
         "health": Exposed("check_health"),
         "read_caches": Exposed("check_caches"),

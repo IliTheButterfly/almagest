@@ -86,21 +86,30 @@ def create_thread(
     *,
     kind: ChatKind,
     project_id: int | None = None,
+    intake_id: int | None = None,
     title: str | None = None,
 ) -> ChatThread:
     """Start a conversation.
 
-    A `project` thread must name a project and a `search` thread must not. Refused
-    rather than coerced: a project thread with no project would be invisible in
-    both history lists, and a search thread carrying one would appear in a
-    project's list without belonging to it.
+    A `project` thread must name a project and a `search` thread must not; a
+    `capture` thread must name an intake entry. Refused rather than coerced: a
+    project thread with no project would be invisible in both history lists, a
+    search thread carrying one would appear in a project's list without belonging to
+    it, and a capture thread with no entry is a transcript of questions about a
+    photograph nobody can open.
     """
     if kind is ChatKind.PROJECT and project_id is None:
         raise ChatError("project_required", "a project thread must name a project")
     if kind is ChatKind.SEARCH and project_id is not None:
         raise ChatError("project_not_allowed", "a search thread cannot belong to a project")
+    if kind is ChatKind.CAPTURE and intake_id is None:
+        raise ChatError("intake_required", "a capture thread must name an intake entry")
+    if kind is not ChatKind.CAPTURE and intake_id is not None:
+        raise ChatError("intake_not_allowed", f"a {kind} thread cannot belong to an intake entry")
 
-    thread = ChatThread(kind=kind, project_id=project_id, title=title or "New chat")
+    thread = ChatThread(
+        kind=kind, project_id=project_id, intake_id=intake_id, title=title or "New chat"
+    )
     session.add(thread)
     session.flush()
     return thread

@@ -43,6 +43,10 @@ function run(overrides: Partial<ModelRunRead> = {}): ModelRunRead {
     response_text: '{"candidates":[{"mpn":"CF14JT100K","confidence":0.95}]}',
     error: null,
     truncated: false,
+    // Computed server-side from the two timestamps, so a run with a `finished_at` is
+    // never in flight. Spelled out here rather than defaulted, because the whole
+    // polling contract hangs off it.
+    in_flight: false,
     ...overrides,
   };
 }
@@ -91,6 +95,10 @@ function activity(overrides: Partial<IntakeActivityRead> = {}): IntakeActivityRe
     model_runs: [],
     identity_candidates: [],
     resolved_part: null,
+    //: The server's count, and the whole polling contract: above zero the screen
+    //: refreshes about once a second, at zero it stops. Not derived here, because the
+    //: staleness rule that retires a worker killed mid-read lives on the server.
+    runs_in_flight: 0,
     ...overrides,
   };
 }

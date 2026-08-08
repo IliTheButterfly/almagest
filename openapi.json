@@ -2015,6 +2015,30 @@
         "title": "CaptureActivity",
         "type": "object"
       },
+      "CaptureChatRead": {
+        "description": "Where the conversation about this scan lives.\n\nDeliberately thin: a thread id and whether it was just started. The transcript\nitself is served by `GET /api/chat/threads/{id}` and sent through\n`POST /api/chat/threads/{id}/send`, which are the routes the PWA's chat component\nalready drives. Returning a whole `ThreadDetail` here would be a second way to\nread a thread, and the second one is always the one that goes stale.",
+        "properties": {
+          "briefing_chars": {
+            "title": "Briefing Chars",
+            "type": "integer"
+          },
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "thread_id",
+          "created",
+          "briefing_chars"
+        ],
+        "title": "CaptureChatRead",
+        "type": "object"
+      },
       "CaptureCreate": {
         "properties": {
           "device_id": {
@@ -2458,7 +2482,8 @@
         "description": "Which history list a `chat_threads` row belongs to (ADR 0018).\n\nTwo surfaces with different lifetimes: a disposable one for inventory questions\nand a durable one bound to a project. They differ in the UI and in retention,\nnot in shape, so this is a column rather than a second table \u2014 and being a\nplain `sa.String` with no `CHECK`, a third kind (a thread hanging off a part,\noff a build) stays a one-line change.",
         "enum": [
           "search",
-          "project"
+          "project",
+          "capture"
         ],
         "title": "ChatKind",
         "type": "string"
@@ -6514,6 +6539,10 @@
                 "type": "null"
               }
             ]
+          },
+          "runs_in_flight": {
+            "title": "Runs In Flight",
+            "type": "integer"
           }
         },
         "required": [
@@ -6522,7 +6551,8 @@
           "dispatch",
           "model_runs",
           "identity_candidates",
-          "resolved_part"
+          "resolved_part",
+          "runs_in_flight"
         ],
         "title": "IntakeActivityRead",
         "type": "object"
@@ -8894,6 +8924,96 @@
         "title": "ModelRunCreated",
         "type": "object"
       },
+      "ModelRunFinish": {
+        "description": "A run settling: the final answer and the bill, or the failure.\n\nEvery count is optional and **never defaulted to zero** \u2014 `ModelRunIn`'s note\napplies unchanged. `response_text` absent means the worker had nothing to\nreport, and the partial already stored is then kept rather than cleared: on a\nstream that died, what arrived before it died is the evidence.",
+        "properties": {
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "response_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Text"
+          }
+        },
+        "title": "ModelRunFinish",
+        "type": "object"
+      },
       "ModelRunIn": {
         "description": "One call to a model, as the worker that made it reports it.\n\n## The two text fields carry no length limit here, deliberately\n\n`app.services.runs` truncates them at `MAX_TRANSCRIPT_CHARS` and sets\n`truncated`. Enforcing the same number on the wire would make a worker\nresponsible for knowing it, and a worker that hit it would have no better\noption than to discard the transcript \u2014 which is the outcome the bound exists\nto avoid, not to cause. Refusing to record a model call because its reasoning\nwas long is exactly backwards: ADR 0021's most informative measurement is a run\nthat emitted 12 318 characters of reasoning and no answer.\n\n## Counts are optional and are never defaulted to zero\n\n`usage` is absent from several local servers' responses. A zero would read as\n\"the prompt was empty\" and would pull any average taken over these rows toward\nwhichever servers were quiet \u2014 `app.services.enrichment.calls.CallStats`' own\nrule, kept intact all the way to the column.",
         "properties": {
@@ -9062,6 +9182,20 @@
         "title": "ModelRunKind",
         "type": "string"
       },
+      "ModelRunProgress": {
+        "description": "The answer so far, from the worker watching it arrive.\n\n**The whole accumulated text, not a delta.** `app.services.runs.progress` argues\nit: an append endpoint would need to be exactly-once to be correct, and a\nretried POST would otherwise duplicate a fragment into a transcript the model\nnever emitted. Replacement makes the failure modes HTTP actually has cost a\nframe and nothing worse.\n\nNo length limit here, for the same reason `ModelRunIn`'s two text fields have\nnone: the bound is `MAX_TRANSCRIPT_CHARS` and it is applied in the service, so a\nworker never has to know the number and never has to choose between discarding a\ntranscript and being refused.",
+        "properties": {
+          "response_text": {
+            "title": "Response Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "response_text"
+        ],
+        "title": "ModelRunProgress",
+        "type": "object"
+      },
       "ModelRunRead": {
         "description": "One recorded call, transcript included.",
         "properties": {
@@ -9124,6 +9258,12 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "in_flight": {
+            "description": "Is a model still working on this, right now?\n\nComputed from the two timestamps through `app.services.runs.in_flight_at`\nrather than stored, so there is exactly one definition of \"in flight\" and no\ncolumn that can disagree with `finished_at`.\n\n**This is the field the client polls on.** While any run on an entry is in\nflight the screen refreshes about once a second and shows a loading card with\nelapsed time; when none is, it stops. `in_flight_at` is also what bounds\nthat: a worker killed mid-read leaves a row that never finishes, and after\n`STALE_AFTER_SECONDS` this goes false so the polling ends rather than running\nagainst the single writer for as long as the tab is open.",
+            "readOnly": true,
+            "title": "In Flight",
+            "type": "boolean"
           },
           "intake_id": {
             "anyOf": [
@@ -9217,7 +9357,8 @@
           "request_json",
           "response_text",
           "error",
-          "truncated"
+          "truncated",
+          "in_flight"
         ],
         "title": "ModelRunRead",
         "type": "object"
@@ -22116,6 +22257,51 @@
         ]
       }
     },
+    "/api/intake/pending/{entry_id}/chat": {
+      "post": {
+        "description": "Open the conversation about this scan, seeding it with the context once.\n\n**Not a second way to read a photograph.** The dispatch run stays single-shot and\nschema-constrained \u2014 that decode is what makes an invented datasheet URL\nunrepresentable and a missing `source_text` a refusal \u2014 and a conversation cannot\nbe constrained that way. So this is a place to *ask about* the reading, beside it\n(ADR 0018), and `app.services.capture_chat` argues the whole split.\n\n**The model does not see the photograph.** Chat is text-only all the way down and\ngiving the API process a multimodal transport is the one thing ADR 0005's fence\nexists to prevent, so the thread is seeded with the browser's readings, the\ncandidates with their quotes, and the raw completion instead. Enough for \"why did\nyou read the FCC ID as a part number\"; not the same as looking.\n\n**No path from here to an identity.** This creates a thread and one message. There\nis no field on this route, no tool in `chat_tools`, and no call in\n`capture_chat` that could reach `pending_intakes.mpn`, `resolved_part_id`,\n`status` or `intake_identity_candidates` \u2014 accepting a candidate is still\n`POST /api/intake/pending/{entry_id}/resolve`, pressed by a person.\n\n201 even when an existing thread is reopened. The response says which happened;\nthe alternative \u2014 200 for a reopen \u2014 would make a client's success handling depend\non a distinction it does not act on.",
+        "operationId": "open_capture_chat",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Entry Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureChatRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Capture Chat",
+        "tags": [
+          "intake"
+        ]
+      }
+    },
     "/api/intake/pending/{entry_id}/dismiss": {
       "post": {
         "description": "Not a real intake: a duplicate scan, a shipping label, someone else's box.\n\nKept rather than deleted, and kept *distinguishable* from resolved, because\nthe two say opposite things about whether the payload is worth mining \u2014 a\npile of dismissed unknowns is noise, a pile of resolved ones is a parser\nworth writing.",
@@ -26235,6 +26421,116 @@
           }
         },
         "summary": "Record Model Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/runs/{run_id}/finish": {
+      "post": {
+        "description": "Settle a run: the final answer and what it cost, or what broke.\n\nThe other half of the split `record` starts. Setting `finished_at` is what takes\nthe run out of flight and stops every watching client polling, so it is called on\nthe failure path too \u2014 a read that broke is finished, and leaving it unsettled\nwould have the screen waiting on an answer that is never coming.\n\nDeliberately **not** refused on a second call: unlike a partial, finishing twice\nis a worker retrying a call whose 200 it never saw, and both bodies carry the\nsame facts. `app.services.runs.finish` argues it.",
+        "operationId": "finish_model_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelRunFinish"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelRunRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish Model Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/runs/{run_id}/progress": {
+      "post": {
+        "description": "The answer so far, while the model is still generating it.\n\n**This is what makes a read watchable, and it is a store rather than a stream.**\nThe worker asks its model for a streamed response, accumulates the text, and\nrepublishes it here about once a second; the activity screen polls. No push\ntransport was added and this process still speaks to no model \u2014 ADR 0005 is\nuntouched, because storing text somebody else generated is exactly what the API\nalready does for a finished run.\n\n**The rate limit lives in the worker, not here**, and that is a deliberate\ndivision: `app.services.enrichment.progress.ProgressReporter` publishes at most\nonce per second and only when the text grew. This route could not enforce it\nwithout keeping per-run state in a single-replica process, and a route that\naccepted every frame while *hoping* callers throttle would put thousands of\ntransactions per photograph through the one SQLite writer. The reason it is safe\nto trust the caller is that the only caller is ours and its throttle has a test.\n\n409 on a finished run, rather than a silent no-op: a partial that lands after the\nfinal answer would overwrite it with an earlier prefix, and a worker doing that\nhas a bug worth surfacing.",
+        "operationId": "record_run_progress",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelRunProgress"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelRunRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Run Progress",
         "tags": [
           "runs"
         ]

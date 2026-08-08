@@ -73,6 +73,22 @@ class ChatThread(Base, TimestampMixin):
     #: would make "this project's threads" a query that has to know about the
     #: sentinel.
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
+    #: Set for `capture` threads, NULL for the other two. The parked scan this
+    #: conversation is *about*.
+    #:
+    #: A column rather than a lookup through the title, because "the chat about this
+    #: photograph" has to be findable — otherwise pressing the button twice starts a
+    #: second thread and the first one's questions are lost. It is what makes the
+    #: route get-or-create.
+    #:
+    #: `CASCADE`, unlike `model_runs.intake_id`'s `SET NULL`, and the difference is
+    #: the same one `activity.PartStory` draws: a run is the record that a GPU second
+    #: was spent and outlives its subject, while this thread is a conversation *about*
+    #: an entry and means nothing without it. A capture thread with no capture is a
+    #: transcript of questions about a photograph nobody can open.
+    intake_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pending_intakes.id", ondelete="CASCADE")
+    )
     #: A short human label. Generated from the first message when the thread is
     #: created and editable afterwards; never derived on read, because a title that
     #: changes as the conversation grows makes the history list unstable to scan.
@@ -87,6 +103,11 @@ class ChatThread(Base, TimestampMixin):
         # The two history lists, in one index: "search threads, newest first" and
         # "this project's threads, newest first" are both prefixes of it.
         Index("ix_chat_threads_list", "kind", "project_id", "updated_at"),
+        # "the thread about this entry", which is the get-or-create lookup. Not a
+        # UNIQUE: a thread archived and replaced is two rows about one entry, and a
+        # constraint here would refuse the second rather than the duplicate anybody
+        # actually wants prevented.
+        Index("ix_chat_threads_intake", "intake_id"),
     )
 
 

@@ -191,6 +191,59 @@ in it is the answer. Four things about it:
   row, not the table; the pruning pass is not written. No triggers either — a run
   is a notebook entry, following `captures.py`.
 
+**And a run is now watchable while it happens**, by polling rather than by any new
+push transport. The row is created *before* the model is asked (`POST /api/runs` with
+no `finished_at`), the worker asks for a **streamed** response and republishes the
+accumulated text onto it (`POST /api/runs/{id}/progress`), and it is settled at the
+end (`POST /api/runs/{id}/finish`). `IntakeActivityScreen` shows a loading card with
+elapsed time and the partial answer **open**, and refreshes about once a second.
+ADR 0005 is untouched: the API still stores text somebody else generated. Five things
+are load-bearing and each has a test:
+
+- **The throttle is the point, not a nicety.** `services/enrichment/progress.py`
+  publishes at most once a second and only when the text grew. Unthrottled, one
+  photograph is thousands of transactions through the single SQLite writer that also
+  serves every scan and every put-away — and nothing else would look wrong.
+- **`finished_at IS NULL` is what "in flight" means**, and `runs_in_flight` is the
+  whole polling contract: above zero refresh, at zero stop. `runs.STALE_AFTER_SECONDS`
+  (900 s, inside the queue's 1800 s lease) retires a worker killed mid-read, so a
+  killed pod cannot leave a tab polling forever.
+- **Streaming did not fork the parse path.** `_post_streamed` reassembles frames into
+  the body an unstreamed call would have returned, so `_content_of`, `_stats_of` and
+  `parse_response` stay one code path — and the **schema constraint still goes on the
+  wire**, asserted on both shapes.
+- **The reasoning is what you watch.** ADR 0021's measured pathology is a run that
+  spends its whole budget thinking and answers nothing (12 318 characters, once);
+  streaming only `content` would render that as forty seconds of nothing.
+- **`request_json` still never holds image bytes**, and the row being created earlier
+  is exactly what could have broken that — the transport hands the sanitised payload
+  out through `on_started` rather than the worker rebuilding it.
+
+**Talking about a capture is a separate thread, and the model cannot see the
+photograph.** `ChatKind.CAPTURE` + `chat_threads.intake_id`,
+`services/capture_chat.py`, `POST /api/intake/pending/{id}/chat`, and a button on the
+activity screen. Three things:
+
+- **The dispatch run stays single-shot and schema-constrained.** That decode is what
+  makes a datasheet URL unrepresentable and a missing `source_text` a refusal; a
+  conversation has no schema, so making the read conversational would reopen the
+  invented-part-number failure ADR 0021 exists to prevent.
+- **Chat is text-only** — `to_messages` emits string `content` and `chat_agent` has no
+  content-parts list and no `images` array. Forcing an image in would mean a
+  multimodal transport in the API process, which is the one thing ADR 0005's fence
+  prevents. So the thread is seeded with the OCR lines, the candidates and their
+  quoted `source_text`, and the raw completion — enough for *why did you read the FCC
+  ID as a part number*, and honestly less than looking.
+- **No path from the thread to an identity.** The two chat tools are reads (asserted
+  by the session having nothing pending after each call), and a whole turn with a model
+  that tries hard to assert one leaves `mpn`, `resolved_part_id`, `status` and
+  `intake_identity_candidates` untouched.
+
+**Still unproven offline:** real streaming against Ollama. The framings in
+`tests/unit/test_vision_streaming.py` are written from the documented shapes, not
+observed ones, so `tests/integration/test_vision_live.py` is what will settle whether
+a real server frames its stream that way. No GPU was taken to build any of this.
+
 **Not built yet:** any *unattended* agent-assisted field filling of *parameters* —
 capture extraction is algorithmic and offers candidates a person chooses between,
 and the vision path proposes an identity rather than filling fields. Tag

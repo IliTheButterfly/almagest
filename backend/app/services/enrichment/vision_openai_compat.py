@@ -72,6 +72,8 @@ from typing import Any, Literal
 from app.services.enrichment.calls import CallStats
 from app.services.enrichment.openai_compat import ModelUnavailable, stats_from_openai_body
 from app.services.enrichment.vision import (
+    OnProgress,
+    OnStarted,
     VisionRequest,
     VisionResult,
     parse_response,
@@ -184,19 +186,54 @@ class OpenAICompatVisionProvider:
     max_tokens: int = DEFAULT_MAX_TOKENS
     image_transport: ImageTransport = "openai_content_parts"
 
-    def read(self, request: VisionRequest) -> VisionResult:
+    def read(
+        self,
+        request: VisionRequest,
+        *,
+        on_started: OnStarted | None = None,
+        on_progress: OnProgress | None = None,
+    ) -> VisionResult:
+        """Read one photograph. Streams when `on_progress` is given.
+
+        **Passing `on_progress` is the only thing that changes the wire.** With it,
+        `stream: true` goes on the payload and the response is consumed frame by
+        frame; without it, this is byte-for-byte the request it always was. Keeping
+        both is not backwards compatibility for its own sake: a caller with nowhere
+        to put a partial should not be made to invent one, and the non-streaming
+        path is the one every `--fixture` test and every `bench` run exercises.
+
+        The schema constraint is unchanged either way, which is the part that
+        matters for safety. Streaming changes *when* the tokens arrive, not what the
+        decoder will accept — no `url` property, `source_text` required, `maxItems`
+        from `max_candidates`. A streamed read is still a single-shot constrained
+        decode, and it is deliberately **not** a conversation (see ADR 0018 and
+        `app.services.capture_chat` for where talking about a capture happens).
+        """
         schema = schema_for(request)
+        streaming = on_progress is not None
         if self.image_transport == "ollama_native":
-            path, payload = "/api/chat", self._ollama_payload(request, schema)
+            path = "/api/chat"
+            payload = self._ollama_payload(request, schema, stream=streaming)
         else:
-            path, payload = "/v1/chat/completions", self._openai_payload(request, schema)
+            path = "/v1/chat/completions"
+            payload = self._openai_payload(request, schema, stream=streaming)
         # Built here, before the call, so the transcript exists whether or not the
         # call comes back. It is handed to `parse_response` on success and attached
         # to `ModelUnavailable` on every failure below -- see `_sanitised`.
         sent = self._sanitised(payload, request)
+        # Announced before the socket opens, which is what makes the run row exist
+        # while the model is still thinking. A row created afterwards can never show
+        # anything live, which is the whole defect this fixes.
+        if on_started is not None:
+            on_started(sent)
 
         started = time.perf_counter()
-        body = self._post(path, payload, started=started, sent=sent)
+        if on_progress is not None:
+            body = self._post_streamed(
+                path, payload, started=started, sent=sent, on_progress=on_progress
+            )
+        else:
+            body = self._post(path, payload, started=started, sent=sent)
         content = self._content_of(body, started=started, sent=sent)
         stats = self._stats_of(body, started=started)
 
@@ -314,9 +351,11 @@ class OpenAICompatVisionProvider:
         )
         return "\n\n".join(parts)
 
-    def _openai_payload(self, request: VisionRequest, schema: dict[str, Any]) -> dict[str, Any]:
+    def _openai_payload(
+        self, request: VisionRequest, schema: dict[str, Any], *, stream: bool = False
+    ) -> dict[str, Any]:
         data_uri = f"data:{request.media_type};base64,{self._b64(request)}"
-        return {
+        payload: dict[str, Any] = {
             "model": self.model,
             "temperature": 0,
             "max_tokens": self.max_tokens,
@@ -338,11 +377,22 @@ class OpenAICompatVisionProvider:
             # they do not recognise, so sending both costs a few bytes.
             "guided_json": schema,
         }
+        if stream:
+            payload["stream"] = True
+            # Without this the OpenAI shape reports no `usage` at all on a streamed
+            # response, and the prompt token count is the one number ADR 0021 asks
+            # for — it is what says whether sending a 4K frame whole is affordable.
+            # Losing it as the price of watching the answer arrive would be a bad
+            # trade, and servers that do not recognise the field ignore it.
+            payload["stream_options"] = {"include_usage": True}
+        return payload
 
-    def _ollama_payload(self, request: VisionRequest, schema: dict[str, Any]) -> dict[str, Any]:
+    def _ollama_payload(
+        self, request: VisionRequest, schema: dict[str, Any], *, stream: bool = False
+    ) -> dict[str, Any]:
         return {
             "model": self.model,
-            "stream": False,
+            "stream": stream,
             # A whole JSON schema, which is Ollama's documented way of saying what
             # `response_format: json_schema` says elsewhere.
             "format": schema,
@@ -431,6 +481,78 @@ class OpenAICompatVisionProvider:
             finish_reason=done_reason if isinstance(done_reason, str) and done_reason else None,
         )
 
+    def _post_streamed(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        started: float,
+        sent: str | None,
+        on_progress: OnProgress,
+    ) -> dict[str, Any]:
+        """Consume a streamed response and hand back the **non-streaming shape**.
+
+        This is the design decision worth defending. Every line below the call in
+        `read` -- `_content_of`, `_stats_of`, the truncation diagnosis, the
+        re-validation through `parse_response` -- is the code that turns a server's
+        answer into candidates, and none of it should learn that a second wire
+        format exists. So the frames are reassembled into the body the same server
+        would have sent unstreamed, and the rest of the module cannot tell the
+        difference.
+
+        The alternative -- a parallel parse path for streamed responses -- is how a
+        refusal ends up implemented once and enforced in one of two branches.
+
+        A malformed or partial frame is skipped rather than fatal, matching
+        `chat_agent.OpenAICompatChatModel.stream`: the next line usually completes
+        the thought, and dying here would discard an answer that is most of the way
+        there. **What is not tolerated is a stream that ends with nothing** — that
+        falls through to `_content_of`, which already names an empty completion
+        properly, including how much reasoning it burned getting there.
+        """
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        url = self.base_url.rstrip("/") + path
+        request = urllib.request.Request(
+            url, data=json.dumps(payload).encode(), headers=headers, method="POST"
+        )
+
+        ollama = self.image_transport == "ollama_native"
+        content: list[str] = []
+        reasoning: list[str] = []
+        tail: dict[str, Any] = {}
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                for raw in response:
+                    frame = _frame(raw, sse=not ollama)
+                    if frame is None:
+                        continue
+                    grew = _absorb(frame, content, reasoning, tail, ollama=ollama)
+                    if grew:
+                        # Rate limiting is the caller's, not ours -- see
+                        # `progress.ProgressReporter`. Offering every frame is what
+                        # lets the policy live in one place.
+                        on_progress(live_text("".join(reasoning), "".join(content)))
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError) as error:
+            detail = (
+                error.read()[:500].decode("utf-8", "replace")
+                if isinstance(error, urllib.error.HTTPError)
+                else str(error)
+            )
+            raise ModelUnavailable(
+                f"{type(error).__name__} streaming from {url}: {detail}",
+                elapsed_ms=elapsed_ms(started),
+                request_json=sent,
+                # What had arrived before the socket broke. This is the case a
+                # transcript matters most for and it would otherwise be lost:
+                # a stream that dies at 11 000 characters of reasoning is the
+                # measured pathology, not a hypothetical one.
+                response_text=live_text("".join(reasoning), "".join(content)) or None,
+            ) from error
+
+        return _reassembled(content, reasoning, tail, ollama=ollama)
+
     def _post(
         self, path: str, payload: dict[str, Any], *, started: float, sent: str | None = None
     ) -> dict[str, Any]:
@@ -464,6 +586,150 @@ class OpenAICompatVisionProvider:
                 request_json=sent,
             )
         return decoded
+
+
+# ---------------------------------------------------------------------------
+# Streaming: frames in, one ordinary response body out
+# ---------------------------------------------------------------------------
+
+#: What the reasoning half of a partial answer is labelled as while it is arriving.
+#:
+#: Labelled rather than concatenated silently, because these are two different
+#: things and a reader has to be able to tell them apart: the reasoning is
+#: working-out and the answer is the schema-constrained JSON. Unlabelled, somebody
+#: watching a 12 000-character deliberation scroll past would reasonably conclude
+#: the model was emitting garbage instead of thinking.
+#:
+#: This text is **transient**. When the call finishes, `response_text` is replaced by
+#: the raw completion alone, so these markers never end up in a stored transcript of
+#: a successful run -- only in a partial, and in the record of a stream that died.
+LIVE_REASONING_HEADER = "[reasoning, no answer yet]\n"
+LIVE_ANSWER_HEADER = "\n\n[answer]\n"
+
+
+def live_text(reasoning: str, content: str) -> str:
+    """The partial answer as a person should see it mid-flight.
+
+    **Monotonic by construction**, which is a contract rather than a nicety:
+    `ProgressReporter.offer` compares lengths to decide whether anything changed, so
+    a rendering that could shrink would silently stop publishing. Both inputs only
+    ever grow and the headers are fixed, so the result only ever grows.
+
+    Reasoning is included at all because ADR 0021's measured pathology is a run that
+    spends its entire budget reasoning and answers nothing — 12 318 characters,
+    once. That run is *invisible* if only content is shown, which is exactly the
+    forty seconds of silence this feature exists to fill.
+    """
+    if not reasoning:
+        return content
+    if not content:
+        return LIVE_REASONING_HEADER + reasoning
+    return LIVE_REASONING_HEADER + reasoning + LIVE_ANSWER_HEADER + content
+
+
+def _frame(raw: bytes, *, sse: bool) -> dict[str, Any] | None:
+    """One decoded frame, or None for anything that is not one.
+
+    Two framings, because the two servers genuinely differ — the same reason this
+    module already has two payload builders. Ollama's native endpoint streams
+    newline-delimited JSON objects; the OpenAI shape streams `data:`-prefixed SSE
+    with a `[DONE]` sentinel.
+    """
+    line = raw.decode("utf-8", "replace").strip()
+    if not line:
+        return None
+    if sse:
+        if not line.startswith("data:"):
+            return None
+        line = line[5:].strip()
+        if line == "[DONE]":
+            return None
+    try:
+        decoded: Any = json.loads(line)
+    except json.JSONDecodeError:
+        # A partial frame. See `_post_streamed` — the next line usually completes it.
+        return None
+    return decoded if isinstance(decoded, dict) else None
+
+
+def _absorb(
+    frame: dict[str, Any],
+    content: list[str],
+    reasoning: list[str],
+    tail: dict[str, Any],
+    *,
+    ollama: bool,
+) -> bool:
+    """Fold one frame into the accumulators. True if any visible text grew.
+
+    `tail` collects the fields that only appear on the final frame — the usage
+    counts and the finish reason. Kept as they arrive rather than assumed to be on
+    the last frame, because Ollama puts them on the `done` object while the OpenAI
+    shape puts `usage` on a frame of its own *after* the one carrying
+    `finish_reason`.
+    """
+    if ollama:
+        message = frame.get("message")
+        delta = message if isinstance(message, dict) else {}
+        for key in ("done_reason", "prompt_eval_count", "eval_count"):
+            if frame.get(key) is not None:
+                tail[key] = frame[key]
+    else:
+        choices = frame.get("choices")
+        first = choices[0] if isinstance(choices, list) and choices else {}
+        first = first if isinstance(first, dict) else {}
+        raw_delta = first.get("delta")
+        delta = raw_delta if isinstance(raw_delta, dict) else {}
+        if first.get("finish_reason"):
+            tail["finish_reason"] = first["finish_reason"]
+        if isinstance(frame.get("usage"), dict):
+            tail["usage"] = frame["usage"]
+
+    grew = False
+    text = delta.get("content")
+    if isinstance(text, str) and text:
+        content.append(text)
+        grew = True
+    # `thinking` is Ollama's spelling, `reasoning_content` the OpenAI-compatible
+    # one. Both are read on both paths: a server is free to use either, and reading
+    # only the expected name is how a whole reasoning stream goes unrecorded.
+    for key in ("thinking", "reasoning_content"):
+        thought = delta.get(key)
+        if isinstance(thought, str) and thought:
+            reasoning.append(thought)
+            grew = True
+    return grew
+
+
+def _reassembled(
+    content: list[str], reasoning: list[str], tail: dict[str, Any], *, ollama: bool
+) -> dict[str, Any]:
+    """The frames as the body an unstreamed call would have returned.
+
+    See `_post_streamed` for why this shape and not a second parse path.
+    """
+    joined = "".join(content)
+    thought = "".join(reasoning)
+    if ollama:
+        message: dict[str, Any] = {"role": "assistant", "content": joined}
+        if thought:
+            # Where `_reasoning_of` looks, so an empty completion is still explained
+            # by how much reasoning preceded it.
+            message["thinking"] = thought
+        body: dict[str, Any] = {"message": message}
+        body.update(tail)
+        return body
+
+    inner: dict[str, Any] = {"role": "assistant", "content": joined}
+    if thought:
+        inner["reasoning_content"] = thought
+    return {
+        "choices": [{"message": inner, "finish_reason": tail.get("finish_reason")}],
+        # Absent rather than zeroed when the server did not send a usage frame —
+        # `stats_from_openai_body` reads a missing `usage` as silence, which is
+        # `CallStats`' rule and not a shortcut.
+        **({"usage": tail["usage"]} if "usage" in tail else {}),
+    }
 
 
 def _reasoning_of(body: dict[str, Any]) -> str:
