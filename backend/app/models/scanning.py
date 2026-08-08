@@ -34,6 +34,7 @@ from app.db.base import Base
 from app.models.base import TimestampMixin
 from app.models.enums import (
     AliasKind,
+    DispatchState,
     EntityType,
     PendingIntakeStatus,
     ScanAction,
@@ -334,6 +335,58 @@ class PendingIntake(Base, TimestampMixin):
     #: nobody trusts. See `ix_pending_intakes_status_id`.
     queued_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
 
+    # -- the capture-dispatch queue (ADR 0021) -------------------------------
+    #
+    # Six columns and an index, not a table. Same construction as the extraction
+    # queue on `documents` and the research queue on `parts`, and for the reason
+    # `ExtractionState`'s docstring gives: a queue table needs a row inserted for
+    # every entry that might ever want work, kept in step with this one by
+    # something, and swept when it falls behind. A state on the row it describes
+    # cannot fall out of step with itself.
+    #
+    # The subject is a **photograph**: `capture_id` is what gets read. An entry
+    # with no capture has nothing for a model to look at, which is why
+    # `app.services.dispatch` will not enqueue one.
+
+    #: Where this entry stands in the dispatch queue. **Defaults to
+    #: `NOT_REQUESTED`**, unlike research's `PENDING`, because a run costs a GPU
+    #: handover on a card that is exclusive and co-tenanted — see
+    #: `app.models.enums.DispatchState`, which argues it at length. A phone syncing
+    #: forty labels must not thereby queue forty model runs.
+    dispatch_state: Mapped[str] = mapped_column(
+        StrEnumType(DispatchState),
+        nullable=False,
+        default=DispatchState.NOT_REQUESTED,
+        server_default=DispatchState.NOT_REQUESTED.value,
+        # No `index=True`: `ix_pending_intakes_dispatch_queue` below leads with
+        # this column and serves every query a bare index on it would.
+    )
+    #: Leases handed out, counted **when the claim is granted** rather than when a
+    #: result arrives, so an entry that kills whatever picks it up runs out instead
+    #: of being retried forever. See `app.services.dispatch.claim`.
+    dispatch_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    #: When the current lease started. NULL unless `dispatch_state` is `claimed`.
+    dispatch_claimed_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    #: Which worker holds it. Diagnostics only — nothing branches on it, and the
+    #: lease's expiry is what actually decides whether the claim is live.
+    dispatch_claimed_by: Mapped[str | None] = mapped_column(String(64))
+    #: Why the run broke. **NULL on `unidentified`**, deliberately: a photograph the
+    #: model could not read is not a fault, and an error message beside it would put
+    #: it in a health check that exists to surface real breakage. See
+    #: `app.models.enums.DispatchState`.
+    dispatch_error: Mapped[str | None] = mapped_column(Text)
+    #: What the model said the thing in the photograph physically is — a reel, a
+    #: cut-tape strip, a bag, a bare part. One of `vision.LABEL_KINDS`.
+    #:
+    #: A column rather than a candidate field because it is a fact about the *frame*
+    #: and not about any one identity, so it survives a run that proposed nothing.
+    #: It is **for the reviewer's reading only**: "this is a cut-tape strip" changes
+    #: what a person expects the quantity to be, and it never becomes a field value
+    #: and never reaches `parameter_value_candidate`.
+    dispatch_label_kind: Mapped[str | None] = mapped_column(String(32))
+
     __table_args__ = (
         # The only query that matters: "the pending ones, oldest first", so a
         # box of reels is walked in the order it was scanned. Ordered by `id`
@@ -341,4 +394,10 @@ class PendingIntake(Base, TimestampMixin):
         # monotonic, and a client that syncs a batch posts it in scan order, so
         # this is both the user's order and immune to a skewed device clock.
         Index("ix_pending_intakes_status_id", "status", "id"),
+        # The dispatch worker's claim query, in the column order it filters and
+        # sorts in — the same shape as `ix_parts_research_queue` and for the same
+        # reason. `dispatch_attempts` sits second because fresh work is handed out
+        # before retries, and `id` makes the ordering total so a given queue state
+        # produces a deterministic and therefore testable batch.
+        Index("ix_pending_intakes_dispatch_queue", "dispatch_state", "dispatch_attempts", "id"),
     )

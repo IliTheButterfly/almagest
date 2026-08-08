@@ -1203,6 +1203,75 @@ class ResearchCandidateState(StrEnum):
     REJECTED = "rejected"
 
 
+class DispatchState(StrEnum):
+    """Where one `pending_intakes` row stands in the capture-dispatch queue (ADR 0021).
+
+    The third queue, and deliberately the same shape as the two before it: **this
+    column plus an index, not a table** — see `ExtractionState` for the argument, and
+    `ResearchState` for the same argument applied to a different subject. Extraction
+    is about a document with no text; research about a part with no document; this is
+    about a **photograph nobody has read**.
+
+    ## `NOT_REQUESTED` is the default, and that is the difference from research
+
+    `ResearchState.PENDING` is the default for a part, because researching one costs a
+    few HTTP requests to somebody else's CDN and the queue can be left to drain
+    itself. Dispatching a capture costs a **GPU handover**: the single card this
+    machine has is exclusive and co-tenanted (ADR 0016), so a vision model becoming
+    resident means some other workload is not. Defaulting every parked scan to
+    `PENDING` would mean a phone that syncs forty labels has quietly queued forty
+    model runs.
+
+    So it is opt-in. Every scan parks as `NOT_REQUESTED` and something — a person
+    tapping *read this label*, or a policy that has decided this capture is worth a
+    model — moves it to `PENDING`. That is why this enum has six members where
+    `ResearchState` has five with the same names: the extra one is the state of *not
+    having asked*, which for research does not exist.
+
+    ## `UNIDENTIFIED` is not `FAILED`, and the distinction is load-bearing
+
+    Exactly `ResearchState`'s `EXHAUSTED`/`FAILED` split, for exactly its reason.
+    ADR 0021 puts it plainly: **"we could not tell what this is" is a photograph
+    problem whose fix is another photograph**, while `FAILED` means something is
+    wrong with the system. A blurred label, a bag photographed from the back, a bare
+    component with its marking worn off — all reach `UNIDENTIFIED` and none of them
+    is a bug. Collapsing the two puts two unrelated diagnoses in one bucket and the
+    bucket stops being read.
+
+    A health check counts `FAILED`. It must not count `UNIDENTIFIED`, or it fills
+    with photographs nothing is wrong with.
+
+    ## `PROPOSED` is terminal *for the machine*
+
+    It means ranked `intake_identity_candidates` rows exist and a person has not
+    chosen among them. Nothing automated advances past it at any confidence —
+    `CLAUDE.md`'s never-auto-accept rule, and the measurement behind it is in
+    ADR 0021: the model reported 0.95 on an answer that was the item's FCC ID. The
+    entry's own `status` stays `pending` until somebody resolves it through the
+    ordinary intake door.
+    """
+
+    #: Nobody has asked for this photograph to be read. **The default**, and the
+    #: reason this enum is not `ResearchState` — see the class docstring. Excluded
+    #: from queue depth, because a capture nobody requested is not work waiting.
+    NOT_REQUESTED = "not_requested"
+    #: Somebody asked. Waiting for a worker.
+    PENDING = "pending"
+    #: A worker holds a lease — see `app.services.dispatch.LEASE_SECONDS`. A lease,
+    #: not a lock: it expires on its own, so a worker killed mid-run needs nobody to
+    #: notice.
+    CLAIMED = "claimed"
+    #: The model read it and named at least one candidate. Terminal for the machine;
+    #: a person chooses. See the class docstring.
+    PROPOSED = "proposed"
+    #: The model read it and could name nothing. **Not an error** — see the class
+    #: docstring. `dispatch_error` is left NULL.
+    UNIDENTIFIED = "unidentified"
+    #: Attempts ran out, or the run itself broke. `dispatch_error` says what. The one
+    #: of the two terminal states that belongs in a health check.
+    FAILED = "failed"
+
+
 class ChatKind(StrEnum):
     """Which history list a `chat_threads` row belongs to (ADR 0018).
 

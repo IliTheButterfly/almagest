@@ -152,6 +152,20 @@ _RESEARCH: Final = (
     "diagnostics, not an answer about the inventory. A part's actual datasheet is "
     "already reachable through `get_part`."
 )
+_DISPATCH: Final = (
+    "The capture-dispatch worker's queue door (ADR 0021): claim a lease on a parked "
+    "photograph, submit the identities a vision model proposed. One consumer, and it is "
+    "not this. The read rides along because queue depth is a worker diagnostic, not an "
+    "answer about the inventory."
+)
+_DISPATCH_REQUEST: Final = (
+    "Spending the GPU. Requesting a run makes a vision model resident on the single "
+    "exclusive card this machine has (ADR 0016), which is why `DispatchState` defaults "
+    "to `not_requested` rather than `pending` — the cost is a handover a co-tenant pays "
+    "for, so a person decides. An agent that could queue its own reads would defeat the "
+    "opt-in that exists to bound exactly that. Cancelling is excluded with it: the pair "
+    "is one decision, and exposing only the release half is not a coherent surface."
+)
 _CHAT: Final = (
     "The chat transcript store (ADR 0018). An agent driving its own transcript is "
     "a loop: the thing writing the messages would read them back as context and "
@@ -487,6 +501,17 @@ COVERAGE: Final[Mapping[str, Disposition]] = MappingProxyType(
         "requeue_research": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
         "read_research_status": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
         "read_part_research": Excluded(Reason.MACHINE_DOOR, _RESEARCH),
+        # -- capture dispatch (ADR 0021) ---------------------------------------
+        #
+        # All five excluded, and the two request routes for a *different* reason from
+        # the other three — see `_DISPATCH_REQUEST`. Worth stating because the obvious
+        # reading is that the whole surface is a machine door, and the request pair is
+        # not: it is a person deciding to spend an exclusive GPU.
+        "claim_dispatch_work": Excluded(Reason.MACHINE_DOOR, _DISPATCH),
+        "submit_dispatch_result": Excluded(Reason.MACHINE_DOOR, _DISPATCH),
+        "read_dispatch_status": Excluded(Reason.MACHINE_DOOR, _DISPATCH),
+        "request_dispatch": Excluded(Reason.HUMAN_JUDGEMENT, _DISPATCH_REQUEST),
+        "cancel_dispatch": Excluded(Reason.HUMAN_JUDGEMENT, _DISPATCH_REQUEST),
         # -- chat (ADR 0018) ---------------------------------------------------
         "list_chat_threads": Excluded(Reason.MACHINE_DOOR, _CHAT),
         "create_chat_thread": Excluded(Reason.MACHINE_DOOR, _CHAT),
