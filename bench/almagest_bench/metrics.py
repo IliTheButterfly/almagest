@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from app.models.parameter import ParameterTemplate
@@ -52,6 +52,7 @@ from almagest_bench.record import (
     CaseRecord,
     CellOutcome,
 )
+from almagest_bench.stages import judge_identity
 
 #: Resamples for a bootstrap interval. A thousand is plenty for a 95% interval on
 #: a few dozen cases and keeps a re-score instant.
@@ -381,6 +382,213 @@ def calibration(records: Sequence[CaseRecord], buckets: int = 10) -> list[tuple[
         for index, hits in sorted(tally.items())
         if hits
     ]
+
+
+# ---------------------------------------------------------------------------
+# The identity stage
+# ---------------------------------------------------------------------------
+#
+# Everything above scores *fields* — `by_template`, precision, recall, F1 — and it
+# is built for extraction records. The vision stage produces something different
+# in shape: one answer per case, judged into `stages.IDENTITY_OUTCOMES`. Feeding
+# those through `score_model` looks like it works and does not: `cells` is keyed
+# `identity:<mpn>`, so every distinct part number a model proposed becomes its own
+# "template" with one observation, and `macro_f1` averages over readings rather
+# than over fields.
+#
+# So the identity stage gets its own three functions. They deliberately do not
+# produce an F1: precision and recall over a single-answer task with four failure
+# modes would collapse `misread` and `fabricated` into one number, which is the
+# one distinction the corpus exists to draw.
+
+
+@dataclass(frozen=True)
+class IdentityScore:
+    """One model's identity outcomes over one sweep, as counts.
+
+    **Counts, not rates.** `plots.MIN_CASES_FOR_RATES` refuses to draw a
+    percentage below thirty cases, and the same rule has to hold here or the
+    number the chart declined to show gets printed as text instead. `rate` exists
+    and returns `None` under that floor.
+    """
+
+    model_id: str
+    cases: int
+    #: Keyed by `stages.IDENTITY_OUTCOMES`, every key present even at zero — the
+    #: reason `status_counts` includes zeros, applied to a report: a missing
+    #: `fabricated` key cannot be told from a fabrication count that stopped
+    #: being computed.
+    outcomes: dict[str, int] = field(default_factory=dict)
+    errors: int = 0
+    wall_ms: tuple[int, ...] = ()
+    prompt_tokens: tuple[int, ...] = ()
+
+    @property
+    def correct(self) -> int:
+        return self.outcomes.get("correct", 0)
+
+    @property
+    def fabricated(self) -> int:
+        """The count that outranks the others.
+
+        A `misread` is repaired by the barcode anchor or a better photograph; a
+        `distractor` by naming the categories in the prompt. An invented part
+        number is repaired by not trusting the model, which is a different kind of
+        conclusion.
+        """
+        return self.outcomes.get("fabricated", 0)
+
+    def rate(self, outcome: str, *, min_cases: int) -> float | None:
+        """The share of cases with this outcome, or `None` if the corpus is too small.
+
+        `None` rather than a number, so a caller has to decide what to print
+        instead. Returning the fraction anyway and leaving the caveat to the
+        surrounding prose is how "6 of 12" becomes "50%" in somebody's notes a
+        week later.
+        """
+        if self.cases < min_cases:
+            return None
+        return self.outcomes.get(outcome, 0) / self.cases if self.cases else None
+
+    @property
+    def median_wall_seconds(self) -> float | None:
+        return _median(self.wall_ms) / 1000 if self.wall_ms else None
+
+    @property
+    def median_prompt_tokens(self) -> float | None:
+        """What sending a full-resolution frame costs.
+
+        ADR 0021 asks for exactly this number: `grab.ts` does not downscale, so a
+        phone capture reaches the model whole and the prompt-token count is the
+        measurement of whether that is affordable.
+        """
+        return _median(self.prompt_tokens) if self.prompt_tokens else None
+
+
+def judge_records(
+    records: Sequence[CaseRecord], cases: Mapping[str, Case]
+) -> list[tuple[CaseRecord, str]]:
+    """Re-judge each vision record's top answer against the corpus.
+
+    **The one place the verdict is computed**, shared by `score` and `plot` so the
+    table and the picture cannot disagree — which they could when `plot` carried
+    this inline, and a disagreement between a chart and the console is exactly how
+    the ranked-candidate bug in `docs/HANDOFF-vision-and-bench.md` was found.
+
+    Judged from `ranked[0]` and never from `cells`: records are written with
+    `sort_keys`, so `cells` is in alphabetical order and its first key is the
+    alphabetically-first candidate rather than the model's answer.
+    """
+    judged: list[tuple[CaseRecord, str]] = []
+    for record in records:
+        if record.error:
+            judged.append((record, "error"))
+            continue
+        top = record.ranked[0] if record.ranked else None
+        case = cases.get(record.case_id)
+        if case is None:
+            judged.append((record, "none"))
+        elif top is None:
+            # No answer at all. On an item with nothing printed that names it,
+            # that is the *right* answer — which is why the no-part-number class
+            # is worth defending: without it, always guessing wins.
+            judged.append((record, "correct" if case.unidentifiable else "none"))
+        else:
+            judged.append((record, judge_identity(case, top)))
+    return judged
+
+
+def score_identity(
+    model_id: str, judged: Sequence[tuple[CaseRecord, str]], *, outcomes: Sequence[str]
+) -> IdentityScore:
+    """Tally one model's judged answers. Zeros included for every known outcome."""
+    tally = {outcome: 0 for outcome in outcomes}
+    for _, verdict in judged:
+        if verdict in tally:
+            tally[verdict] += 1
+    return IdentityScore(
+        model_id=model_id,
+        cases=len(judged),
+        outcomes=tally,
+        errors=sum(1 for record, _ in judged if record.error),
+        wall_ms=tuple(record.wall_ms for record, _ in judged),
+        prompt_tokens=tuple(
+            call.prompt_tokens
+            for record, _ in judged
+            for call in record.calls
+            if call.prompt_tokens
+        ),
+    )
+
+
+def bootstrap_identity(
+    judged: Sequence[tuple[CaseRecord, str]],
+    *,
+    outcome: str = "correct",
+    resamples: int = BOOTSTRAP_RESAMPLES,
+) -> Interval | None:
+    """A 95% interval on one outcome's share, resampling **whole cases**.
+
+    Same rule as `bootstrap_f1` and for the same reason, which matters even more
+    here: repeats of one case are the *same* photograph through the same model, and
+    ADR 0021 measured that pair disagreeing with itself. Resampling records rather
+    than cases would treat an unstable answer as two independent observations and
+    narrow the interval on the strength of the instability.
+
+    So the resample is over `case_id`, carrying every repeat of a drawn case with
+    it. `docs/HANDOFF-vision-and-bench.md` predicts roughly a +/-10 point interval
+    at twelve cases, which is the honest reason this number is reported at all.
+    """
+    by_case: dict[str, list[str]] = {}
+    for record, verdict in judged:
+        by_case.setdefault(record.case_id, []).append(verdict)
+    case_ids = sorted(by_case)
+    if len(case_ids) < 2:
+        return None
+
+    rng = random.Random(BOOTSTRAP_SEED)
+    shares: list[float] = []
+    for _ in range(resamples):
+        hits = 0
+        total = 0
+        for _ in case_ids:
+            drawn = by_case[case_ids[rng.randrange(len(case_ids))]]
+            hits += sum(1 for verdict in drawn if verdict == outcome)
+            total += len(drawn)
+        if total:
+            shares.append(hits / total)
+    if not shares:
+        return None
+    shares.sort()
+    return Interval(
+        low=shares[int(0.025 * (len(shares) - 1))],
+        high=shares[int(0.975 * (len(shares) - 1))],
+    )
+
+
+def identity_resolvable(
+    left: IdentityScore,
+    right: IdentityScore,
+    judged: Mapping[str, Sequence[tuple[CaseRecord, str]]],
+) -> bool:
+    """Is the gap between two models bigger than the noise on either of them?
+
+    `resolvable`'s rule, for the identity stage: **refuse to report a
+    between-model difference smaller than the within-measurement variance.** At
+    twelve cases almost nothing clears this, and saying so is the more useful
+    output than a ranking nobody should act on.
+    """
+    if not left.cases or not right.cases:
+        return False
+    gap = abs(left.correct / left.cases - right.correct / right.cases)
+    intervals = [
+        bootstrap_identity(judged.get(left.model_id, ())),
+        bootstrap_identity(judged.get(right.model_id, ())),
+    ]
+    widths = [interval.half_width for interval in intervals if interval is not None]
+    if not widths:
+        return False
+    return gap > max(widths)
 
 
 def _median(values: Sequence[int]) -> float:
