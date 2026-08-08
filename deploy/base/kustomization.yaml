@@ -34,6 +34,10 @@ resources:
   - llm-vllm.yaml
   # Gives the GPU back on idle, so nothing depends on somebody remembering.
   - llm-reaper.yaml
+  # Drains the capture-dispatch queue when somebody has asked for a read, bringing
+  # the vision model up on demand and releasing the card after. Waits for the GPU
+  # and never evicts another model server — see its header.
+  - dispatch-watcher.yaml
 
 labels:
   - pairs:

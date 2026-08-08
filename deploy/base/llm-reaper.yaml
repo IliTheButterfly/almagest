@@ -37,6 +37,35 @@
 # starting and left alone. Its `startupProbe` already bounds that (an hour), which
 # is the right place for the bound: it knows what "still starting" means and this
 # script does not.
+#
+# ## The second exception: a capture-dispatch drain
+#
+# `almagest-dispatch-watcher` reads queued photographs with a vision model (ADR
+# 0021), and **a vision run touches no chat thread** — so by the measure above a
+# drain is indistinguishable from an idle model, and this CronJob scaled the model to
+# zero mid-read. Observed during a benchmark, not theorised.
+#
+# The fix is one more question, not a suspension. Suspend-and-restore was the obvious
+# approach and is the fragile one: it leaves a window where a crashed harness leaves
+# this CronJob suspended, which is the bad state — nothing releasing the card at all
+# — and that exact ordering has already failed here. So **this stays the single
+# authority on releasing the GPU** and simply asks the watcher whether a drain is in
+# flight.
+#
+# Two properties of the answer make that safe rather than a new way to leak a GPU:
+#
+#   * **It is bounded.** `DrainFlag` reports `draining: true` only while the drain is
+#     *making progress* — every claim and submission refreshes a heartbeat, and ten
+#     minutes of silence puts the flag back to false even though the drain has not
+#     returned. A wedged worker therefore stops holding the card off.
+#   * **Silence releases.** A watcher that is gone, crashed, or has lost its HTTP
+#     thread does not answer, and an unanswered call falls through to the ordinary
+#     idle check — the same bias toward releasing the header sets out above.
+#
+# Note what is deliberately *not* consulted: `GET /api/dispatch/status`. A non-zero
+# `pending` is not a reason to hold a GPU — a queue nobody is draining is exactly when
+# the card should go back — and that route reports depth by state without saying
+# whether any claim's lease is still live, so it cannot express "in flight" at all.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -77,6 +106,34 @@ data:
     set -u
     IDLE_MINUTES="${IDLE_MINUTES:-15}"
     API="${API:-http://almagest-api:8000}"
+    WATCHER="${WATCHER:-http://almagest-dispatch-watcher:9099}"
+
+    # A capture-dispatch drain holds the card and touches no chat thread, so it has to
+    # be asked about separately or it gets reaped mid-read - see the header. Asked
+    # first, because a positive answer means there is nothing else worth computing.
+    #
+    # `draining` is true only while the drain is making progress (the watcher's own
+    # heartbeat bounds it), and an unreachable or crashed watcher answers nothing at
+    # all, which falls straight through to the idle check below. Both directions of
+    # failure therefore end in releasing, which is the bias this script already has.
+    #
+    # `tr -d` first, so the match does not depend on how the other side spaces its
+    # JSON. `json.dumps` puts a space after the colon by default; the watcher emits
+    # compact separators *and* this strips whitespace, because a pattern that silently
+    # stopped matching would fail in the direction that reaps a live drain.
+    drain="$(wget -qO- --timeout=10 "$WATCHER/draining" 2>/dev/null | tr -d ' \t\n')" || drain=""
+    case "$drain" in
+      *'"draining":true'*)
+        echo "a capture-dispatch drain is in flight; leaving the GPU alone"
+        exit 0
+        ;;
+      *'"stalled":true'*)
+        # Said out loud rather than silently released: a drain that stopped reporting
+        # progress is a wedged worker, and the release below is the right thing to do
+        # about it, but nobody would otherwise know it had happened.
+        echo "a capture-dispatch drain has stalled; treating the GPU as reclaimable"
+        ;;
+    esac
 
     # Newest activity across both history lists. `updated_at` moves when a message
     # is appended, so this is "when did somebody last talk to a model".
