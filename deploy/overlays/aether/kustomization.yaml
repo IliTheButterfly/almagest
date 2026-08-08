@@ -15,6 +15,6 @@ resources:
 # silently reverting to whatever the file last said.
 images:
   - name: ghcr.io/ilithebutterfly/almagest-api
-    newTag: sha-d6b8a4ee1af2
+    newTag: sha-dbf39e2a62b2
   - name: ghcr.io/ilithebutterfly/almagest-web
-    newTag: sha-d6b8a4ee1af2
+    newTag: sha-dbf39e2a62b2
