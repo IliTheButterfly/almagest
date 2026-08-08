@@ -77,6 +77,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urljoin
 
+from app.services.enrichment.progress import MIN_PROGRESS_INTERVAL, ProgressReporter
 from app.services.enrichment.vision import (
     DEFAULT_MAX_CANDIDATES,
     FakeVisionProvider,
@@ -130,10 +131,15 @@ class QueuedCapture:
 
 
 class ApiClient(Protocol):
-    """The five calls the worker makes.
+    """The calls the worker makes.
 
     A Protocol so the tests drive the loop in-process through the real routes, without a
     socket or a port — `research_datasheets.ApiClient`'s reasoning unchanged.
+
+    Four of these are about the transcript rather than the work, and they are four
+    rather than one because **a run row has to exist while the model is still
+    thinking**. `record_run` writes a finished run in one call and is the fallback;
+    `start_run` / `record_progress` / `finish_run` are the live path.
     """
 
     def claim(self, *, worker_id: str, limit: int) -> list[QueuedCapture]: ...
@@ -155,6 +161,12 @@ class ApiClient(Protocol):
     def submit_failure(self, *, intake_id: int, error: str) -> None: ...
 
     def record_run(self, run: dict[str, Any]) -> None: ...
+
+    def start_run(self, run: dict[str, Any]) -> int | None: ...
+
+    def record_progress(self, run_id: int, response_text: str) -> None: ...
+
+    def finish_run(self, run_id: int, patch: dict[str, Any]) -> None: ...
 
 
 class HttpApiClient:
@@ -263,6 +275,54 @@ class HttpApiClient:
             self._post_json("api/runs", run)
         except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError) as error:
             log.warning("could not record the model run: %s", error)
+
+    def start_run(self, run: dict[str, Any]) -> int | None:
+        """Open a run row **before** the model is asked. Returns its id, or None.
+
+        The row has to exist while the answer is still being generated, or nothing can
+        be watched: recorded afterwards, a forty-second read is forty seconds with no
+        row at all and a person watching cannot tell it from a hung worker.
+
+        `None` on any failure, and the caller then falls back to `record_run` at the
+        end. That keeps the same posture `record_run` and `create_stub_part` already
+        take — **a bookkeeping failure must never cost a GPU handover.** An API older
+        than this worker has no `/progress` route, and the right outcome there is an
+        unwatchable read that still produces candidates, not a photograph pushed back
+        into the queue.
+        """
+        try:
+            body = self._post_json("api/runs", run)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError) as error:
+            log.warning("could not open a model run row: %s", error)
+            return None
+        recorded = body.get("run")
+        return None if not isinstance(recorded, dict) else int(recorded["id"])
+
+    def record_progress(self, run_id: int, response_text: str) -> None:
+        """Republish the answer so far. Warns and returns on failure.
+
+        Throttled by the caller — see `app.services.enrichment.progress`. This method
+        is deliberately dumb about rate: putting the policy here would mean the
+        transport knew about the writer's load, and the reason it is safe to leave
+        that to the caller is that the caller's throttle has a test.
+        """
+        try:
+            self._post_json(f"api/runs/{run_id}/progress", {"response_text": response_text})
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError) as error:
+            log.warning("could not republish a partial answer: %s", error)
+
+    def finish_run(self, run_id: int, patch: dict[str, Any]) -> None:
+        """Settle the run. Warns and returns on failure — but the cost is real.
+
+        Unlike a lost partial, a lost finish leaves the row **looking in flight**
+        until `runs.STALE_AFTER_SECONDS` retires it. That bound is why this can still
+        be a warning rather than a retry loop: the screen stops watching on its own,
+        and the candidates were already submitted.
+        """
+        try:
+            self._post_json(f"api/runs/{run_id}/finish", patch)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError) as error:
+            log.warning("could not finish the model run: %s", error)
 
     def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -394,6 +454,108 @@ def _run_row(
     }
 
 
+#: The finish-only half of `_run_row`. Named so the split cannot drift: a field added
+#: to the row that belongs on the settle call has to be added here too, and a reader
+#: comparing the two lists sees immediately which side each field is on.
+_FINISH_FIELDS = (
+    "finished_at",
+    "latency_ms",
+    "prompt_tokens",
+    "completion_tokens",
+    "finish_reason",
+    "response_text",
+    "error",
+)
+
+
+class _LiveRun:
+    """One run's row, opened before the model answers and settled afterwards.
+
+    The state that has to live across a `provider.read` call: the row's id, and the
+    throttle that decides which partials reach the API. Bundled into an object rather
+    than threaded through as locals because the two callbacks
+    (`VisionProvider.read`'s `on_started` and `on_progress`) need to share it, and
+    because the fallback below needs to know whether the row was ever opened.
+
+    **Every method here is best-effort.** A transcript is the diagnostic and the
+    candidates are the work, so nothing in this class may raise into the read — see
+    `HttpApiClient.start_run`.
+    """
+
+    def __init__(
+        self,
+        client: ApiClient,
+        provider: VisionProvider,
+        capture: QueuedCapture,
+        *,
+        progress_interval: float,
+    ) -> None:
+        self._client = client
+        self._provider = provider
+        self._capture = capture
+        self._progress_interval = progress_interval
+        self.run_id: int | None = None
+        self.started_at = _now()
+        #: What the transport said it sent. Kept because the fallback path has to
+        #: report it in one call, and only the transport ever knew it.
+        self.request_json: str | None = None
+        self._reporter: ProgressReporter | None = None
+
+    # -- the two callbacks handed to the provider --------------------------------
+
+    def started(self, request_json: str) -> None:
+        """Open the row. Called by the transport once the payload exists."""
+        self.request_json = request_json
+        self.run_id = self._client.start_run(
+            {
+                "kind": "vision",
+                "provider": self._provider.name,
+                "model": self._provider.model,
+                "intake_id": self._capture.intake_id,
+                "document_sha256": self._capture.capture_sha256,
+                "started_at": self.started_at,
+                # No `finished_at`: its absence is what "in flight" means, and it is
+                # what the activity screen polls on.
+                "request_json": request_json,
+            }
+        )
+        if self.run_id is not None:
+            run_id = self.run_id
+            self._reporter = ProgressReporter(
+                sink=lambda text: self._client.record_progress(run_id, text),
+                min_interval=self._progress_interval,
+            )
+
+    def progress(self, text: str) -> None:
+        """Offer a partial. The reporter decides whether it is worth a write."""
+        if self._reporter is not None:
+            self._reporter.offer(text)
+
+    # -- settling ---------------------------------------------------------------
+
+    def settle(
+        self, *, result: VisionResult | None = None, error: BaseException | None = None
+    ) -> None:
+        """Record the outcome, by whichever of the two paths is available.
+
+        The fallback is the whole reason this is one method rather than two calls at
+        the call site: an API with no `/finish` route (or a `start_run` that failed
+        for any other reason) must still end up with a complete run row, and the only
+        way to get one is the single-shot `record_run` this pipeline shipped with.
+        """
+        row = _run_row(
+            self._provider,
+            self._capture,
+            started_at=self.started_at,
+            result=result,
+            error=error,
+        )
+        if self.run_id is None:
+            self._client.record_run(row)
+            return
+        self._client.finish_run(self.run_id, {key: row[key] for key in _FINISH_FIELDS})
+
+
 def _now() -> str:
     """Wall clock, as the API's `UtcDateTime` wants it.
 
@@ -404,7 +566,14 @@ def _now() -> str:
     return datetime.now(tz=UTC).isoformat()
 
 
-def process_one(client: ApiClient, provider: VisionProvider, capture: QueuedCapture) -> bool:
+def process_one(
+    client: ApiClient,
+    provider: VisionProvider,
+    capture: QueuedCapture,
+    *,
+    stream: bool = True,
+    progress_interval: float = MIN_PROGRESS_INTERVAL,
+) -> bool:
     """Read one claimed photograph. True if any identity was proposed.
 
     A read that names nothing submits `candidates: []`, which settles the entry
@@ -417,6 +586,18 @@ def process_one(client: ApiClient, provider: VisionProvider, capture: QueuedCapt
     to see what the model was *told*, not only what it said. A failed call is the case
     that matters most, because it leaves no candidate row behind at all — so the run is
     recorded and the exception re-raised for `run_once` to report to the queue.
+
+    **And the recording now happens in three parts rather than one**, so the read is
+    watchable while it happens: the row is opened before the model is asked, the answer
+    is republished onto it about once a second as it accumulates, and it is settled at
+    the end. ADR 0021 measured a read spending its entire budget on reasoning — 12 318
+    characters, no answer — and none of that was visible until the call returned.
+    Watching it accumulate turns a forty-second silence into a visible overrun.
+
+    `stream=False` restores the single-shot behaviour exactly. It exists because the
+    streamed path is worth being able to switch off from the command line when a
+    server's streaming is the thing under suspicion, and because a caller with nowhere
+    to put a partial should not be made to invent one.
     """
     image = client.fetch_image(capture.capture_sha256)
     request = build_request(capture, image)
@@ -430,13 +611,21 @@ def process_one(client: ApiClient, provider: VisionProvider, capture: QueuedCapt
         request.max_candidates,
     )
 
-    started_at = _now()
+    live = _LiveRun(client, provider, capture, progress_interval=progress_interval)
     try:
-        result = provider.read(request)
+        result = provider.read(
+            request,
+            on_started=live.started,
+            on_progress=live.progress if stream else None,
+        )
     except Exception as error:  # a provider's exception types are not enumerable
-        client.record_run(_run_row(provider, capture, started_at=started_at, error=error))
+        # Settled rather than left open. A read that broke *is* finished, and leaving
+        # `finished_at` NULL would have every watching screen waiting on an answer
+        # that is never coming — until the staleness bound retired it, which is a
+        # backstop and not a design.
+        live.settle(error=error)
         raise
-    client.record_run(_run_row(provider, capture, started_at=started_at, result=result))
+    live.settle(result=result)
     reports = _reports(client, capture, result, device_id=f"dispatch:{provider.name}")
     client.submit_candidates(
         intake_id=capture.intake_id,
@@ -470,6 +659,8 @@ def run_once(
     *,
     worker_id: str,
     limit: int = DEFAULT_LIMIT,
+    stream: bool = True,
+    progress_interval: float = MIN_PROGRESS_INTERVAL,
 ) -> int:
     """Claim one batch and work it. Returns how many photographs produced a proposal."""
     claimed = client.claim(worker_id=worker_id, limit=limit)
@@ -478,7 +669,13 @@ def run_once(
     proposed = 0
     for capture in claimed:
         try:
-            proposed += process_one(client, provider, capture)
+            proposed += process_one(
+                client,
+                provider,
+                capture,
+                stream=stream,
+                progress_interval=progress_interval,
+            )
         except Exception as error:  # a provider's exception types are not enumerable
             # The run broke rather than the photograph being unreadable. Reported as a
             # failure so the queue retries it, which is the difference between a model
@@ -498,6 +695,8 @@ def run(
     limit: int = DEFAULT_LIMIT,
     poll_seconds: float = 0.0,
     max_batches: int | None = 1,
+    stream: bool = True,
+    progress_interval: float = MIN_PROGRESS_INTERVAL,
 ) -> int:
     """Work the queue until it is empty, or forever if asked.
 
@@ -510,7 +709,14 @@ def run(
     batches = 0
     while max_batches is None or batches < max_batches:
         batches += 1
-        done = run_once(client, provider, worker_id=worker_id, limit=limit)
+        done = run_once(
+            client,
+            provider,
+            worker_id=worker_id,
+            limit=limit,
+            stream=stream,
+            progress_interval=progress_interval,
+        )
         proposed += done
         if done:
             continue
@@ -616,6 +822,24 @@ def _parser() -> argparse.ArgumentParser:
             "the queue and exits — one model load for the whole queue."
         ),
     )
+    parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        help=(
+            "Ask for the whole answer at once instead of watching it arrive. The read "
+            "then records nothing until it finishes, which is what it did before — use "
+            "this when a server's streaming is the thing under suspicion."
+        ),
+    )
+    parser.add_argument(
+        "--progress-interval",
+        type=float,
+        default=MIN_PROGRESS_INTERVAL,
+        help=(
+            "Seconds between republished partials, at most. The API is one SQLite "
+            "writer; lowering this puts more transactions per photograph through it."
+        ),
+    )
     parser.add_argument("--verbose", action="store_true")
     return parser
 
@@ -645,6 +869,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         limit=args.limit,
         poll_seconds=args.poll_seconds,
         max_batches=max_batches,
+        stream=not args.no_stream,
+        progress_interval=args.progress_interval,
     )
     log.info("done: %d photograph(s) produced a proposal", proposed)
     return 0

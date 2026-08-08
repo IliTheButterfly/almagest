@@ -459,6 +459,34 @@ class HeartbeatClient:
         self._flag.touch()
         self._inner.record_run(run)
 
+    def start_run(self, run: dict[str, Any]) -> int | None:
+        self._flag.touch()
+        return self._inner.start_run(run)
+
+    def record_progress(self, run_id: int, response_text: str) -> None:
+        """Republish a partial, and count it as progress — the best signal there is.
+
+        `record_run`'s docstring above says a run is the freshest liveness evidence
+        available at the moment the drain looks most idle from outside. **This is
+        strictly better**, and it is the reason the streamed read improves the reaper
+        interaction rather than merely the screen: it fires roughly once a second for
+        the whole duration of the inference, so the ten-minute silence
+        `DrainFlag`/`llm-reaper.yaml` watch for can no longer be reached by a read that
+        is simply slow. Only a genuinely stuck one gets there.
+
+        Note the failure this method existing at all prevents. `ApiClient` grew three
+        methods and this wrapper would have grown none; a `Protocol` is structural, so
+        nothing at runtime warns and every drain would have died on `AttributeError` at
+        the first model call — which is exactly what happened once already when
+        `record_run` was added. `mypy --strict` is what caught it this time.
+        """
+        self._flag.touch()
+        self._inner.record_progress(run_id, response_text)
+
+    def finish_run(self, run_id: int, patch: dict[str, Any]) -> None:
+        self._flag.touch()
+        self._inner.finish_run(run_id, patch)
+
 
 # ---------------------------------------------------------------------------
 # The loop

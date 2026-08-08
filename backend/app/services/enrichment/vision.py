@@ -70,6 +70,7 @@ of this module is allowed to do it.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -235,6 +236,26 @@ class VisionResult:
         return self.candidates[0] if self.candidates else None
 
 
+#: Called once with the sanitised request payload, before the model is asked.
+#:
+#: The seam that makes a read **watchable**. `model_runs` used to be written after
+#: the answer came back, which cannot show anything live, so the row has to be
+#: created at the start — and the prompt belongs on it from the first moment,
+#: because a row with a NULL prompt is not yet worth opening. Only the transport
+#: knows the payload, and only the transport is allowed to hold the image bytes, so
+#: the sanitised JSON is handed *out* rather than rebuilt by the caller.
+OnStarted = Callable[[str], None]
+
+#: Called with the whole accumulated answer, repeatedly, while it is generated.
+#:
+#: Passing it is what asks for a **streamed** response; leaving it None keeps the
+#: single-shot path exactly as it was. Rate limiting is the caller's business —
+#: `app.services.enrichment.progress.ProgressReporter` is what a caller should pass
+#: here, and its docstring says why an unthrottled version would flood one SQLite
+#: writer.
+OnProgress = Callable[[str], None]
+
+
 class VisionProvider(Protocol):
     """What a capture reader has to look like. One image in, ranked guesses out.
 
@@ -242,12 +263,27 @@ class VisionProvider(Protocol):
     server, a vLLM server and the fake below all satisfy it with no change to the
     worker that calls it, so which model reads a photograph is configuration
     rather than code.
+
+    ## Both callbacks are optional, and omitting them is the old behaviour
+
+    A provider called with neither must do exactly what it did before they existed:
+    one request, one response, nothing published mid-flight. That is not politeness
+    towards old callers — it is what keeps the **fixture** path and every offline
+    test on the same code as production, and it is what lets a caller that has
+    nowhere to put a partial (a bench run writing JSONL, a `--once` probe) opt out
+    without a second method to maintain.
     """
 
     name: str
     model: str
 
-    def read(self, request: VisionRequest) -> VisionResult: ...
+    def read(
+        self,
+        request: VisionRequest,
+        *,
+        on_started: OnStarted | None = None,
+        on_progress: OnProgress | None = None,
+    ) -> VisionResult: ...
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +553,20 @@ def _label_kind(body: dict[str, Any]) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _in_pieces(text: str, pieces: int) -> list[str]:
+    """`text` as a growing sequence of prefixes, the last one whole.
+
+    Prefixes rather than deltas because that is what `OnProgress` is defined to
+    take — the receiving route replaces the stored partial rather than appending to
+    it, so a dropped call costs a frame and never corrupts the transcript.
+    """
+    if pieces < 1 or not text:
+        return [text]
+    step = max(1, len(text) // pieces)
+    cuts = list(range(step, len(text), step))[: pieces - 1]
+    return [text[:cut] for cut in cuts] + [text]
+
+
 class FakeVisionProvider:
     """Replays a response recorded once from a real one. No network, no model.
 
@@ -538,6 +588,15 @@ class FakeVisionProvider:
     part number.
     """
 
+    #: How many pieces a replayed answer is handed to `on_progress` in.
+    #:
+    #: More than one, deliberately: a fake that published the whole answer in a
+    #: single call would let the live path's accumulation bug — a delta dropped, a
+    #: partial written shorter than the last — pass every offline test. Four is
+    #: enough to prove the pieces arrive separately and grow monotonically, which is
+    #: the contract `ProgressReporter.offer` relies on.
+    PROGRESS_CHUNKS = 4
+
     def __init__(self, fixture_path: Path) -> None:
         body = _object(json.loads(fixture_path.read_text(encoding="utf-8")), "fixture")
         self.name = str(body.get("provider", "fake"))
@@ -545,38 +604,58 @@ class FakeVisionProvider:
         self._responses = _object(body.get("responses"), "fixture.responses")
         self.calls: list[VisionRequest] = []
 
-    def read(self, request: VisionRequest) -> VisionResult:
+    def read(
+        self,
+        request: VisionRequest,
+        *,
+        on_started: OnStarted | None = None,
+        on_progress: OnProgress | None = None,
+    ) -> VisionResult:
         self.calls.append(request)
+        # **Marked as a replay, not dressed up as a wire payload.** A fixture never
+        # built a request, and a plausible-looking one here would put a prompt in
+        # front of a reviewer that no model was ever sent. What the fake genuinely
+        # knows is the hints it was handed, so that is what it says -- and
+        # `replayed: true` is the flag that stops anybody reading the rest as
+        # provenance. Note what is here in place of the image: the same
+        # `image_sha256` handle the real transport substitutes, because a fake that
+        # carried bytes would make the no-image-bytes test pass vacuously.
+        request_json = json.dumps(
+            {
+                "replayed": True,
+                "image_sha256": request.document_sha256,
+                "media_type": request.media_type,
+                "barcode_texts": list(request.barcode_texts),
+                "ocr_lines": list(request.ocr_lines),
+                "max_candidates": request.max_candidates,
+            },
+            sort_keys=True,
+        )
+        # Before the miss below, so a fixture typo still produces a run row rather
+        # than an unexplained absence -- which is the same ordering the real
+        # transport has, where `on_started` fires before the socket is opened.
+        if on_started is not None:
+            on_started(request_json)
+
         if request.document_sha256 not in self._responses:
             raise VisionFixtureMiss(
                 f"no recorded response for document {request.document_sha256!r}; "
                 f"recorded: {sorted(self._responses)}"
             )
         recorded = self._responses[request.document_sha256]
+        # The recorded answer, re-serialised. Filled in so the whole transcript
+        # path -- the worker recording a run, the timeline rendering it -- is
+        # exercised by the offline tests rather than only against a GPU.
+        raw_response = json.dumps(recorded, sort_keys=True)
+        if on_progress is not None:
+            for partial in _in_pieces(raw_response, self.PROGRESS_CHUNKS):
+                on_progress(partial)
+
         return parse_response(
             recorded,
             request,
             provider=self.name,
             model=self.model,
-            # The recorded answer, re-serialised. Filled in so the whole transcript
-            # path -- the worker recording a run, the timeline rendering it -- is
-            # exercised by the offline tests rather than only against a GPU.
-            raw_response=json.dumps(recorded, sort_keys=True),
-            # **Marked as a replay, not dressed up as a wire payload.** A fixture
-            # never built a request, and a plausible-looking one here would put a
-            # prompt in front of a reviewer that no model was ever sent. What the
-            # fake genuinely knows is the hints it was handed, so that is what it
-            # says -- and `replayed: true` is the flag that stops anybody reading
-            # the rest as provenance.
-            request_json=json.dumps(
-                {
-                    "replayed": True,
-                    "image_sha256": request.document_sha256,
-                    "media_type": request.media_type,
-                    "barcode_texts": list(request.barcode_texts),
-                    "ocr_lines": list(request.ocr_lines),
-                    "max_candidates": request.max_candidates,
-                },
-                sort_keys=True,
-            ),
+            raw_response=raw_response,
+            request_json=request_json,
         )

@@ -328,6 +328,7 @@ class _Recorder:
     def __init__(self) -> None:
         self.recorded: list[dict[str, Any]] = []
         self.submitted: list[dict[str, Any]] = []
+        self.partials: list[tuple[int, str]] = []
 
     def claim(self, *, worker_id: str, limit: int) -> list[QueuedCapture]:
         return []
@@ -348,6 +349,20 @@ class _Recorder:
 
     def record_run(self, run: dict[str, Any]) -> None:
         self.recorded.append(run)
+
+    # The live path, as a row's lifecycle — see `test_dispatch_worker._Client` for why
+    # this is one merged row rather than three logs.
+
+    def start_run(self, run: dict[str, Any]) -> int | None:
+        self.recorded.append(dict(run))
+        return len(self.recorded)
+
+    def record_progress(self, run_id: int, response_text: str) -> None:
+        self.partials.append((run_id, response_text))
+        self.recorded[run_id - 1]["response_text"] = response_text
+
+    def finish_run(self, run_id: int, patch: dict[str, Any]) -> None:
+        self.recorded[run_id - 1].update(patch)
 
 
 def _queued() -> QueuedCapture:

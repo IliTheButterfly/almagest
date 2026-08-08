@@ -1313,6 +1313,20 @@ class ChatKind(StrEnum):
     #: Attached to one project, and never auto-archived. Sees its BOM, its builds
     #: and its allocations.
     PROJECT = "project"
+    #: About one parked scan: *why did you read the FCC ID as a part number?*
+    #:
+    #: The third kind the docstring above predicted, and it arrived as the one-line
+    #: change that predicted. It exists because the **dispatch run must stay
+    #: single-shot and schema-constrained** — no `url` property, `source_text`
+    #: required, `maxItems` from `max_candidates` — and a conversation cannot be
+    #: constrained that way. So talking about a reading happens *beside* the read
+    #: rather than by talking to it (ADR 0018), and `chat_threads.intake_id` is what
+    #: says which reading.
+    #:
+    #: Deliberately **not** in either history list: these threads are reached from the
+    #: entry they are about, because a question that only makes sense next to a
+    #: photograph is not a browsable conversation.
+    CAPTURE = "capture"
 
 
 class ChatRole(StrEnum):

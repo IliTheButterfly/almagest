@@ -119,6 +119,9 @@ class _Client:
         #: than a last-one-wins field because a retry is supposed to append: two
         #: rows is how "the first attempt broke and the second worked" is visible.
         self.recorded: list[dict[str, Any]] = []
+        #: Every partial republish, `(run_id, text)`. What makes the throttle
+        #: assertable: a per-token worker would fill this with hundreds of entries.
+        self.partials: list[tuple[int, str]] = []
 
     def claim(self, *, worker_id: str, limit: int) -> list[QueuedCapture]:
         out, self.claims = self.claims[:limit], self.claims[limit:]
@@ -144,6 +147,25 @@ class _Client:
 
     def record_run(self, run: dict[str, Any]) -> None:
         self.recorded.append(run)
+
+    # -- the live path: one row, opened then settled ---------------------------
+    #
+    # Modelled as a *lifecycle* rather than as three independent logs, so
+    # `self.recorded[0]` is the finished row whichever path the worker took. That is
+    # what lets every assertion written against the single-shot `record_run` keep
+    # meaning the same thing — and it is honest, because a row is exactly what the
+    # real routes end up with.
+
+    def start_run(self, run: dict[str, Any]) -> int | None:
+        self.recorded.append(dict(run))
+        return len(self.recorded)
+
+    def record_progress(self, run_id: int, response_text: str) -> None:
+        self.partials.append((run_id, response_text))
+        self.recorded[run_id - 1]["response_text"] = response_text
+
+    def finish_run(self, run_id: int, patch: dict[str, Any]) -> None:
+        self.recorded[run_id - 1].update(patch)
 
 
 def _queued(*, anchored: bool = False, intake_id: int = 1) -> QueuedCapture:

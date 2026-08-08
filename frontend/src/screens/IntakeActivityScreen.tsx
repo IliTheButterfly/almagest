@@ -35,13 +35,41 @@
  * that is shown it is shown as part of a transcript and labelled as one. The two are
  * never printed as the same number: ADR 0021 measured 0.95 self-reported on an answer
  * that was the item's FCC ID.
+ *
+ * ## Watching a read happen, and stopping
+ *
+ * A run whose `in_flight` is true has a model working on it right now. Those get a
+ * loading card with a ticking elapsed time and their partial answer **open** rather
+ * than behind a disclosure — the opposite of the finished case above, because while it
+ * is running the transcript is the only thing there is to look at. ADR 0021 measured a
+ * read spending its whole budget on reasoning and never answering; watching that
+ * accumulate turns a forty-second silence into a visible overrun.
+ *
+ * **This screen stops polling when nothing is in flight**, and that is load-bearing
+ * rather than tidy. The API is one SQLite writer serving every scan and every
+ * put-away; a dashboard that refreshed forever would be a slow leak, and an invisible
+ * one, because each individual request is cheap. `runs_in_flight` is the server's
+ * answer and this screen does not second-guess it — the staleness bound that retires a
+ * worker killed mid-read lives there, so a client counting for itself would be a
+ * second implementation of a rule with a subtlety in it.
+ *
+ * ## Asking about a reading is a different conversation from making one
+ *
+ * The dispatch run is a schema-constrained single-shot decode, and that constraint is
+ * what makes an invented part number unrepresentable rather than discouraged. So the
+ * "Ask about this scan" button opens a *separate* thread (ADR 0018) instead of making
+ * the read conversational. **The model in that thread cannot see the photograph** —
+ * chat is text-only — and the button's blurb says so, because a person who thinks it is
+ * looking at the picture will trust the wrong kind of answer.
  */
 
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ErrorBanner, Loading, Notice } from "../components/Feedback";
 import {
   getIntakeActivity,
+  openCaptureChat,
   type IntakeActivityRead,
   type ModelRunRead,
   type ResolvedPartActivity,
@@ -53,6 +81,16 @@ import { headlineFor } from "./IntakeQueueScreen";
 /** What a missing number is called. Never "0" — see the module docstring. */
 const UNRECORDED = "not recorded";
 
+/**
+ * How often the screen refreshes while a model is working.
+ *
+ * Matched to the worker's own republish interval rather than chosen independently:
+ * polling faster than partials are written would spend requests to see the same text,
+ * and polling slower would lag behind what is already stored. One second at both ends
+ * is the granularity the design accepted.
+ */
+const POLL_MS = 1000;
+
 function count(value: number | null | undefined): string {
   return value === null || value === undefined ? UNRECORDED : String(value);
 }
@@ -62,10 +100,57 @@ function duration(ms: number | null | undefined): string {
   return ms === null || ms === undefined ? UNRECORDED : `${(ms / 1000).toFixed(1)}s`;
 }
 
+/**
+ * A clock that ticks only while `active`.
+ *
+ * Two things need it and neither would work with a static render: the elapsed time on a
+ * loading card, and nothing else — the *data* refresh is a separate effect. Gated on
+ * `active` so a finished timeline schedules no timer at all, which is the same rule the
+ * polling follows and for the same reason.
+ */
+function useTickingNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => setNow(Date.now()), POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+/** Whole seconds since `startedAt`, which is what a person watching wants. */
+function elapsed(startedAt: string, now: number): string {
+  const seconds = Math.max(0, Math.round((now - new Date(startedAt).getTime()) / 1000));
+  return `${seconds}s`;
+}
+
 export function IntakeActivityScreen() {
   const { entryId } = useParams<{ entryId: string }>();
   const id = Number(entryId);
   const activity = useAsync<IntakeActivityRead>(() => getIntakeActivity(id), [id]);
+
+  // The server's count, not a count taken here. See the module docstring: the
+  // staleness bound that retires a worker killed mid-read lives on the server, and a
+  // client re-deriving "in flight" would be a second implementation of it.
+  const inFlight = activity.data?.runs_in_flight ?? 0;
+  const watching = inFlight > 0;
+  const now = useTickingNow(watching);
+
+  // Held in a ref so the effect below depends on **one boolean** and nothing else.
+  //
+  // That is not style. An effect whose dependencies change on every render tears the
+  // interval down and builds a new one each time, and a one-second interval rebuilt more
+  // often than once a second **never fires at all** — the countdown restarts before it
+  // completes. Measured: a first draft that also listed the loader starved down to a
+  // single poll and then stopped, which looks exactly like the feature working once.
+  const reloadRef = useRef(activity.reload);
+  reloadRef.current = activity.reload;
+
+  useEffect(() => {
+    if (!watching) return;
+    const timer = window.setInterval(() => reloadRef.current(), POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [watching]);
 
   if (activity.loading && activity.data === null) {
     return <Loading what="this entry's activity" />;
@@ -107,6 +192,7 @@ export function IntakeActivityScreen() {
         <p>
           <Link to="/intake">← Back to the intake queue</Link>
         </p>
+        <AskAboutThisScan entryId={entry.id} />
       </div>
 
       <CaptureSection capture={capture} />
@@ -134,6 +220,17 @@ export function IntakeActivityScreen() {
           </Notice>
         )}
 
+        {inFlight > 0 && (
+          <Notice kind="info" title={`A model is reading this now — ${inFlight} call in flight`}>
+            <p style={{ margin: 0 }}>
+              This page is refreshing itself about once a second and will stop as soon as
+              the read finishes. The answer below fills in as it is generated; a thinking
+              model spends its budget reasoning <em>before</em> it answers, so a long
+              stretch of deliberation with no JSON yet is normal rather than stuck.
+            </p>
+          </Notice>
+        )}
+
         {runs.length === 0 ? (
           <Notice kind="info" title="No worker has run">
             <p style={{ margin: 0 }}>
@@ -145,7 +242,7 @@ export function IntakeActivityScreen() {
         ) : (
           <ol className="list">
             {runs.map((run, index) => (
-              <RunRow key={run.id} run={run} index={index + 1} />
+              <RunRow key={run.id} run={run} index={index + 1} now={now} />
             ))}
           </ol>
         )}
@@ -199,6 +296,59 @@ export function IntakeActivityScreen() {
       </div>
 
       <AcceptedSection entry={activity.data.entry} part={activity.data.resolved_part} />
+    </div>
+  );
+}
+
+/**
+ * A way into a conversation about this scan — and an honest label on what it is.
+ *
+ * The button exists because the activity screen answers *what happened* and cannot
+ * answer *why*: "why did you read the FCC ID as a part number", "is that even a real
+ * Stackpole code". Those are the questions a person actually has in front of a wrong
+ * reading, and they need prose rather than another schema-constrained decode.
+ *
+ * **It does not make the read conversational, and the blurb says why.** The dispatch
+ * call's constraint is the safety mechanism; a conversation has no schema, so a chat
+ * that also produced identities would reopen the invented-part-number failure the
+ * constraint prevents. And the model in that thread cannot see the photograph, which is
+ * said out loud — somebody who thinks it is looking at the picture will trust a
+ * description of pixels nobody showed it.
+ */
+function AskAboutThisScan({ entryId }: { entryId: number }) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  async function open() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { thread_id } = await openCaptureChat(entryId);
+      navigate(`/chat/${thread_id}`);
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="stack">
+      {error !== null && (
+        <ErrorBanner error={error} fallback="That conversation could not be opened." />
+      )}
+      <button type="button" disabled={busy} onClick={open}>
+        {busy ? "Opening…" : "Ask about this scan"}
+      </button>
+      <p className="muted-note" style={{ margin: 0 }}>
+        Opens a conversation seeded with what was read off this label and what the model
+        proposed, so you can ask why. It is a separate thread on purpose:{" "}
+        <strong>it cannot change what this scan is recorded as</strong>, and the read
+        itself stays a single constrained answer rather than a discussion — which is what
+        keeps a plausible-sounding part number from being asserted.{" "}
+        <strong>The model cannot see the photograph</strong>; it only has the text below.
+      </p>
     </div>
   );
 }
@@ -270,14 +420,18 @@ function CaptureSection({ capture }: { capture: IntakeActivityRead["capture"] })
  * the top argues: the numbers are what a person skims, and the prompt is what they open
  * when a reading looks wrong.
  */
-function RunRow({ run, index }: { run: ModelRunRead; index: number }) {
+function RunRow({ run, index, now }: { run: ModelRunRead; index: number; now: number }) {
   return (
     <li className="list-item">
       <div className="row">
         <span className="title" style={{ flex: 1 }}>
           Run {index} — <span className="mono">{run.model}</span> via {run.provider}
         </span>
-        {run.error === null ? (
+        {run.in_flight ? (
+          /* Not "answered" and not "broke" — it is neither yet, and calling it either
+             would be a claim about an outcome that does not exist. */
+          <span className="badge">reading… {elapsed(run.started_at, now)}</span>
+        ) : run.error === null ? (
           <span className="badge badge-good">answered</span>
         ) : (
           <span className="badge badge-bad">broke</span>
@@ -288,6 +442,16 @@ function RunRow({ run, index }: { run: ModelRunRead; index: number }) {
         {count(run.prompt_tokens)} prompt / {count(run.completion_tokens)} completion tokens
         {` · finish_reason: ${run.finish_reason ?? UNRECORDED}`}
       </div>
+      {run.in_flight && (
+        <div className="sub">
+          {/* Said explicitly because every number on the line above is `not recorded`
+              while the call is open, and a row of "not recorded" reads as breakage
+              rather than as a call that has not come back yet. The counts arrive from
+              the server with the finished answer; they are not knowable before. */}
+          Still open — the cost is unknown until the model finishes, so those read “
+          {UNRECORDED}” rather than zero.
+        </div>
+      )}
       {run.finish_reason === "length" && (
         <Notice kind="warn" title="It ran out of room">
           <p style={{ margin: 0 }}>
@@ -329,8 +493,25 @@ function RunRow({ run, index }: { run: ModelRunRead; index: number }) {
 
       {run.response_text === null ? (
         <p className="muted-note" style={{ margin: 0 }}>
-          No completion came back at all.
+          {run.in_flight
+            ? "Nothing has arrived yet. The model is loading or still reading the image."
+            : "No completion came back at all."}
         </p>
+      ) : run.in_flight ? (
+        /* Open, not behind a disclosure — the inverse of the finished case, and
+           deliberately so: while the call is running this text is the only thing there
+           is to look at, and hiding it behind a click would leave the loading card
+           saying nothing more than a spinner does. */
+        <div>
+          <p className="muted-note" style={{ margin: "0.4rem 0" }}>
+            The answer so far, updated about once a second. Reasoning is labelled and
+            arrives before the JSON does — this is exactly the stretch that used to be
+            forty seconds of silence.
+          </p>
+          <pre className="mono" style={{ overflowX: "auto", whiteSpace: "pre-wrap" }}>
+            {run.response_text}
+          </pre>
+        </div>
       ) : (
         <details>
           <summary>Show the raw response</summary>
