@@ -16,6 +16,22 @@ Environment=DISPLAY=:0
 # `getUserMedia` exists here with no certificate and no private CA installed.
 # `NDEFReader` still does not — kiosk Chromium has no Web NFC on any origin —
 # and that gap is what the device bridge fills.
+#
+# `--password-store=basic` is what stops the "unlock your login keyring" dialog
+# that otherwise appears over the kiosk on every boot. Chromium's default on a
+# GNOME session is to keep its password store in gnome-keyring, and opening it
+# makes `gcr-prompter` ask for the login password — which on a bench station that
+# **autologins** is a password nobody is there to type, and which PAM never
+# handed to gnome-keyring because no login password was entered. The dialog is
+# therefore unanswerable by design, and it steals focus from the scan screen.
+#
+# `basic` keeps the store in the profile directory instead. That is a real
+# downgrade — the store is then obfuscated rather than encrypted — and it is
+# acceptable here for a reason specific to this machine and not to Chromium
+# generally: **this profile stores no passwords.** The kiosk loads one loopback
+# origin, the API on it has no login, and `--user-data-dir` is a directory that
+# exists only for this unit. Do not copy this flag to a browser a person logs
+# into things with.
 ExecStart=/usr/bin/chromium-browser \
     --kiosk \
     --app=http://127.0.0.1:8080/scan \
@@ -25,7 +41,8 @@ ExecStart=/usr/bin/chromium-browser \
     --disable-infobars \
     --disable-session-crashed-bubble \
     --autoplay-policy=no-user-gesture-required \
-    --use-fake-ui-for-media-stream
+    --use-fake-ui-for-media-stream \
+    --password-store=basic
 Restart=on-failure
 RestartSec=5
 

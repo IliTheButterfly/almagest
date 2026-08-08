@@ -1,0 +1,84 @@
+# The station's own cluster identity, which exists only to open a tunnel.
+#
+# The bench station reaches the real API through `kubectl port-forward`, because
+# the NodePort the deployment answers on is *not* reachable from the station's
+# subnet: from 192.168.86.0/24 the node accepts 6443 and drops 30443, 443, 80 and
+# 22 alike. The Kubernetes API is the one door that opens, so the tunnel goes
+# through it. See `README.md`, "Where the data comes from".
+#
+# It is a separate ServiceAccount rather than a copy of the workstation's
+# kubeconfig on purpose. The `ili` account can delete Deployments and PVCs in a
+# namespace shared with unrelated production workloads; a kiosk that autologins
+# with no password, sits on a bench, and is reachable over ssh must not carry
+# that. This account can forward a port and read enough to find what to forward
+# to. It cannot create, mutate or delete anything.
+#
+# Applied by hand, not by `make k8s-deploy` — it is not part of the application
+# and does not belong in `deploy/base/kustomization.yaml`:
+#
+#     kubectl apply -f deploy/station/cluster-access.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: almagest-station
+  labels:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: station
+    app.kubernetes.io/part-of: almagest
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: almagest-station-portforward
+  labels:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: station
+    app.kubernetes.io/part-of: almagest
+rules:
+  # `port-forward` is a subresource of a *pod*, so the verb is `create` on
+  # `pods/portforward` and there is no narrower form of it. `get` on services and
+  # pods is what lets kubectl resolve `svc/almagest-api` to the pod behind it —
+  # without it the forward fails before it opens.
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: almagest-station-portforward
+  labels:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: station
+    app.kubernetes.io/part-of: almagest
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: almagest-station-portforward
+subjects:
+  - kind: ServiceAccount
+    name: almagest-station
+---
+# A non-expiring token, which is what a bench machine needs and what
+# `TokenRequest` deliberately does not give: a projected token is bound to a pod
+# and renewed by the kubelet, and there is no kubelet here. Since 1.24 this
+# Secret is not created automatically and must be asked for by name.
+#
+# Note the namespace cannot delete Secrets (only create and apply), so rotating
+# this means `kubectl apply` over it or creating a new name — never
+# delete-and-recreate.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: almagest-station-token
+  labels:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: station
+    app.kubernetes.io/part-of: almagest
+  annotations:
+    kubernetes.io/service-account.name: almagest-station
+type: kubernetes.io/service-account-token
