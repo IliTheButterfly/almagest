@@ -164,7 +164,7 @@ describe("IntakeActivityScreen, live", () => {
   });
 
   /**
-   * Count the activity GETs the screen makes over `WATCH_MS` of **real** time.
+   * How long the two polling tests below watch, in **real** time.
    *
    * Real timers, deliberately, and this cost two wrong turns worth recording:
    *
@@ -178,9 +178,14 @@ describe("IntakeActivityScreen, live", () => {
    *    poll rather than ten. The mutation was caught, but the healthy case failed too,
    *    which is a test that cannot distinguish the thing it is measuring.
    *
-   * So this waits a real two and a half seconds. Slow enough to notice and cheap enough
-   * to keep: **a green test that cannot fail is worse than no test**, and the leak these
-   * guard against is invisible on screen by construction.
+   * So both wait real time, and they are asymmetric on purpose: the "it polls" direction
+   * *waits for* a poll (a rate assertion starved below one under a full parallel suite),
+   * while the "it stopped" direction counts over a fixed window, because zero is the
+   * assertion with the sharp edge and it cannot be reached by waiting.
+   *
+   * **A green test that cannot fail is worse than no test**, and the leak these guard
+   * against is invisible on screen by construction — which is why the seconds are worth
+   * paying.
    */
   const WATCH_MS = 2_500;
 
@@ -199,17 +204,17 @@ describe("IntakeActivityScreen, live", () => {
   }
 
   it("keeps refreshing while a run is in flight", async () => {
-    const polls = await pollsWhileWatching(
-      activity({ model_runs: [run()], runs_in_flight: 1 }),
-      /A model is reading this now/i,
-    );
+    // **Waits for a poll rather than counting over a fixed window**, and that is a
+    // flakiness fix rather than a stylistic one: how many `act`-wrapped ticks land inside
+    // a real 2.5 s window depends on how jsdom's timers interleave with React's flushing,
+    // and under a full parallel suite that starved below one. The property under test is
+    // "it refreshes itself at all"; the sharp-edged assertion is its counterpart below.
+    const { gets } = stubFetch(activity({ model_runs: [run()], runs_in_flight: 1 }));
+    draw();
+    await waitFor(() => expect(screen.queryByText(/A model is reading this now/i)).not.toBeNull());
 
-    // **At least one, not an exact rate.** How many `act`-wrapped ticks land inside a
-    // real 2.5 s window depends on how jsdom's timers interleave with React's flushing,
-    // and pinning a count made this flaky without measuring anything more: the property
-    // under test is "it refreshes itself", and its counterpart below is the one with a
-    // sharp edge (`0`, exactly).
-    expect(polls).toBeGreaterThanOrEqual(1);
+    const before = gets.length;
+    await waitFor(() => expect(gets.length).toBeGreaterThan(before), { timeout: 6_000 });
   });
 
   it("stops refreshing once nothing is in flight", async () => {
