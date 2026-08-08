@@ -40,13 +40,14 @@ at.
 
 | Unit | What it is |
 |---|---|
-| `almagest-station-api` | `uvicorn` on 127.0.0.1:8000. One replica, always: SQLite tolerates one writer. |
+| `almagest-station-api` *or* `almagest-station-upstream` | Whatever answers on 127.0.0.1:8000 — see below. Exactly one is ever enabled. |
 | `almagest-station-web` | `station_web.py` on 127.0.0.1:8080 — the built PWA plus a pass-through to the API. |
 | `almagest-station-bridge` | `almagest-deviceagent --reader none`. The WebSocket on 127.0.0.1:8765 and whatever USB readers it finds. |
 | `almagest-station-kiosk` | Chromium, fullscreen, at `http://127.0.0.1:8080/scan`. |
 
 ```bash
-./deploy/station/install.sh
+./deploy/station/install.sh                    # local inventory
+./deploy/station/install.sh --upstream cluster # the deployed one
 systemctl --user start almagest-station-{api,web,bridge,kiosk}
 systemctl --user status almagest-station-bridge
 
@@ -56,6 +57,82 @@ journalctl --user -u almagest-station-bridge -f
 # the journalctl form above answers "No journal files were found":
 tail -f /var/log/syslog | grep almagest
 ```
+
+## Where the data comes from
+
+A station is either **holding an inventory** or **showing one**, and the whole
+difference is which unit owns `127.0.0.1:8000`:
+
+| `--upstream` | 127.0.0.1:8000 is | The inventory is |
+|---|---|---|
+| `local` (default) | `almagest-station-api`, uvicorn on `data/almagest.db` | this machine's, and only this machine's |
+| `cluster` | `almagest-station-upstream`, a tunnel to `svc/almagest-api` | the deployed one, shared with every other client |
+
+Nothing above that port knows which it got. `station_web` proxies to
+`http://127.0.0.1:8000` either way, the bridge commits to
+`http://127.0.0.1:8000` either way, and the kiosk loads one loopback origin
+either way — so the camera still works with no certificate, which is the point
+the section above is about. Switching modes is `install.sh --upstream …` and a
+restart; it is not a rebuild and not a code change.
+
+`local` is the default deliberately. It needs nothing outside the machine, and a
+bench that cannot reach the cluster should come up holding its own data rather
+than not coming up at all.
+
+### Why the cluster mode is a tunnel and not a URL
+
+The obvious implementation — point the kiosk at `https://almagest.aether.lan:30443` —
+does not work, for two independent reasons, and both are worth knowing before
+anyone tries it again:
+
+1. **The NodePort is not reachable from the bench.** From the station's subnet
+   the node accepts `6443` and drops `30443`, `443`, `80` and `22` alike. The
+   Kubernetes API is the one door that opens, so `kubectl port-forward` is what
+   goes through it.
+2. **Even if it were, it would cost the camera.** `https://almagest.aether.lan` is
+   only a secure context once the private CA of [ADR 0001](../../docs/adr/0001-base-url-and-tls.md)
+   is installed and trusted here; until then `getUserMedia` is gone and the scan
+   screen has nothing to scan with. Loopback is a secure context for free. That
+   trade is the entire reason this file opens the way it does.
+
+So the tunnel is not a workaround for the port — it is what lets the station keep
+loopback while the data comes from somewhere else.
+
+**Its credential is its own.** `deploy/station/cluster-access.yaml` creates a
+ServiceAccount that can create `pods/portforward` and read pods and services, and
+can create, mutate and delete nothing. Apply it once, then write the kubeconfig
+the unit expects at `~/.kube/config`:
+
+```bash
+kubectl apply -f deploy/station/cluster-access.yaml
+```
+
+Do **not** copy the workstation's kubeconfig instead. That account can delete
+Deployments and PVCs in a namespace shared with unrelated production workloads,
+and the bench station autologins with no password, sits in the open, and takes
+ssh. The station's own token can open a socket and nothing else, which is exactly
+as much as it needs.
+
+**The tunnel is the whole dependency on the cluster**, so it is the first thing
+to look at when the bench shows a 502:
+
+```bash
+systemctl --user status almagest-station-upstream
+```
+
+It runs [`scripts/k8s-tunnel.sh --api-only`](../../scripts/k8s-tunnel.sh) rather
+than a bare `kubectl port-forward`, and that is not tidiness. `port-forward
+svc/x` resolves the Service to **one pod** at startup and never re-resolves, so
+every cluster redeploy leaves kubectl running and still holding port 8000 while
+forwarding to a pod that no longer exists. It never exits, so no `Restart=`
+setting can catch it: `systemctl status` says `active`, the port still accepts
+connections, and every request through it fails. The script's watchdog probes
+`/api/system/health` through the forward and rebinds when the Service has ready
+endpoints and the tunnel still does not answer.
+
+So a station that has gone blank after a deploy is not a station that needs
+restarting — it is the case that unit exists to make impossible, and if it
+happens anyway the watchdog is where to look.
 
 ### `--reader none` is a statement, not a disabled feature
 
