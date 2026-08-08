@@ -115,6 +115,10 @@ class _Client:
         self.failures: list[tuple[int, str]] = []
         self.fetched: list[str] = []
         self.refuse_stubs = False
+        #: Every `model_runs` submission the worker made, in order. A list rather
+        #: than a last-one-wins field because a retry is supposed to append: two
+        #: rows is how "the first attempt broke and the second worked" is visible.
+        self.recorded: list[dict[str, Any]] = []
 
     def claim(self, *, worker_id: str, limit: int) -> list[QueuedCapture]:
         out, self.claims = self.claims[:limit], self.claims[limit:]
@@ -137,6 +141,9 @@ class _Client:
 
     def submit_failure(self, *, intake_id: int, error: str) -> None:
         self.failures.append((intake_id, error))
+
+    def record_run(self, run: dict[str, Any]) -> None:
+        self.recorded.append(run)
 
 
 def _queued(*, anchored: bool = False, intake_id: int = 1) -> QueuedCapture:

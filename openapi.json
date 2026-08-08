@@ -1968,6 +1968,53 @@
         "title": "CapacityRead",
         "type": "object"
       },
+      "CaptureActivity": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_sha256": {
+            "title": "Document Sha256",
+            "type": "string"
+          },
+          "height_px": {
+            "title": "Height Px",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureRegionActivity"
+            },
+            "title": "Regions",
+            "type": "array"
+          },
+          "text_status": {
+            "title": "Text Status",
+            "type": "string"
+          },
+          "width_px": {
+            "title": "Width Px",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "document_sha256",
+          "width_px",
+          "height_px",
+          "text_status",
+          "regions"
+        ],
+        "title": "CaptureActivity",
+        "type": "object"
+      },
       "CaptureCreate": {
         "properties": {
           "device_id": {
@@ -2130,6 +2177,54 @@
           "regions"
         ],
         "title": "CaptureRead",
+        "type": "object"
+      },
+      "CaptureRegionActivity": {
+        "description": "One outline the browser read off the photograph.\n\nThe geometry is left out. This view answers \"what was read\", and the quads are\nfor drawing the overlay, which `GET /api/captures/{id}` already serves.",
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "order_index": {
+            "title": "Order Index",
+            "type": "integer"
+          },
+          "symbology": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbology"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text",
+          "symbology",
+          "confidence",
+          "order_index"
+        ],
+        "title": "CaptureRegionActivity",
         "type": "object"
       },
       "CaptureRegionIn": {
@@ -4259,6 +4354,52 @@
         "title": "DatasheetSnippetSegment",
         "type": "object"
       },
+      "DispatchActivity": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "label_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Kind"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DispatchState"
+          }
+        },
+        "required": [
+          "state",
+          "attempts",
+          "error",
+          "label_kind",
+          "max_attempts"
+        ],
+        "title": "DispatchActivity",
+        "type": "object"
+      },
       "DispatchClaim": {
         "description": "One leased entry, with everything the worker needs to read its photograph.\n\nBoth of the browser's readings ride along, weighted honestly, which is ADR 0021's\ncentral mechanism rather than a convenience:\n\n* `barcode_texts` is an **anchor**. A decoded symbology is checksummed and is\n  stronger evidence than anything the model will produce, so a worker holding one\n  narrows the request to a single candidate and asks only for confirmation of\n  manufacturer and package.\n* `ocr_lines` go in **labelled as unreliable rather than omitted**. They are usually\n  nearly right, and nearly right is exactly what a second reader can repair \u2014\n  `CFI4JT100K` for `CF14JT100K` is the recorded case.\n\nSent rather than looked up by the worker so a run needs exactly one API call before\nit starts working, the same reason `ResearchClaim` carries `mpn_norm`.",
         "properties": {
@@ -4512,6 +4653,51 @@
         ],
         "title": "DispatchState",
         "type": "string"
+      },
+      "DocumentActivity": {
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "extraction_attempts": {
+            "title": "Extraction Attempts",
+            "type": "integer"
+          },
+          "extraction_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Error"
+          },
+          "extraction_state": {
+            "title": "Extraction State",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "media_type",
+          "byte_size",
+          "extraction_state",
+          "extraction_attempts",
+          "extraction_error"
+        ],
+        "title": "DocumentActivity",
+        "type": "object"
       },
       "DocumentAttachRequest": {
         "properties": {
@@ -5689,6 +5875,73 @@
         "title": "FacetsResponse",
         "type": "object"
       },
+      "FieldCandidateActivity": {
+        "description": "One `parameter_value_candidate` row, with the field it is about named.",
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "raw_value": {
+            "title": "Raw Value",
+            "type": "string"
+          },
+          "requires_human": {
+            "title": "Requires Human",
+            "type": "boolean"
+          },
+          "review_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Reason"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "source_ref": {
+            "title": "Source Ref",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "template_label": {
+            "title": "Template Label",
+            "type": "string"
+          },
+          "template_name": {
+            "title": "Template Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_name",
+          "template_label",
+          "source",
+          "source_ref",
+          "confidence",
+          "raw_value",
+          "status",
+          "review_reason",
+          "requires_human",
+          "created_at"
+        ],
+        "title": "FieldCandidateActivity",
+        "type": "object"
+      },
       "FilterIn": {
         "properties": {
           "template": {
@@ -6219,6 +6472,61 @@
         "title": "InstantiateResponse",
         "type": "object"
       },
+      "IntakeActivityRead": {
+        "description": "The whole story of one parked scan, in the order it happened.\n\nEvery section is present even when it is empty, and that is the point rather\nthan a shape accident: a client has to be able to say *\"no worker has run\"*\nwhere nothing has run, and *\"the model could name nothing\"* where one ran and\nproposed nothing. An absent key cannot carry that difference, and rendering an\nempty section as a blank reads as a failure.",
+        "properties": {
+          "capture": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaptureActivity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dispatch": {
+            "$ref": "#/components/schemas/DispatchActivity"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/IntakeEntryActivity"
+          },
+          "identity_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityCandidateRead"
+            },
+            "title": "Identity Candidates",
+            "type": "array"
+          },
+          "model_runs": {
+            "items": {
+              "$ref": "#/components/schemas/ModelRunRead"
+            },
+            "title": "Model Runs",
+            "type": "array"
+          },
+          "resolved_part": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolvedPartActivity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "entry",
+          "capture",
+          "dispatch",
+          "model_runs",
+          "identity_candidates",
+          "resolved_part"
+        ],
+        "title": "IntakeActivityRead",
+        "type": "object"
+      },
       "IntakeDispatchRead": {
         "description": "One entry's dispatch standing, and what was proposed for it.",
         "properties": {
@@ -6272,6 +6580,139 @@
           "candidates"
         ],
         "title": "IntakeDispatchRead",
+        "type": "object"
+      },
+      "IntakeEntryActivity": {
+        "description": "The entry's own facts. Read-only here, like everything on this route.",
+        "properties": {
+          "client_op_id": {
+            "title": "Client Op Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decoded_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decoded Kind"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued At"
+          },
+          "raw_payload": {
+            "title": "Raw Payload",
+            "type": "string"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "resolved_part_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Part Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "symbology": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbology"
+          }
+        },
+        "required": [
+          "id",
+          "client_op_id",
+          "raw_payload",
+          "symbology",
+          "decoded_kind",
+          "mpn",
+          "status",
+          "device_id",
+          "note",
+          "queued_at",
+          "created_at",
+          "resolved_at",
+          "resolved_part_id"
+        ],
+        "title": "IntakeEntryActivity",
         "type": "object"
       },
       "LabelBackendKind": {
@@ -8439,6 +8880,346 @@
           "default_id"
         ],
         "title": "ModelListRead",
+        "type": "object"
+      },
+      "ModelRunCreated": {
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/ModelRunRead"
+          }
+        },
+        "required": [
+          "run"
+        ],
+        "title": "ModelRunCreated",
+        "type": "object"
+      },
+      "ModelRunIn": {
+        "description": "One call to a model, as the worker that made it reports it.\n\n## The two text fields carry no length limit here, deliberately\n\n`app.services.runs` truncates them at `MAX_TRANSCRIPT_CHARS` and sets\n`truncated`. Enforcing the same number on the wire would make a worker\nresponsible for knowing it, and a worker that hit it would have no better\noption than to discard the transcript \u2014 which is the outcome the bound exists\nto avoid, not to cause. Refusing to record a model call because its reasoning\nwas long is exactly backwards: ADR 0021's most informative measurement is a run\nthat emitted 12 318 characters of reasoning and no answer.\n\n## Counts are optional and are never defaulted to zero\n\n`usage` is absent from several local servers' responses. A zero would read as\n\"the prompt was empty\" and would pull any average taken over these rows toward\nwhichever servers were quiet \u2014 `app.services.enrichment.calls.CallStats`' own\nrule, kept intact all the way to the column.",
+        "properties": {
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Sha256"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "intake_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intake Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ModelRunKind"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "provider": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          },
+          "request_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Json"
+          },
+          "response_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Text"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "kind",
+          "provider",
+          "model"
+        ],
+        "title": "ModelRunIn",
+        "type": "object"
+      },
+      "ModelRunKind": {
+        "description": "Which stage of the pipeline a `model_runs` row records.\n\nA plain `sa.String` plus `StrEnumType`, never `sa.Enum` \u2014 a test greps\n`sqlite_master` for `CHECK` and SQLite cannot alter one. That matters more\nhere than almost anywhere: this enum exists to grow. Every future stage that\nhands a prompt to a model \u2014 a research suggestion, a parameter fill, a chat\nturn worth keeping \u2014 becomes a member and nothing else changes, because a run\nis a notebook entry rather than a typed relationship.\n\nTwo members today, and they are two rather than one because the *subject*\ndiffers. A vision run is about a photograph and hangs off an intake entry; an\nextraction run is about a page of text and hangs off a document. Collapsing\nthem would make `intake_id` and `document_sha256` both meaningless-by-default\nand leave nothing that says which one to expect.",
+        "enum": [
+          "vision",
+          "extraction"
+        ],
+        "title": "ModelRunKind",
+        "type": "string"
+      },
+      "ModelRunRead": {
+        "description": "One recorded call, transcript included.",
+        "properties": {
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "document_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Sha256"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "intake_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intake Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ModelRunKind"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "request_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Json"
+          },
+          "response_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Text"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "provider",
+          "model",
+          "intake_id",
+          "document_sha256",
+          "started_at",
+          "finished_at",
+          "latency_ms",
+          "prompt_tokens",
+          "completion_tokens",
+          "finish_reason",
+          "request_json",
+          "response_text",
+          "error",
+          "truncated"
+        ],
+        "title": "ModelRunRead",
         "type": "object"
       },
       "ModelServerListRead": {
@@ -14057,6 +14838,76 @@
         "title": "RequirementRejectionRead",
         "type": "object"
       },
+      "ResearchCandidateActivity": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Sha256"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "reject_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reject Reason"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "url",
+          "state",
+          "reject_reason",
+          "document_sha256",
+          "rank",
+          "note",
+          "created_at"
+        ],
+        "title": "ResearchCandidateActivity",
+        "type": "object"
+      },
       "ResearchCandidateRead": {
         "properties": {
           "created_at": {
@@ -14484,6 +15335,88 @@
           "short_id"
         ],
         "title": "ResolvedLocationRead",
+        "type": "object"
+      },
+      "ResolvedPartActivity": {
+        "description": "The part a **person** accepted, and what the later workers made of it.\n\nReached through `resolved_part_id` only. A candidate's stub `part_id` is a\nmachine's proposal and is not followed \u2014 see `app.services.activity.PartStory`.",
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentActivity"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "field_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/FieldCandidateActivity"
+            },
+            "title": "Field Candidates",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_stub": {
+            "title": "Is Stub",
+            "type": "boolean"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "research_attempts": {
+            "title": "Research Attempts",
+            "type": "integer"
+          },
+          "research_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchCandidateActivity"
+            },
+            "title": "Research Candidates",
+            "type": "array"
+          },
+          "research_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Error"
+          },
+          "research_state": {
+            "title": "Research State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mpn",
+          "is_stub",
+          "research_state",
+          "research_attempts",
+          "research_error",
+          "research_candidates",
+          "documents",
+          "field_candidates"
+        ],
+        "title": "ResolvedPartActivity",
         "type": "object"
       },
       "ResolvedTarget": {
@@ -21138,6 +22071,51 @@
         ]
       }
     },
+    "/api/intake/pending/{entry_id}/activity": {
+      "get": {
+        "description": "Everything that has happened to one parked scan.\n\nA `GET` with no side effects at all \u2014 see the module docstring. It reads seven\ntables and writes none, which is what makes it safe to open while a worker is\nmid-drain.",
+        "operationId": "read_intake_activity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entry_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Entry Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeActivityRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Intake Activity",
+        "tags": [
+          "intake"
+        ]
+      }
+    },
     "/api/intake/pending/{entry_id}/dismiss": {
       "post": {
         "description": "Not a real intake: a duplicate scan, a shipping label, someone else's box.\n\nKept rather than deleted, and kept *distinguishable* from resolved, because\nthe two say opposite things about whether the payload is worth mining \u2014 a\npile of dismissed unknowns is noise, a pile of resolved ones is a parser\nworth writing.",
@@ -25217,6 +26195,48 @@
         "summary": "Resolve Short Id",
         "tags": [
           "resolve"
+        ]
+      }
+    },
+    "/api/runs": {
+      "post": {
+        "description": "Record that a model was called. A worker's door, over HTTP for ADR 0005.\n\n**Always inserts; deliberately not idempotent.** Two calls happened, and a\nsecond row is the only way to see that the first failed and the retry\nsucceeded \u2014 or that both failed identically, which is what says the problem is\nnot transient. `app.services.runs.record` argues it at length.\n\nA dangling `intake_id` is refused rather than silently stored as NULL: a run\nrecorded against a photograph that does not exist is a worker bug, and\nswallowing it would produce a row nothing can ever show.",
+        "operationId": "record_model_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelRunIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelRunCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Model Run",
+        "tags": [
+          "runs"
         ]
       }
     },

@@ -107,9 +107,29 @@ class ModelUnavailable(RuntimeError):
     and the other by looking at what it is doing.
     """
 
-    def __init__(self, message: str, *, elapsed_ms: int | None = None) -> None:
+    #: The payload that was sent, sanitised, and the completion string if one
+    #: arrived. Both optional and both default to `None`, so every existing raise
+    #: site is untouched.
+    #:
+    #: They are here rather than only on a successful result because **a failed run
+    #: is the case a transcript matters most for**. A run that broke leaves no
+    #: candidate row and no field value; without the prompt and whatever came back,
+    #: the only evidence is a one-line message, and "returned content that is not
+    #: JSON" is precisely the message whose cause cannot be guessed from itself.
+    #: `app.scripts.dispatch_captures` reads them off the exception and records a
+    #: `model_runs` row with `error` set.
+    def __init__(
+        self,
+        message: str,
+        *,
+        elapsed_ms: int | None = None,
+        request_json: str | None = None,
+        response_text: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.elapsed_ms = elapsed_ms
+        self.request_json = request_json
+        self.response_text = response_text
 
 
 @dataclass

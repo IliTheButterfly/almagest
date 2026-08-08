@@ -72,6 +72,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urljoin
@@ -129,7 +130,7 @@ class QueuedCapture:
 
 
 class ApiClient(Protocol):
-    """The four calls the worker makes.
+    """The five calls the worker makes.
 
     A Protocol so the tests drive the loop in-process through the real routes, without a
     socket or a port — `research_datasheets.ApiClient`'s reasoning unchanged.
@@ -152,6 +153,8 @@ class ApiClient(Protocol):
     ) -> None: ...
 
     def submit_failure(self, *, intake_id: int, error: str) -> None: ...
+
+    def record_run(self, run: dict[str, Any]) -> None: ...
 
 
 class HttpApiClient:
@@ -247,6 +250,20 @@ class HttpApiClient:
     def submit_failure(self, *, intake_id: int, error: str) -> None:
         self._post_json("api/dispatch/results", {"intake_id": intake_id, "error": error[:2000]})
 
+    def record_run(self, run: dict[str, Any]) -> None:
+        """Post one transcript. **Never lets a recording failure fail the read.**
+
+        The run is the diagnostic and the candidates are the work. If this call breaks —
+        the route is older than the worker, the body was refused — the right outcome is
+        an unrecorded transcript and a submitted reading, not a photograph pushed back
+        into the queue to spend a second GPU handover on a bookkeeping error. So it warns
+        and returns, the same posture `create_stub_part` takes for the same reason.
+        """
+        try:
+            self._post_json("api/runs", run)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError) as error:
+            log.warning("could not record the model run: %s", error)
+
     def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
             urljoin(self.base_url, path),
@@ -329,6 +346,64 @@ def _reports(
     return reports
 
 
+def _run_row(
+    provider: VisionProvider,
+    capture: QueuedCapture,
+    *,
+    started_at: str,
+    result: VisionResult | None = None,
+    error: BaseException | None = None,
+) -> dict[str, Any]:
+    """One `model_runs` submission, for a call that worked or one that broke.
+
+    Both cases in one builder because the fields are the same fields, and a second
+    builder for the failure path is how the failure path ends up carrying less. It
+    already carries less than it should — see below — and that should not compound.
+
+    **The prompt and the raw answer are pulled off the exception on the failure path.**
+    `ModelUnavailable` attaches both (`request_json`, `response_text`), and `getattr` is
+    what reads them rather than an `isinstance` check: a provider's exception types are
+    not enumerable — `run_once` says so where it catches them — and this worker must not
+    grow an import of the transport to record what the transport raised. A provider that
+    attaches neither still gets a row, with `error` set and a NULL transcript, which is
+    the honest shape: something broke and nobody wrote down what was said.
+    """
+    stats = None if result is None else result.stats
+    return {
+        "kind": "vision",
+        "provider": provider.name,
+        "model": provider.model,
+        "intake_id": capture.intake_id,
+        "document_sha256": capture.capture_sha256,
+        "started_at": started_at,
+        "finished_at": _now(),
+        # Straight through, `None` and all. **Not `or 0`** — a missing count must stay
+        # distinguishable from a count of zero, which is `CallStats`' rule and the reason
+        # every one of these columns is nullable.
+        "latency_ms": None if stats is None else stats.latency_ms,
+        "prompt_tokens": None if stats is None else stats.prompt_tokens,
+        "completion_tokens": None if stats is None else stats.completion_tokens,
+        "finish_reason": None if stats is None else stats.finish_reason,
+        "request_json": (
+            getattr(error, "request_json", None) if result is None else result.request_json
+        ),
+        "response_text": (
+            getattr(error, "response_text", None) if result is None else result.raw_response
+        ),
+        "error": None if error is None else f"{type(error).__name__}: {error}"[:4000],
+    }
+
+
+def _now() -> str:
+    """Wall clock, as the API's `UtcDateTime` wants it.
+
+    The worker's own clock rather than the provider's `latency_ms`, and both are stored:
+    a large gap between them is itself a finding, because it says the time went somewhere
+    other than inference — a model swap, a stalled fetch.
+    """
+    return datetime.now(tz=UTC).isoformat()
+
+
 def process_one(client: ApiClient, provider: VisionProvider, capture: QueuedCapture) -> bool:
     """Read one claimed photograph. True if any identity was proposed.
 
@@ -336,6 +411,12 @@ def process_one(client: ApiClient, provider: VisionProvider, capture: QueuedCapt
     `unidentified` — **not** an error. ADR 0021: "we could not tell what this is" is a
     photograph problem whose fix is another photograph, and calling it a failure would put
     a blurred label in a health check that exists to surface real breakage.
+
+    **Every call is recorded, including the ones that break.** The transcript is what
+    makes the never-auto-accept rule reviewable: a person looking at a wrong reading needs
+    to see what the model was *told*, not only what it said. A failed call is the case
+    that matters most, because it leaves no candidate row behind at all — so the run is
+    recorded and the exception re-raised for `run_once` to report to the queue.
     """
     image = client.fetch_image(capture.capture_sha256)
     request = build_request(capture, image)
@@ -349,7 +430,13 @@ def process_one(client: ApiClient, provider: VisionProvider, capture: QueuedCapt
         request.max_candidates,
     )
 
-    result = provider.read(request)
+    started_at = _now()
+    try:
+        result = provider.read(request)
+    except Exception as error:  # a provider's exception types are not enumerable
+        client.record_run(_run_row(provider, capture, started_at=started_at, error=error))
+        raise
+    client.record_run(_run_row(provider, capture, started_at=started_at, result=result))
     reports = _reports(client, capture, result, device_id=f"dispatch:{provider.name}")
     client.submit_candidates(
         intake_id=capture.intake_id,

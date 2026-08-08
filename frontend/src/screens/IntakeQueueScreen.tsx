@@ -301,6 +301,14 @@ function ServerRow({ entry, onChanged }: { entry: PendingIntakeRead; onChanged: 
         {entry.quantity_milli === null ? "" : ` · ${formatQty(entry.quantity_milli)}`}
         {entry.lot_code === null ? "" : ` · lot ${entry.lot_code}`}
       </div>
+      {/* The way in to the whole story: what the browser read, which models ran, what
+          each was told and answered, and what became of the part somebody accepted.
+          A link rather than an inline panel because it is a diagnostic — read when a
+          reading looks wrong, not on every visit — and because the transcripts it
+          shows are long enough to bury the queue. */}
+      <div className="sub">
+        <Link to={`/intake/${entry.id}/activity`}>What happened to this →</Link>
+      </div>
       <ErrorBanner error={error} fallback="That entry was not changed." />
 
       {/* The reason parking is worth anything: the desk pass gets the

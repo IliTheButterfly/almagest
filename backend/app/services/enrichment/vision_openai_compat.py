@@ -190,10 +190,14 @@ class OpenAICompatVisionProvider:
             path, payload = "/api/chat", self._ollama_payload(request, schema)
         else:
             path, payload = "/v1/chat/completions", self._openai_payload(request, schema)
+        # Built here, before the call, so the transcript exists whether or not the
+        # call comes back. It is handed to `parse_response` on success and attached
+        # to `ModelUnavailable` on every failure below -- see `_sanitised`.
+        sent = self._sanitised(payload, request)
 
         started = time.perf_counter()
-        body = self._post(path, payload, started=started)
-        content = self._content_of(body, started=started)
+        body = self._post(path, payload, started=started, sent=sent)
+        content = self._content_of(body, started=started, sent=sent)
         stats = self._stats_of(body, started=started)
 
         try:
@@ -204,17 +208,74 @@ class OpenAICompatVisionProvider:
                     f"{self.name} stopped at the {self.max_tokens}-token ceiling with the "
                     f"answer unfinished, so it is not valid JSON. Raise max_tokens. ({error})",
                     elapsed_ms=stats.latency_ms,
+                    request_json=sent,
+                    response_text=content,
                 ) from error
             raise ModelUnavailable(
                 f"{self.name} returned content that is not JSON; does {self.model} support "
                 f"constrained decoding over the {self.image_transport} transport? ({error})",
                 elapsed_ms=stats.latency_ms,
+                request_json=sent,
+                response_text=content,
             ) from error
 
         # Re-validated regardless of what the schema was supposed to guarantee.
         # The server that silently ignored the constraint is exactly the one
         # whose output nobody checked.
-        return parse_response(decoded, request, provider=self.name, model=self.model, stats=stats)
+        return parse_response(
+            decoded,
+            request,
+            provider=self.name,
+            model=self.model,
+            stats=stats,
+            raw_response=content,
+            request_json=sent,
+        )
+
+    # -- the transcript ----------------------------------------------------
+
+    def _sanitised(self, payload: dict[str, Any], request: VisionRequest) -> str:
+        """The payload as JSON, with the image swapped for its hash.
+
+        **The one rule: no image bytes leave this module.** A base64'd 4K frame is
+        several megabytes, `model_runs` has no pruning, and the blob already exists
+        in the document store — so a copy would be pure duplication in the one
+        place nothing sweeps. `{"image_sha256": ...}` is a strictly better handle
+        anyway: it is what every other table calls a picture, and
+        `GET /api/documents/{sha256}` serves the real thing.
+
+        Surgery on the two known locations rather than a recursive scrub of
+        anything long, deliberately. A "replace strings over N characters" pass
+        would silently redact a prompt that grew — the OCR hints are prompt text
+        and are exactly what a reviewer is here to read — and would keep passing
+        while quietly hiding the interesting half. This is written per wire shape
+        so a third one has to come back here and say what its image field is.
+        """
+        placeholder = {"image_sha256": request.document_sha256}
+        messages = payload.get("messages")
+        if isinstance(messages, list):
+            scrubbed: list[Any] = []
+            for message in messages:
+                if not isinstance(message, dict):  # pragma: no cover - we build these
+                    scrubbed.append(message)
+                    continue
+                copy = dict(message)
+                if "images" in copy:
+                    # `ollama_native`: a flat array of bare base64 on the message.
+                    copy["images"] = [placeholder for _ in copy["images"]]
+                content = copy.get("content")
+                if isinstance(content, list):
+                    # `openai_content_parts`: the image rides in a content part as
+                    # a `data:` URI.
+                    copy["content"] = [
+                        {"type": "image_url", "image_url": placeholder}
+                        if isinstance(part, dict) and part.get("type") == "image_url"
+                        else part
+                        for part in content
+                    ]
+                scrubbed.append(copy)
+            payload = {**payload, "messages": scrubbed}
+        return json.dumps(payload, sort_keys=True)
 
     # -- payloads ----------------------------------------------------------
 
@@ -303,7 +364,7 @@ class OpenAICompatVisionProvider:
 
     # -- responses ---------------------------------------------------------
 
-    def _content_of(self, body: dict[str, Any], *, started: float) -> str:
+    def _content_of(self, body: dict[str, Any], *, started: float, sent: str | None = None) -> str:
         """The answer text, from whichever shape the server replies in."""
         try:
             if self.image_transport == "ollama_native":
@@ -312,12 +373,15 @@ class OpenAICompatVisionProvider:
                 content = body["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
             raise ModelUnavailable(
-                f"no completion in the response: {error}", elapsed_ms=elapsed_ms(started)
+                f"no completion in the response: {error}",
+                elapsed_ms=elapsed_ms(started),
+                request_json=sent,
             ) from error
         if not isinstance(content, str):
             raise ModelUnavailable(
                 f"completion content was {type(content).__name__}, not a string",
                 elapsed_ms=elapsed_ms(started),
+                request_json=sent,
             )
         if not content.strip():
             # An answer that was all reasoning. Observed with Ollama's
@@ -337,6 +401,11 @@ class OpenAICompatVisionProvider:
                 "raise max_tokens rather than disabling reasoning, which on some "
                 "servers removes the answer along with it.",
                 elapsed_ms=elapsed_ms(started),
+                request_json=sent,
+                # The reasoning *is* the response here. Recorded as one, because a
+                # run that emitted 12318 characters of thinking and no answer is
+                # ADR 0021's own measured case and the thing worth reading.
+                response_text=thinking or None,
             )
         return content
 
@@ -362,7 +431,9 @@ class OpenAICompatVisionProvider:
             finish_reason=done_reason if isinstance(done_reason, str) and done_reason else None,
         )
 
-    def _post(self, path: str, payload: dict[str, Any], *, started: float) -> dict[str, Any]:
+    def _post(
+        self, path: str, payload: dict[str, Any], *, started: float, sent: str | None = None
+    ) -> dict[str, Any]:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -376,16 +447,21 @@ class OpenAICompatVisionProvider:
         except urllib.error.HTTPError as error:
             detail = error.read()[:500].decode("utf-8", "replace")
             raise ModelUnavailable(
-                f"HTTP {error.code} from {url}: {detail}", elapsed_ms=elapsed_ms(started)
+                f"HTTP {error.code} from {url}: {detail}",
+                elapsed_ms=elapsed_ms(started),
+                request_json=sent,
             ) from error
         except (urllib.error.URLError, OSError, ValueError) as error:
             raise ModelUnavailable(
-                f"{type(error).__name__} calling {url}: {error}", elapsed_ms=elapsed_ms(started)
+                f"{type(error).__name__} calling {url}: {error}",
+                elapsed_ms=elapsed_ms(started),
+                request_json=sent,
             ) from error
         if not isinstance(decoded, dict):
             raise ModelUnavailable(
                 f"{url} returned {type(decoded).__name__}, not an object",
                 elapsed_ms=elapsed_ms(started),
+                request_json=sent,
             )
         return decoded
 
