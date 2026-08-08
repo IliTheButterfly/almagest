@@ -4259,6 +4259,260 @@
         "title": "DatasheetSnippetSegment",
         "type": "object"
       },
+      "DispatchClaim": {
+        "description": "One leased entry, with everything the worker needs to read its photograph.\n\nBoth of the browser's readings ride along, weighted honestly, which is ADR 0021's\ncentral mechanism rather than a convenience:\n\n* `barcode_texts` is an **anchor**. A decoded symbology is checksummed and is\n  stronger evidence than anything the model will produce, so a worker holding one\n  narrows the request to a single candidate and asks only for confirmation of\n  manufacturer and package.\n* `ocr_lines` go in **labelled as unreliable rather than omitted**. They are usually\n  nearly right, and nearly right is exactly what a second reader can repair \u2014\n  `CFI4JT100K` for `CF14JT100K` is the recorded case.\n\nSent rather than looked up by the worker so a run needs exactly one API call before\nit starts working, the same reason `ResearchClaim` carries `mpn_norm`.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "barcode_texts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Barcode Texts",
+            "type": "array"
+          },
+          "capture_id": {
+            "title": "Capture Id",
+            "type": "integer"
+          },
+          "capture_sha256": {
+            "title": "Capture Sha256",
+            "type": "string"
+          },
+          "intake_id": {
+            "title": "Intake Id",
+            "type": "integer"
+          },
+          "lease_expires_at": {
+            "format": "date-time",
+            "title": "Lease Expires At",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "mpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mpn"
+          },
+          "ocr_lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ocr Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "intake_id",
+          "capture_id",
+          "capture_sha256",
+          "media_type",
+          "barcode_texts",
+          "ocr_lines",
+          "mpn",
+          "attempts",
+          "lease_expires_at"
+        ],
+        "title": "DispatchClaim",
+        "type": "object"
+      },
+      "DispatchClaimBatch": {
+        "properties": {
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/DispatchClaim"
+            },
+            "title": "Claims",
+            "type": "array"
+          },
+          "worker_id": {
+            "title": "Worker Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id",
+          "claims"
+        ],
+        "title": "DispatchClaimBatch",
+        "type": "object"
+      },
+      "DispatchClaimRequest": {
+        "properties": {
+          "limit": {
+            "default": 1,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "worker_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Worker Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "worker_id"
+        ],
+        "title": "DispatchClaimRequest",
+        "type": "object"
+      },
+      "DispatchQueueStatus": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/DispatchState"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "lease_seconds": {
+            "title": "Lease Seconds",
+            "type": "integer"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "not_requested": {
+            "title": "Not Requested",
+            "type": "integer"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "unidentified": {
+            "title": "Unidentified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "counts",
+          "pending",
+          "not_requested",
+          "failed",
+          "unidentified",
+          "lease_seconds",
+          "max_attempts"
+        ],
+        "title": "DispatchQueueStatus",
+        "type": "object"
+      },
+      "DispatchRequestBody": {
+        "properties": {
+          "intake_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Intake Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "intake_id"
+        ],
+        "title": "DispatchRequestBody",
+        "type": "object"
+      },
+      "DispatchResultRequest": {
+        "description": "A completed run: every identity proposed, or an error.\n\nExactly one of `candidates` and `error`, enforced at the route rather than by a\nvalidator so the refusal carries the same `{reason, message}` shape as every other\nrefusal in this module.",
+        "properties": {
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/IdentitySubmission"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "intake_id": {
+            "maximum": 9.223372036854776e+18,
+            "minimum": 1.0,
+            "title": "Intake Id",
+            "type": "integer"
+          },
+          "label_kind": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Kind"
+          }
+        },
+        "required": [
+          "intake_id"
+        ],
+        "title": "DispatchResultRequest",
+        "type": "object"
+      },
+      "DispatchResultResponse": {
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/IntakeDispatchRead"
+          }
+        },
+        "required": [
+          "entry"
+        ],
+        "title": "DispatchResultResponse",
+        "type": "object"
+      },
+      "DispatchState": {
+        "description": "Where one `pending_intakes` row stands in the capture-dispatch queue (ADR 0021).\n\nThe third queue, and deliberately the same shape as the two before it: **this\ncolumn plus an index, not a table** \u2014 see `ExtractionState` for the argument, and\n`ResearchState` for the same argument applied to a different subject. Extraction\nis about a document with no text; research about a part with no document; this is\nabout a **photograph nobody has read**.\n\n## `NOT_REQUESTED` is the default, and that is the difference from research\n\n`ResearchState.PENDING` is the default for a part, because researching one costs a\nfew HTTP requests to somebody else's CDN and the queue can be left to drain\nitself. Dispatching a capture costs a **GPU handover**: the single card this\nmachine has is exclusive and co-tenanted (ADR 0016), so a vision model becoming\nresident means some other workload is not. Defaulting every parked scan to\n`PENDING` would mean a phone that syncs forty labels has quietly queued forty\nmodel runs.\n\nSo it is opt-in. Every scan parks as `NOT_REQUESTED` and something \u2014 a person\ntapping *read this label*, or a policy that has decided this capture is worth a\nmodel \u2014 moves it to `PENDING`. That is why this enum has six members where\n`ResearchState` has five with the same names: the extra one is the state of *not\nhaving asked*, which for research does not exist.\n\n## `UNIDENTIFIED` is not `FAILED`, and the distinction is load-bearing\n\nExactly `ResearchState`'s `EXHAUSTED`/`FAILED` split, for exactly its reason.\nADR 0021 puts it plainly: **\"we could not tell what this is\" is a photograph\nproblem whose fix is another photograph**, while `FAILED` means something is\nwrong with the system. A blurred label, a bag photographed from the back, a bare\ncomponent with its marking worn off \u2014 all reach `UNIDENTIFIED` and none of them\nis a bug. Collapsing the two puts two unrelated diagnoses in one bucket and the\nbucket stops being read.\n\nA health check counts `FAILED`. It must not count `UNIDENTIFIED`, or it fills\nwith photographs nothing is wrong with.\n\n## `PROPOSED` is terminal *for the machine*\n\nIt means ranked `intake_identity_candidates` rows exist and a person has not\nchosen among them. Nothing automated advances past it at any confidence \u2014\n`CLAUDE.md`'s never-auto-accept rule, and the measurement behind it is in\nADR 0021: the model reported 0.95 on an answer that was the item's FCC ID. The\nentry's own `status` stays `pending` until somebody resolves it through the\nordinary intake door.",
+        "enum": [
+          "not_requested",
+          "pending",
+          "claimed",
+          "proposed",
+          "unidentified",
+          "failed"
+        ],
+        "title": "DispatchState",
+        "type": "string"
+      },
       "DocumentAttachRequest": {
         "properties": {
           "is_primary": {
@@ -5667,6 +5921,222 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "IdentityCandidateRead": {
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "mpn": {
+            "title": "Mpn",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "package": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "source_text": {
+            "title": "Source Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mpn",
+          "manufacturer",
+          "package",
+          "confidence",
+          "source_text",
+          "note",
+          "part_id",
+          "rank",
+          "provider",
+          "model",
+          "created_at"
+        ],
+        "title": "IdentityCandidateRead",
+        "type": "object"
+      },
+      "IdentitySubmission": {
+        "description": "One proposed identity and what the model quoted for it.",
+        "properties": {
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manufacturer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "mpn": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Mpn",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "package": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package"
+          },
+          "part_id": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Id"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "rank": {
+            "default": 0,
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Rank",
+            "type": "integer"
+          },
+          "source_text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mpn",
+          "confidence",
+          "source_text"
+        ],
+        "title": "IdentitySubmission",
+        "type": "object"
+      },
       "InstantiateRequest": {
         "description": "\"Give me N of these\" \u2014 the bulk-provisioning entry point.\n\nInstances **own their own copy** of the type's layout from this moment on;\nnothing here links back to `container_type_id` afterwards (docs/PLAN.md,\n\"Layout authoring\").",
         "properties": {
@@ -5747,6 +6217,61 @@
           "locations"
         ],
         "title": "InstantiateResponse",
+        "type": "object"
+      },
+      "IntakeDispatchRead": {
+        "description": "One entry's dispatch standing, and what was proposed for it.",
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityCandidateRead"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "intake_id": {
+            "title": "Intake Id",
+            "type": "integer"
+          },
+          "label_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label Kind"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DispatchState"
+          }
+        },
+        "required": [
+          "intake_id",
+          "state",
+          "attempts",
+          "error",
+          "label_kind",
+          "candidates"
+        ],
+        "title": "IntakeDispatchRead",
         "type": "object"
       },
       "LabelBackendKind": {
@@ -10980,6 +11505,7 @@
         "type": "object"
       },
       "PendingIntakeRead": {
+        "description": "One parked scan as the desk pass sees it, proposals included.\n\n## Why the dispatch candidates are embedded rather than a route of their own\n\nThe intake panel renders every entry's proposed identities inline, so a separate\n`GET /api/intake/pending/{id}/candidates` would be one request per row \u2014 a queue of\nforty photographs would cost forty round trips to draw once. They ride here instead,\nread in one query for the whole page (`app.services.dispatch.candidates_for` per\nentry against an index whose leading column is `intake_id`).\n\nThe cost of that choice is bounded and small: the list is **empty for every entry\nnobody has dispatched**, which is nearly all of them, and at most\n`vision.DEFAULT_MAX_CANDIDATES` long for the rest.\n\nNote this is additive \u2014 an existing client that ignores the field is unaffected \u2014\nand it is why ADR 0021's five routes are five and not six.",
         "properties": {
           "capture_id": {
             "anyOf": [
@@ -11034,11 +11560,48 @@
             ],
             "title": "Device Id"
           },
+          "dispatch_attempts": {
+            "title": "Dispatch Attempts",
+            "type": "integer"
+          },
+          "dispatch_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Error"
+          },
+          "dispatch_label_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Label Kind"
+          },
+          "dispatch_state": {
+            "$ref": "#/components/schemas/DispatchState"
+          },
           "id": {
             "maximum": 9.223372036854776e+18,
             "minimum": 1.0,
             "title": "Id",
             "type": "integer"
+          },
+          "identity_candidates": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/IdentityCandidateRead"
+            },
+            "title": "Identity Candidates",
+            "type": "array"
           },
           "lot_code": {
             "anyOf": [
@@ -11204,7 +11767,11 @@
           "status",
           "queued_at",
           "created_at",
-          "resolved_at"
+          "resolved_at",
+          "dispatch_state",
+          "dispatch_attempts",
+          "dispatch_error",
+          "dispatch_label_kind"
         ],
         "title": "PendingIntakeRead",
         "type": "object"
@@ -19480,6 +20047,199 @@
         "summary": "Write Slot Template",
         "tags": [
           "container-types"
+        ]
+      }
+    },
+    "/api/dispatch/claims": {
+      "post": {
+        "description": "Lease up to `limit` entries whose photograph wants reading.\n\nA POST despite reading like a query, because it **writes**: it takes a lease and\nburns an attempt. A GET that mutated the queue would be retried by every proxy and\nprefetched by every crawler.\n\nAn empty `claims` list is the ordinary answer and not an error \u2014 it means nobody has\nasked for a photograph to be read, which on this queue is where a healthy install\nspends nearly all of its life.",
+        "operationId": "claim_dispatch_work",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchClaimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchClaimBatch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Claim Dispatch Work",
+        "tags": [
+          "dispatch"
+        ]
+      }
+    },
+    "/api/dispatch/requests": {
+      "post": {
+        "description": "Ask for one entry's photograph to be read by a model.\n\nThe route the other two queues have no equivalent of, and the reason is the GPU \u2014\nsee the module docstring. Also the requeue door: a `proposed`, `unidentified` or\n`failed` entry is re-offered from zero attempts, which is ADR 0021's\nread-it-again-with-a-better-model path and needs no separate route because it is\nthis one.\n\nRefuses an entry with no photograph rather than letting a worker discover it and\nburn an attempt reporting it.",
+        "operationId": "request_dispatch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Dispatch",
+        "tags": [
+          "dispatch"
+        ]
+      }
+    },
+    "/api/dispatch/requests/{intake_id}": {
+      "delete": {
+        "description": "Take an entry back out of the queue.\n\nRequesting is a person's act and so is changing their mind \u2014 and the resource being\nspent is visible to them, so forty queued photographs is a number somebody may want\nto cut down before a drain starts.\n\n**The candidates already read are kept.** They are the record a person consults to\ndecide whether another handover is worth it.",
+        "operationId": "cancel_dispatch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intake_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Intake Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Dispatch",
+        "tags": [
+          "dispatch"
+        ]
+      }
+    },
+    "/api/dispatch/results": {
+      "post": {
+        "description": "Record one run's outcome \u2014 the identities it proposed, or a failure.\n\nNote `candidates: []` and `error` are **different submissions**. An empty list says\nthe model looked and could name nothing, which settles the entry `unidentified`; an\nerror says the run broke, which leaves it claimable until attempts run out.\nCollapsing them would make a model server that was still loading indistinguishable\nfrom a photograph nobody can read \u2014 and would put the second in a health check.",
+        "operationId": "submit_dispatch_result",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Dispatch Result",
+        "tags": [
+          "dispatch"
+        ]
+      }
+    },
+    "/api/dispatch/status": {
+      "get": {
+        "description": "Queue depth. One grouped count over an indexed column, cheap enough to poll.",
+        "operationId": "read_dispatch_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DispatchQueueStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Dispatch Status",
+        "tags": [
+          "dispatch"
         ]
       }
     },

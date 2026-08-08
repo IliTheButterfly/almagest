@@ -37,12 +37,14 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from app.api.limits import QTY_MILLI_MAX, ResultOffset, RowId
+from app.api.routes.dispatch import IdentityCandidateRead
 from app.db.session import get_db
 from app.models.captures import Capture
 from app.models.catalog import Part
-from app.models.enums import PendingIntakeStatus, ScanDecodedKind
+from app.models.enums import DispatchState, PendingIntakeStatus, ScanDecodedKind
 from app.models.scanning import PendingIntake, ScanEvent
 from app.models.types import utcnow
+from app.services import dispatch
 
 router = APIRouter(prefix="/api/intake/pending", tags=["intake"])
 
@@ -92,6 +94,24 @@ class PendingIntakeIn(BaseModel):
 
 
 class PendingIntakeRead(BaseModel):
+    """One parked scan as the desk pass sees it, proposals included.
+
+    ## Why the dispatch candidates are embedded rather than a route of their own
+
+    The intake panel renders every entry's proposed identities inline, so a separate
+    `GET /api/intake/pending/{id}/candidates` would be one request per row — a queue of
+    forty photographs would cost forty round trips to draw once. They ride here instead,
+    read in one query for the whole page (`app.services.dispatch.candidates_for` per
+    entry against an index whose leading column is `intake_id`).
+
+    The cost of that choice is bounded and small: the list is **empty for every entry
+    nobody has dispatched**, which is nearly all of them, and at most
+    `vision.DEFAULT_MAX_CANDIDATES` long for the rest.
+
+    Note this is additive — an existing client that ignores the field is unaffected —
+    and it is why ADR 0021's five routes are five and not six.
+    """
+
     id: RowId
     client_op_id: str
     raw_payload: str
@@ -113,6 +133,25 @@ class PendingIntakeRead(BaseModel):
     queued_at: datetime | None
     created_at: datetime
     resolved_at: datetime | None
+
+    # -- the capture-dispatch queue (ADR 0021) -------------------------------
+    #
+    # Read-only here. **There is deliberately no way to advance any of this through an
+    # intake route**: requesting a run is `POST /api/dispatch/requests` and reporting one
+    # is the worker's door. What this surface does own is the *acceptance* — a person
+    # choosing a candidate calls `POST /api/intake/pending/{id}/resolve` with that
+    # candidate's `part_id`, which is the ordinary resolve and not a second mechanism.
+    dispatch_state: DispatchState
+    dispatch_attempts: int
+    #: NULL for every state but `failed`. An `unidentified` entry carries no error —
+    #: a photograph nobody could read is not a fault. See `app.models.enums.DispatchState`.
+    dispatch_error: str | None
+    #: A reel, a cut-tape strip, a bag, a bare part — for the reader's judgement of what
+    #: the quantity ought to be. Never a field value.
+    dispatch_label_kind: str | None
+    #: Ranked, best first, **losers kept**. Empty unless a run has proposed something,
+    #: which is the case for nearly every entry. See the class docstring.
+    identity_candidates: list[IdentityCandidateRead] = []
 
     model_config = {"from_attributes": True}
 
@@ -141,6 +180,21 @@ class ResolveRequest(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
 
 
+def _read(db: Session, entry: PendingIntake) -> PendingIntakeRead:
+    """One entry plus its proposed identities.
+
+    A function rather than `model_validate` alone because `identity_candidates` is not
+    an attribute on the row — it is a second query, and making it explicit here is what
+    keeps it from becoming a lazy-loaded relationship that fires once per rendered row.
+    """
+    read = PendingIntakeRead.model_validate(entry)
+    read.identity_candidates = [
+        IdentityCandidateRead.model_validate(row)
+        for row in dispatch.candidates_for(db, intake_id=entry.id)
+    ]
+    return read
+
+
 def _require(db: Session, entry_id: int) -> PendingIntake:
     entry = db.get(PendingIntake, entry_id)
     if entry is None:
@@ -167,9 +221,7 @@ def park_scan(request: PendingIntakeIn, db: Session = Depends(get_db)) -> Pendin
         select(PendingIntake).where(PendingIntake.client_op_id == request.client_op_id)
     ).scalar_one_or_none()
     if existing is not None:
-        return PendingIntakeCreated(
-            entry=PendingIntakeRead.model_validate(existing), already_queued=True
-        )
+        return PendingIntakeCreated(entry=_read(db, existing), already_queued=True)
 
     if request.scan_event_id is not None and db.get(ScanEvent, request.scan_event_id) is None:
         raise HTTPException(
@@ -215,7 +267,7 @@ def park_scan(request: PendingIntakeIn, db: Session = Depends(get_db)) -> Pendin
     db.add(entry)
     db.commit()
     db.refresh(entry)
-    return PendingIntakeCreated(entry=PendingIntakeRead.model_validate(entry), already_queued=False)
+    return PendingIntakeCreated(entry=_read(db, entry), already_queued=False)
 
 
 @router.get("", response_model=PendingIntakeList)
@@ -276,7 +328,7 @@ def list_pending(
     return PendingIntakeList(
         total=total,
         pending_total=pending_total,
-        entries=[PendingIntakeRead.model_validate(entry) for entry in entries],
+        entries=[_read(db, entry) for entry in entries],
     )
 
 
@@ -307,7 +359,7 @@ def resolve_entry(
         entry.note = request.note
     db.commit()
     db.refresh(entry)
-    return PendingIntakeRead.model_validate(entry)
+    return _read(db, entry)
 
 
 @router.post("/{entry_id}/dismiss", response_model=PendingIntakeRead)
@@ -328,7 +380,7 @@ def dismiss_entry(
         entry.note = request.note
     db.commit()
     db.refresh(entry)
-    return PendingIntakeRead.model_validate(entry)
+    return _read(db, entry)
 
 
 @router.post("/{entry_id}/reopen", response_model=PendingIntakeRead)
@@ -346,4 +398,4 @@ def reopen_entry(entry_id: RowId, db: Session = Depends(get_db)) -> PendingIntak
     entry.resolved_part_id = None
     db.commit()
     db.refresh(entry)
-    return PendingIntakeRead.model_validate(entry)
+    return _read(db, entry)

@@ -70,6 +70,12 @@ def test_enum_columns_are_plain_varchar(db: Session) -> None:
         ("scan_sources", "kind"),
         ("scan_events", "decoded_kind"),
         ("scan_events", "action_taken"),
+        # The capture-dispatch queue (ADR 0021). `NOT_REQUESTED` being the default
+        # means this column is written on every parked scan, and a `CHECK` on it
+        # would make adding a state — a second model pass, a `deferred` — a rebuild
+        # of the whole worklist.
+        ("pending_intakes", "status"),
+        ("pending_intakes", "dispatch_state"),
         ("projects", "status"),
         ("project_builds", "status"),
         ("stock_allocations", "state"),

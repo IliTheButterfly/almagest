@@ -27,6 +27,7 @@ from app.models.catalog import (
     Unit,
 )
 from app.models.chat import ChatMessage, ChatThread, ChatWriteup, ChatWriteupPost
+from app.models.dispatch import IntakeIdentityCandidate
 from app.models.documents import Document, DocumentLink
 from app.models.enrichment import ParameterValueCandidate
 from app.models.identity import ObjectId
@@ -78,6 +79,7 @@ __all__ = [
     "ContainerTypeSlotTemplate",
     "Document",
     "DocumentLink",
+    "IntakeIdentityCandidate",
     "LabelPrint",
     "LabelSheetJob",
     "LayoutSuggestion",

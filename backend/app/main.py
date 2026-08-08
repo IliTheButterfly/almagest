@@ -19,6 +19,7 @@ from app.api.routes import (
     captures,
     chat,
     container_types,
+    dispatch,
     documents,
     enrichment,
     extraction,
@@ -130,6 +131,16 @@ def create_app() -> FastAPI:
     # worker imports the other. Nothing included here fetches a URL.
     app.include_router(research.router)
     app.include_router(research.parts_router)
+    # The capture-dispatch queue (ADR 0021) — the stage before *research*, and the
+    # first whose input is pixels. A third queue rather than a state on either of the
+    # two above, because again the subject differs: this hands out parked scans whose
+    # photograph nobody has read. It is also the only one of the three that is
+    # **opt-in**, because a run costs a GPU handover on an exclusive card.
+    #
+    # Nothing included here decodes an image, base64-encodes anything or calls a
+    # model; `tests/integration/test_route_fence.py` greps the routes package to keep
+    # it so.
+    app.include_router(dispatch.router)
     # Chat threads, turns, writeups and export (ADR 0018). Storage only — no model
     # runs in this process and no agent loop lives here: an agent whose tools call
     # back into this single-replica SQLite writer, from inside it, is a deadlock.
