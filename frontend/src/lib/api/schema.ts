@@ -3539,6 +3539,15 @@ export interface paths {
          *       location, suggest a defrag" behaviour could never fire, and the storage
          *       map's fill ratios were served from a table with no rows in it.
          *
+         *     * **Abandoned queue leases are swept.** Also repair, and for the same reason:
+         *       a lease is deliberately not a lock, it expires on its own so a worker may be
+         *       killed without anybody noticing, and collecting the expired ones is the
+         *       mechanism working. The queues already do this at the top of every `claim` —
+         *       but that is a repair which happens *as a side effect of use*, and the
+         *       dispatch queue is opt-in with no scheduled worker, so "the next claim will
+         *       sweep it" can mean never. See
+         *       `app.db.maintenance.sweep_abandoned_leases`.
+         *
          *     * **Balances and reservations are only checked.** Both are maintained
          *       incrementally on every write by `services/ledger.py` and
          *       `services/reservations.py`. Drift there is not expected staleness, it is a
@@ -6049,6 +6058,18 @@ export interface components {
             /** Slots */
             slots: components["schemas"]["SlotStateRead"][];
         };
+        /**
+         * LeaseSweepRead
+         * @description One work queue's expired-lease sweep.
+         */
+        LeaseSweepRead: {
+            /** Failed */
+            failed: number;
+            /** Queue */
+            queue: string;
+            /** Stalled */
+            stalled: number;
+        };
         /** LedgerEntry */
         LedgerEntry: {
             /** Counted Qty Milli */
@@ -6497,6 +6518,16 @@ export interface components {
             drift: components["schemas"]["DriftRead"][];
             /** Has Drift */
             has_drift: boolean;
+            /**
+             * Has Stalled Leases
+             * @default false
+             */
+            has_stalled_leases?: boolean;
+            /**
+             * Lease Sweeps
+             * @default []
+             */
+            lease_sweeps?: components["schemas"]["LeaseSweepRead"][];
             /** Occupancy Rebuilt */
             occupancy_rebuilt: number;
         };

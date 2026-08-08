@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, select, text, update
+from sqlalchemy import CursorResult, func, select, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -378,3 +379,158 @@ def _record_check(session: Session, report: DriftReport) -> None:
             "name": report.cache_name,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Abandoned queue leases
+# ---------------------------------------------------------------------------
+#
+# The three work queues repair their own leases "as a side effect of being used":
+# `expire_abandoned` runs at the top of every `claim`, so a queue that is being
+# worked needs no scheduler in order to be correct. That argument is sound, and it
+# has one hole — it depends on somebody claiming.
+#
+# **The dispatch queue makes that hole load-bearing.** It is opt-in
+# (`DispatchState.NOT_REQUESTED` is the default, because a read costs a GPU
+# handover) and there is no scheduled dispatch worker at all. So "the next claim
+# will sweep it" can mean *never*: an entry whose worker died twice sits `CLAIMED`
+# with nobody holding it — not pending, not failed, not claimable, and absent from
+# every count that would show the queue had stopped moving. That is precisely the
+# state `expire_abandoned` exists to prevent, and the mechanism cannot fire without
+# the use it is a side effect of.
+#
+# So the nightly pass sweeps all three. This is the **repair** half of ADR 0013 and
+# it belongs there for the same reason dirty occupancy does: an expired lease is
+# *designed* staleness. A lease is deliberately not a lock — it expires on its own
+# so a worker may be killed without anybody having to notice — and collecting the
+# ones that expired is the mechanism working rather than evidence of a bug.
+#
+# Nothing here decides an outcome. It cannot: `expire_abandoned` only moves a claim
+# whose attempts are already spent, and the state it moves it to is the queue's own
+# failure state. A photograph nobody could read still becomes `UNIDENTIFIED` by the
+# worker reporting it, never by this pass.
+
+
+@dataclass(frozen=True)
+class LeaseSweep:
+    """What one queue's expired-lease sweep did, and what it deliberately left."""
+
+    queue: str
+    #: Claims whose lease ran out with no attempts left, moved to that queue's
+    #: failure state. **Repaired**, and counted so the pass can say it happened.
+    failed: int
+    #: Claims whose lease ran out with attempts remaining. **Not touched**, because
+    #: there is nothing to repair — they are already claimable and the next worker
+    #: takes them.
+    #:
+    #: Counted anyway, and this is the number worth watching: a queue with no
+    #: worker running looks *healthy* from its own depth, because the rows read as
+    #: `claimed`, which is indistinguishable from progress. A `stalled` count that
+    #: stays high across nights is the only signal that nothing is draining.
+    stalled: int
+
+    @property
+    def is_clean(self) -> bool:
+        return self.failed == 0 and self.stalled == 0
+
+
+@dataclass(frozen=True)
+class _Queue:
+    """One queue's lease columns, so the sweep below is one loop and not three."""
+
+    name: str
+    lease_seconds: int
+    max_attempts: int
+    claimed_value: str
+    state: Any
+    claimed_at: Any
+    attempts: Any
+    entity: Any
+
+
+def _queues() -> list[_Queue]:
+    """The three queues, described rather than special-cased.
+
+    Imported inside the function on purpose. `app.db` sits *underneath*
+    `app.services` everywhere else here — the services import this module for the
+    rebuild routes — so a module-level import of the queue services would invert the
+    layering and make a cycle possible. A function-level import keeps it
+    one-directional.
+
+    The queues themselves stay three independent copies of each other, for the
+    reason `services/dispatch.py`'s docstring gives at length. This is not an
+    abstraction over them: it is one caller doing the same thing to three, which is
+    what a loop is for.
+    """
+    from app.models.catalog import Part
+    from app.models.documents import Document
+    from app.models.enums import DispatchState, ExtractionState, ResearchState
+    from app.models.scanning import PendingIntake
+    from app.services import dispatch, document_text, research
+
+    return [
+        _Queue(
+            name="extraction",
+            lease_seconds=document_text.LEASE_SECONDS,
+            max_attempts=document_text.MAX_EXTRACTION_ATTEMPTS,
+            claimed_value=ExtractionState.CLAIMED.value,
+            state=Document.extraction_state,
+            claimed_at=Document.extraction_claimed_at,
+            attempts=Document.extraction_attempts,
+            entity=Document,
+        ),
+        _Queue(
+            name="research",
+            lease_seconds=research.LEASE_SECONDS,
+            max_attempts=research.MAX_RESEARCH_ATTEMPTS,
+            claimed_value=ResearchState.CLAIMED.value,
+            state=Part.research_state,
+            claimed_at=Part.research_claimed_at,
+            attempts=Part.research_attempts,
+            entity=Part,
+        ),
+        _Queue(
+            name="dispatch",
+            lease_seconds=dispatch.LEASE_SECONDS,
+            max_attempts=dispatch.MAX_DISPATCH_ATTEMPTS,
+            claimed_value=DispatchState.CLAIMED.value,
+            state=PendingIntake.dispatch_state,
+            claimed_at=PendingIntake.dispatch_claimed_at,
+            attempts=PendingIntake.dispatch_attempts,
+            entity=PendingIntake,
+        ),
+    ]
+
+
+def sweep_abandoned_leases(session: Session, *, now: datetime | None = None) -> list[LeaseSweep]:
+    """Expire abandoned claims across all three work queues. Returns what it found.
+
+    `now` is a parameter rather than a clock read so the dead-worker path is
+    testable without waiting out a thirty-minute lease — the same reason every
+    `expire_abandoned` takes one.
+    """
+    from app.services import dispatch, document_text, research
+
+    modules = {"extraction": document_text, "research": research, "dispatch": dispatch}
+    moment = now or utcnow()
+    sweeps: list[LeaseSweep] = []
+
+    for queue in _queues():
+        failed = modules[queue.name].expire_abandoned(session, now=moment)
+        # Counted *after* the sweep, so it reports what is left rather than what
+        # was there: the rows this pass deliberately did not touch.
+        cutoff = moment - timedelta(seconds=queue.lease_seconds)
+        stalled = int(
+            session.execute(
+                select(func.count())
+                .select_from(queue.entity)
+                .where(
+                    queue.state == queue.claimed_value,
+                    queue.claimed_at < cutoff,
+                    queue.attempts < queue.max_attempts,
+                )
+            ).scalar_one()
+        )
+        sweeps.append(LeaseSweep(queue=queue.name, failed=failed, stalled=stalled))
+
+    return sweeps

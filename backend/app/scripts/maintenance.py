@@ -79,6 +79,29 @@ def run_check(base_url: str, *, timeout: float = DEFAULT_TIMEOUT) -> bool:
     body = post_json(base_url, "api/system/maintenance", {}, timeout=timeout)
     log.info("rebuilt occupancy for %s location(s)", body.get("occupancy_rebuilt", 0))
 
+    # Logged at WARNING rather than folded into the exit code, and the distinction
+    # is the point. A swept lease is a *repair* that succeeded, so it is not a
+    # failure — but a queue with expired leases it could not repair is a queue
+    # nothing is draining, and that is invisible everywhere else: the rows read as
+    # `claimed`, which from the queue's own depth looks exactly like progress.
+    #
+    # It does not fail the Job because the drift channel has to keep meaning "a
+    # number is wrong". A stopped worker and a wrong balance send whoever reads
+    # this to different places, and one exit code cannot say both.
+    for sweep in body.get("lease_sweeps", []):
+        queue = sweep.get("queue", "?")
+        failed, stalled = int(sweep.get("failed", 0)), int(sweep.get("stalled", 0))
+        if failed:
+            log.info("%s: swept %s abandoned claim(s) to failed", queue, failed)
+        if stalled:
+            log.warning(
+                "%s: %s expired lease(s) with attempts left — nothing is draining this queue",
+                queue,
+                stalled,
+            )
+        if not failed and not stalled:
+            log.info("%s: no abandoned leases", queue)
+
     clean = True
     for report in body.get("drift", []):
         name = report.get("cache_name", "?")

@@ -115,11 +115,33 @@ class DriftRead(BaseModel):
     sample_ids: list[int]
 
 
+class LeaseSweepRead(BaseModel):
+    """One work queue's expired-lease sweep."""
+
+    queue: str
+    #: Claims whose lease ran out with no attempts left, moved to that queue's
+    #: failure state. Repaired, because an expired lease is designed staleness.
+    failed: int
+    #: Expired leases with attempts left, deliberately untouched — already
+    #: claimable. **The number worth watching**: a queue nothing is draining looks
+    #: healthy from its own depth, because the rows read as `claimed`.
+    stalled: int
+
+
 class MaintenanceRun(BaseModel):
     """What the nightly pass repaired, and what it only reported."""
 
     #: Locations whose occupancy was recomputed because a trigger flagged them.
     occupancy_rebuilt: int
+    #: Per queue, what the abandoned-lease sweep did. Repair, not report — see
+    #: `app.db.maintenance.sweep_abandoned_leases` for why a lease belongs on this
+    #: side of ADR 0013's split, and why the dispatch queue makes it necessary.
+    lease_sweeps: list[LeaseSweepRead] = []
+    #: True when any queue still holds an expired lease it could not repair. Not
+    #: folded into `has_drift`: drift is a wrong number and this is a stopped
+    #: worker, and a nightly Job that cannot tell them apart sends whoever reads it
+    #: to the wrong place.
+    has_stalled_leases: bool = False
     #: One entry per drift-checked cache. Reported, never silently repaired.
     drift: list[DriftRead]
     #: True when any checked cache disagreed with its source of truth. The
@@ -145,6 +167,15 @@ def run_maintenance(db: Session = Depends(get_db)) -> MaintenanceRun:
       location, suggest a defrag" behaviour could never fire, and the storage
       map's fill ratios were served from a table with no rows in it.
 
+    * **Abandoned queue leases are swept.** Also repair, and for the same reason:
+      a lease is deliberately not a lock, it expires on its own so a worker may be
+      killed without anybody noticing, and collecting the expired ones is the
+      mechanism working. The queues already do this at the top of every `claim` —
+      but that is a repair which happens *as a side effect of use*, and the
+      dispatch queue is opt-in with no scheduled worker, so "the next claim will
+      sweep it" can mean never. See
+      `app.db.maintenance.sweep_abandoned_leases`.
+
     * **Balances and reservations are only checked.** Both are maintained
       incrementally on every write by `services/ledger.py` and
       `services/reservations.py`. Drift there is not expected staleness, it is a
@@ -154,6 +185,10 @@ def run_maintenance(db: Session = Depends(get_db)) -> MaintenanceRun:
       run deliberately once the cause is known.
     """
     occupancy_rebuilt = maintenance.rebuild_location_occupancy(db, only_dirty=True)
+    # Before the drift checks, deliberately. A sweep can move a claim into a
+    # failure state, and a person reading this output should see the queue's
+    # settled shape rather than one caught mid-repair.
+    sweeps = maintenance.sweep_abandoned_leases(db)
     reports = [
         maintenance.check_lot_balance_drift(db),
         maintenance.check_reserved_quantity_drift(db),
@@ -166,6 +201,11 @@ def run_maintenance(db: Session = Depends(get_db)) -> MaintenanceRun:
     db.commit()
     return MaintenanceRun(
         occupancy_rebuilt=occupancy_rebuilt,
+        lease_sweeps=[
+            LeaseSweepRead(queue=sweep.queue, failed=sweep.failed, stalled=sweep.stalled)
+            for sweep in sweeps
+        ],
+        has_stalled_leases=any(sweep.stalled for sweep in sweeps),
         drift=[
             DriftRead(
                 cache_name=report.cache_name,
