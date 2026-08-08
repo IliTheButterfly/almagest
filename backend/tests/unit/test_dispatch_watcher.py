@@ -126,8 +126,16 @@ class FakeClient:
     calls: list[str] = field(default_factory=list)
     submitted: list[dict[str, Any]] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
+    #: Transcripts the drain recorded. Present because `ApiClient` grew
+    #: `record_run` while this fake did not, which is how the watcher and the
+    #: transcript landed individually green and together broken.
+    runs: list[dict[str, Any]] = field(default_factory=list)
     #: Raise from `fetch_image`, to model a drain that dies mid-flight.
     explode: bool = False
+
+    def record_run(self, run: dict[str, Any]) -> None:
+        self.calls.append("record_run")
+        self.runs.append(run)
 
     def claim(self, *, worker_id: str, limit: int) -> list[QueuedCapture]:
         self.calls.append("claim")
@@ -658,6 +666,10 @@ def test_nothing_here_can_queue_a_photograph_by_itself(provider: FakeVisionProvi
         "create_stub_part",
         "submit_candidates",
         "submit_failure",
+        # Writes a transcript of a call that already happened. It cannot enqueue
+        # anything, which is what this allowlist is actually about — kept closed
+        # rather than relaxed, so a future call that *could* queue still fails here.
+        "record_run",
     }
     tree = _module_tree()
     strings = _code_strings(tree)
@@ -772,3 +784,38 @@ def test_releasing_twice_gives_the_card_back_once(monkeypatch: pytest.MonkeyPatc
     assert card.release() is True
     assert card.release() is False
     assert scaler.calls.count((card.server.host, 0)) == 1
+
+
+def test_the_watcher_passes_transcripts_through_and_counts_them_as_progress(
+    provider: FakeVisionProvider,
+) -> None:
+    """The seam where the watcher and the transcript met, and broke.
+
+    `ApiClient` grew `record_run`; `HeartbeatClient` did not implement it. A
+    `Protocol` is structural, so nothing warned — both changes were green on their
+    own branch and every drain died on `AttributeError` at the first model call the
+    moment they were combined. Only running them together found it.
+
+    So this asserts the delegation *and* the heartbeat. The heartbeat matters more
+    than symmetry: a run is recorded either side of the model call, which is the
+    freshest liveness evidence available at exactly the moment the drain looks most
+    idle from outside — mid-inference, with nothing else to report — and that is
+    when the reaper is deciding whether to take the card back.
+    """
+    client = FakeClient(captures=[_capture()])
+    watcher = _watcher(FakeStatus(answers=[1]), FakeCard(), client, provider)
+
+    watcher.tick()
+
+    assert client.runs, "the drain recorded no transcript at all"
+    assert "record_run" in client.calls
+    # Recorded *through* the heartbeat wrapper rather than around it, asserted
+    # against the real one: a transcript that bypassed the flag would record fine
+    # and leave the drain looking idle to the reaper, which is the failure this
+    # delegation exists to prevent.
+    flag = dispatch_watcher.DrainFlag()
+    inner = FakeClient()
+    flag.begin()
+    dispatch_watcher.HeartbeatClient(inner, flag).record_run({"kind": "vision"})
+    assert inner.runs == [{"kind": "vision"}]
+    assert flag.snapshot()["draining"] is True
