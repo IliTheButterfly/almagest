@@ -1,7 +1,10 @@
 [Unit]
 Description=Almagest device bridge (NFC readers the browser cannot reach)
-After=almagest-station-api.service
-Wants=almagest-station-api.service
+# Ordering only, against both possible owners of 127.0.0.1:8000, and with no
+# `Wants=` — see the long note in `almagest-station-web.service`. A `Wants=` here
+# starts the local API even when it is disabled, which on a cluster-mode station
+# silently swaps the bench back onto its own database.
+After=almagest-station-api.service almagest-station-upstream.service
 
 [Service]
 # Not `Type=exec`: it arrived in systemd 240 and the bench Jetson runs 237,
