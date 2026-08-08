@@ -220,6 +220,13 @@ export type PendingIntakeCreated = Schemas["PendingIntakeCreated"];
 export type PendingIntakeList = Schemas["PendingIntakeList"];
 export type PendingIntakeStatus = Schemas["PendingIntakeStatus"];
 
+/** One identity a vision model proposed for a parked photograph (ADR 0021). Never an
+ *  answer — `part_id` is the stub minted for it, and choosing it is a person's act. */
+export type IdentityCandidateRead = Schemas["IdentityCandidateRead"];
+export type DispatchState = Schemas["DispatchState"];
+export type IntakeDispatchRead = Schemas["IntakeDispatchRead"];
+export type DispatchResultResponse = Schemas["DispatchResultResponse"];
+
 export type LotRead = Schemas["LotRead"];
 export type LedgerEntry = Schemas["LedgerEntry"];
 export type MovementResponse = Schemas["MovementResponse"];
@@ -1648,6 +1655,37 @@ export async function dismissPendingIntake(
   });
   if (error !== undefined) {
     fail("could not dismiss that entry", error, response);
+  }
+  return data;
+}
+
+/**
+ * Ask a vision model to read this entry's photograph (ADR 0021).
+ *
+ * **This spends the GPU**, which is why it is a button and not something the queue does
+ * on its own: the card is exclusive and co-tenanted, so a run means some other workload
+ * is not resident. `DispatchState` defaults to `not_requested` for exactly that reason.
+ *
+ * Also the re-read door: an entry that already came back `proposed`, `unidentified` or
+ * `failed` is offered again from zero attempts.
+ */
+export async function requestCaptureDispatch(intakeId: number): Promise<DispatchResultResponse> {
+  const { data, error, response } = await api.POST("/api/dispatch/requests", {
+    body: { intake_id: intakeId },
+  });
+  if (error !== undefined) {
+    fail("could not queue that photograph to be read", error, response);
+  }
+  return data;
+}
+
+/** Take a photograph back out of the read queue. What it already read is kept. */
+export async function cancelCaptureDispatch(intakeId: number): Promise<DispatchResultResponse> {
+  const { data, error, response } = await api.DELETE("/api/dispatch/requests/{intake_id}", {
+    params: { path: { intake_id: intakeId } },
+  });
+  if (error !== undefined) {
+    fail("could not cancel that read", error, response);
   }
   return data;
 }

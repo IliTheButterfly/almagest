@@ -25,10 +25,13 @@ import { CategorySelect } from "../components/CategorySelect";
 import { PartKindPicker } from "../components/PartKindPicker";
 import {
   bindScanAlias,
+  cancelCaptureDispatch,
   createPart,
   dismissPendingIntake,
   listPendingIntake,
+  requestCaptureDispatch,
   resolvePendingIntake,
+  type IdentityCandidateRead,
   type PendingIntakeList,
   type PendingIntakeRead,
 } from "../lib/api/client";
@@ -305,13 +308,21 @@ function ServerRow({ entry, onChanged }: { entry: PendingIntakeRead; onChanged: 
           re-resolving every capture in a long queue would cost most where the
           queue is longest. */}
       {entry.capture_id !== null && entry.capture_id !== undefined && (
-        <details>
-          <summary>The picture, and what it says</summary>
-          <IntakeCapture
-            captureId={entry.capture_id}
-            onCreated={(part) => void act("resolve", part.id)}
-          />
-        </details>
+        <>
+          <details>
+            <summary>The picture, and what it says</summary>
+            <IntakeCapture
+              captureId={entry.capture_id}
+              onCreated={(part) => void act("resolve", part.id)}
+            />
+          </details>
+          {/* Not collapsed, unlike the picture above. A proposal is the thing this
+              row is *for* once one exists — hiding it behind a disclosure would
+              mean the overnight run's whole output needed a click per entry to
+              find. The button is cheap to render and the candidates are at most
+              three. */}
+          <IdentityProposal entry={entry} onChanged={onChanged} onChoose={(partId) => act("resolve", partId)} />
+        </>
       )}
 
       <div className="row">
@@ -325,6 +336,226 @@ function ServerRow({ entry, onChanged }: { entry: PendingIntakeRead; onChanged: 
       </div>
     </li>
   );
+}
+
+/**
+ * What a vision model proposed for this photograph, and the button that asks it to
+ * (ADR 0021).
+ *
+ * ## Three things this deliberately does not do
+ *
+ * **It never says a part number *is* the answer.** Every row is a proposal with the
+ * characters the model quoted printed next to it, because the quote is what a person
+ * checks against the picture. ADR 0021 records that catching a fabrication no confidence
+ * score would have: the wrong reading quoted `MODEL: MCQ-XBEE3`, a line that is not on
+ * the label — which says `MODEL: MICRO` and `FCC ID: MCQ-XBEE3` separately.
+ *
+ * **It shows the losers.** The second and third readings are not noise to be hidden;
+ * they are the alternatives, and one of them having a real datasheet while the others do
+ * not is what the overnight research pass is *for*.
+ *
+ * **Choosing calls the ordinary resolve.** There is no accept-a-candidate endpoint, and
+ * there must not be: a machine writing `resolved_part_id` at any confidence is the
+ * never-auto-accept rule broken. The button here hands the candidate's already-minted
+ * stub id to the same `resolve` a person uses for a barcode.
+ *
+ * ## Why the confidence is shown as text and not a bar
+ *
+ * It is **not calibrated** — 0.95 on a wrong answer, measured — and it is clamped below
+ * the promotion threshold before it is ever stored. A progress bar reads as a measurement
+ * and would invite exactly the trust the number does not deserve; a muted number beside
+ * the quote reads as what it is, which is the model's own opinion of its eyesight.
+ */
+export function IdentityProposal({
+  entry,
+  onChanged,
+  onChoose,
+}: {
+  entry: PendingIntakeRead;
+  onChanged: () => void;
+  onChoose: (partId: number) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const candidates = entry.identity_candidates ?? [];
+  const state = entry.dispatch_state;
+
+  async function ask(what: "request" | "cancel"): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await (what === "request" ? requestCaptureDispatch(entry.id) : cancelCaptureDispatch(entry.id));
+      onChanged();
+    } catch (cause) {
+      setError(cause);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="stack" style={{ gap: "0.4rem" }}>
+      <div className="row">
+        <strong style={{ flex: 1 }}>Read the label</strong>
+        <DispatchBadge state={state} />
+      </div>
+
+      <ErrorBanner error={error} fallback="That read was not queued." />
+
+      {state === "not_requested" && (
+        <>
+          <p className="muted-note" style={{ margin: 0 }}>
+            Nobody has asked a model to read this photograph. It is off by default because
+            it takes the graphics card away from whatever else is using it.
+          </p>
+          <button type="button" disabled={busy} onClick={() => void ask("request")}>
+            {busy ? "Queueing…" : "Ask a model to read it"}
+          </button>
+        </>
+      )}
+
+      {(state === "pending" || state === "claimed") && (
+        <>
+          <p className="muted-note" style={{ margin: 0 }}>
+            {state === "pending"
+              ? "Queued. It will be read the next time the reader runs."
+              : "Being read now."}
+          </p>
+          <button type="button" disabled={busy} onClick={() => void ask("cancel")}>
+            {busy ? "Cancelling…" : "Take it out of the queue"}
+          </button>
+        </>
+      )}
+
+      {state === "unidentified" && (
+        <Notice kind="info" title="Nothing legible">
+          <p style={{ margin: 0 }}>
+            The model could not name a part from this photograph. That is not a fault —
+            take another picture, closer or with less glare, rather than trying again on
+            this one.
+          </p>
+        </Notice>
+      )}
+
+      {state === "failed" && (
+        <Notice kind="warn" title="The read broke">
+          <p style={{ margin: 0 }}>{entry.dispatch_error ?? "No reason was recorded."}</p>
+        </Notice>
+      )}
+
+      {candidates.length > 0 && (
+        <>
+          <p className="muted-note" style={{ margin: 0 }}>
+            {/* Said in the UI and not only in an ADR: the whole design rests on the
+                person understanding that these are readings, not answers. */}
+            Suggestions, best first. Check the quoted characters against the picture — the
+            model can read a certification number or a URL as confidently as a part number.
+          </p>
+          <ul className="list">
+            {candidates.map((candidate) => (
+              <CandidateRow
+                key={candidate.mpn}
+                candidate={candidate}
+                onChoose={onChoose}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {(state === "proposed" || state === "unidentified" || state === "failed") && (
+        <button type="button" disabled={busy} onClick={() => void ask("request")}>
+          {busy ? "Queueing…" : "Read it again"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** One proposal, with what was quoted for it and the one button that accepts it. */
+function CandidateRow({
+  candidate,
+  onChoose,
+}: {
+  candidate: IdentityCandidateRead;
+  onChoose: (partId: number) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const partId = candidate.part_id;
+
+  return (
+    <li className="list-item">
+      <div className="row">
+        <span className="title mono" style={{ flex: 1, overflowWrap: "anywhere" }}>
+          {candidate.mpn}
+        </span>
+        {candidate.manufacturer !== null && candidate.manufacturer !== undefined && (
+          <span className="badge">{candidate.manufacturer}</span>
+        )}
+      </div>
+      <div className="sub">
+        {/* The quote first, because it is the thing being checked. */}
+        read <span className="mono">“{candidate.source_text}”</span>
+        {candidate.package === null || candidate.package === undefined
+          ? ""
+          : ` · ${candidate.package}`}
+        {` · the model rated its own reading ${candidate.confidence.toFixed(2)}`}
+      </div>
+      {candidate.note !== null && candidate.note !== undefined && (
+        <div className="sub">{candidate.note}</div>
+      )}
+      <div className="row">
+        {partId === null || partId === undefined ? (
+          <span className="muted-note">
+            No stub part was created for this reading, so it cannot be chosen here.
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="primary"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                void onChoose(partId).finally(() => setBusy(false));
+              }}
+            >
+              {busy ? "Recording…" : "This is it"}
+            </button>
+            <span className="spacer" />
+            <Link to={`/parts/${partId}`}>Part {partId} →</Link>
+          </>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Where the read stands, in the same shape `ResearchPanel.STATE_COPY` uses.
+ *
+ * Copied rather than shared because the two queues' words differ where it matters:
+ * research's `exhausted` means "no datasheet exists for this part number" and dispatch's
+ * `unidentified` means "nobody can read this photograph", and the fix for one is another
+ * provider while the fix for the other is another picture. A shared table would push both
+ * toward one bland phrase.
+ *
+ * **`unidentified` is deliberately not styled as a failure**, exactly as `exhausted` is
+ * not: colouring a normal outcome red is how the real failures stop standing out.
+ */
+const DISPATCH_COPY: Record<string, { label: string; badge: string }> = {
+  not_requested: { label: "not read", badge: "badge" },
+  pending: { label: "queued", badge: "badge" },
+  claimed: { label: "reading", badge: "badge badge-accent" },
+  proposed: { label: "suggestions", badge: "badge badge-good" },
+  unidentified: { label: "nothing legible", badge: "badge" },
+  failed: { label: "read broke", badge: "badge badge-bad" },
+};
+
+function DispatchBadge({ state }: { state: PendingIntakeRead["dispatch_state"] }) {
+  const chosen = DISPATCH_COPY[state] ?? { label: state, badge: "badge" };
+  return <span className={chosen.badge}>{chosen.label}</span>;
 }
 
 function PendingRow({ entry }: { entry: PendingScan }) {
