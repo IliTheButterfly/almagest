@@ -159,9 +159,20 @@ export function App() {
             also reachable from Storage, which is what makes it survivable. */}
         <NavLink to="/staging">Staging</NavLink>
         <NavLink to="/review">Review</NavLink>
-        {/* Next to Review because it is the same kind of errand: looking again at
-           something a decision was deferred on. */}
-        <NavLink to="/captures">Captures</NavLink>
+        {/* Models arrives and Captures leaves, and the swap is the point rather
+            than a preference. The comment above `Scan` records the constraint:
+            eleven tabs do not fit a phone, at 430 CSS px the strip shows about
+            six, and anything past that is invisible until somebody thinks to
+            swipe a nav bar. So an eleventh link is not free, and `/models` was
+            merged routed-but-unlinked rather than pay for it — which made a
+            working screen unreachable unless you typed the URL.
+            `/captures` is the right one to give up. It answers "show me every
+            still ever taken", which is browsing; every capture that matters is
+            already reachable *in context* — inline on its own intake row, and
+            now linked from the intake queue's header. Models is the opposite: it
+            is where you go when the GPU is busy and you need to know what has
+            it, which is a question you have while something else is wrong. */}
+        <NavLink to="/models">Models</NavLink>
       </nav>
 
       {/*

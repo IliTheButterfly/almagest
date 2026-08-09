@@ -109,6 +109,16 @@ export function IntakeQueueScreen() {
           Stock that could not be placed automatically waits in{" "}
           <Link to="/staging">staging</Link> until it is given a home.
         </p>
+        {/* Captures lost its nav tab so Models could have one — see the comment in
+            `App.tsx`. This is where it goes instead, and it is arguably a better
+            home than a tab was: every still is taken at the scanner and parked
+            here, so "all of them" is a question you ask from this screen. The
+            per-entry photograph is still inline on its own row; this is only the
+            browse-everything view. */}
+        <p className="muted-note" style={{ margin: 0 }}>
+          Every still ever taken, including ones no longer attached to an entry, is
+          in <Link to="/captures">captures</Link>.
+        </p>
 
         <div className="row">
           <button
