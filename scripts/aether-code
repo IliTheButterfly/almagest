@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+#
+# Claude Code, driven by the Qwen 27B that Almagest runs on aether.
+#
+#   scripts/aether-code [claude args...]   start the model if needed, then code
+#   scripts/aether-code status             replicas, holds, and the KV-cache line
+#   scripts/aether-code release            hand the GPU back now (if nobody holds it)
+#
+# vLLM serves Anthropic's /v1/messages natively, so this is real Claude Code with
+# ANTHROPIC_BASE_URL pointed at a port-forward - no translating proxy.
+#
+# While it runs it renews a Lease labelled `almagest.llm/hold`, which the
+# almagest-llm-reaper honours; on exit the lease is deleted and the reaper hands
+# the card back on its next pass. A crash just lets the lease expire.
+#
+# The server's context is small (--max-model-len, 16k today), so below 48k the
+# session runs lean: six tools, no MCP, no skills, no CLAUDE.md or auto-memory.
+# That is ~4k tokens of prompt instead of ~35k. The window is read from the
+# server, so raising --max-model-len needs no change here.
+
+set -euo pipefail
+
+KCTX="${AETHER_KUBE_CONTEXT:-aether}"
+NS=ili
+DEPLOY=almagest-llm-27b
+PORT="${AETHER_CODE_PORT:-18000}"
+LEASE_SECONDS=300
+LEASE="aether-code-$(id -un)-$(hostname -s)-$$"
+
+k() { kubectl --context "$KCTX" -n "$NS" "$@"; }
+say() { printf '\033[1;36m==>\033[0m %s\n' "$*" >&2; }
+die() { printf '\033[1;31mfatal:\033[0m %s\n' "$*" >&2; exit 1; }
+now() { date -u +%Y-%m-%dT%H:%M:%S.%6NZ; }
+
+live_holds() {
+  k get leases -l almagest.llm/hold \
+    -o jsonpath='{range .items[*]}{.metadata.name} {.spec.renewTime} {.spec.leaseDurationSeconds}{"\n"}{end}' |
+    while read -r name renewed duration; do
+      [ -n "$name" ] || continue
+      if (( $(date -u -d "$renewed" +%s) + duration > $(date -u +%s) )); then
+        echo "$name (renewed $renewed)"
+      fi
+    done
+}
+
+cmd_status() {
+  k get deploy almagest-llm almagest-llm-27b \
+    -o custom-columns=NAME:.metadata.name,WANT:.spec.replicas,READY:.status.readyReplicas
+  echo "holds:"; live_holds | sed 's/^/  /'
+  local pod
+  pod="$(k get pods -l app.kubernetes.io/component=llm-27b -o name 2>/dev/null | head -1)"
+  if [ -n "$pod" ]; then
+    echo "KV cache (decides how far --max-model-len can go):"
+    k logs "$pod" 2>/dev/null | grep -E 'Available KV cache memory|GPU KV cache size|Maximum concurrency' | tail -3 | sed 's/^/  /'
+  fi
+}
+
+cmd_release() {
+  local holds
+  holds="$(live_holds)"
+  [ -z "$holds" ] || die "still held by: $holds"
+  k scale "deploy/$DEPLOY" --replicas=0
+}
+
+case "${1:-}" in
+  status) cmd_status; exit ;;
+  release) cmd_release; exit ;;
+esac
+
+command -v kubectl >/dev/null || die "kubectl is not on PATH"
+command -v claude >/dev/null || die "claude is not on PATH"
+k get deploy "$DEPLOY" >/dev/null || die "cannot reach deploy/$DEPLOY in $KCTX/$NS"
+
+renew_pid="" pf_pid=""
+cleanup() {
+  # The loops' children first: killing a subshell does not take its kubectl with it.
+  for pid in $renew_pid $pf_pid; do
+    pkill -P "$pid" 2>/dev/null
+    kill "$pid" 2>/dev/null
+  done
+  k delete lease "$LEASE" --ignore-not-found >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+# Hold first, so the reaper cannot take the model between our scale and our first request.
+k apply -f - >/dev/null <<EOF
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: $LEASE
+  labels:
+    almagest.llm/hold: "true"
+spec:
+  holderIdentity: $LEASE
+  leaseDurationSeconds: $LEASE_SECONDS
+  renewTime: $(now)
+EOF
+( while sleep 60; do
+    k patch lease "$LEASE" --type merge -p "{\"spec\":{\"renewTime\":\"$(now)\"}}" >/dev/null 2>&1 || true
+  done ) &
+renew_pid=$!
+
+if [ "$(k get deploy almagest-llm -o jsonpath='{.spec.replicas}')" != "0" ]; then
+  die "Almagest's Ollama (almagest-llm) has the GPU; the card is exclusive. Free it with: make k8s-model M=27b"
+fi
+
+if [ "$(k get deploy "$DEPLOY" -o jsonpath='{.spec.replicas}')" = "0" ]; then
+  say "starting $DEPLOY (a cold start is minutes; the first ever start downloads ~16 GB)"
+  k scale "deploy/$DEPLOY" --replicas=1 >/dev/null
+fi
+
+start=$SECONDS
+until [ "$(k get deploy "$DEPLOY" -o jsonpath='{.status.readyReplicas}')" = "1" ]; do
+  (( SECONDS - start < 3600 )) || die "$DEPLOY not ready after an hour; see: kubectl --context $KCTX -n $NS describe deploy/$DEPLOY"
+  why="$(k get pods -l app.kubernetes.io/component=llm-27b \
+    -o jsonpath='{.items[0].status.phase} {.items[0].status.conditions[?(@.type=="PodScheduled")].message}' 2>/dev/null)"
+  case "$why" in
+    *Insufficient*gpu*) say "waiting: no GPU free (another namespace holds it) - $(( (SECONDS - start) / 60 ))m" ;;
+    *) say "waiting for $DEPLOY: ${why:-pending} - $(( (SECONDS - start) / 60 ))m" ;;
+  esac
+  sleep 15
+done
+
+# Supervised: a bare port-forward dies on every pod restart.
+( while :; do
+    k port-forward "svc/$DEPLOY" "127.0.0.1:$PORT:8000" >/dev/null 2>&1 || true
+    sleep 1
+  done ) &
+pf_pid=$!
+
+models=""
+for _ in $(seq 30); do
+  models="$(curl -sf --max-time 3 "http://127.0.0.1:$PORT/v1/models")" && break
+  sleep 1
+done
+[ -n "$models" ] || die "port-forward to $DEPLOY never answered on 127.0.0.1:$PORT"
+
+read -r MODEL WINDOW < <(python3 -I -c '
+import json, sys
+m = json.load(sys.stdin)["data"][0]
+print(m["id"], m.get("max_model_len") or 16384)' <<<"$models")
+
+OUT=$(( WINDOW / 4 < 4096 ? WINDOW / 4 : 4096 ))
+say "model $MODEL, ${WINDOW}-token window, ${OUT}-token replies, holding lease $LEASE"
+
+export ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT"
+export ANTHROPIC_AUTH_TOKEN=aether
+unset ANTHROPIC_API_KEY
+export ANTHROPIC_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL"
+export ANTHROPIC_SMALL_FAST_MODEL="$MODEL"
+export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$WINDOW"
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$OUT"
+
+lean=()
+if (( WINDOW < 49152 )); then
+  export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1
+  export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+  export CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1
+  lean=(--strict-mcp-config --disable-slash-commands --tools "Bash,Read,Edit,Write,Glob,Grep")
+fi
+
+claude --model "$MODEL" "${lean[@]}" "$@"

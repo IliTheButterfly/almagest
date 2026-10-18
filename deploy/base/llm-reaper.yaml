@@ -82,6 +82,10 @@ rules:
     resources: ["deployments/scale", "deployments"]
     resourceNames: ["almagest-llm", "almagest-llm-27b"]
     verbs: ["get", "patch", "update"]
+  # Read-only, for the hold check in reap.sh.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -134,6 +138,26 @@ data:
         echo "a capture-dispatch drain has stalled; treating the GPU as reclaimable"
         ;;
     esac
+
+    # A client outside Almagest (scripts/aether-code) talks to the model without
+    # touching any chat thread, so it holds a Lease labelled `almagest.llm/hold`
+    # and renews it while it runs. Only an unexpired lease counts: a client that
+    # crashed stops renewing, and the card goes back one lease duration later.
+    now_epoch="$(date -u +%s)"
+    holds="$(kubectl get leases -l almagest.llm/hold \
+      -o jsonpath='{range .items[*]}{.metadata.name} {.spec.renewTime} {.spec.leaseDurationSeconds}{"\n"}{end}' \
+      2>/dev/null)" || holds=""
+    while read -r name renewed duration; do
+      [ -n "$name" ] || continue
+      renewed_epoch="$(date -u -D %Y-%m-%dT%H:%M:%S \
+        -d "$(printf '%s' "$renewed" | cut -c1-19)" +%s 2>/dev/null)" || renewed_epoch=""
+      if [ -n "$renewed_epoch" ] && [ $(( renewed_epoch + ${duration:-0} )) -gt "$now_epoch" ]; then
+        echo "lease $name holds the model (renewed $renewed); leaving the GPU alone"
+        exit 0
+      fi
+    done <<EOF
+    $holds
+    EOF
 
     # Newest activity across both history lists. `updated_at` moves when a message
     # is appended, so this is "when did somebody last talk to a model".
