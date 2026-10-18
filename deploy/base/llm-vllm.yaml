@@ -112,19 +112,19 @@ spec:
             - --kv-cache-dtype
             - fp8_e4m3
             - --max-model-len
-            # Measured 2026-10-18 on 3.6 with 4 seqs x 4096 batched tokens: a warm
-            # start leaves 2.23 GiB KV = 53,833 tokens (~43 KiB/token). A fresh
-            # pod's *first* start compiles in-process and gets only 0.42 GiB, so
-            # it crashes once and comes up on the restart, which reuses the
-            # compile cache in /tmp.
+            # Measured 2026-10-18, Qwen3.8 at 0.95 / 1 seq / 2048 batched: 16.59 GiB
+            # weights leave 2.73 GiB KV = 80,047 tokens (~36 KiB/token), and it
+            # starts first time. Each 0.01 of utilization is ~0.24 GiB = ~7k tokens.
             #
             # Raise it only against the "Available KV cache memory" line in the
             # startup log, not the ceiling a bigger card allowed elsewhere.
-            - "49152"
+            - "98304"
             - --tensor-parallel-size
             - "1"
+            # The card is exclusive to this pod while it runs, so nothing else
+            # needs the headroom; anything that did would fail regardless.
             - --gpu-memory-utilization
-            - "0.95"
+            - "0.98"
             # One request at a time is the real load (chat, or one coding agent),
             # and the activation reservation for 4 x 4096 was what starved the KV
             # cache.
