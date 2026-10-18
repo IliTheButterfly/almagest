@@ -15,7 +15,7 @@ BENCH := bench
         mcp-sync mcp-lint mcp-typecheck mcp-test mcp-test-live mcp-check mcp-run \
         bench-sync bench-lint bench-typecheck bench-test bench-check \
         k8s-tls k8s-secrets k8s-deploy k8s-status k8s-logs k8s-shell k8s-diff \
-        k8s-reaper k8s-llm-27b code k8s-model k8s-tunnel k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
+        k8s-reaper k8s-llm code k8s-model k8s-tunnel k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -262,9 +262,10 @@ k8s-reaper: ## Apply only the LLM reaper (no API downtime, unlike k8s-deploy)
 	  | awk 'BEGIN{RS="\n---\n"} /name: almagest-llm-reaper/ {printf "%s\n---\n", $$0}' \
 	  | kubectl --context aether apply -n ili -f -
 
-k8s-llm-27b: ## Apply only the 27B model Deployment (restarts it if running)
+D ?= almagest-llm-27b
+k8s-llm: ## Apply one model server's Deployment+Service: make k8s-llm D=almagest-llm-27b (restarts it if running)
 	kubectl kustomize deploy/overlays/aether \
-	  | awk 'BEGIN{RS="\n---\n"} /(^|\n)kind: Deployment\n/ && /\n  name: almagest-llm-27b\n/ {printf "%s\n---\n", $$0}' \
+	  | awk -v d="$(D)" 'BEGIN{RS="\n---\n"} /(^|\n)kind: (Deployment|Service)\n/ && index($$0, "\n  name: " d "\n") {printf "%s\n---\n", $$0}' \
 	  | kubectl --context aether apply -n ili -f -
 
 code: ## Claude Code on the aether Qwen 27B: make code ARGS='...' (or scripts/aether-code)
