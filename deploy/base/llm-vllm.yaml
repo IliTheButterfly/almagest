@@ -74,6 +74,13 @@ metadata:
   name: almagest-llm-27b
   labels:
     app.kubernetes.io/component: llm
+    # A choice for scripts/aether-code; see its header for the annotations.
+    almagest.llm/model: qwen3.8-27b
+  annotations:
+    almagest.llm/port: "8000"
+    almagest.llm/served-model: almagest-27b
+    almagest.llm/description: "Qwen3.8 27B on vLLM - strongest agentic coder that fits"
+    almagest.llm/default: "true"
 spec:
   # Off by default. The card is exclusive; see the header.
   replicas: 0
