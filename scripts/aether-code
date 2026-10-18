@@ -93,13 +93,13 @@ live_holds() {
 }
 
 cmd_models() {
-  printf '%-14s %-8s %-8s %s\n' MODEL STATE CONTEXT DESCRIPTION
+  printf '%-26s %-8s %-8s %s\n' MODEL STATE CONTEXT DESCRIPTION
   registry | while IFS=$'\t' read -r name _ _ _ ctx def rep ready _ desc; do
     state=off; (( rep > 0 )) && state=starting; (( ready > 0 )) && state=up
     [ "$def" = true ] && name="$name*"
     [ "$ctx" = - ] && ctx=server
     [ "$desc" = - ] && desc=
-    printf '%-14s %-8s %-8s %s\n' "$name" "$state" "$ctx" "$desc"
+    printf '%-26s %-8s %-8s %s\n' "$name" "$state" "$ctx" "$desc"
   done
   echo "(* = default)"
 }
