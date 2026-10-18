@@ -75,8 +75,8 @@ renew_pid="" pf_pid=""
 cleanup() {
   # The loops' children first: killing a subshell does not take its kubectl with it.
   for pid in $renew_pid $pf_pid; do
-    pkill -P "$pid" 2>/dev/null
     kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
   done
   k delete lease "$LEASE" --ignore-not-found >/dev/null 2>&1 || true
 }
@@ -96,7 +96,13 @@ spec:
   leaseDurationSeconds: $LEASE_SECONDS
   renewTime: $(now)
 EOF
-( while sleep 60; do
+# Each loop runs its child in the background and `wait`s, because a signal
+# interrupts `wait` at once but waits out a foreground child - and the
+# port-forward child never exits on its own.
+( child=""
+  trap 'kill $child 2>/dev/null; exit 0' TERM
+  while :; do
+    sleep 60 & child=$!; wait $child
     k patch lease "$LEASE" --type merge -p "{\"spec\":{\"renewTime\":\"$(now)\"}}" >/dev/null 2>&1 || true
   done ) &
 renew_pid=$!
@@ -115,7 +121,10 @@ until [ "$(k get deploy "$DEPLOY" -o jsonpath='{.status.readyReplicas}')" = "1" 
   (( SECONDS - start < 3600 )) || die "$DEPLOY not ready after an hour; see: kubectl --context $KCTX -n $NS describe deploy/$DEPLOY"
   restarts="$(k get pods -l app.kubernetes.io/component=llm-27b \
     -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null)"
-  if (( ${restarts:-0} > 0 )); then
+  # One restart is normal: a fresh pod's first start compiles in-process and
+  # leaves too little KV memory, then the restart reuses the compile cache in /tmp.
+  [[ $restarts =~ ^[0-9]+$ ]] || restarts=0
+  if (( restarts > 1 )); then
     k logs -l app.kubernetes.io/component=llm-27b --previous --tail=200 2>/dev/null | grep -E 'Error|ValueError' | tail -2 >&2
     die "vLLM crashed on startup. Hand the GPU back with: aether-code release"
   fi
@@ -129,8 +138,12 @@ until [ "$(k get deploy "$DEPLOY" -o jsonpath='{.status.readyReplicas}')" = "1" 
 done
 
 # Supervised: a bare port-forward dies on every pod restart.
-( while :; do
-    k port-forward "svc/$DEPLOY" "127.0.0.1:$PORT:8000" >/dev/null 2>&1 || true
+( child=""
+  trap 'kill $child 2>/dev/null; exit 0' TERM
+  while :; do
+    kubectl --context "$KCTX" -n "$NS" port-forward --address 127.0.0.1 "svc/$DEPLOY" "$PORT:8000" >/dev/null 2>&1 &
+    child=$!
+    wait $child
     sleep 1
   done ) &
 pf_pid=$!
