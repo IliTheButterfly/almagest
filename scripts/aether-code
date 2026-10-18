@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 #
-# Claude Code, driven by the Qwen 27B that Almagest runs on aether.
+# Claude Code (or OpenCode), driven by the Qwen 27B that Almagest runs on aether.
 #
-#   scripts/aether-code [claude args...]   start the model if needed, then code
-#   scripts/aether-code status             replicas, holds, and the KV-cache line
-#   scripts/aether-code release            hand the GPU back now (if nobody holds it)
+#   aether-code [claude args...]       start the model if needed, then code
+#   aether-opencode [opencode args...] the same, with OpenCode as the client
+#   aether-code status                 replicas, holds, and the KV-cache line
+#   aether-code release                hand the GPU back now (if nobody holds it)
+#
+# `aether-opencode` is a symlink to this script; the name picks the client.
 #
 # vLLM serves Anthropic's /v1/messages natively, so this is real Claude Code with
-# ANTHROPIC_BASE_URL pointed at a port-forward - no translating proxy.
+# ANTHROPIC_BASE_URL pointed at a port-forward - no translating proxy. OpenCode
+# talks to the same server's OpenAI-compatible /v1.
+#
+# LAN or warpdrive does not matter here: aether-route-fallback (a user timer)
+# keeps the host route to aether's one address on whichever path answers, and
+# the port-forward below reconnects when the route moves.
 #
 # While it runs it renews a Lease labelled `almagest.llm/hold`, which the
 # almagest-llm-reaper honours; on exit the lease is deleted and the reaper hands
@@ -20,12 +28,17 @@
 
 set -euo pipefail
 
+case "$(basename "$0")" in
+  aether-opencode) CLIENT=opencode DEFAULT_PORT=18001 ;;
+  *) CLIENT=claude DEFAULT_PORT=18000 ;;
+esac
+
 KCTX="${AETHER_KUBE_CONTEXT:-aether}"
 NS=ili
 DEPLOY=almagest-llm-27b
-PORT="${AETHER_CODE_PORT:-18000}"
+PORT="${AETHER_CODE_PORT:-$DEFAULT_PORT}"
 LEASE_SECONDS=300
-LEASE="aether-code-$(id -un)-$(hostname -s)-$$"
+LEASE="aether-$CLIENT-$(id -un)-$(hostname -s)-$$"
 
 k() { kubectl --context "$KCTX" -n "$NS" "$@"; }
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*" >&2; }
@@ -62,13 +75,18 @@ cmd_release() {
   k scale "deploy/$DEPLOY" --replicas=0
 }
 
+command -v kubectl >/dev/null || die "kubectl is not on PATH"
+if ! k get --raw /version --request-timeout=8s >/dev/null 2>&1; then
+  wg="$(ip link show warpdrive >/dev/null 2>&1 && echo up || echo 'not up')"
+  die "aether's API does not answer (warpdrive is $wg). Off the LAN, bring warpdrive up and give aether-route-fallback up to 30 s to move the route; its decisions are in ~/.local/state/aether-route-fallback.log"
+fi
+
 case "${1:-}" in
   status) cmd_status; exit ;;
   release) cmd_release; exit ;;
 esac
 
-command -v kubectl >/dev/null || die "kubectl is not on PATH"
-command -v claude >/dev/null || die "claude is not on PATH"
+command -v "$CLIENT" >/dev/null || die "$CLIENT is not on PATH"
 k get deploy "$DEPLOY" >/dev/null || die "cannot reach deploy/$DEPLOY in $KCTX/$NS"
 
 renew_pid="" pf_pid=""
@@ -162,6 +180,38 @@ print(m["id"], m.get("max_model_len") or 16384)' <<<"$models")
 
 OUT=$(( WINDOW / 4 < 4096 ? WINDOW / 4 : 4096 ))
 say "model $MODEL, ${WINDOW}-token window, ${OUT}-token replies, holding lease $LEASE"
+
+if [ "$CLIENT" = opencode ]; then
+  # Inline config, so nothing is written to ~/.config/opencode and a plain
+  # `opencode` keeps whatever setup it already has.
+  OPENCODE_CONFIG_CONTENT="$(python3 -I - "$PORT" "$MODEL" "$WINDOW" "$OUT" <<'PY'
+import json, sys
+port, model, window, out = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+print(json.dumps({
+    "$schema": "https://opencode.ai/config.json",
+    "model": f"aether/{model}",
+    "small_model": f"aether/{model}",
+    "share": "disabled",
+    "autoupdate": False,
+    "provider": {"aether": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "aether (vLLM)",
+        "options": {"baseURL": f"http://127.0.0.1:{port}/v1", "apiKey": "aether"},
+        "models": {model: {
+            "name": f"Qwen on aether ({model})",
+            "tool_call": True,
+            "reasoning": True,
+            "limit": {"context": window, "output": out},
+        }},
+    }},
+}))
+PY
+)"
+  export OPENCODE_CONFIG_CONTENT
+  export OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_MODELS_FETCH=1
+  opencode "$@"
+  exit
+fi
 
 export ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT"
 export ANTHROPIC_AUTH_TOKEN=aether
