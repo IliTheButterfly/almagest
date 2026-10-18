@@ -13,10 +13,10 @@
 # almagest-llm-reaper honours; on exit the lease is deleted and the reaper hands
 # the card back on its next pass. A crash just lets the lease expire.
 #
-# The server's context is small (--max-model-len, 16k today), so below 48k the
-# session runs lean: six tools, no MCP, no skills, no CLAUDE.md or auto-memory.
-# That is ~4k tokens of prompt instead of ~35k. The window is read from the
-# server, so raising --max-model-len needs no change here.
+# The server's context is small (--max-model-len), so below 96k the session runs
+# lean: six tools, no MCP, no skills, no CLAUDE.md or auto-memory. That is ~4k
+# tokens of prompt instead of ~35k. AETHER_CODE_FULL=1 forces the full setup.
+# The window is read from the server, so raising --max-model-len needs no change.
 
 set -euo pipefail
 
@@ -176,8 +176,11 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$WINDOW"
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$OUT"
 
+# Full Claude Code costs ~35k tokens before the first message (20 tool schemas
+# alone are ~12k, almagest's CLAUDE.md files ~17k), so it only pays off once the
+# window is big enough to leave real working room after it.
 lean=()
-if (( WINDOW < 49152 )); then
+if (( WINDOW < 98304 )) && [ -z "${AETHER_CODE_FULL:-}" ]; then
   export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1
   export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
   export CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1

@@ -260,12 +260,12 @@ k8s-diff: ## Show what a deploy would change, without changing it
 k8s-reaper: ## Apply only the LLM reaper (no API downtime, unlike k8s-deploy)
 	kubectl kustomize deploy/overlays/aether \
 	  | awk 'BEGIN{RS="\n---\n"} /name: almagest-llm-reaper/ {printf "%s\n---\n", $$0}' \
-	  | kubectl apply -n ili -f -
+	  | kubectl --context aether apply -n ili -f -
 
 k8s-llm-27b: ## Apply only the 27B model Deployment (restarts it if running)
 	kubectl kustomize deploy/overlays/aether \
 	  | awk 'BEGIN{RS="\n---\n"} /(^|\n)kind: Deployment\n/ && /\n  name: almagest-llm-27b\n/ {printf "%s\n---\n", $$0}' \
-	  | kubectl apply -n ili -f -
+	  | kubectl --context aether apply -n ili -f -
 
 code: ## Claude Code on the aether Qwen 27B: make code ARGS='...' (or scripts/aether-code)
 	@./scripts/aether-code $(ARGS)
