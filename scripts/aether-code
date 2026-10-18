@@ -9,8 +9,8 @@
 #   aether-code release                             scale down every model nobody holds
 #
 # `aether-opencode` is a symlink to this script; the name picks the client.
-# AETHER_MODEL=NAME does the same as --llm NAME. With neither, the model that is
-# already up is used, else the one marked default.
+# AETHER_MODEL=NAME does the same as --llm NAME. With neither, the one marked
+# default - unless another model is up and someone is using it, which is joined.
 #
 # ## The model registry is the cluster
 #
@@ -150,8 +150,15 @@ command -v "$CLIENT" >/dev/null || die "$CLIENT is not on PATH"
 REG="$(registry)"
 [ -n "$REG" ] || die "no Deployment in $KCTX/$NS is labelled almagest.llm/model"
 if [ -z "$WANT" ]; then
-  WANT="$(awk -F'\t' '$7 > 0 {print $1; exit}' <<<"$REG")"
-  [ -n "$WANT" ] || WANT="$(awk -F'\t' '$6 == "true" {print $1; exit}' <<<"$REG")"
+  WANT="$(awk -F'\t' '$6 == "true" {print $1; exit}' <<<"$REG")"
+  up="$(awk -F'\t' '$7 > 0 {print $1; exit}' <<<"$REG")"
+  # Join a model someone else is using rather than refuse to start the default.
+  if [ -n "$up" ] && [ "$up" != "$WANT" ] &&
+     live_holds | awk -v m="$up" '$2 == m || ($2 == "-" && m == "qwen3.8-27b")' | grep -q .; then
+    say "$up is up and in use; joining it instead of the default ${WANT:-(none)}"
+    WANT=$up
+  fi
+  [ -n "$WANT" ] || WANT=$up
   [ -n "$WANT" ] || die "nothing is up and no model is marked default; pick one with --llm (see: aether-code models)"
 fi
 LINE="$(awk -F'\t' -v m="$WANT" '$1 == m' <<<"$REG")"

@@ -23,6 +23,7 @@ metadata:
     almagest.llm/port: "8000"
     almagest.llm/served-model: almagest-huihui
     almagest.llm/description: "Qwen3.8 27B abliterated (huihui) on vLLM - refusals removed"
+    almagest.llm/default: "true"
 spec:
   replicas: 0
   strategy:

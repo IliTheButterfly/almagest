@@ -80,7 +80,6 @@ metadata:
     almagest.llm/port: "8000"
     almagest.llm/served-model: almagest-27b
     almagest.llm/description: "Qwen3.8 27B on vLLM - strongest agentic coder that fits"
-    almagest.llm/default: "true"
 spec:
   # Off by default. The card is exclusive; see the header.
   replicas: 0
