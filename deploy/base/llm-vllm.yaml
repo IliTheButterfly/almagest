@@ -1,4 +1,4 @@
-# The big model: vLLM serving Qwen3.6-27B-AWQ on the 4090 (ADR 0016).
+# The big model: vLLM serving Qwen3.8-27B (W4A16) on the 4090 (ADR 0016).
 #
 # Adapted from the sysadmin's own `vllm-qwen3-6-27b` in the `aycp` namespace,
 # which is already proven on this exact hardware. Copying a working recipe beats
@@ -36,7 +36,7 @@
 #     server that cannot emit a tool call. Ollama's qwen3:8b manages this too, but
 #     a 27B is markedly better at deciding *when* to look something up rather than
 #     answering from memory, which is the failure this whole surface guards.
-#   * The `hf-token` Secret is **optional** here — `QuantTrio/Qwen3.6-27B-AWQ` is a
+#   * The `hf-token` Secret is **optional** here — `RedHatAI/Qwen3.8-27B-INT4` is a
 #     public repo, and this namespace cannot delete Secrets (RBAC), so requiring
 #     one would add a rotation problem for nothing. If a gated model is ever
 #     wanted, add the env var back with `optional: true`.
@@ -101,33 +101,37 @@ spec:
         - name: vllm
           image: vllm/vllm-openai:v0.26.0
           args:
+            # Same architecture as the Qwen3.6-27B it replaced, so the parsers and
+            # memory profile carry over. compressed-tensors W4A16: vLLM detects the
+            # quantization itself and picks the Marlin kernel, so no --quantization.
+            # The 3.6 weights stay cached on the volume for a rollback.
             - --model
-            - QuantTrio/Qwen3.6-27B-AWQ
+            - RedHatAI/Qwen3.8-27B-INT4
             - --served-model-name
             - almagest-27b
-            - --quantization
-            - awq_marlin
             - --kv-cache-dtype
             - fp8_e4m3
             - --max-model-len
-            # 16k, not the recipe's 61440. Measured here: the model itself takes
-            # 18.83 GiB and CUDA graphs another 0.44, which left **0.42 GiB for KV
-            # cache** on this 24 GiB card - far too little for a 61k context, and
-            # the engine aborted with "EngineCore failed to start" rather than
-            # degrading. 16k is a long chat and fits with room to spare.
+            # Measured 2026-10-18 on 3.6 with 4 seqs x 4096 batched tokens: a warm
+            # start leaves 2.23 GiB KV = 53,833 tokens (~43 KiB/token). A fresh
+            # pod's *first* start compiles in-process and gets only 0.42 GiB, so
+            # it crashes once and comes up on the restart, which reuses the
+            # compile cache in /tmp.
             #
-            # Raise it only against a measurement: the number that matters is the
-            # "Available KV cache memory" line in the startup log, not the ceiling
-            # a bigger card allowed elsewhere.
-            - "16384"
+            # Raise it only against the "Available KV cache memory" line in the
+            # startup log, not the ceiling a bigger card allowed elsewhere.
+            - "49152"
             - --tensor-parallel-size
             - "1"
             - --gpu-memory-utilization
             - "0.95"
+            # One request at a time is the real load (chat, or one coding agent),
+            # and the activation reservation for 4 x 4096 was what starved the KV
+            # cache.
             - --max-num-seqs
-            - "4"
+            - "1"
             - --max-num-batched-tokens
-            - "4096"
+            - "2048"
             - --language-model-only
             # Without these two, chat's tools cannot be called at all.
             - --enable-auto-tool-choice

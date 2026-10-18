@@ -111,7 +111,7 @@ CATALOG: tuple[ModelChoice, ...] = (
     ),
     ModelChoice(
         id="almagest-27b",
-        label="Qwen3.6 27B — best reasoning",
+        label="Qwen3.8 27B — best reasoning",
         size_b=27,
         base_url=VLLM_27B,
         served_name="almagest-27b",
