@@ -113,6 +113,12 @@ fi
 start=$SECONDS
 until [ "$(k get deploy "$DEPLOY" -o jsonpath='{.status.readyReplicas}')" = "1" ]; do
   (( SECONDS - start < 3600 )) || die "$DEPLOY not ready after an hour; see: kubectl --context $KCTX -n $NS describe deploy/$DEPLOY"
+  restarts="$(k get pods -l app.kubernetes.io/component=llm-27b \
+    -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null)"
+  if (( ${restarts:-0} > 0 )); then
+    k logs -l app.kubernetes.io/component=llm-27b --previous --tail=200 2>/dev/null | grep -E 'Error|ValueError' | tail -2 >&2
+    die "vLLM crashed on startup. Hand the GPU back with: aether-code release"
+  fi
   why="$(k get pods -l app.kubernetes.io/component=llm-27b \
     -o jsonpath='{.items[0].status.phase} {.items[0].status.conditions[?(@.type=="PodScheduled")].message}' 2>/dev/null)"
   case "$why" in
