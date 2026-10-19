@@ -59,10 +59,9 @@ spec:
             - --kv-cache-dtype
             - fp8_e4m3
             - --max-model-len
-            # Below the 27B's 98304: these weights are ~0.5 GiB heavier, which
-            # is ~15k tokens of KV. Raise it against "GPU KV cache size" in the
-            # startup log (aether-code status shows it).
-            - "65536"
+            # Measured 2026-10-19 at 0.98: 17.12 GiB of weights (vs the 27B's
+            # 16.59) leave 2.91 GiB KV = 87,381 tokens. Just under that.
+            - "86016"
             - --tensor-parallel-size
             - "1"
             - --gpu-memory-utilization
