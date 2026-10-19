@@ -204,7 +204,11 @@ EOF
 renew_pid=$!
 
 # Hand the card over: every other model that is up goes to zero, unless held.
+# Refuse before changing anything, then queue ours *before* releasing theirs: a
+# freed GPU goes to whichever pending pod the scheduler sees first, and other
+# namespaces' jobs wait on this card too. Releasing first lost it to one.
 holds="$(live_holds | grep -v "^$LEASE " || true)"
+release=()
 while IFS=$'\t' read -r oname odeploy _ _ _ _ orep _; do
   [ "$oname" = "$NAME" ] && continue
   (( orep > 0 )) || continue
@@ -212,15 +216,17 @@ while IFS=$'\t' read -r oname odeploy _ _ _ _ orep _; do
   if awk -v m="$oname" -v d="$odeploy" '$2 == m || ($2 == "-" && d == "almagest-llm-27b")' <<<"$holds" | grep -q .; then
     die "$oname has the GPU and is in use ($(awk -v m="$oname" '$2 == m || $2 == "-" {print $1}' <<<"$holds" | paste -sd' ')). Wait for it, or use it: --llm $oname"
   fi
-  say "$oname has the GPU and nobody holds it; scaling it to 0 for $NAME"
-  k scale "deploy/$odeploy" --replicas=0 >/dev/null
-  k wait --for=delete pod -l "$(awk -F'\t' -v m="$oname" '$1 == m {print $9}' <<<"$REG")" --timeout=180s >/dev/null 2>&1 || true
+  release+=("$oname:$odeploy")
 done <<<"$REG"
 
 if [ "$(k get deploy "$DEPLOY" -o jsonpath='{.spec.replicas}')" = "0" ]; then
   say "starting $NAME ($DEPLOY); a first start downloads the weights, later ones take minutes"
   k scale "deploy/$DEPLOY" --replicas=1 >/dev/null
 fi
+for r in "${release[@]}"; do
+  say "${r%%:*} has the GPU and nobody holds it; scaling it to 0 for $NAME"
+  k scale "deploy/${r#*:}" --replicas=0 >/dev/null
+done
 
 start=$SECONDS
 until [ "$(k get deploy "$DEPLOY" -o jsonpath='{.status.readyReplicas}')" = "1" ]; do
@@ -236,7 +242,13 @@ until [ "$(k get deploy "$DEPLOY" -o jsonpath='{.status.readyReplicas}')" = "1" 
   why="$(k get pods -l "$SELECTOR" \
     -o jsonpath='{.items[0].status.phase} {.items[0].status.conditions[?(@.type=="PodScheduled")].message}' 2>/dev/null)"
   case "$why" in
-    *Insufficient*gpu*) say "waiting: no GPU free (another namespace holds it) - $(( (SECONDS - start) / 60 ))m" ;;
+    *Insufficient*gpu*)
+      # This namespace can see only its own pods; anything else is outside it.
+      gpu_pods="$(k get pods --field-selector=status.phase=Running -o json 2>/dev/null | python3 -I -c '
+import json, sys
+print(" ".join(p["metadata"]["name"] for p in json.load(sys.stdin)["items"]
+               if any("nvidia.com/gpu" in (c.get("resources", {}).get("limits") or {}) for c in p["spec"]["containers"])))' 2>/dev/null)"
+      say "waiting: no GPU free - held in ili by: ${gpu_pods:-nothing (so outside ili, which this account cannot see)}$(case "$why" in *Insufficient\ cpu*) echo '; CPU requests are short too' ;; esac) - $(( (SECONDS - start) / 60 ))m" ;;
     *) say "waiting for $NAME: ${why:-pending} - $(( (SECONDS - start) / 60 ))m" ;;
   esac
   sleep 15
