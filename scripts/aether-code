@@ -284,7 +284,9 @@ if m is None:
 print(m["id"], m.get("max_model_len") or ctx or 16384)' "$SERVED" "$CTX" <<<"$models")
 [ -n "${MODEL:-}" ] || die "could not settle on a model id from $DEPLOY's /v1/models"
 
-OUT=$(( WINDOW / 4 < 4096 ? WINDOW / 4 : 4096 ))
+# Qwen's thinking is part of the reply, so 4k ran out mid-answer; a quarter of
+# the window still leaves three quarters for the conversation.
+OUT=$(( WINDOW / 4 < 16384 ? WINDOW / 4 : 16384 ))
 say "$NAME: model $MODEL, ${WINDOW}-token window, ${OUT}-token replies, holding lease $LEASE"
 
 if [ "$CLIENT" = opencode ]; then
