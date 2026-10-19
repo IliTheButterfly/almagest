@@ -15,7 +15,7 @@ BENCH := bench
         mcp-sync mcp-lint mcp-typecheck mcp-test mcp-test-live mcp-check mcp-run \
         bench-sync bench-lint bench-typecheck bench-test bench-check \
         k8s-tls k8s-secrets k8s-deploy k8s-status k8s-logs k8s-shell k8s-diff \
-        k8s-model k8s-tunnel k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
+        k8s-reaper k8s-llm code k8s-model k8s-tunnel k8s-backup-now k8s-backup-pull k8s-maintenance-now k8s-caches
 
 help: ## Show available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -256,6 +256,20 @@ k8s-deploy: ## Deploy/update the cluster (make k8s-deploy TAG=sha-... to pin)
 
 k8s-diff: ## Show what a deploy would change, without changing it
 	kubectl diff -k deploy/overlays/aether || true
+
+k8s-reaper: ## Apply only the LLM reaper (no API downtime, unlike k8s-deploy)
+	kubectl kustomize deploy/overlays/aether \
+	  | awk 'BEGIN{RS="\n---\n"} /name: almagest-llm-reaper/ {printf "%s\n---\n", $$0}' \
+	  | kubectl --context aether apply -n ili -f -
+
+D ?= almagest-llm-27b
+k8s-llm: ## Apply one model server's Deployment+Service: make k8s-llm D=almagest-llm-27b (restarts it if running)
+	kubectl kustomize deploy/overlays/aether \
+	  | awk -v d="$(D)" 'BEGIN{RS="\n---\n"} /(^|\n)kind: (Deployment|Service)\n/ && index($$0, "\n  name: " d "\n") {printf "%s\n---\n", $$0}' \
+	  | kubectl --context aether apply -n ili -f -
+
+code: ## Claude Code on the aether Qwen 27B: make code ARGS='...' (or scripts/aether-code)
+	@./scripts/aether-code $(ARGS)
 
 k8s-model: ## Switch the GPU between models: make k8s-model M=8b|27b|off
 	# Observed: only one Almagest model server gets a GPU at a time, so this

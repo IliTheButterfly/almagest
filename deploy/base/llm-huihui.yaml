@@ -1,0 +1,159 @@
+# Qwen3.8-27B with refusals abliterated (huihui-ai), for scripts/aether-code.
+#
+# Same base model as almagest-llm-27b, so this is that manifest with three
+# changes: the weights, the served name, and the window. Everything else -
+# probes, memory-backed /tmp, the env vLLM needs to start as uid 1000 - is
+# copied for the reasons llm-vllm.yaml gives.
+#
+#   * shawnw3i's AWQ build of huihui-ai/Huihui-Qwen3.8-27B-abliterated
+#     (18.65 GiB). AWQ + awq_marlin is the path Qwen3.6-27B ran on here; huihui
+#     publishes only bf16 (50 GB) and GGUF itself.
+#   * Shares almagest-llm-models with the 27B: one card, so never both up, and
+#     the hub cache keeps each repo in its own directory.
+#   * Not a chat choice in Almagest (model_catalog does not list it); only
+#     aether-code selects it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: almagest-llm-huihui
+  labels:
+    app.kubernetes.io/component: llm
+    almagest.llm/model: qwen3.8-27b-abliterated
+  annotations:
+    almagest.llm/port: "8000"
+    almagest.llm/served-model: almagest-huihui
+    almagest.llm/description: "Qwen3.8 27B abliterated (huihui) on vLLM - refusals removed"
+    almagest.llm/default: "true"
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: almagest
+      app.kubernetes.io/component: llm-huihui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: almagest
+        app.kubernetes.io/component: llm-huihui
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.26.0
+          args:
+            - --model
+            - shawnw3i/Huihui-Qwen3.8-27B-abliterated-AWQ-MTP
+            - --served-model-name
+            - almagest-huihui
+            - --quantization
+            - awq_marlin
+            - --kv-cache-dtype
+            - fp8_e4m3
+            - --max-model-len
+            # Measured 2026-10-19 at 0.98: 17.12 GiB of weights (vs the 27B's
+            # 16.59) leave 2.91 GiB KV = 87,381 tokens. Just under that.
+            - "86016"
+            - --tensor-parallel-size
+            - "1"
+            - --gpu-memory-utilization
+            - "0.98"
+            - --max-num-seqs
+            - "1"
+            - --max-num-batched-tokens
+            - "2048"
+            - --language-model-only
+            - --enable-auto-tool-choice
+            - --tool-call-parser
+            - qwen3_coder
+            - --reasoning-parser
+            - qwen3
+            - --trust-remote-code
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          env:
+            - name: USER
+              value: vllm
+            - name: LOGNAME
+              value: vllm
+            - name: HF_HOME
+              value: /models
+            - name: HF_HUB_CACHE
+              value: /models/hub
+            - name: HOME
+              value: /tmp
+            - name: XDG_CACHE_HOME
+              value: /tmp/cache
+            - name: VLLM_CACHE_ROOT
+              value: /tmp/vllm-cache
+            - name: TORCHINDUCTOR_CACHE_DIR
+              value: /tmp/torchinductor
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: expandable_segments:True
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "4"
+              memory: 24Gi
+              nvidia.com/gpu: 1
+            limits:
+              memory: 48Gi
+              nvidia.com/gpu: 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            failureThreshold: 240
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 30
+            failureThreshold: 5
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: tmp, mountPath: /tmp }
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: almagest-llm-models
+        - name: tmp
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }
+        - name: shm
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: almagest-llm-huihui
+  labels:
+    app.kubernetes.io/component: llm
+spec:
+  # ClusterIP only: no authentication on this endpoint.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: almagest
+    app.kubernetes.io/component: llm-huihui
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

@@ -59,6 +59,13 @@ metadata:
   name: almagest-llm
   labels:
     app.kubernetes.io/component: llm
+    # A choice for scripts/aether-code; see its header for the annotations.
+    almagest.llm/model: qwen3-8b
+  annotations:
+    almagest.llm/port: "11434"
+    almagest.llm/served-model: qwen3:8b
+    almagest.llm/context: "32768"
+    almagest.llm/description: "Qwen3 8B on Ollama - fast, light; small edits and questions"
 spec:
   # **Off by default, and this is the important line in the file.**
   #
@@ -130,6 +137,11 @@ spec:
               value: "1"
             - name: OLLAMA_HOST
               value: "0.0.0.0:11434"
+            # Pinned rather than left to Ollama's default, which is small and
+            # truncates the front of a long prompt silently. 32k of an 8B's KV
+            # cache fits beside its ~5 GB of weights with room to spare.
+            - name: OLLAMA_CONTEXT_LENGTH
+              value: "32768"
           resources:
             requests:
               cpu: "500m"

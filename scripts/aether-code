@@ -1,0 +1,348 @@
+#!/usr/bin/env bash
+#
+# Claude Code (or OpenCode), driven by a model Almagest serves on aether.
+#
+#   aether-code [--llm NAME] [claude args...]       start the model if needed, then code
+#   aether-opencode [--llm NAME] [opencode args...] the same, with OpenCode as the client
+#   aether-code models                              what can be chosen, and what is up
+#   aether-code status                              models, holds, and the KV-cache line
+#   aether-code release                             scale down every model nobody holds
+#
+# `aether-opencode` is a symlink to this script; the name picks the client.
+# AETHER_MODEL=NAME does the same as --llm NAME. With neither, the one marked
+# default - unless another model is up and someone is using it, which is joined.
+#
+# ## The model registry is the cluster
+#
+# Any Deployment in `ili` labelled `almagest.llm/model: <name>` is a choice. Its
+# Service has the Deployment's name, and these annotations describe it:
+#
+#   almagest.llm/port          Service port (vLLM 8000, Ollama 11434)
+#   almagest.llm/served-model  the model id to request
+#   almagest.llm/context       window, if the server does not report max_model_len
+#   almagest.llm/description   one line for `aether-code models`
+#   almagest.llm/default       "true" on exactly one
+#
+# The card is exclusive, so choosing a model scales the others to zero first -
+# unless someone holds them, in which case this refuses rather than pull a model
+# out from under a live session.
+#
+# vLLM and Ollama both serve Anthropic's /v1/messages, so this is real Claude
+# Code with ANTHROPIC_BASE_URL pointed at a port-forward. OpenCode talks to the
+# same server's OpenAI-compatible /v1.
+#
+# While it runs it renews a Lease labelled `almagest.llm/hold` (and
+# `almagest.llm/model`), which the almagest-llm-reaper honours; on exit the lease
+# is deleted. A crash just lets the lease expire.
+#
+# LAN or warpdrive does not matter here: aether-route-fallback (a user timer)
+# keeps the host route to aether's one address on whichever path answers, and
+# the port-forward below reconnects when the route moves.
+#
+# Below a 96k window the Claude Code session runs lean: six tools, no MCP, no
+# skills, no CLAUDE.md or auto-memory - ~4k tokens of prompt instead of ~35k.
+# AETHER_CODE_FULL=1 forces the full setup.
+
+set -euo pipefail
+
+case "$(basename "$0")" in
+  aether-opencode) CLIENT=opencode DEFAULT_PORT=18001 ;;
+  *) CLIENT=claude DEFAULT_PORT=18000 ;;
+esac
+
+KCTX="${AETHER_KUBE_CONTEXT:-aether}"
+NS=ili
+PORT="${AETHER_CODE_PORT:-$DEFAULT_PORT}"
+LEASE_SECONDS=300
+LEASE="aether-$CLIENT-$(id -un)-$(hostname -s)-$$"
+
+k() { kubectl --context "$KCTX" -n "$NS" "$@"; }
+say() { printf '\033[1;36m==>\033[0m %s\n' "$*" >&2; }
+die() { printf '\033[1;31mfatal:\033[0m %s\n' "$*" >&2; exit 1; }
+now() { date -u +%Y-%m-%dT%H:%M:%S.%6NZ; }
+
+# One tab-separated line per registered model, "-" for an empty field (`read`
+# collapses runs of tabs, so a truly empty field would shift every later one):
+# name deploy port served context default replicas ready selector description
+registry() {
+  k get deploy -l almagest.llm/model -o json | python3 -I -c '
+import json, sys
+for d in sorted(json.load(sys.stdin)["items"], key=lambda d: d["metadata"]["name"]):
+    a = d["metadata"].get("annotations", {})
+    sel = ",".join(f"{k}={v}" for k, v in d["spec"]["selector"]["matchLabels"].items())
+    print("\t".join(f or "-" for f in [
+        d["metadata"]["labels"]["almagest.llm/model"], d["metadata"]["name"],
+        a.get("almagest.llm/port", "8000"), a.get("almagest.llm/served-model", ""),
+        a.get("almagest.llm/context", ""), a.get("almagest.llm/default", "false"),
+        str(d["spec"].get("replicas", 0)), str(d.get("status", {}).get("readyReplicas", 0)),
+        sel, a.get("almagest.llm/description", ""),
+    ]))'
+}
+
+# Live holds as "lease model renewed"; MODEL is "-" on leases from before the label.
+live_holds() {
+  k get leases -l almagest.llm/hold \
+    -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.almagest\.llm/model} {.spec.renewTime} {.spec.leaseDurationSeconds}{"\n"}{end}' |
+    while read -r name model renewed duration; do
+      [ -n "$name" ] || continue
+      if [ -z "${duration:-}" ]; then duration=$renewed renewed=$model model=-; fi
+      if (( $(date -u -d "$renewed" +%s) + duration > $(date -u +%s) )); then
+        echo "$name ${model:--} $renewed"
+      fi
+    done
+}
+
+cmd_models() {
+  printf '%-26s %-8s %-8s %s\n' MODEL STATE CONTEXT DESCRIPTION
+  registry | while IFS=$'\t' read -r name _ _ _ ctx def rep ready _ desc; do
+    state=off; (( rep > 0 )) && state=starting; (( ready > 0 )) && state=up
+    [ "$def" = true ] && name="$name*"
+    [ "$ctx" = - ] && ctx=server
+    [ "$desc" = - ] && desc=
+    printf '%-26s %-8s %-8s %s\n' "$name" "$state" "$ctx" "$desc"
+  done
+  echo "(* = default)"
+}
+
+cmd_status() {
+  cmd_models
+  echo "holds:"; live_holds | sed 's/^/  /'
+  registry | while IFS=$'\t' read -r name _ _ _ _ _ _ ready sel _; do
+    if (( ready > 0 )); then
+      echo "KV cache of $name (decides how far its window can go):"
+      k logs -l "$sel" --tail=-1 2>/dev/null | grep -E 'Available KV cache memory|GPU KV cache size' | tail -2 | sed 's/^/  /'
+    fi
+  done
+}
+
+cmd_release() {
+  local holds
+  holds="$(live_holds)"
+  [ -z "$holds" ] || die "still held: $holds"
+  registry | while IFS=$'\t' read -r name deploy _ _ _ _ rep _; do
+    if (( rep > 0 )); then
+      say "scaling $name ($deploy) to 0"
+      k scale "deploy/$deploy" --replicas=0 >/dev/null
+    fi
+  done
+}
+
+command -v kubectl >/dev/null || die "kubectl is not on PATH"
+if ! k get --raw /version --request-timeout=8s >/dev/null 2>&1; then
+  wg="$(ip link show warpdrive >/dev/null 2>&1 && echo up || echo 'not up')"
+  die "aether's API does not answer (warpdrive is $wg). Off the LAN, bring warpdrive up and give aether-route-fallback up to 30 s to move the route; its decisions are in ~/.local/state/aether-route-fallback.log"
+fi
+
+case "${1:-}" in
+  models) cmd_models; exit ;;
+  status) cmd_status; exit ;;
+  release) cmd_release; exit ;;
+esac
+
+WANT="${AETHER_MODEL:-}"
+if [ "${1:-}" = --llm ]; then
+  [ -n "${2:-}" ] || die "--llm needs a model name; see: aether-code models"
+  WANT=$2; shift 2
+fi
+
+command -v "$CLIENT" >/dev/null || die "$CLIENT is not on PATH"
+
+REG="$(registry)"
+[ -n "$REG" ] || die "no Deployment in $KCTX/$NS is labelled almagest.llm/model"
+if [ -z "$WANT" ]; then
+  WANT="$(awk -F'\t' '$6 == "true" {print $1; exit}' <<<"$REG")"
+  up="$(awk -F'\t' '$7 > 0 {print $1; exit}' <<<"$REG")"
+  # Join a model someone else is using rather than refuse to start the default.
+  if [ -n "$up" ] && [ "$up" != "$WANT" ] &&
+     live_holds | awk -v m="$up" '$2 == m || ($2 == "-" && m == "qwen3.8-27b")' | grep -q .; then
+    say "$up is up and in use; joining it instead of the default ${WANT:-(none)}"
+    WANT=$up
+  fi
+  [ -n "$WANT" ] || WANT=$up
+  [ -n "$WANT" ] || die "nothing is up and no model is marked default; pick one with --llm (see: aether-code models)"
+fi
+LINE="$(awk -F'\t' -v m="$WANT" '$1 == m' <<<"$REG")"
+[ -n "$LINE" ] || die "no model named '$WANT'; see: aether-code models"
+IFS=$'\t' read -r NAME DEPLOY SVC_PORT SERVED CTX _ _ _ SELECTOR _ <<<"$LINE"
+[ "$SERVED" = - ] && SERVED=
+[ "$CTX" = - ] && CTX=
+
+renew_pid="" pf_pid=""
+cleanup() {
+  for pid in $renew_pid $pf_pid; do
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+  done
+  k delete lease "$LEASE" --ignore-not-found >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+# Hold first, so the reaper cannot take the model between our scale and our first request.
+k apply -f - >/dev/null <<EOF
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: $LEASE
+  labels:
+    almagest.llm/hold: "true"
+    almagest.llm/model: "$NAME"
+spec:
+  holderIdentity: $LEASE
+  leaseDurationSeconds: $LEASE_SECONDS
+  renewTime: $(now)
+EOF
+# Each loop runs its child in the background and `wait`s, because a signal
+# interrupts `wait` at once but waits out a foreground child - and the
+# port-forward child never exits on its own.
+( child=""
+  trap 'kill $child 2>/dev/null; exit 0' TERM
+  while :; do
+    sleep 60 & child=$!; wait $child
+    k patch lease "$LEASE" --type merge -p "{\"spec\":{\"renewTime\":\"$(now)\"}}" >/dev/null 2>&1 || true
+  done ) &
+renew_pid=$!
+
+# Hand the card over: every other model that is up goes to zero, unless held.
+# Refuse before changing anything, then queue ours *before* releasing theirs: a
+# freed GPU goes to whichever pending pod the scheduler sees first, and other
+# namespaces' jobs wait on this card too. Releasing first lost it to one.
+holds="$(live_holds | grep -v "^$LEASE " || true)"
+release=()
+while IFS=$'\t' read -r oname odeploy _ _ _ _ orep _; do
+  [ "$oname" = "$NAME" ] && continue
+  (( orep > 0 )) || continue
+  # A hold without a model label predates the registry and can only mean the 27B.
+  if awk -v m="$oname" -v d="$odeploy" '$2 == m || ($2 == "-" && d == "almagest-llm-27b")' <<<"$holds" | grep -q .; then
+    die "$oname has the GPU and is in use ($(awk -v m="$oname" '$2 == m || $2 == "-" {print $1}' <<<"$holds" | paste -sd' ')). Wait for it, or use it: --llm $oname"
+  fi
+  release+=("$oname:$odeploy")
+done <<<"$REG"
+
+if [ "$(k get deploy "$DEPLOY" -o jsonpath='{.spec.replicas}')" = "0" ]; then
+  say "starting $NAME ($DEPLOY); a first start downloads the weights, later ones take minutes"
+  k scale "deploy/$DEPLOY" --replicas=1 >/dev/null
+fi
+for r in "${release[@]}"; do
+  say "${r%%:*} has the GPU and nobody holds it; scaling it to 0 for $NAME"
+  k scale "deploy/${r#*:}" --replicas=0 >/dev/null
+done
+
+start=$SECONDS
+until [ "$(k get deploy "$DEPLOY" -o jsonpath='{.status.readyReplicas}')" = "1" ]; do
+  (( SECONDS - start < 3600 )) || die "$DEPLOY not ready after an hour; see: kubectl --context $KCTX -n $NS describe deploy/$DEPLOY"
+  restarts="$(k get pods -l "$SELECTOR" -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null)"
+  # One restart can be normal: a vLLM first start that compiles in-process may
+  # leave too little KV memory, and the restart reuses the compile cache in /tmp.
+  [[ $restarts =~ ^[0-9]+$ ]] || restarts=0
+  if (( restarts > 1 )); then
+    k logs -l "$SELECTOR" --previous --tail=200 2>/dev/null | grep -E 'Error|ValueError' | tail -2 >&2
+    die "$NAME crashed on startup. Hand the GPU back with: aether-code release"
+  fi
+  why="$(k get pods -l "$SELECTOR" \
+    -o jsonpath='{.items[0].status.phase} {.items[0].status.conditions[?(@.type=="PodScheduled")].message}' 2>/dev/null)"
+  case "$why" in
+    *Insufficient*gpu*)
+      # This namespace can see only its own pods; anything else is outside it.
+      gpu_pods="$(k get pods --field-selector=status.phase=Running -o json 2>/dev/null | python3 -I -c '
+import json, sys
+print(" ".join(p["metadata"]["name"] for p in json.load(sys.stdin)["items"]
+               if any("nvidia.com/gpu" in (c.get("resources", {}).get("limits") or {}) for c in p["spec"]["containers"])))' 2>/dev/null)"
+      say "waiting: no GPU free - held in ili by: ${gpu_pods:-nothing (so outside ili, which this account cannot see)}$(case "$why" in *Insufficient\ cpu*) echo '; CPU requests are short too' ;; esac) - $(( (SECONDS - start) / 60 ))m" ;;
+    *) say "waiting for $NAME: ${why:-pending} - $(( (SECONDS - start) / 60 ))m" ;;
+  esac
+  sleep 15
+done
+
+# Supervised: a bare port-forward dies on every pod restart.
+( child=""
+  trap 'kill $child 2>/dev/null; exit 0' TERM
+  while :; do
+    kubectl --context "$KCTX" -n "$NS" port-forward --address 127.0.0.1 "svc/$DEPLOY" "$PORT:$SVC_PORT" >/dev/null 2>&1 &
+    child=$!
+    wait $child
+    sleep 1
+  done ) &
+pf_pid=$!
+
+models=""
+for _ in $(seq 30); do
+  models="$(curl -sf --max-time 3 "http://127.0.0.1:$PORT/v1/models")" && break
+  sleep 1
+done
+[ -n "$models" ] || die "port-forward to $DEPLOY never answered on 127.0.0.1:$PORT"
+
+# The served id and window come from the server where it says; annotations fill the gaps.
+read -r MODEL WINDOW < <(python3 -I -c '
+import json, sys
+served, ctx = sys.argv[1], sys.argv[2]
+data = json.load(sys.stdin)["data"]
+m = next((d for d in data if d["id"] == served), None) if served else data[0]
+if m is None:
+    ids = ", ".join(d["id"] for d in data)
+    sys.exit(f"{served} is not served; the server has: {ids}")
+print(m["id"], m.get("max_model_len") or ctx or 16384)' "$SERVED" "$CTX" <<<"$models")
+[ -n "${MODEL:-}" ] || die "could not settle on a model id from $DEPLOY's /v1/models"
+
+# Qwen's thinking is part of the reply, so 4k ran out mid-answer; a quarter of
+# the window still leaves three quarters for the conversation.
+OUT=$(( WINDOW / 4 < 16384 ? WINDOW / 4 : 16384 ))
+say "$NAME: model $MODEL, ${WINDOW}-token window, ${OUT}-token replies, holding lease $LEASE"
+
+if [ "$CLIENT" = opencode ]; then
+  # Inline config, so nothing is written to ~/.config/opencode and a plain
+  # `opencode` keeps whatever setup it already has.
+  OPENCODE_CONFIG_CONTENT="$(python3 -I - "$PORT" "$MODEL" "$WINDOW" "$OUT" "$NAME" <<'PY'
+import json, sys
+port, model, window, out, name = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+print(json.dumps({
+    "$schema": "https://opencode.ai/config.json",
+    "model": f"aether/{model}",
+    "small_model": f"aether/{model}",
+    "share": "disabled",
+    "autoupdate": False,
+    "provider": {"aether": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "aether",
+        "options": {"baseURL": f"http://127.0.0.1:{port}/v1", "apiKey": "aether"},
+        "models": {model: {
+            "name": f"{name} on aether",
+            "tool_call": True,
+            "reasoning": True,
+            "limit": {"context": window, "output": out},
+        }},
+    }},
+}))
+PY
+)"
+  export OPENCODE_CONFIG_CONTENT
+  export OPENCODE_DISABLE_AUTOUPDATE=1 OPENCODE_DISABLE_MODELS_FETCH=1
+  opencode "$@"
+  exit
+fi
+
+export ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT"
+export ANTHROPIC_AUTH_TOKEN=aether
+unset ANTHROPIC_API_KEY
+export ANTHROPIC_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="$MODEL"
+export ANTHROPIC_SMALL_FAST_MODEL="$MODEL"
+export CLAUDE_CODE_SUBAGENT_MODEL="$MODEL"
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$WINDOW"
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS="$OUT"
+
+# Full Claude Code costs ~35k tokens before the first message (20 tool schemas
+# alone are ~12k, almagest's CLAUDE.md files ~17k), so it only pays off once the
+# window is big enough to leave real working room after it.
+lean=()
+if (( WINDOW < 98304 )) && [ -z "${AETHER_CODE_FULL:-}" ]; then
+  export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1
+  export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+  export CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1
+  lean=(--strict-mcp-config --disable-slash-commands --tools "Bash,Read,Edit,Write,Glob,Grep")
+fi
+
+claude --model "$MODEL" "${lean[@]}" "$@"
